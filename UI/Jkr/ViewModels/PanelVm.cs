@@ -153,6 +153,9 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// <summary>BIM010 section-and-cell summary of the last scan (fill_audit rows
         /// + backend checks). Read by the Results view and the Borang export.</summary>
         public BinaVibe.Mcp.Tools.Audit.Bim010Summary Summary { get; set; }
+
+        /// <summary>The last run measured against the JKR Model Audit spec (Checklist tab).</summary>
+        public RevitWebAppSync.UI.Jkr.Panel.Core.SpecReport Spec { get; set; }
         // Counts and % cover AI-verified items only; items that need a person
         // (cannot_verify) are never a failure and never in the % — they are
         // counted in the Manual tab (JkrIssueCounts).

@@ -64,6 +64,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public long RevitElementId { get; set; }
         public string Required { get; set; } = "";
         public string Actual { get; set; } = "";
+        /// <summary>English of <see cref="Actual"/> for the add-in's own spec results ("" = same).</summary>
+        public string ActualEn { get; set; } = "";
         public string Example { get; set; } = "";
         private bool _autoFixable;
         public bool AutoFixable
@@ -184,10 +186,12 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
 
         /// <summary>Fix all can ask the backend AI fixer (/jkr-autofix) for this issue:
         /// AI-judged, no ready-made fix, a real element and a backend check id. Not the
-        /// local BIM010 rows or test-fixture issues, which the backend doesn't know.</summary>
+        /// local BIM010 rows, the add-in's own spec checks ("SPEC-") or test-fixture
+        /// issues, which the backend doesn't know.</summary>
         public bool AiFixCandidate =>
             !NeedsPerson && !AutoFixable && RevitElementId > 0 && !string.IsNullOrEmpty(CheckId)
             && !CheckId.StartsWith("BIM010-", System.StringComparison.Ordinal)
+            && !CheckId.StartsWith("SPEC-", System.StringComparison.Ordinal)
             && !CheckId.StartsWith("FIXTURE-", System.StringComparison.Ordinal);
 
         /// <summary>True when this issue targets a real Revit element (element_id > 0).

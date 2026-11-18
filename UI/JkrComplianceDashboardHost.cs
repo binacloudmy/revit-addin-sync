@@ -34,9 +34,9 @@ namespace RevitWebAppSync.UI
                 // Results screen (step 10): a view over the panel's state; its actions
                 // go back to the panel, which owns confirms, writes and the audit file.
                 var results = _shell.Results;
-                _panel.StateChanged += () => results.Load(_panel.CurrentIssues, _panel.CurrentSummary);
+                _panel.StateChanged += () => results.Load(_panel.CurrentIssues, _panel.CurrentSummary, _panel.CurrentSpecReport);
                 // BM / EN: re-read the issues so fix errors and element words switch too.
-                Jkr.Panel.Core.PaneLanguage.Changed += () => results.Load(_panel.CurrentIssues, _panel.CurrentSummary);
+                Jkr.Panel.Core.PaneLanguage.Changed += () => results.Load(_panel.CurrentIssues, _panel.CurrentSummary, _panel.CurrentSpecReport);
                 _panel.BusyChanged += label => results.BusyText = label;
                 _panel.ToastChanged += (message, canUndo) => _shell.ShowToast(message, canUndo);
                 _shell.UndoRequested += () => _panel.UndoLastDecision();
@@ -50,6 +50,9 @@ namespace RevitWebAppSync.UI
                 detail.SourceRequested += id => _panel.OpenIssueSource(id);
                 results.FixRequested += ids => _ = _panel.FixIssuesAsync(ids);
                 results.FixAllRequested += section => _ = _panel.FixAllAsync(section, openOnly: true);
+                // A spec check's "Fix n" on the Checklist: Fix all limited to its issues
+                // (same confirm, same AI fixer reusing the last scan request).
+                results.FixCheckRequested += ids => _ = _panel.FixAllAsync(null, openOnly: true, onlyIds: ids);
                 results.IgnoreRequested += ids => _panel.IgnoreIssues(ids);
                 results.RescanRequested += (lod, disc) => _panel.RunFromStart(lod, disc);
                 results.ResetRequested += () => _panel.ResetToStart();

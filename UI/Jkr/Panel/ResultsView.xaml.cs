@@ -24,7 +24,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel
 
         // ── clicks ──
         private void Rescan_Click(object s, RoutedEventArgs e) => _model.Rescan();
-        private void GoManual_Click(object s, RoutedEventArgs e) => _model.GoManual();
+        // "n need a person": the Checklist filtered to those checks (with a spec report), else the Manual tab.
+        private void GoManual_Click(object s, RoutedEventArgs e) => _model.GoNeedsPerson();
         private void Section_Click(object s, RoutedEventArgs e) => _model.SelectSection((string)((FrameworkElement)s).Tag);
         private void IgnoreAll_Click(object s, RoutedEventArgs e) => _model.IgnoreAll();
         private void FixAll_Click(object s, RoutedEventArgs e) => _model.FixAll();
@@ -36,13 +37,23 @@ namespace RevitWebAppSync.UI.Jkr.Panel
         private void Reset_Click(object s, RoutedEventArgs e) => _model.Reset();
         private void Export_Click(object s, RoutedEventArgs e) => _model.Export();
 
-        // ── search box (.srch:focus-within: ink border + yellow halo) ──
+        // Checklist (JKR Model Audit spec view)
+        private void Checklist_Click(object s, RoutedEventArgs e) => _model.ShowChecklistTab();
+        private void ChecklistSection_Click(object s, RoutedEventArgs e) => _model.ToggleSection((string)((FrameworkElement)s).Tag);
+        private void ChecklistElement_Click(object s, RoutedEventArgs e) => _model.OpenElement((string)((FrameworkElement)s).Tag);
+        private void ChecklistMore_Click(object s, RoutedEventArgs e) => _model.ToggleShowAll((string)((FrameworkElement)s).Tag);
+        private void ChecklistFix_Click(object s, RoutedEventArgs e) => _model.FixCheck((string)((FrameworkElement)s).Tag);
+        private void StateChip_Click(object s, RoutedEventArgs e) => _model.SetStateFilter((string)((FrameworkElement)s).Tag);
+        private void CheckWhy_Click(object s, RoutedEventArgs e) => _model.ToggleWhy((string)((FrameworkElement)s).Tag);
+
+        // ── search box focus: accent border + soft accent halo (Copilot focus ring) ──
         private void Search_Focus(object s, KeyboardFocusChangedEventArgs e)
         {
-            SearchBox.BorderBrush = (Brush)FindResource("Bz.Ink");
+            SearchBox.BorderBrush = (Brush)FindResource("Bz.Brand");
+            var accent = ((SolidColorBrush)FindResource("Bz.Brand")).Color;
             SearchBox.Effect = new System.Windows.Media.Effects.DropShadowEffect
             {
-                Color = Color.FromRgb(0xF2, 0xC2, 0x00), BlurRadius = 8, ShadowDepth = 0, Opacity = 0.9,
+                Color = accent, BlurRadius = 8, ShadowDepth = 0, Opacity = 0.35,
             };
         }
 

@@ -30,6 +30,13 @@ namespace Tests
             "UI/CadToBim/CadToBimTokens.xaml", "UI/CadToBim/CadToBimStyles.xaml",
         };
 
+        // The JKR pane's views merge PanelTokens (which nests CopilotTokens) into their
+        // own resources — visible from any UI/Jkr XAML that merges it.
+        private static readonly string[] JkrScope =
+        {
+            "UI/Jkr/Panel/PanelTokens.xaml",
+        };
+
         private static readonly Regex StaticRef = new Regex(@"\{StaticResource\s+([A-Za-z0-9_.]+)\s*\}", RegexOptions.Compiled);
         private static readonly Regex KeyDef = new Regex(@"x:Key=""([A-Za-z0-9_.]+)""", RegexOptions.Compiled);
 
@@ -50,6 +57,13 @@ namespace Tests
         [InlineData("UI/CadToBim/CadToBimPanel.xaml")]
         [InlineData("UI/CadToBim/CadToBimStyles.xaml")]
         [InlineData("UI/CadToBim/CadToBimSettingsWindow.xaml")]
+        [InlineData("UI/Jkr/Panel/JkrPaneShell.xaml")]
+        [InlineData("UI/Jkr/Panel/StartView.xaml")]
+        [InlineData("UI/Jkr/Panel/RunView.xaml")]
+        [InlineData("UI/Jkr/Panel/ResultsView.xaml")]
+        [InlineData("UI/Jkr/Panel/DetailWindow.xaml")]
+        [InlineData("UI/Jkr/Modals/JkrConfirmWindow.xaml")]
+        [InlineData("UI/Jkr/Modals/FixResultWindow.xaml")]
         public void Every_StaticResource_is_defined_in_its_own_scope_or_app_scope(string rel)
         {
             var root = RepoRoot();
@@ -58,6 +72,8 @@ namespace Tests
             foreach (var d in AppScope) visible.UnionWith(KeysIn(Path.Combine(root, d)));
             if (rel.StartsWith("UI/CadToBim/"))
                 foreach (var d in CadToBimScope) visible.UnionWith(KeysIn(Path.Combine(root, d)));
+            if (rel.StartsWith("UI/Jkr/") && File.ReadAllText(path).Contains("PanelTokens.xaml"))
+                foreach (var d in JkrScope) visible.UnionWith(KeysIn(Path.Combine(root, d)));
             // Theme-generated brushes (CopilotTheme.NewThemeDictionary writes rd["Cp.*"]
             // at runtime) are DynamicResource by convention; a StaticResource to one
             // is also a load-time failure, so they are deliberately NOT whitelisted.

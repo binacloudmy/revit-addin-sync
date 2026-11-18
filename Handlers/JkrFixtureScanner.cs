@@ -26,7 +26,50 @@ namespace RevitWebAppSync.Handlers
         public static ModelCheckResponse Scan(Document doc, JkrFixture fixture)
         {
             var findings = JkrFixtureFile.Evaluate(fixture, i => Read(doc, i));
-            return new ModelCheckResponse { ElementIssues = findings.Select(ToDto).ToList() };
+            // A link-version entry's reason is read from the model now, not the text saved
+            // when the fixture was generated (older fixtures say "Links are loaded" unread).
+            string linkReason = null;
+            return new ModelCheckResponse
+            {
+                ElementIssues = findings.Select(f => ToDto(f,
+                    f.Issue.IsCannotVerify && IsLinkVersion(f.Issue) ? linkReason ?? (linkReason = LinkVersionReason(doc)) : null)).ToList(),
+            };
+        }
+
+        /// <summary>A fixture entry about whether linked files are the latest version.</summary>
+        private static bool IsLinkVersion(JkrFixtureIssue i) =>
+            (i.Title ?? "").IndexOf("link", StringComparison.OrdinalIgnoreCase) >= 0
+            && (i.Title ?? "").IndexOf("version", StringComparison.OrdinalIgnoreCase) >= 0;
+
+        /// <summary>
+        /// What the add-in can say about the links' versions: how many links are loaded
+        /// (read from each link instance), and that the version cannot be confirmed
+        /// (no CDE access). Never "Links are loaded" without reading them.
+        /// </summary>
+        private static string LinkVersionReason(Document doc)
+        {
+            List<RevitLinkInstance> links;
+            try
+            {
+                links = new FilteredElementCollector(doc).OfClass(typeof(RevitLinkInstance)).Cast<RevitLinkInstance>().ToList();
+            }
+            catch
+            {
+                links = new List<RevitLinkInstance>();
+            }
+            const string tail = "Version status cannot be confirmed: no CDE access. Check for the latest version of each linked file manually.";
+            if (links.Count == 0) return "No linked files found. " + tail;
+            var loaded = links.Count(IsLoaded);
+            var status = loaded == links.Count
+                ? (links.Count == 1 ? "1 link, loaded." : $"{links.Count} links, all loaded.")
+                : $"{loaded} of {links.Count} links loaded.";
+            return status + " " + tail;
+        }
+
+        private static bool IsLoaded(RevitLinkInstance link)
+        {
+            try { return link.GetLinkDocument() != null; }
+            catch { return false; }
         }
 
         /// <summary>The live value an entry checks: the type's (or Level/Grid's) name
@@ -73,7 +116,7 @@ namespace RevitWebAppSync.Handlers
             return p.AsValueString() ?? p.AsString() ?? "";
         }
 
-        private static ComplianceIssueDto ToDto(JkrFixtureFinding f)
+        private static ComplianceIssueDto ToDto(JkrFixtureFinding f, string reasonNow)
         {
             var i = f.Issue;
             if (i.IsCannotVerify)
@@ -89,7 +132,7 @@ namespace RevitWebAppSync.Handlers
                     Status = "cannot_verify",
                     RevitCategory = i.RevitCategory ?? "",
                     Rule = i.Title,
-                    Reason = i.Reason ?? "",
+                    Reason = reasonNow ?? i.Reason ?? "",
                     RequiredValue = i.Expected ?? "",
                     Locatable = i.ElementId > 0,
                     FixReference = "Test fixture " + i.Id,
@@ -320,14 +363,14 @@ namespace RevitWebAppSync.Handlers
 
             // 6. Items the AI cannot judge (cannot_verify → needs a person; never a
             //    failure, never in the %). Listed on every scan, with no fix.
+            //    The link version is a C5.1.3 matter (a person decides), whatever the
+            //    category: SpecReport.MapBackend sends link-version results there.
             var link = new FilteredElementCollector(doc).OfClass(typeof(RevitLinkInstance)).FirstElement();
             issues.Add(new JkrFixtureIssue
             {
                 Id = NextId(), Status = "cannot_verify", Category = "Project Information",
                 Title = "Link files are latest version",
-                Reason = link != null
-                    ? "Links are loaded. Version status cannot be confirmed: no CDE access. Check for the latest version manually."
-                    : "No CDE access. Check for the latest version of each linked file manually.",
+                Reason = LinkVersionReason(doc),
                 RevitCategory = link != null ? "RVT Links" : "Project", ElementName = link?.Name ?? "Project",
                 ElementId = link != null ? Id(link.Id) : 0,
                 Expected = "Latest version",

@@ -72,7 +72,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
     {
         private static readonly Dictionary<string, string> SevColor = new Dictionary<string, string>
         {
-            ["High"] = "#C23B3B", ["Med"] = "#EA580C", ["Low"] = "#6B7079",
+            // Cp.Jkr.Dark.FailDot / WarnDot / ListedDot (UI/Copilot/CopilotTokens.xaml):
+            // the pane is always dark (Direction C).
+            ["High"] = "#ff6b5e", ["Med"] = "#f5b942", ["Low"] = "#8a94a6",
         };
 
         private readonly PanelCore _core;
@@ -80,17 +82,47 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         private Bim010Summary _summary;
         private string _busy;
 
+        // The run measured against the JKR Model Audit spec (61 checks), shown on
+        // the Checklist tab. Null in runs without one (tests that load items only).
+        private SpecReport _spec;
+        // Checklist tab (the spec view) vs the issue tabs. The Checklist is shown first:
+        // it answers "does the model comply?"; the issue tabs are the fix queue.
+        private bool _checklist = true;
+        private readonly Dictionary<string, bool> _sectionOpen = new Dictionary<string, bool>();
+        private readonly HashSet<string> _showAll = new HashSet<string>();
+        // Checks whose spec criterion ("Why?") the user opened or closed; the default is open when it fails.
+        private readonly Dictionary<string, bool> _why = new Dictionary<string, bool>();
+        // The Checklist's state filter (a tone, or SpecChecklist.AllStates). Kept across reloads.
+        private string _stateFilter = SpecChecklist.AllStates;
+        // The loaded issues by id, and the language their load-time text is in: a BM / EN
+        // switch puts that text (element words, fix-failure reasons) in the new language.
+        private Dictionary<string, IssueVm> _issues = new Dictionary<string, IssueVm>(StringComparer.Ordinal);
+        private string _itemsLang;
+
         public ResultsScreenModel(PanelCore core, StartScreenModel start)
         {
             _core = core ?? throw new ArgumentNullException(nameof(core));
             _start = start ?? throw new ArgumentNullException(nameof(start));
-            _core.Changed += RaiseAll;
+            _core.Changed += OnCoreChanged;
+        }
+
+        private void OnCoreChanged()
+        {
+            if (_itemsLang != null && _itemsLang != _core.Lang)
+            {
+                _itemsLang = _core.Lang;
+                ResultsAdapter.Relabel(_core.Issues, _issues, _core.Lang);
+            }
+            RaiseAll();
         }
 
         public event PropertyChangedEventHandler PropertyChanged;
         public event Action<string> OpenRequested;
         public event Action<List<string>> FixRequested;
         public event Action<List<string>> IgnoreRequested;
+        /// <summary>Fix the issues behind one spec check: ready-made fixes plus whatever
+        /// the backend AI fixer proposes; the host confirms and writes.</summary>
+        public event Action<List<string>> FixCheckRequested;
         /// <summary>Fix all in a section (null = all sections): ready-made fixes plus
         /// whatever the backend AI fixer proposes; the host confirms and writes.</summary>
         public event Action<string> FixAllRequested;
@@ -105,10 +137,19 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
 
         // ── data ──
         /// <summary>New results or a status change: reload the items, keep the view.</summary>
-        public void Load(IEnumerable<IssueVm> issues, Bim010Summary summary)
+        public void Load(IEnumerable<IssueVm> issues, Bim010Summary summary, SpecReport spec = null)
         {
             _summary = summary;
-            var items = (issues ?? Enumerable.Empty<IssueVm>()).Where(i => i != null).Select(i => ResultsAdapter.FromIssue(i, _core.Lang)).ToList();
+            if (!ReferenceEquals(_spec, spec)) { _sectionOpen.Clear(); _showAll.Clear(); _why.Clear(); }
+            _spec = spec;
+            // The run's BM / EN remarks, so the spec evaluators' issues follow the language switch.
+            var notes = spec != null ? ResultsAdapter.NoteTexts(spec) : null;
+            var list = (issues ?? Enumerable.Empty<IssueVm>()).Where(i => i != null).ToList();
+            var byId = new Dictionary<string, IssueVm>(StringComparer.Ordinal);
+            foreach (var i in list) if (!string.IsNullOrEmpty(i.Id) && !byId.ContainsKey(i.Id)) byId[i.Id] = i;
+            _issues = byId;
+            _itemsLang = _core.Lang;
+            var items = list.Select(i => ResultsAdapter.FromIssue(i, _core.Lang, notes)).ToList();
             _core.Replace(items, ResultsAdapter.BasePass(summary, items));
         }
 
@@ -147,22 +188,27 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public string LodChangedText => T("lodChanged");
 
         // ── headline ──
-        // The AI-verified % is one number (rule 1): the run's BIM010 cells, the same as
-        // the Running screen and the Borang. The items list can hold more or fewer
-        // entries than failing cells (several issues on one row, decisions carried over
-        // from the audit file), so counting items gave a different %. Without a summary
-        // (tests, fixture-less runs) the items stand in for cells, as in the prototype.
-        private int? HeadPct => _summary != null ? _summary.Pct : _core.HeadPct;
+        // Two numbers (DESIGN-BRIEF R2). With a spec report they are the spec's, the
+        // same numbers the verdict and the Checklist show: % = AI-verifiable spec
+        // results passed / (passed + failed), per result ("Kiraan %": human-decides
+        // cells never in it), and the checks a person decides. Without one (tests,
+        // runs from before the spec), the run's BIM010 cells, the same as the Running
+        // screen and the Borang; without a summary either, the items stand in for
+        // cells, as in the prototype.
+        private int? HeadPct => _spec != null ? SpecChecklist.Pct(_spec) : _summary != null ? _summary.Pct : _core.HeadPct;
         private int AiPass => _summary != null ? _summary.Pass : _core.AiPass;
         private int AiTotal => _summary != null ? _summary.AiTotal : _core.AiTotal;
         private int? SectionPct(string s, Dictionary<string, SectionStats> st) =>
-            _summary != null ? _summary.Section(s)?.Pct : st[s].Pct;
+            _spec != null ? SpecChecklist.Pct(_spec, s) : _summary != null ? _summary.Section(s)?.Pct : st[s].Pct;
+        private int SectionPend(string s, Dictionary<string, SectionStats> st) =>
+            _spec != null ? SpecChecklist.NeedsPerson(_spec, s) : st[s].Pend;
 
         public string HeadPctLabel => HeadPct.HasValue ? HeadPct.Value + "%" : "—";
         public string CompliantLabel => T("compliant");
-        public string HeadCellsLabel => AiPass + " / " + AiTotal + " " + T("checksAI");
-        public int PendTotal => _core.PendTotal;
-        public string NeedPersonLabel => T("needPerson");
+        public string HeadCellsLabel => _spec != null ? SpecChecklist.ResultsLabel(_spec, _core.Lang) : AiPass + " / " + AiTotal + " " + T("checksAI");
+        /// <summary>Spec checks a person decides (with a spec report), else BIM010 cells pending a person.</summary>
+        public int PendTotal => _spec != null ? SpecChecklist.NeedsPerson(_spec) : _core.PendTotal;
+        public string NeedPersonLabel => _spec != null ? SpecChecklist.NeedPersonLabel(_spec, _core.Lang) : T("needPerson");
 
         public IReadOnlyList<SectionTile> Sections
         {
@@ -172,21 +218,23 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 return PanelCore.Secs.Select(s =>
                 {
                     var pct = SectionPct(s, st);
+                    var pend = SectionPend(s, st);
                     return new SectionTile
                     {
                         Key = s,
                         PctLabel = pct.HasValue ? pct.Value + "%" : "—",
                         Fraction = (pct ?? 0) / 100.0,
-                        PendLabel = st[s].Pend > 0 ? "+" + st[s].Pend : "",
+                        PendLabel = pend > 0 ? "+" + pend : "",
                         IsOn = _core.Cat == s,
                         Aria = s + " · " + SectionName(s) + " · " + (pct.HasValue ? pct + "%" : "—")
-                               + (st[s].Pend > 0 ? " · " + st[s].Pend + " " + T("manualShort") : ""),
+                               + (pend > 0 ? " · " + pend + " " + T("manualShort") : ""),
                     };
                 }).ToList();
             }
         }
 
-        // ── progress ──
+        // ── progress (shown with the issue tabs: it counts issues, not spec checks) ──
+        public bool ShowTriage => ShowList;
         public int ResolvedN => _core.ResolvedN;
         public string ProgressRest => " " + T("of") + " " + _core.FixTotal + " " + T("resolved") + " · " + _core.ToGo + " " + T("toGo");
         public double ProgFraction => _core.ProgN / 100.0;
@@ -233,7 +281,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 return new[]
                 {
                     (PanelTab.Open, "tOpen"), (PanelTab.Ignore, "tIgnore"), (PanelTab.Resolved, "tResolved"), (PanelTab.Manual, "tManual"),
-                }.Select(t => new TabChip { Tab = t.Item1, Label = T(t.Item2), N = n[t.Item1], IsOn = _core.Tab == t.Item1 }).ToList();
+                }.Select(t => new TabChip { Tab = t.Item1, Label = T(t.Item2), N = n[t.Item1], IsOn = !ShowChecklist && _core.Tab == t.Item1 }).ToList();
             }
         }
 
@@ -283,13 +331,143 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             };
         }
 
-        public bool IsManualTab => _core.Tab == PanelTab.Manual;
+        public bool IsManualTab => ShowList && _core.Tab == PanelTab.Manual;
         public string ManualIntro => T("manualIntro");
-        public bool ListEmpty => _core.Filtered().Count == 0;
+        public bool ListEmpty => ShowList && _core.Filtered().Count == 0;
         public string EmptyTitle => T("empty");
         public string EmptyHint => T(_core.EmptyHintKey);
         public bool HasQ => (_core.Q ?? "").Trim().Length > 0;
         public string ClearSearchLabel => T("clearSearch");
+
+        // ── spec verdict + Checklist ──
+        public bool HasSpec => _spec != null;
+        /// <summary>The Checklist tab is shown (only when the run has a spec report).</summary>
+        public bool ShowChecklist => _checklist && _spec != null;
+        public bool ShowList => !ShowChecklist;
+        public string ChecklistTabLabel => SpecChecklist.Str("tab", _core.Lang);
+        public string ChecklistIntro => SpecChecklist.Str("intro", _core.Lang);
+        /// <summary>"Does not comply — 5 spec checks fail" / "No failures in the checks covered".</summary>
+        public string VerdictTitle => SpecChecklist.VerdictTitle(_spec, _core.Lang);
+        /// <summary>fail | pass | none.</summary>
+        public string VerdictTone => SpecChecklist.VerdictTone(_spec);
+        public string VerdictText => SpecChecklist.VerdictText(_spec, _core.Lang);
+        public SpecReport Spec => _spec;
+
+        /// <summary>Section → Borang item → spec check, filtered by the section tile and the state chip.</summary>
+        public IReadOnlyList<ChecklistSection> Checklist =>
+            SpecChecklist.Build(_spec, _core.Issues, _core.Lang, _core.Cat,
+                key => _sectionOpen.TryGetValue(key, out var o) ? o : (bool?)null,
+                id => _showAll.Contains(id),
+                _stateFilter,
+                id => _why.TryGetValue(id, out var w) ? w : (bool?)null);
+
+        /// <summary>The legend: every state with its count of spec checks; click filters the Checklist.</summary>
+        public IReadOnlyList<StateChip> StateChips => SpecChecklist.StateChips(_spec, _core.Lang, _stateFilter);
+        public string StateFilter => _stateFilter;
+        public bool IsStateFiltered => _stateFilter != SpecChecklist.AllStates;
+
+        /// <summary>Show only the checks in one state (a tone). "all", or the state already
+        /// on, shows every check. Sections re-open by the default for the new filter.</summary>
+        public void SetStateFilter(string key)
+        {
+            if (_spec == null) return;
+            var next = string.IsNullOrEmpty(key) || key == _stateFilter ? SpecChecklist.AllStates : key;
+            if (next != SpecChecklist.AllStates && !SpecChecklist.StateKeys.Contains(next)) return;
+            _stateFilter = next;
+            _sectionOpen.Clear();
+            _checklist = true;
+            RaiseAll();
+        }
+
+        /// <summary>The filter leaves no check (in the section shown).</summary>
+        public bool ChecklistEmpty => ShowChecklist && IsStateFiltered && Checklist.Count == 0;
+        public string ChecklistEmptyText => SpecChecklist.Str("filterEmpty", _core.Lang);
+        /// <summary>"4 other JKR rules (not in the spec) also fail — see below."</summary>
+        public string OthersNote => SpecChecklist.OthersNote(_spec, _core.Lang);
+        public bool HasOthersNote => ShowChecklist && !IsStateFiltered && !string.IsNullOrEmpty(OthersNote);
+
+        /// <summary>The backend check failed: checks that depend on it are not checked (banner).</summary>
+        public bool ShowBackendBanner => _spec != null && _spec.BackendUnavailable;
+        public string BackendBannerText => SpecChecklist.BackendBanner(_core.Lang);
+        public string BackendErrorText => _spec?.BackendError ?? "";
+
+        /// <summary>Show or hide a check's spec criterion and what was tested.</summary>
+        public void ToggleWhy(string checkId)
+        {
+            var r = _spec?.For(checkId);
+            if (r == null) return;
+            var open = _why.TryGetValue(checkId, out var w) ? w : r.State == SpecState.Fail;
+            _why[checkId] = !open;
+            RaiseAll();
+        }
+
+        /// <summary>"n need a person": with a spec report, the Checklist filtered to those
+        /// checks (the number counts them); without one, the Manual tab.</summary>
+        public void GoNeedsPerson()
+        {
+            if (_spec == null) { GoManual(); return; }
+            _stateFilter = "person";
+            _sectionOpen.Clear();
+            _checklist = true;
+            RaiseAll();
+        }
+
+        public void ShowChecklistTab()
+        {
+            if (_spec == null) return;
+            _checklist = true;
+            RaiseAll();
+        }
+
+        /// <summary>Open or close a Checklist section.</summary>
+        public void ToggleSection(string key)
+        {
+            var current = Checklist.FirstOrDefault(c => c.Key == key)?.IsOpen ?? false;
+            _sectionOpen[key] = !current;
+            RaiseAll();
+        }
+
+        /// <summary>Show every element under a check, or the first few again.</summary>
+        public void ToggleShowAll(string checkId)
+        {
+            if (!_showAll.Remove(checkId)) _showAll.Add(checkId);
+            RaiseAll();
+        }
+
+        /// <summary>Open an element's issue from the Checklist. The issue tab behind
+        /// the detail follows the issue's state, so its paging includes it.</summary>
+        public void OpenElement(string id)
+        {
+            var x = _core.Issues.FirstOrDefault(i => i.Id == id);
+            if (x == null) return;
+            var tab = x.IsHuman ? PanelTab.Manual
+                    : x.Status == ItemStatus.Ignored ? PanelTab.Ignore
+                    : x.Status == ItemStatus.Resolved ? PanelTab.Resolved
+                    : PanelTab.Open;
+            if (HasQ) _core.ClearQuery();
+            if (_core.Tab != tab) _core.SetTab(tab);
+            OpenRequested?.Invoke(id);
+        }
+
+        /// <summary>Fix the open issues behind a spec check (its "Fix n").</summary>
+        public void FixCheck(string checkId)
+        {
+            if (!CanAct) return;
+            // Built for the check itself, so a closed section or a state filter does not hide it.
+            var spec = _spec?.For(checkId);
+            var row = spec != null
+                ? SpecChecklist.CheckRow(spec, _spec, ItemsById(), _core.Lang, id => true)
+                : Checklist.SelectMany(s => s.Items).SelectMany(i => i.Checks).FirstOrDefault(c => c.Id == checkId);
+            if (row == null || !row.CanFix) return;
+            FixCheckRequested?.Invoke(row.FixIds.ToList());
+        }
+
+        private Dictionary<string, PanelItem> ItemsById()
+        {
+            var d = new Dictionary<string, PanelItem>();
+            foreach (var i in _core.Issues) if (!string.IsNullOrEmpty(i?.Id) && !d.ContainsKey(i.Id)) d[i.Id] = i;
+            return d;
+        }
 
         // ── footer ──
         public string KeyOpen => T("kOpen");
@@ -305,7 +483,12 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         // ── commands ──
         public void SelectSection(string key) => _core.SetCat(key);
         public void ClearCat() => _core.ClearCat();
-        public void SelectTab(PanelTab tab) => _core.SetTab(tab);
+        public void SelectTab(PanelTab tab)
+        {
+            _checklist = false;
+            _core.SetTab(tab);
+            RaiseAll();
+        }
         public void ClearQuery() => _core.ClearQuery();
         public void GoManual() => _core.GoManual();
 
@@ -366,6 +549,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             if (key == PanelKey.Escape || typing || _core.Stage != PanelStage.Results)
                 return _core.HandleKey(key, typing);
             if (_core.DetailId != null) return KeyOutcome.None;   // the detail window handles its keys
+            // The Checklist has no selection: the list keys act on the issue tabs only.
+            if (ShowChecklist && key != PanelKey.Slash) return KeyOutcome.None;
             var list = _core.Filtered();
             if (key == PanelKey.Slash) return KeyOutcome.FocusSearch;
             if (list.Count == 0) return KeyOutcome.None;

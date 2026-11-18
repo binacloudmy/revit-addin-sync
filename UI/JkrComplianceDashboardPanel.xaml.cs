@@ -103,6 +103,9 @@ namespace RevitWebAppSync.UI
         public IReadOnlyList<IssueVm> CurrentIssues => _vm.Issues.ToList();
         public BinaVibe.Mcp.Tools.Audit.Bim010Summary CurrentSummary => _vm.Summary;
 
+        /// <summary>The last run against the JKR Model Audit spec (null before a run).</summary>
+        public Jkr.Panel.Core.SpecReport CurrentSpecReport => _vm.Spec;
+
         private IssueVm FindIssue(string id) => _vm.Issues.FirstOrDefault(i => i.Id == id);
 
         /// <summary>The issue with this id, or null (read by the detail view).</summary>
@@ -350,6 +353,9 @@ namespace RevitWebAppSync.UI
             /// <summary>fill_audit over the built-in BIM010 rows (no PDF).</summary>
             public List<BinaVibe.Mcp.Tools.Audit.AuditRecord> AuditRecords = new List<BinaVibe.Mcp.Tools.Audit.AuditRecord>();
             public string AuditError;
+            /// <summary>The model as the spec evaluators read it (Services/JkrSpec); null when the read failed.</summary>
+            public RevitWebAppSync.Services.JkrSpec.SpecModel SpecModel;
+            public string SpecModelError;
         }
 
         // ────────────────────────────────────────────────
@@ -588,8 +594,10 @@ namespace RevitWebAppSync.UI
         /// <paramref name="openOnly"/> takes Open issues only, as the prototype's
         /// Fix all (n) does (the old button also retried Ignored / Manual ones).
         /// </summary>
-        public async Task FixAllAsync(string section, bool openOnly)
+        /// <param name="onlyIds">Limit it to these issues (a spec check's "Fix n"); null = no limit.</param>
+        public async Task FixAllAsync(string section, bool openOnly, IReadOnlyCollection<string> onlyIds = null)
         {
+            var only = onlyIds == null ? null : new HashSet<string>(onlyIds);
             if (App.JkrRenameHandler == null || App.JkrRenameEvent == null)
             {
                 TaskDialog.Show(Jkr.Panel.Core.PaneText.DialogTitle, Jkr.Panel.Core.PaneText.AutoFixUnavailable());
@@ -609,7 +617,8 @@ namespace RevitWebAppSync.UI
             bool Retryable(IssueVm i) =>
                 !i.NeedsPerson
                 && (openOnly ? i.IsAiOpen : (i.IsActionable || i.Status == IssueStatus.ManualFixNeeded))
-                && (section == null || i.BorangSection == section);
+                && (section == null || i.BorangSection == section)
+                && (only == null || only.Contains(i.Id));
 
             var fixable = _vm.Issues
                 .Where(i => Retryable(i) && i.AutoFixable && !string.IsNullOrEmpty(i.FixAction)
@@ -697,7 +706,10 @@ namespace RevitWebAppSync.UI
         private async Task<List<IssueVm>> FetchAiFixesAsync(List<IssueVm> candidates)
         {
             var elementIds = new HashSet<long>(candidates.Select(c => c.RevitElementId));
-            var request = new JkrAutoFixRequest
+            // Trimmed to what the backend fixer's prompt reads (Services/JkrAutoFixPayload):
+            // ~48% of the prompt tokens on a typical request; builds a copy, so
+            // _lastScanRequest stays whole for the next fix.
+            var request = JkrAutoFixPayload.Trim(new JkrAutoFixRequest
             {
                 Project = _lastScanRequest.Project,
                 Model = _lastScanRequest.Model,
@@ -716,7 +728,7 @@ namespace RevitWebAppSync.UI
                     ExpectedValue = c.Required,
                     Reason = c.Description,
                 }).ToList(),
-            };
+            });
 
             var response = await _jkrService.RequestAiFixesAsync(request);
             if (!string.IsNullOrEmpty(response?.Error))
@@ -1178,6 +1190,12 @@ namespace RevitWebAppSync.UI
         /// <returns>False when no document is open (nothing was scanned).</returns>
         private async Task<bool> RunScanInner(bool clearAudit = false, bool isRecheck = false, List<IssueVm> preservedAfterFix = null)
         {
+            // The scan's discipline and LOD, read here (not on Revit's thread): the
+            // user's pick, else the model's detected discipline (same rule as below).
+            var scanLod = SelectedLodLevel;
+            var userDiscipline = _disciplineUserSet ? _vm.SelectedDiscipline : null;
+            var disciplineCodes = _vm.Disciplines.Select(d => d.Code).ToList();
+
             // Model read on Revit's thread. The extraction is plain data, so the rest
             // of the scan (HTTP, mapping, rendering) runs here on the pane.
             var snapshot = await Revit.InvokeAsync(app =>
@@ -1200,6 +1218,19 @@ namespace RevitWebAppSync.UI
                 {
                     snap.AuditError = auditEx.Message;
                     System.Diagnostics.Debug.WriteLine($"[BINA BIM010] fill_audit failed: {auditEx}");
+                }
+                // The spec evaluators' snapshot, same job. A failure never blocks the scan.
+                try
+                {
+                    var detected = snap.Extraction?.Discipline;
+                    var disc = userDiscipline
+                               ?? (detected != null && disciplineCodes.Contains(detected) ? detected : disciplineCodes.FirstOrDefault());
+                    snap.SpecModel = RevitWebAppSync.Services.JkrSpec.SpecModelReader.Read(doc, disc, scanLod);
+                }
+                catch (Exception specEx)
+                {
+                    snap.SpecModelError = specEx.Message;
+                    System.Diagnostics.Debug.WriteLine($"[BINA SPEC] model read failed: {specEx}");
                 }
                 return snap;
             });
@@ -1232,6 +1263,21 @@ namespace RevitWebAppSync.UI
             request.Project.Discipline = _vm.SelectedDiscipline;  // scope the scan to the chosen discipline
             _lastScanRequest = request;  // AI Fix reuses this snapshot
 
+            // The add-in's spec evaluators: pure, off Revit's thread, alongside the
+            // backend call. A failure gives no model results, never a pass.
+            var specModel = snapshot.SpecModel;
+            var modelTask = specModel == null
+                ? Task.FromResult(new List<Jkr.Panel.Core.SpecResult>())
+                : Task.Run(() =>
+                {
+                    try { return RevitWebAppSync.Services.JkrSpec.SpecChecks.Run(specModel) ?? new List<Jkr.Panel.Core.SpecResult>(); }
+                    catch (Exception specEx)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[BINA SPEC] evaluators failed: {specEx}");
+                        return new List<Jkr.Panel.Core.SpecResult>();
+                    }
+                });
+
             ModelCheckResponse response;
             if (DevMode.UsesFixture)
             {
@@ -1250,9 +1296,13 @@ namespace RevitWebAppSync.UI
                     ? await _jkrService.RecheckJkrComplianceAsync(request)
                     : await _jkrService.CheckJkrComplianceV2Async(request, skipAi: true);
             }
-            if (!string.IsNullOrEmpty(response?.Error))
+            // The backend failed or timed out (not 401): the run still completes with
+            // the add-in's own results (BIM010 checkers + spec evaluators). Checks only
+            // the backend answers stay "not checked" (SpecReport.BackendError).
+            string backendError = null;
+            if (response == null || !string.IsNullOrEmpty(response.Error))
             {
-                if (response.Error == JkrComplianceService.LoginRequiredMessage)
+                if (response?.Error == JkrComplianceService.LoginRequiredMessage)
                 {
                     // Persistent state, not a dismissable dialog: a TaskDialog here
                     // would leave the empty-state banner behind it showing "All clear"
@@ -1262,10 +1312,9 @@ namespace RevitWebAppSync.UI
                     RenderAll();
                     return true;
                 }
-                _scanError = response.Error;
-                if (!HostShowsScanProgress)
-                    TaskDialog.Show(Jkr.Panel.Core.PaneText.DialogTitle, Jkr.Panel.Core.PaneText.ScanFailed(response.Error));
-                return true;
+                backendError = response?.Error ?? "No response from the JKR check server.";
+                System.Diagnostics.Debug.WriteLine($"[BINA JKR] backend check failed, local results only: {backendError}");
+                response = new ModelCheckResponse();
             }
             SetAuthRequired(false);
 
@@ -1277,10 +1326,28 @@ namespace RevitWebAppSync.UI
             var auditIssues = IssueMapper.FromAuditRecords(snapshot.AuditRecords);
             var knownIds = new HashSet<string>(issues.Select(i => i.Id));
             issues.AddRange(auditIssues.Where(i => knownIds.Add(i.Id)));
-            var unmapped = new List<string>();
-            var cells = BinaVibe.Mcp.Tools.Audit.AuditSummary.CellsFromRecords(snapshot.AuditRecords);
-            cells.AddRange(IssueMapper.ToCells(response, unmapped));
-            _vm.Summary = BinaVibe.Mcp.Tools.Audit.AuditSummary.Build(cells, unmapped);
+            // The spec evaluators' findings join the same way (stable ids, so the
+            // audit-store merge below keeps their Ignore / Reviewed decisions).
+            var modelResults = await modelTask;
+            issues.AddRange(IssueMapper.FromModelResults(modelResults, Jkr.Panel.Core.PaneLanguage.Current)
+                .Where(i => !string.IsNullOrEmpty(i.Id) && knownIds.Add(i.Id)));
+            // The same run against the spec's 61 checks (Checklist tab). Built from
+            // every result — MapAll above drops passes — plus the BIM010 records and
+            // the spec evaluators' results.
+            var specResults = IssueMapper.ToSpecResults(response, snapshot.AuditRecords, modelResults);
+            _vm.Spec = Jkr.Panel.Core.SpecReport.Build(specResults, backendError);
+            // The Borang summary (Running screen %, Borang PDF marks and summary box)
+            // follows the spec report, so all three screens show the Results numbers.
+            // The BIM010-cell summary is only the fallback when there is no spec report.
+            _vm.Summary = Jkr.Panel.Core.SpecBorang.SummaryFor(_vm.Spec, specResults, () =>
+            {
+                var unmapped = new List<string>();
+                var cells = BinaVibe.Mcp.Tools.Audit.AuditSummary.CellsFromRecords(snapshot.AuditRecords);
+                cells.AddRange(IssueMapper.ToCells(response, unmapped));
+                return BinaVibe.Mcp.Tools.Audit.AuditSummary.Build(cells, unmapped);
+            });
+            if (backendError != null)
+                _vm.ShowToast(BackendUnavailableToast(backendError));
             if (DevMode.Unlocked)
                 WriteTestSummary(_vm.Summary, snapshot);
 
@@ -1343,6 +1410,16 @@ namespace RevitWebAppSync.UI
             return true;
         }
 
+        /// <summary>Toast when the backend check failed and the run shows the add-in's own results only.</summary>
+        private static string BackendUnavailableToast(string error)
+        {
+            var why = (error ?? "").Trim();
+            if (why.Length > 120) why = why.Substring(0, 120).TrimEnd() + "…";
+            return Jkr.Panel.Core.PaneLanguage.Pick(
+                "Semakan backend JKR tidak tersedia — hanya semakan add-in ditunjukkan. " + why,
+                "The JKR backend check is unavailable — showing the add-in's own checks only. " + why).Trim();
+        }
+
         /// <summary>TEST ONLY (BINA_DEV_UNLOCK): write the BIM010 summary of the last
         /// scan as JSON next to the fixture (or in %TEMP%), so the section %s, row
         /// marks and unmapped checks can be checked before the Results view exists.</summary>
@@ -1357,6 +1434,7 @@ namespace RevitWebAppSync.UI
                 {
                     model = _vm.Filename,
                     scanned = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
+                    source = summary.SpecBased ? "spec" : "bim010_cells",
                     audit_error = snapshot.AuditError,
                     headline = new { pct = summary.Pct, ai_pass = summary.Pass, ai_total = summary.AiTotal, manual = summary.Pending },
                     sections = summary.Sections.Select(s => new { s.Section, s.Pass, s.Fail, s.Pending, s.Pct }),
@@ -1797,6 +1875,7 @@ namespace RevitWebAppSync.UI
                 JkrAuditStore.Clear(_scannedDocPath);
             }
             _vm.Summary = null;
+            _vm.Spec = null;
             _vm.ReplaceIssues(new List<IssueVm>());
             ResetDone?.Invoke();
             _vm.ShowToast(Jkr.Panel.Core.PaneText.ResetDone());

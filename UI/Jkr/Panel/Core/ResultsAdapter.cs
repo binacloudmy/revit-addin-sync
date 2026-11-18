@@ -15,12 +15,20 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
     {
         /// <param name="lang">Language for the text the add-in writes (fix-failure
         /// reasons, element words); null = the pane's language.</param>
-        public static PanelItem FromIssue(IssueVm i, string lang = null)
+        /// <param name="notes">BM / EN pairs of the run's remarks (<see cref="NoteTexts"/>):
+        /// an issue from the add-in's own spec evaluators, written in one language at scan
+        /// time, shows its text in both. Null = as written.</param>
+        public static PanelItem FromIssue(IssueVm i, string lang = null, IReadOnlyDictionary<string, Text> notes = null)
         {
             if (i == null) throw new ArgumentNullException(nameof(i));
             var human = i.NeedsPerson;
             var actual = !string.IsNullOrEmpty(i.Actual) ? i.Actual : i.FixOldValue ?? "";
             if (actual == "(none)" || actual == "(empty)") actual = "";
+            var spec = IsSpecIssue(i);
+            // The backend sends one language; the same text shows in BM and EN. A spec
+            // evaluator's issue takes its title from the catalog and its text from the
+            // run's BM / EN remarks, so it follows the BM / EN switch.
+            var desc = spec ? Bilingual(i.Description ?? "", notes) : Text.Same(i.Description ?? "");
             return new PanelItem
             {
                 Id = i.Id,
@@ -28,22 +36,110 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 Sec = i.BorangSection ?? "",
                 Sev = i.Priority == IssuePriority.High ? "High" : i.Priority == IssuePriority.Low ? "Low" : "Med",
                 V = human ? Verify.Human : Verify.Ai,
-                // The backend sends one language; the same text shows in BM and EN.
-                Title = Text.Same(i.Title ?? ""),
-                Desc = Text.Same(i.Description ?? ""),
+                Title = (spec ? SpecTitle(i.CheckId) : null) ?? Text.Same(i.Title ?? ""),
+                Desc = desc,
                 El = ElementLabel(i, lang),
                 Req = i.Required ?? "",
-                Act = Text.Same(string.IsNullOrEmpty(actual) ? "—" : actual),
+                Act = string.IsNullOrEmpty(actual) ? Text.Same("—")
+                    : new Text(actual, !string.IsNullOrEmpty(i.ActualEn) && actual == i.Actual ? i.ActualEn : actual),
                 Prop = !human && i.AutoFixable && !string.IsNullOrEmpty(i.FixValue) ? i.FixValue : null,
                 Cite = CiteOf(i),
                 Fix = !human && i.AutoFixable && !string.IsNullOrEmpty(i.FixAction) ? FixKind.Fix : FixKind.None,
                 Hash = i.Id ?? "",
-                Reason = human ? Text.Same(i.Description ?? "") : null,
+                Reason = human ? desc : null,
                 FixError = PaneText.FixReason(i.FixError ?? "", lang),
                 AiFix = i.AiFixCandidate,
                 Status = human ? (i.Reviewed ? ItemStatus.Reviewed : ItemStatus.Open) : StatusOf(i.Status),
                 Passed = i.Status == IssueStatus.Fixed && i.FixVerified,
             };
+        }
+
+        /// <summary>An issue from the add-in's own spec evaluators (CheckId "SPEC-A1.2").</summary>
+        public static bool IsSpecIssue(IssueVm i) =>
+            (i?.CheckId ?? "").StartsWith(SpecModelIssues.CheckIdPrefix, StringComparison.Ordinal);
+
+        /// <summary>"A1.2 · Saiz pintu (NS §5.8.5)" / "A1.2 · Door size (NS §5.8.5)" for a
+        /// "SPEC-A1.2" check id; null when the id is not a catalog check.</summary>
+        public static Text SpecTitle(string checkId)
+        {
+            var raw = checkId ?? "";
+            if (!raw.StartsWith(SpecModelIssues.CheckIdPrefix, StringComparison.Ordinal)) return null;
+            var id = SpecReport.ResolveCheckId(raw.Substring(SpecModelIssues.CheckIdPrefix.Length));
+            var c = id == null ? null : SpecCatalog.Find(id);
+            return c == null ? null : new Text(c.Id + " · " + c.Title.Ms, c.Id + " · " + c.Title.En);
+        }
+
+        /// <summary>Every remark of a run that has an English text, by its BM and by its
+        /// EN text, as a BM / EN pair: all of them (<see cref="SpecCheckResult.AllNotes"/>),
+        /// not only the few the Borang keeps, so an issue past the third (A7.2's fourth
+        /// warning) follows the BM / EN switch too.</summary>
+        public static Dictionary<string, Text> NoteTexts(SpecReport spec)
+        {
+            var d = new Dictionary<string, Text>(StringComparer.Ordinal);
+            foreach (var c in spec?.Checks ?? new List<SpecCheckResult>())
+            {
+                if (c == null) continue;
+                Add(d, c.AllNotes, c.AllNotesEn);
+                Add(d, c.Notes, c.NotesEn);
+            }
+            return d;
+        }
+
+        private static void Add(Dictionary<string, Text> d, List<string> bm, List<string> english)
+        {
+            if (bm == null || english == null || bm.Count != english.Count) return;
+            for (var k = 0; k < bm.Count; k++)
+            {
+                var ms = SpecReport.Clean(bm[k]);
+                var en = SpecReport.Clean(english[k]);
+                if (ms.Length == 0 || en.Length == 0 || ms == en) continue;
+                var t = new Text(ms, en);
+                if (!d.ContainsKey(ms)) d[ms] = t;
+                if (!d.ContainsKey(en)) d[en] = t;
+            }
+        }
+
+        /// <summary>
+        /// Put the text the add-in writes in one language at load time (element words
+        /// "Elemen" / "3 elemen", fix-failure reasons) in <paramref name="lang"/> again, on
+        /// the pane's items, after a BM / EN switch: the items are not rebuilt, so their
+        /// status, selection and the open detail stay. Items with no issue are left as they are.
+        /// </summary>
+        public static void Relabel(IEnumerable<PanelItem> items, IReadOnlyDictionary<string, IssueVm> issues, string lang)
+        {
+            if (items == null || issues == null) return;
+            foreach (var x in items)
+            {
+                if (x?.Id == null || !issues.TryGetValue(x.Id, out var i) || i == null) continue;
+                x.El = ElementLabel(i, lang);
+                x.FixError = PaneText.FixReason(i.FixError ?? "", lang);
+            }
+        }
+
+        // The fixed words SpecModelIssues.Description adds, BM ↔ EN.
+        private static readonly (string Ms, string En)[] DescWords =
+        {
+            ("Keperluan: ", "Required: "), ("Elemen: ", "Elements: "), (" kesemuanya)", " in all)"),
+        };
+
+        /// <summary>A spec issue's text, line by line, in BM and EN: a line that is one of
+        /// the run's remarks takes both texts; the words the add-in adds are swapped.
+        /// A line with no known translation stays as written in both.</summary>
+        public static Text Bilingual(string text, IReadOnlyDictionary<string, Text> notes)
+        {
+            var lines = (text ?? "").Split('\n');
+            var ms = new List<string>();
+            var en = new List<string>();
+            foreach (var raw in lines)
+            {
+                var line = SpecReport.Clean(raw);
+                if (notes != null && notes.TryGetValue(line, out var t)) { ms.Add(t.Ms); en.Add(t.En); continue; }
+                string m = line, e = line;
+                foreach (var w in DescWords) { m = m.Replace(w.En, w.Ms); e = e.Replace(w.Ms, w.En); }
+                ms.Add(m);
+                en.Add(e);
+            }
+            return new Text(string.Join("\n", ms), string.Join("\n", en));
         }
 
         /// <summary>Pane status → prototype status. Approved (old "accept") and a

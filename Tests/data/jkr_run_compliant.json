@@ -1,0 +1,2468 @@
+{
+ "response": {
+  "summary": {},
+  "building_requirements": [
+   {
+    "issue_id": "pn1",
+    "check_id": "chk-pn1",
+    "element_id": 0,
+    "category": "Project Naming",
+    "type_name": "",
+    "level_name": "",
+    "status": "pass",
+    "rule": "File name provided",
+    "actual_value": "jkrAR24_5a_A1_w-01.rvt",
+    "required_value": "",
+    "reason": "",
+    "Locatable": false,
+    "SpecDocNumber": "",
+    "SpecSection": ""
+   },
+   {
+    "issue_id": "pn2",
+    "check_id": "chk-pn2",
+    "element_id": 0,
+    "category": "Project Naming",
+    "type_name": "",
+    "level_name": "",
+    "status": "pass",
+    "rule": "File name uses 'jkr' prefix",
+    "actual_value": "",
+    "required_value": "",
+    "reason": "",
+    "Locatable": false,
+    "SpecDocNumber": "",
+    "SpecSection": ""
+   },
+   {
+    "issue_id": "pn3",
+    "check_id": "chk-pn3",
+    "element_id": 0,
+    "category": "Project Naming",
+    "type_name": "",
+    "level_name": "",
+    "status": "pass",
+    "rule": "Valid discipline code in file name",
+    "actual_value": "AR",
+    "required_value": "",
+    "reason": "",
+    "Locatable": false,
+    "SpecDocNumber": "",
+    "SpecSection": ""
+   },
+   {
+    "issue_id": "pn4",
+    "check_id": "chk-pn4",
+    "element_id": 0,
+    "category": "Project Naming",
+    "type_name": "",
+    "level_name": "",
+    "status": "pass",
+    "rule": "File naming convention",
+    "actual_value": "jkrAR24_5a_A1_w-01",
+    "required_value": "jkr{DD}{YY}_{rev}_{block}_{zone}_{seq}",
+    "reason": "File name is missing the zone segment.",
+    "Locatable": false,
+    "SpecDocNumber": "",
+    "SpecSection": ""
+   },
+   {
+    "issue_id": "pb1",
+    "check_id": "chk-pb1",
+    "element_id": 0,
+    "category": "Project Base Point",
+    "type_name": "",
+    "level_name": "",
+    "status": "pass",
+    "rule": "Project Base Point surveyed",
+    "actual_value": "Grid A/1, 0 mm",
+    "required_value": "",
+    "reason": "",
+    "Locatable": false,
+    "SpecDocNumber": "",
+    "SpecSection": ""
+   },
+   {
+    "issue_id": "pi1",
+    "check_id": "chk-pi1",
+    "element_id": 0,
+    "category": "Project Information",
+    "type_name": "",
+    "level_name": "",
+    "status": "pass",
+    "rule": "Building Name populated",
+    "actual_value": "Dewan Serbaguna",
+    "required_value": "",
+    "reason": "",
+    "Locatable": false,
+    "SpecDocNumber": "",
+    "SpecSection": ""
+   },
+   {
+    "issue_id": "pi2",
+    "check_id": "chk-pi2",
+    "element_id": 0,
+    "category": "Project Information",
+    "type_name": "",
+    "level_name": "",
+    "status": "pass",
+    "rule": "Client Name populated",
+    "actual_value": "(empty)",
+    "required_value": "Client name",
+    "reason": "Client Name is empty.",
+    "Locatable": false,
+    "SpecDocNumber": "",
+    "SpecSection": ""
+   },
+   {
+    "issue_id": "pi3",
+    "check_id": "chk-pi3",
+    "element_id": 0,
+    "category": "Project Information",
+    "type_name": "",
+    "level_name": "",
+    "status": "pass",
+    "rule": "Project Address populated",
+    "actual_value": "Enter address here",
+    "required_value": "Site address",
+    "reason": "Project Address still holds the Revit default.",
+    "Locatable": false,
+    "SpecDocNumber": "",
+    "SpecSection": ""
+   },
+   {
+    "issue_id": "gr1",
+    "check_id": "chk-gr1",
+    "element_id": 0,
+    "category": "Grids",
+    "type_name": "",
+    "level_name": "",
+    "status": "pass",
+    "rule": "Grid naming convention",
+    "actual_value": "1-8, A-F",
+    "required_value": "",
+    "reason": "",
+    "Locatable": false,
+    "SpecDocNumber": "",
+    "SpecSection": ""
+   },
+   {
+    "issue_id": "ld1",
+    "check_id": "chk-ld1",
+    "element_id": 0,
+    "category": "",
+    "type_name": "",
+    "level_name": "",
+    "status": "pass",
+    "rule": "LOD 300 compliance target declared",
+    "actual_value": "LOD 300",
+    "required_value": "",
+    "reason": "",
+    "Locatable": false,
+    "SpecDocNumber": "",
+    "SpecSection": ""
+   },
+   {
+    "issue_id": "bp1",
+    "check_id": "chk-bp1",
+    "element_id": 0,
+    "category": "",
+    "type_name": "",
+    "level_name": "",
+    "status": "pass",
+    "rule": "BPEP exists",
+    "actual_value": "",
+    "required_value": "",
+    "reason": "No BPEP detected.",
+    "Locatable": false,
+    "SpecDocNumber": "",
+    "SpecSection": ""
+   },
+   {
+    "issue_id": "na1",
+    "check_id": "chk-na1",
+    "element_id": 0,
+    "category": "",
+    "type_name": "",
+    "level_name": "",
+    "status": "pass",
+    "rule": "Element naming adoption",
+    "actual_value": "96% (48/50)",
+    "required_value": "≥ 80%",
+    "reason": "48 of 50 physical elements use JKR naming.",
+    "Locatable": false,
+    "SpecDocNumber": "",
+    "SpecSection": ""
+   }
+  ],
+  "element_issues": [
+   {
+    "issue_id": "lv1",
+    "check_id": "chk-lv1",
+    "element_id": 311,
+    "category": "Levels",
+    "type_name": "Aras Tanah",
+    "level_name": "Aras 01",
+    "status": "pass",
+    "rule": "Level naming convention",
+    "actual_value": "Aras Tanah",
+    "required_value": "L## +#.###",
+    "reason": "Level name does not follow L{NN} +elev.",
+    "Locatable": true,
+    "SpecDocNumber": "09",
+    "SpecSection": "5.4.1",
+    "FixAction": "rename_type",
+    "FixValue": "L01 +0.000",
+    "FixParameterName": "",
+    "FixOldValue": "Aras Tanah"
+   },
+   {
+    "issue_id": "dn1",
+    "check_id": "chk-dn1",
+    "element_id": 204511,
+    "category": "Doors",
+    "type_name": "jkrAR_PT2p_900x2100",
+    "level_name": "Aras 01",
+    "status": "pass",
+    "rule": "Naming convention",
+    "actual_value": "jkrAR_PT2p_900x2100",
+    "required_value": "jkrAR_PT…",
+    "reason": "Generic type name.",
+    "Locatable": true,
+    "SpecDocNumber": "09",
+    "SpecSection": "5.4.1",
+    "FixAction": "rename_type",
+    "FixValue": "jkrAR_PT2p_900x2100",
+    "FixParameterName": "",
+    "FixOldValue": "Door 1"
+   },
+   {
+    "issue_id": "dn2",
+    "check_id": "chk-dn2",
+    "element_id": 205002,
+    "category": "Walls",
+    "type_name": "jkrAR_DD_Bata_200",
+    "level_name": "Aras 01",
+    "status": "pass",
+    "rule": "Naming convention",
+    "actual_value": "jkrAR_DD_Bata_200",
+    "required_value": "jkrAR_DD…",
+    "reason": "Generic type name.",
+    "Locatable": true,
+    "SpecDocNumber": "09",
+    "SpecSection": "5.4.1",
+    "FixAction": "rename_type",
+    "FixValue": "jkrAR_DD_Bata_200",
+    "FixParameterName": "",
+    "FixOldValue": "Basic Wall"
+   },
+   {
+    "issue_id": "dn3",
+    "check_id": "chk-dn3",
+    "element_id": 206100,
+    "category": "Windows",
+    "type_name": "jkrAR_TG_1200x1500",
+    "level_name": "Aras 01",
+    "status": "pass",
+    "rule": "Naming convention",
+    "actual_value": "",
+    "required_value": "",
+    "reason": "",
+    "Locatable": true,
+    "SpecDocNumber": "09",
+    "SpecSection": "5.4.1"
+   },
+   {
+    "issue_id": "cc1",
+    "check_id": "chk-cc1",
+    "element_id": 204600,
+    "category": "Doors",
+    "type_name": "jkrAR_PT1p_900x2100",
+    "level_name": "Aras 01",
+    "status": "pass",
+    "rule": "Category code matches Revit category",
+    "actual_value": "",
+    "required_value": "",
+    "reason": "",
+    "Locatable": true,
+    "SpecDocNumber": "09",
+    "SpecSection": "5.4.1"
+   },
+   {
+    "issue_id": "cc2",
+    "check_id": "chk-cc2",
+    "element_id": 206300,
+    "category": "Windows",
+    "type_name": "jkrAR_PT_900x2100",
+    "level_name": "Aras 01",
+    "status": "pass",
+    "rule": "Category code matches Revit category",
+    "actual_value": "PT (door)",
+    "required_value": "TG (window)",
+    "reason": "Window type carries a door code.",
+    "Locatable": true,
+    "SpecDocNumber": "09",
+    "SpecSection": "5.4.1"
+   },
+   {
+    "issue_id": "pm1",
+    "check_id": "chk-pm1",
+    "element_id": 204600,
+    "category": "Doors",
+    "type_name": "jkrAR_PT1p_900x2100",
+    "level_name": "Aras 01",
+    "status": "pass",
+    "rule": "Missing type parameter: Kod_Jenis_jkr_stt",
+    "actual_value": "(missing)",
+    "required_value": "Kod_Jenis_jkr_stt",
+    "reason": "Mandatory at LOD 300.",
+    "Locatable": true,
+    "SpecDocNumber": "09",
+    "SpecSection": "5.4.1",
+    "FixAction": "set_parameter",
+    "FixValue": "PT1",
+    "FixParameterName": "Kod_Jenis_jkr_stt",
+    "FixOldValue": "(missing)"
+   },
+   {
+    "issue_id": "pm2",
+    "check_id": "chk-pm2",
+    "element_id": 205100,
+    "category": "Walls",
+    "type_name": "jkrAR_DD_Bata_115",
+    "level_name": "Aras 01",
+    "status": "pass",
+    "rule": "Empty instance parameter: Bahan_Utama_jkr_stt",
+    "actual_value": "(empty)",
+    "required_value": "Bahan_Utama_jkr_stt",
+    "reason": "Mandatory at LOD 300.",
+    "Locatable": true,
+    "SpecDocNumber": "09",
+    "SpecSection": "5.4.1"
+   },
+   {
+    "issue_id": "pm3",
+    "check_id": "chk-pm3",
+    "element_id": 207000,
+    "category": "Floors",
+    "type_name": "jkrAR_LT_RC_150",
+    "level_name": "Aras 01",
+    "status": "pass",
+    "rule": "LOD 300 required parameters complete",
+    "actual_value": "",
+    "required_value": "",
+    "reason": "",
+    "Locatable": true,
+    "SpecDocNumber": "09",
+    "SpecSection": "5.4.1"
+   },
+   {
+    "issue_id": "mt1",
+    "check_id": "chk-mt1",
+    "element_id": 205100,
+    "category": "Walls",
+    "type_name": "jkrAR_DD_Bata_115",
+    "level_name": "Aras 01",
+    "status": "pass",
+    "rule": "Bahan_Utama_jkr_stt material code valid",
+    "actual_value": "",
+    "required_value": "",
+    "reason": "Material code not in the reference list.",
+    "Locatable": true,
+    "SpecDocNumber": "09",
+    "SpecSection": "5.4.1"
+   },
+   {
+    "issue_id": "jc1",
+    "check_id": "chk-jc1",
+    "element_id": 204511,
+    "category": "Doors",
+    "type_name": "jkrAR_PT2p_900x2100",
+    "level_name": "Aras 01",
+    "status": "pass",
+    "rule": "JKR code assigned",
+    "actual_value": "(none)",
+    "required_value": "JKR code",
+    "reason": "No JKR code on the type.",
+    "Locatable": true,
+    "SpecDocNumber": "09",
+    "SpecSection": "5.4.1"
+   }
+  ],
+  "ai_report": "",
+  "ai_recommendations": []
+ },
+ "audit": [
+  {
+   "section": "A",
+   "row_ref": "2",
+   "checker_id": "file_naming",
+   "compliance": "yes",
+   "remark": "jkrAR24_5a_(BEde1A_p14-001)_A1_w-01: 7 segmen.",
+   "rule": ">=3 segmen dipisah '-' atau '_'",
+   "element_count": 0,
+   "not_verifiable_reason": null,
+   "severity": "major"
+  },
+  {
+   "section": "A",
+   "row_ref": "4",
+   "checker_id": "base_point",
+   "compliance": "yes",
+   "remark": "Project Base Point 0 mm dari persilangan grid A/1.",
+   "rule": "Project Base Point berada <=10 mm dari persilangan grid 'A' dan '1'",
+   "element_count": 0,
+   "not_verifiable_reason": null,
+   "severity": "major"
+  },
+  {
+   "section": "A",
+   "row_ref": "5",
+   "checker_id": "grids_levels",
+   "compliance": "yes",
+   "remark": "20 grid (1–8, A–F …), 6 aras (L00–L05).",
+   "rule": "grid > 0 dan aras > 0",
+   "element_count": 0,
+   "not_verifiable_reason": null,
+   "severity": "major"
+  },
+  {
+   "section": "A",
+   "row_ref": "6",
+   "checker_id": "rooms_department",
+   "compliance": "yes",
+   "remark": "Semua 40 bilik ada nilai Department.",
+   "rule": "setiap bilik (Room) ada nilai parameter 'Department'",
+   "element_count": 0,
+   "not_verifiable_reason": null,
+   "severity": "minor"
+  },
+  {
+   "section": "A",
+   "row_ref": "7",
+   "checker_id": "materials_assigned",
+   "compliance": "yes",
+   "remark": "Semua elemen Walls/Floors/Ceilings/Roofs ada material.",
+   "rule": "setiap elemen Walls/Floors/Ceilings/Roofs ada sekurang-kurangnya satu material",
+   "element_count": 0,
+   "not_verifiable_reason": null,
+   "severity": "major"
+  },
+  {
+   "section": "B",
+   "row_ref": "1",
+   "checker_id": "project_info",
+   "compliance": "yes",
+   "remark": "Semua 6 field terisi.",
+   "rule": "Project Name/Number/Address/Client Name/Status/Issue Date terisi",
+   "element_count": 0,
+   "not_verifiable_reason": null,
+   "severity": "major"
+  },
+  {
+   "section": "C",
+   "row_ref": "1.1",
+   "checker_id": "views_template",
+   "compliance": "yes",
+   "remark": "Semua 52 view ada View Template.",
+   "rule": "setiap view grafik ada View Template",
+   "element_count": 0,
+   "not_verifiable_reason": null,
+   "severity": "major"
+  },
+  {
+   "section": "C",
+   "row_ref": "1.2",
+   "checker_id": "views_wip",
+   "compliance": "yes",
+   "remark": "14 view WIP: Floor Plan × 6, Ceiling Plan × 6, Section × 2.",
+   "rule": "sekurang-kurangnya satu view dengan 'WIP' dalam namanya",
+   "element_count": 0,
+   "not_verifiable_reason": null,
+   "severity": "major"
+  },
+  {
+   "section": "C",
+   "row_ref": "1.3",
+   "checker_id": "views_pbt",
+   "compliance": "yes",
+   "remark": "6 view PBT.",
+   "rule": "sekurang-kurangnya satu view dengan 'PBT' dalam namanya",
+   "element_count": 0,
+   "not_verifiable_reason": null,
+   "severity": "major"
+  },
+  {
+   "section": "C",
+   "row_ref": "1.4",
+   "checker_id": "views_bomba",
+   "compliance": "yes",
+   "remark": "4 view BOMBA.",
+   "rule": "sekurang-kurangnya satu view dengan 'BOMBA' dalam namanya",
+   "element_count": 0,
+   "not_verifiable_reason": null,
+   "severity": "major"
+  },
+  {
+   "section": "C",
+   "row_ref": "1.5",
+   "checker_id": "views_dokumen",
+   "compliance": "yes",
+   "remark": "22 view Dokumen.",
+   "rule": "sekurang-kurangnya satu view dengan 'Dokumen' dalam namanya",
+   "element_count": 0,
+   "not_verifiable_reason": null,
+   "severity": "major"
+  },
+  {
+   "section": "C",
+   "row_ref": "1.6",
+   "checker_id": "area_plans",
+   "compliance": "yes",
+   "remark": "2 Area Plan.",
+   "rule": "sekurang-kurangnya satu Area Plan",
+   "element_count": 0,
+   "not_verifiable_reason": null,
+   "severity": "major"
+  },
+  {
+   "section": "C",
+   "row_ref": "2.1",
+   "checker_id": "legends",
+   "compliance": "yes",
+   "remark": "3 view Legend.",
+   "rule": "sekurang-kurangnya satu view Legend",
+   "element_count": 0,
+   "not_verifiable_reason": null,
+   "severity": "major"
+  },
+  {
+   "section": "C",
+   "row_ref": "3.1",
+   "checker_id": "schedules_required",
+   "compliance": "yes",
+   "remark": "Jadual SoA, Door Schedule, Material Takeoff dijumpai.",
+   "rule": "nama jadual mengandungi SoA / Component / Material Takeoff",
+   "element_count": 0,
+   "not_verifiable_reason": null,
+   "severity": "major"
+  },
+  {
+   "section": "C",
+   "row_ref": "4.1",
+   "checker_id": "sheets_contents",
+   "compliance": "yes",
+   "remark": "Semua 18 sheet ada view.",
+   "rule": "setiap Sheet mengandungi sekurang-kurangnya satu view",
+   "element_count": 0,
+   "not_verifiable_reason": null,
+   "severity": "major"
+  },
+  {
+   "section": "C",
+   "row_ref": "4.2",
+   "checker_id": "titleblock_jkr",
+   "compliance": "yes",
+   "remark": "Title block 'JKR_A1_Titleblock' digunakan.",
+   "rule": "nama family/type title block mengandungi 'JKR'",
+   "element_count": 0,
+   "not_verifiable_reason": null,
+   "severity": "major"
+  },
+  {
+   "section": "C",
+   "row_ref": "5.1",
+   "checker_id": "links_current",
+   "compliance": "yes",
+   "remark": "3 link, semua Loaded.",
+   "rule": "setiap Revit link berstatus 'Loaded'",
+   "element_count": 0,
+   "not_verifiable_reason": null,
+   "severity": "major"
+  },
+  {
+   "section": "E",
+   "row_ref": "1.1",
+   "checker_id": "view_template_applied",
+   "compliance": "yes",
+   "remark": "4/4 view BOMBA ada View Template.",
+   "rule": "setiap view dengan 'BOMBA' dalam namanya ada View Template",
+   "element_count": 0,
+   "not_verifiable_reason": null,
+   "severity": "major"
+  },
+  {
+   "section": "E",
+   "row_ref": "1.2",
+   "checker_id": "view_template_applied",
+   "compliance": "yes",
+   "remark": "9/9 view PBT ada View Template.",
+   "rule": "setiap view dengan 'PBT' dalam namanya ada View Template",
+   "element_count": 0,
+   "not_verifiable_reason": null,
+   "severity": "major"
+  },
+  {
+   "section": "D",
+   "row_ref": "2",
+   "checker_id": "family_category",
+   "compliance": "yes",
+   "remark": "8 jenis Walls ikut format JKR.",
+   "rule": "nama jenis ikut format JKR",
+   "element_count": 0,
+   "not_verifiable_reason": null,
+   "severity": "major"
+  },
+  {
+   "section": "D",
+   "row_ref": "8",
+   "checker_id": "family_category",
+   "compliance": "yes",
+   "remark": "40 bilik ada Number dan Name.",
+   "rule": "setiap bilik ada Number dan Name",
+   "element_count": 0,
+   "not_verifiable_reason": null,
+   "severity": "major"
+  },
+  {
+   "section": "D",
+   "row_ref": "10",
+   "checker_id": "family_category",
+   "compliance": "yes",
+   "remark": "6 jenis Doors ikut format JKR.",
+   "rule": "nama jenis ikut format JKR",
+   "element_count": 0,
+   "not_verifiable_reason": null,
+   "severity": "major"
+  },
+  {
+   "section": "D",
+   "row_ref": "18",
+   "checker_id": "family_category",
+   "compliance": "not_verifiable",
+   "remark": "Tiada Columns dalam model.",
+   "rule": "nama jenis ikut format JKR",
+   "element_count": 0,
+   "not_verifiable_reason": "category_not_present",
+   "severity": "major"
+  },
+  {
+   "section": "D",
+   "row_ref": "23",
+   "checker_id": "family_category",
+   "compliance": "not_verifiable",
+   "remark": "Tiada Mass dalam model.",
+   "rule": "nama jenis ikut format JKR",
+   "element_count": 0,
+   "not_verifiable_reason": "category_not_present",
+   "severity": "major"
+  }
+ ],
+ "model": {
+  "FileName": "jkrAR24_5a_(BEde1A_p14-001)_A1_w-01.rvt",
+  "Discipline": "AR",
+  "Lod": 300,
+  "Levels": [
+   {
+    "Id": 311,
+    "Name": "Aras Tanah",
+    "Elevation": 0,
+    "IsStory": true
+   },
+   {
+    "Id": 312,
+    "Name": "Aras 01",
+    "Elevation": 4200,
+    "IsStory": true
+   },
+   {
+    "Id": 313,
+    "Name": "Aras 02",
+    "Elevation": 8400,
+    "IsStory": true
+   },
+   {
+    "Id": 314,
+    "Name": "Aras 03",
+    "Elevation": 12600,
+    "IsStory": true
+   },
+   {
+    "Id": 315,
+    "Name": "Aras 04",
+    "Elevation": 16800,
+    "IsStory": true
+   },
+   {
+    "Id": 316,
+    "Name": "Aras Bumbung",
+    "Elevation": 21000,
+    "IsStory": true
+   }
+  ],
+  "Grids": [
+   {
+    "Id": 401,
+    "Name": "1",
+    "IsVertical": true,
+    "Offset": 0
+   },
+   {
+    "Id": 402,
+    "Name": "2",
+    "IsVertical": true,
+    "Offset": 8000
+   },
+   {
+    "Id": 403,
+    "Name": "3",
+    "IsVertical": true,
+    "Offset": 16000
+   },
+   {
+    "Id": 404,
+    "Name": "4",
+    "IsVertical": true,
+    "Offset": 24000
+   },
+   {
+    "Id": 405,
+    "Name": "5",
+    "IsVertical": true,
+    "Offset": 32000
+   },
+   {
+    "Id": 406,
+    "Name": "6",
+    "IsVertical": true,
+    "Offset": 40000
+   },
+   {
+    "Id": 407,
+    "Name": "7",
+    "IsVertical": true,
+    "Offset": 48000
+   },
+   {
+    "Id": 408,
+    "Name": "8",
+    "IsVertical": true,
+    "Offset": 56000
+   },
+   {
+    "Id": 409,
+    "Name": "A",
+    "IsVertical": false,
+    "Offset": 0
+   },
+   {
+    "Id": 410,
+    "Name": "B",
+    "IsVertical": false,
+    "Offset": 7200
+   },
+   {
+    "Id": 411,
+    "Name": "C",
+    "IsVertical": false,
+    "Offset": 14400
+   },
+   {
+    "Id": 412,
+    "Name": "D",
+    "IsVertical": false,
+    "Offset": 21600
+   },
+   {
+    "Id": 413,
+    "Name": "E",
+    "IsVertical": false,
+    "Offset": 28800
+   },
+   {
+    "Id": 414,
+    "Name": "F",
+    "IsVertical": false,
+    "Offset": 36000
+   },
+   {
+    "Id": 415,
+    "Name": "2A",
+    "IsVertical": true,
+    "Offset": 12000
+   }
+  ],
+  "Rooms": [
+   {
+    "Id": 800001,
+    "Name": "Dewan Utama",
+    "Number": "G01",
+    "Department": "Pengurusan",
+    "LevelName": "Aras Tanah",
+    "Area": 420.0,
+    "X": 4000,
+    "Y": 3600,
+    "Params": {
+     "Number": "G01",
+     "Name": "Dewan Utama",
+     "Department": "Pengurusan",
+     "Area": "420 m²",
+     "Level": "Aras Tanah",
+     "Kemasan_Lantai_jkr_stt": "Jubin seramik 600x600",
+     "Kemasan_Dinding_jkr_stt": "Cat emulsi",
+     "Kemasan_Siling_jkr_stt": "Papan siling gipsum",
+     "Diterima_jkr_siy": "Ir. Contoh Diterima",
+     "Luas_Brif_jkr_sia": "120.0",
+     "Kod_Ruang_AR_jkr_stt": "Ir. Contoh Kod",
+     "Occupancy": "Awam",
+     "Ceiling Finish": "Siling gipsum",
+     "Wall Finish": "Cat emulsi",
+     "Floor Finish": "Jubin seramik",
+     "Tinggi_Siling_jkr_sil": "Ir. Contoh Tinggi",
+     "Kod_Kambi_jkr_sit": "Ir. Contoh Kod",
+     "Kod_Sistem_Pengudaraan_jkr_sit": "Ir. Contoh Kod",
+     "Kod_Department_jkr_sit": "Ir. Contoh Kod"
+    }
+   },
+   {
+    "Id": 800002,
+    "Name": "Lobi",
+    "Number": "G02",
+    "Department": "Pengurusan",
+    "LevelName": "Aras Tanah",
+    "Area": 64.0,
+    "X": 10000,
+    "Y": 3600,
+    "Params": {
+     "Number": "G02",
+     "Name": "Lobi",
+     "Department": "Pengurusan",
+     "Area": "64 m²",
+     "Level": "Aras Tanah",
+     "Kemasan_Lantai_jkr_stt": "Jubin seramik 600x600",
+     "Kemasan_Dinding_jkr_stt": "Cat emulsi",
+     "Kemasan_Siling_jkr_stt": "Papan siling gipsum",
+     "Diterima_jkr_siy": "Ir. Contoh Diterima",
+     "Luas_Brif_jkr_sia": "121.0",
+     "Kod_Ruang_AR_jkr_stt": "Ir. Contoh Kod",
+     "Occupancy": "Awam",
+     "Ceiling Finish": "Siling gipsum",
+     "Wall Finish": "Cat emulsi",
+     "Floor Finish": "Jubin seramik",
+     "Tinggi_Siling_jkr_sil": "Ir. Contoh Tinggi",
+     "Kod_Kambi_jkr_sit": "Ir. Contoh Kod",
+     "Kod_Sistem_Pengudaraan_jkr_sit": "Ir. Contoh Kod",
+     "Kod_Department_jkr_sit": "Ir. Contoh Kod"
+    }
+   },
+   {
+    "Id": 800003,
+    "Name": "Surau",
+    "Number": "G03",
+    "Department": "Pengurusan",
+    "LevelName": "Aras Tanah",
+    "Area": 36.0,
+    "X": 16000,
+    "Y": 3600,
+    "Params": {
+     "Number": "G03",
+     "Name": "Surau",
+     "Department": "Pengurusan",
+     "Area": "36 m²",
+     "Level": "Aras Tanah",
+     "Kemasan_Lantai_jkr_stt": "Jubin seramik 600x600",
+     "Kemasan_Dinding_jkr_stt": "Cat emulsi",
+     "Kemasan_Siling_jkr_stt": "Papan siling gipsum",
+     "Diterima_jkr_siy": "Ir. Contoh Diterima",
+     "Luas_Brif_jkr_sia": "122.0",
+     "Kod_Ruang_AR_jkr_stt": "Ir. Contoh Kod",
+     "Occupancy": "Awam",
+     "Ceiling Finish": "Siling gipsum",
+     "Wall Finish": "Cat emulsi",
+     "Floor Finish": "Jubin seramik",
+     "Tinggi_Siling_jkr_sil": "Ir. Contoh Tinggi",
+     "Kod_Kambi_jkr_sit": "Ir. Contoh Kod",
+     "Kod_Sistem_Pengudaraan_jkr_sit": "Ir. Contoh Kod",
+     "Kod_Department_jkr_sit": "Ir. Contoh Kod"
+    }
+   },
+   {
+    "Id": 800004,
+    "Name": "Tandas Lelaki",
+    "Number": "G04",
+    "Department": "Pengurusan",
+    "LevelName": "Aras Tanah",
+    "Area": 18.0,
+    "X": 22000,
+    "Y": 3600,
+    "Params": {
+     "Number": "G04",
+     "Name": "Tandas Lelaki",
+     "Department": "Pengurusan",
+     "Area": "18 m²",
+     "Level": "Aras Tanah",
+     "Kemasan_Lantai_jkr_stt": "Jubin seramik 600x600",
+     "Kemasan_Dinding_jkr_stt": "Cat emulsi",
+     "Kemasan_Siling_jkr_stt": "Papan siling gipsum",
+     "Diterima_jkr_siy": "Ir. Contoh Diterima",
+     "Luas_Brif_jkr_sia": "123.0",
+     "Kod_Ruang_AR_jkr_stt": "Ir. Contoh Kod",
+     "Occupancy": "Awam",
+     "Ceiling Finish": "Siling gipsum",
+     "Wall Finish": "Cat emulsi",
+     "Floor Finish": "Jubin seramik",
+     "Tinggi_Siling_jkr_sil": "Ir. Contoh Tinggi",
+     "Kod_Kambi_jkr_sit": "Ir. Contoh Kod",
+     "Kod_Sistem_Pengudaraan_jkr_sit": "Ir. Contoh Kod",
+     "Kod_Department_jkr_sit": "Ir. Contoh Kod"
+    }
+   },
+   {
+    "Id": 800005,
+    "Name": "Bilik Mesyuarat 1",
+    "Number": "101",
+    "Department": "Pengurusan",
+    "LevelName": "Aras 01",
+    "Area": 48.0,
+    "X": 4000,
+    "Y": 10800,
+    "Params": {
+     "Number": "101",
+     "Name": "Bilik Mesyuarat 1",
+     "Department": "Pengurusan",
+     "Area": "48 m²",
+     "Level": "Aras 01",
+     "Kemasan_Lantai_jkr_stt": "Jubin seramik 600x600",
+     "Kemasan_Dinding_jkr_stt": "Cat emulsi",
+     "Kemasan_Siling_jkr_stt": "Papan siling gipsum",
+     "Diterima_jkr_siy": "Ir. Contoh Diterima",
+     "Luas_Brif_jkr_sia": "124.0",
+     "Kod_Ruang_AR_jkr_stt": "Ir. Contoh Kod",
+     "Occupancy": "Awam",
+     "Ceiling Finish": "Siling gipsum",
+     "Wall Finish": "Cat emulsi",
+     "Floor Finish": "Jubin seramik",
+     "Tinggi_Siling_jkr_sil": "Ir. Contoh Tinggi",
+     "Kod_Kambi_jkr_sit": "Ir. Contoh Kod",
+     "Kod_Sistem_Pengudaraan_jkr_sit": "Ir. Contoh Kod",
+     "Kod_Department_jkr_sit": "Ir. Contoh Kod"
+    }
+   },
+   {
+    "Id": 800006,
+    "Name": "Pejabat Pengurus",
+    "Number": "102",
+    "Department": "Pengurusan",
+    "LevelName": "Aras 01",
+    "Area": 24.0,
+    "X": 10000,
+    "Y": 10800,
+    "Params": {
+     "Number": "102",
+     "Name": "Pejabat Pengurus",
+     "Department": "Pengurusan",
+     "Area": "24 m²",
+     "Level": "Aras 01",
+     "Kemasan_Lantai_jkr_stt": "Jubin seramik 600x600",
+     "Kemasan_Dinding_jkr_stt": "Cat emulsi",
+     "Kemasan_Siling_jkr_stt": "Papan siling gipsum",
+     "Diterima_jkr_siy": "Ir. Contoh Diterima",
+     "Luas_Brif_jkr_sia": "125.0",
+     "Kod_Ruang_AR_jkr_stt": "Ir. Contoh Kod",
+     "Occupancy": "Awam",
+     "Ceiling Finish": "Siling gipsum",
+     "Wall Finish": "Cat emulsi",
+     "Floor Finish": "Jubin seramik",
+     "Tinggi_Siling_jkr_sil": "Ir. Contoh Tinggi",
+     "Kod_Kambi_jkr_sit": "Ir. Contoh Kod",
+     "Kod_Sistem_Pengudaraan_jkr_sit": "Ir. Contoh Kod",
+     "Kod_Department_jkr_sit": "Ir. Contoh Kod"
+    }
+   },
+   {
+    "Id": 800007,
+    "Name": "Stor",
+    "Number": "103",
+    "Department": "Pengurusan",
+    "LevelName": "Aras 01",
+    "Area": 12.0,
+    "X": 16000,
+    "Y": 10800,
+    "Params": {
+     "Number": "103",
+     "Name": "Stor",
+     "Department": "Pengurusan",
+     "Area": "12 m²",
+     "Level": "Aras 01",
+     "Kemasan_Lantai_jkr_stt": "Jubin seramik 600x600",
+     "Kemasan_Dinding_jkr_stt": "Cat emulsi",
+     "Kemasan_Siling_jkr_stt": "Papan siling gipsum",
+     "Diterima_jkr_siy": "Ir. Contoh Diterima",
+     "Luas_Brif_jkr_sia": "126.0",
+     "Kod_Ruang_AR_jkr_stt": "Ir. Contoh Kod",
+     "Occupancy": "Awam",
+     "Ceiling Finish": "Siling gipsum",
+     "Wall Finish": "Cat emulsi",
+     "Floor Finish": "Jubin seramik",
+     "Tinggi_Siling_jkr_sil": "Ir. Contoh Tinggi",
+     "Kod_Kambi_jkr_sit": "Ir. Contoh Kod",
+     "Kod_Sistem_Pengudaraan_jkr_sit": "Ir. Contoh Kod",
+     "Kod_Department_jkr_sit": "Ir. Contoh Kod"
+    }
+   },
+   {
+    "Id": 800008,
+    "Name": "Bilik Persalinan",
+    "Number": "201",
+    "Department": "Pengurusan",
+    "LevelName": "Aras 02",
+    "Area": 30.0,
+    "X": 22000,
+    "Y": 10800,
+    "Params": {
+     "Number": "201",
+     "Name": "Bilik Persalinan",
+     "Department": "Pengurusan",
+     "Area": "30 m²",
+     "Level": "Aras 02",
+     "Kemasan_Lantai_jkr_stt": "Jubin seramik 600x600",
+     "Kemasan_Dinding_jkr_stt": "Cat emulsi",
+     "Kemasan_Siling_jkr_stt": "Papan siling gipsum",
+     "Diterima_jkr_siy": "Ir. Contoh Diterima",
+     "Luas_Brif_jkr_sia": "127.0",
+     "Kod_Ruang_AR_jkr_stt": "Ir. Contoh Kod",
+     "Occupancy": "Awam",
+     "Ceiling Finish": "Siling gipsum",
+     "Wall Finish": "Cat emulsi",
+     "Floor Finish": "Jubin seramik",
+     "Tinggi_Siling_jkr_sil": "Ir. Contoh Tinggi",
+     "Kod_Kambi_jkr_sit": "Ir. Contoh Kod",
+     "Kod_Sistem_Pengudaraan_jkr_sit": "Ir. Contoh Kod",
+     "Kod_Department_jkr_sit": "Ir. Contoh Kod"
+    }
+   },
+   {
+    "Id": 800009,
+    "Name": "Galeri",
+    "Number": "301",
+    "Department": "Pengurusan",
+    "LevelName": "Aras 03",
+    "Area": 120.0,
+    "X": 4000,
+    "Y": 18000,
+    "Params": {
+     "Number": "301",
+     "Name": "Galeri",
+     "Department": "Pengurusan",
+     "Area": "120 m²",
+     "Level": "Aras 03",
+     "Kemasan_Lantai_jkr_stt": "Jubin seramik 600x600",
+     "Kemasan_Dinding_jkr_stt": "Cat emulsi",
+     "Kemasan_Siling_jkr_stt": "Papan siling gipsum",
+     "Diterima_jkr_siy": "Ir. Contoh Diterima",
+     "Luas_Brif_jkr_sia": "128.0",
+     "Kod_Ruang_AR_jkr_stt": "Ir. Contoh Kod",
+     "Occupancy": "Awam",
+     "Ceiling Finish": "Siling gipsum",
+     "Wall Finish": "Cat emulsi",
+     "Floor Finish": "Jubin seramik",
+     "Tinggi_Siling_jkr_sil": "Ir. Contoh Tinggi",
+     "Kod_Kambi_jkr_sit": "Ir. Contoh Kod",
+     "Kod_Sistem_Pengudaraan_jkr_sit": "Ir. Contoh Kod",
+     "Kod_Department_jkr_sit": "Ir. Contoh Kod"
+    }
+   },
+   {
+    "Id": 800010,
+    "Name": "Bilik Kawalan",
+    "Number": "401",
+    "Department": "Pengurusan",
+    "LevelName": "Aras 04",
+    "Area": 16.0,
+    "X": 10000,
+    "Y": 18000,
+    "Params": {
+     "Number": "401",
+     "Name": "Bilik Kawalan",
+     "Department": "Pengurusan",
+     "Area": "16 m²",
+     "Level": "Aras 04",
+     "Kemasan_Lantai_jkr_stt": "Jubin seramik 600x600",
+     "Kemasan_Dinding_jkr_stt": "Cat emulsi",
+     "Kemasan_Siling_jkr_stt": "Papan siling gipsum",
+     "Diterima_jkr_siy": "Ir. Contoh Diterima",
+     "Luas_Brif_jkr_sia": "129.0",
+     "Kod_Ruang_AR_jkr_stt": "Ir. Contoh Kod",
+     "Occupancy": "Awam",
+     "Ceiling Finish": "Siling gipsum",
+     "Wall Finish": "Cat emulsi",
+     "Floor Finish": "Jubin seramik",
+     "Tinggi_Siling_jkr_sil": "Ir. Contoh Tinggi",
+     "Kod_Kambi_jkr_sit": "Ir. Contoh Kod",
+     "Kod_Sistem_Pengudaraan_jkr_sit": "Ir. Contoh Kod",
+     "Kod_Department_jkr_sit": "Ir. Contoh Kod"
+    }
+   }
+  ],
+  "Floors": [
+   {
+    "Id": 207000,
+    "TypeName": "jkrAR_LT_RC_150",
+    "LevelName": "Aras Tanah",
+    "MinX": 0,
+    "MinY": 0,
+    "MaxX": 24000,
+    "MaxY": 21600,
+    "Area": 518.4,
+    "IsStructural": false
+   },
+   {
+    "Id": 207001,
+    "TypeName": "jkrAR_LT_RC_150",
+    "LevelName": "Aras 01",
+    "MinX": 0,
+    "MinY": 0,
+    "MaxX": 24000,
+    "MaxY": 21600,
+    "Area": 518.4,
+    "IsStructural": false
+   },
+   {
+    "Id": 207002,
+    "TypeName": "jkrAR_LT_RC_150",
+    "LevelName": "Aras 02",
+    "MinX": 0,
+    "MinY": 0,
+    "MaxX": 24000,
+    "MaxY": 21600,
+    "Area": 518.4,
+    "IsStructural": false
+   },
+   {
+    "Id": 207003,
+    "TypeName": "jkrAR_LT_RC_150",
+    "LevelName": "Aras 03",
+    "MinX": 0,
+    "MinY": 0,
+    "MaxX": 24000,
+    "MaxY": 21600,
+    "Area": 518.4,
+    "IsStructural": false
+   },
+   {
+    "Id": 207004,
+    "TypeName": "jkrAR_LT_RC_150",
+    "LevelName": "Aras 04",
+    "MinX": 0,
+    "MinY": 0,
+    "MaxX": 24000,
+    "MaxY": 21600,
+    "Area": 518.4,
+    "IsStructural": false
+   }
+  ],
+  "Ceilings": [
+   {
+    "Id": 208000,
+    "TypeName": "jkrAR_SL_Gipsum_12",
+    "LevelName": "Aras Tanah",
+    "HeightOffset": 3600
+   },
+   {
+    "Id": 208001,
+    "TypeName": "jkrAR_SL_Gipsum_12",
+    "LevelName": "Aras 01",
+    "HeightOffset": 3000
+   },
+   {
+    "Id": 208002,
+    "TypeName": "jkrAR_SL_Gipsum_12",
+    "LevelName": "Aras 02",
+    "HeightOffset": 3000
+   },
+   {
+    "Id": 208003,
+    "TypeName": "jkrAR_SL_Gipsum_12",
+    "LevelName": "Aras 03",
+    "HeightOffset": 3000
+   },
+   {
+    "Id": 208004,
+    "TypeName": "jkrAR_SL_Gipsum_12",
+    "LevelName": "Aras 04",
+    "HeightOffset": 3000
+   }
+  ],
+  "Roofs": [
+   {
+    "Id": 209000,
+    "TypeName": "jkrAR_BM_RC_150",
+    "LevelName": "Aras Bumbung",
+    "SlopeDegrees": 0,
+    "Materials": [
+     "jkrAR_Konkrit-RC_(kr)",
+     "jkrAR_Kalis-Air-Membran_(kam)"
+    ],
+    "LayerFunctions": [
+     "Structure",
+     "Membrane"
+    ]
+   },
+   {
+    "Id": 209001,
+    "TypeName": "jkrAR_BM_Metal_Deck",
+    "LevelName": "Aras Bumbung",
+    "SlopeDegrees": 7.5,
+    "Materials": [
+     "jkrAR_Zink-Berwarna_(zb)"
+    ],
+    "LayerFunctions": [
+     "Finish1"
+    ]
+   }
+  ],
+  "Types": [
+   {
+    "TypeId": 5002,
+    "Category": "Doors",
+    "FamilyName": "jkrAR_PT1p",
+    "TypeName": "jkrAR_PT1p_900x2100",
+    "InstanceCount": 4,
+    "InstanceIds": [
+     204511,
+     204600,
+     204601,
+     204602
+    ],
+    "Numbers": {
+     "Width": 900,
+     "Height": 2100,
+     "Thickness": 45
+    },
+    "Texts": {
+     "Function": "Interior",
+     "Kod_Jenis_jkr_stt": "PT1p",
+     "Bahan_Utama_jkr_stt": "KY"
+    },
+    "Materials": [
+     "jkrAR_Kayu-Meranti_(km)"
+    ]
+   },
+   {
+    "TypeId": 5003,
+    "Category": "Doors",
+    "FamilyName": "jkrAR_PT2p",
+    "TypeName": "jkrAR_PT2p_1500x2100",
+    "InstanceCount": 2,
+    "InstanceIds": [
+     204700,
+     204701
+    ],
+    "Numbers": {
+     "Width": 1500,
+     "Height": 2100,
+     "Thickness": 45
+    },
+    "Texts": {
+     "Function": "Interior",
+     "Kod_Jenis_jkr_stt": "PT2p"
+    },
+    "Materials": [
+     "jkrAR_Kayu-Meranti_(km)"
+    ]
+   },
+   {
+    "TypeId": 5004,
+    "Category": "Doors",
+    "FamilyName": "jkrAR_PU2p",
+    "TypeName": "jkrAR_PU2p_1800x2400 (Pintu Utama)",
+    "InstanceCount": 1,
+    "InstanceIds": [
+     204800
+    ],
+    "Numbers": {
+     "Width": 1800,
+     "Height": 2400,
+     "Thickness": 50
+    },
+    "Texts": {
+     "Function": "Exterior",
+     "Comments": "Pintu utama",
+     "Kod_Jenis_jkr_stt": "PU2p"
+    },
+    "Materials": [
+     "jkrAR_Kayu-Solid_(ks)"
+    ]
+   },
+   {
+    "TypeId": 5102,
+    "Category": "Walls",
+    "FamilyName": "Basic Wall",
+    "TypeName": "jkrAR_DD_Bata_115",
+    "InstanceCount": 4,
+    "InstanceIds": [
+     205002,
+     205100,
+     205101,
+     205102
+    ],
+    "Numbers": {
+     "Width": 115
+    },
+    "Texts": {
+     "Kod_Jenis_jkr_stt": "PT1p",
+     "Bahan_Utama_jkr_stt": "KY"
+    },
+    "Materials": [
+     "jkrAR_Bata-Plaster_(bp)"
+    ]
+   },
+   {
+    "TypeId": 5103,
+    "Category": "Walls",
+    "FamilyName": "Basic Wall",
+    "TypeName": "jkrAR_DD_Bata_150",
+    "InstanceCount": 1,
+    "InstanceIds": [
+     205200
+    ],
+    "Numbers": {
+     "Width": 150
+    },
+    "Texts": {
+     "Kod_Jenis_jkr_stt": "PT1p",
+     "Bahan_Utama_jkr_stt": "KY"
+    },
+    "Materials": [
+     "jkrAR_Bata-Plaster_(bp)"
+    ]
+   },
+   {
+    "TypeId": 5201,
+    "Category": "Windows",
+    "FamilyName": "jkrAR_TG",
+    "TypeName": "jkrAR_TG_1200x1500",
+    "InstanceCount": 3,
+    "InstanceIds": [
+     206100,
+     206101,
+     206300
+    ],
+    "Numbers": {
+     "Width": 1200,
+     "Height": 1500
+    },
+    "Texts": {},
+    "Materials": [
+     "jkrAR_Kaca-Jernih_(kj)"
+    ]
+   },
+   {
+    "TypeId": 5301,
+    "Category": "Floors",
+    "FamilyName": "Floor",
+    "TypeName": "jkrAR_LT_RC_150",
+    "InstanceCount": 5,
+    "InstanceIds": [
+     207000,
+     207001,
+     207002,
+     207003,
+     207004
+    ],
+    "Numbers": {
+     "Thickness": 150
+    },
+    "Texts": {},
+    "Materials": [
+     "jkrAR_Konkrit-RC_(kr)"
+    ]
+   },
+   {
+    "TypeId": 5401,
+    "Category": "Railings",
+    "FamilyName": "Railing",
+    "TypeName": "jkrAR_PG_Hiasan_2400",
+    "InstanceCount": 2,
+    "InstanceIds": [
+     210000,
+     210001
+    ],
+    "Numbers": {
+     "Height": 2400
+    },
+    "Texts": {
+     "Comments": "Pagar hiasan"
+    },
+    "Materials": [
+     "jkrAR_Besi-Tempa_(bt)"
+    ]
+   },
+   {
+    "TypeId": 5501,
+    "Category": "Ceilings",
+    "FamilyName": "Compound Ceiling",
+    "TypeName": "jkrAR_SL_Gipsum_12",
+    "InstanceCount": 5,
+    "InstanceIds": [
+     208000,
+     208001,
+     208002,
+     208003,
+     208004
+    ],
+    "Numbers": {},
+    "Texts": {},
+    "Materials": [
+     "jkrAR_Gipsum_(g)"
+    ]
+   },
+   {
+    "TypeId": 5601,
+    "Category": "Roofs",
+    "FamilyName": "Basic Roof",
+    "TypeName": "jkrAR_BM_RC_150",
+    "InstanceCount": 1,
+    "InstanceIds": [
+     209000
+    ],
+    "Numbers": {
+     "Thickness": 150
+    },
+    "Texts": {},
+    "Materials": [
+     "jkrAR_Konkrit-RC_(kr)",
+     "jkrAR_Kalis-Air-Membran_(kam)"
+    ]
+   },
+   {
+    "TypeId": 880000,
+    "Category": "Railings",
+    "FamilyName": "Railing",
+    "TypeName": "jkrAR_TG_Pagar Hiasan 2400",
+    "InstanceCount": 1,
+    "InstanceIds": [
+     880001
+    ],
+    "Numbers": {
+     "Height": 2400.0
+    },
+    "Texts": {},
+    "Materials": [
+     "jkrAR_Besi-Hiasan_(bh)"
+    ]
+   }
+  ],
+  "Materials": [
+   {
+    "Id": 600,
+    "Name": "jkrAR_Kayu-Meranti_(km)",
+    "Class": "",
+    "UsedBy": 4
+   },
+   {
+    "Id": 601,
+    "Name": "jkrAR_Kayu-Solid_(ks)",
+    "Class": "",
+    "UsedBy": 5
+   },
+   {
+    "Id": 602,
+    "Name": "jkrAR_Bata-Plaster_(bp)",
+    "Class": "",
+    "UsedBy": 6
+   },
+   {
+    "Id": 603,
+    "Name": "jkrAR_Konkrit-RC_(kr)",
+    "Class": "",
+    "UsedBy": 7
+   },
+   {
+    "Id": 604,
+    "Name": "jkrAR_Besi-Tempa_(bt)",
+    "Class": "",
+    "UsedBy": 8
+   },
+   {
+    "Id": 605,
+    "Name": "jkrAR_Gipsum_(g)",
+    "Class": "",
+    "UsedBy": 9
+   },
+   {
+    "Id": 606,
+    "Name": "jkrAR_Kaca-Jernih_(kj)",
+    "Class": "Glass",
+    "UsedBy": 10
+   },
+   {
+    "Id": 607,
+    "Name": "jkrAR_Kalis-Air-Membran_(kam)",
+    "Class": "",
+    "UsedBy": 11
+   },
+   {
+    "Id": 608,
+    "Name": "jkrAR_Zink-Berwarna_(zb)",
+    "Class": "",
+    "UsedBy": 12
+   },
+   {
+    "Id": 699,
+    "Name": "jkrAR_Default Wall_(dw)",
+    "Class": "",
+    "UsedBy": 0
+   },
+   {
+    "Id": 880002,
+    "Name": "jkrAR_Besi-Hiasan_(bh)",
+    "Class": "Metal",
+    "UsedBy": 1
+   }
+  ],
+  "Views": [
+   {
+    "Id": 3001,
+    "Name": "WIP - Pelan Aras Tanah",
+    "Kind": "FloorPlan",
+    "LevelName": "Aras Tanah",
+    "TemplateName": "JKR AR - Pelan Lantai",
+    "OnSheet": false,
+    "SheetNumber": ""
+   },
+   {
+    "Id": 3002,
+    "Name": "WIP - Siling Aras Tanah",
+    "Kind": "CeilingPlan",
+    "LevelName": "Aras Tanah",
+    "TemplateName": "JKR AR - Pelan Siling",
+    "OnSheet": false,
+    "SheetNumber": ""
+   },
+   {
+    "Id": 3003,
+    "Name": "3D - Aras Tanah",
+    "Kind": "ThreeD",
+    "LevelName": "Aras Tanah",
+    "TemplateName": "JKR AR - 3D",
+    "OnSheet": false,
+    "SheetNumber": ""
+   },
+   {
+    "Id": 3004,
+    "Name": "Dokumen - Pelan Aras Tanah",
+    "Kind": "FloorPlan",
+    "LevelName": "Aras Tanah",
+    "TemplateName": "JKR Dokumen - Pelan",
+    "OnSheet": true,
+    "SheetNumber": "A-101"
+   },
+   {
+    "Id": 3005,
+    "Name": "PBT - Pelan Aras Tanah",
+    "Kind": "FloorPlan",
+    "LevelName": "Aras Tanah",
+    "TemplateName": "JKR PBT - Pelan",
+    "OnSheet": false,
+    "SheetNumber": ""
+   },
+   {
+    "Id": 3006,
+    "Name": "BOMBA - Pelan Aras Tanah",
+    "Kind": "FloorPlan",
+    "LevelName": "Aras Tanah",
+    "TemplateName": "JKR BOMBA - Pelan",
+    "OnSheet": false,
+    "SheetNumber": ""
+   },
+   {
+    "Id": 3007,
+    "Name": "WIP - Pelan Aras 01",
+    "Kind": "FloorPlan",
+    "LevelName": "Aras 01",
+    "TemplateName": "JKR AR - Pelan Lantai",
+    "OnSheet": false,
+    "SheetNumber": ""
+   },
+   {
+    "Id": 3008,
+    "Name": "WIP - Siling Aras 01",
+    "Kind": "CeilingPlan",
+    "LevelName": "Aras 01",
+    "TemplateName": "JKR AR - Pelan Siling",
+    "OnSheet": false,
+    "SheetNumber": ""
+   },
+   {
+    "Id": 3009,
+    "Name": "3D - Aras 01",
+    "Kind": "ThreeD",
+    "LevelName": "Aras 01",
+    "TemplateName": "JKR AR - 3D",
+    "OnSheet": false,
+    "SheetNumber": ""
+   },
+   {
+    "Id": 3010,
+    "Name": "Dokumen - Pelan Aras 01",
+    "Kind": "FloorPlan",
+    "LevelName": "Aras 01",
+    "TemplateName": "JKR Dokumen - Pelan",
+    "OnSheet": true,
+    "SheetNumber": "A-102"
+   },
+   {
+    "Id": 3011,
+    "Name": "PBT - Pelan Aras 01",
+    "Kind": "FloorPlan",
+    "LevelName": "Aras 01",
+    "TemplateName": "JKR PBT - Pelan",
+    "OnSheet": false,
+    "SheetNumber": ""
+   },
+   {
+    "Id": 3012,
+    "Name": "BOMBA - Pelan Aras 01",
+    "Kind": "FloorPlan",
+    "LevelName": "Aras 01",
+    "TemplateName": "JKR BOMBA - Pelan",
+    "OnSheet": false,
+    "SheetNumber": ""
+   },
+   {
+    "Id": 3013,
+    "Name": "WIP - Pelan Aras 02",
+    "Kind": "FloorPlan",
+    "LevelName": "Aras 02",
+    "TemplateName": "JKR AR - Pelan Lantai",
+    "OnSheet": false,
+    "SheetNumber": ""
+   },
+   {
+    "Id": 3014,
+    "Name": "WIP - Siling Aras 02",
+    "Kind": "CeilingPlan",
+    "LevelName": "Aras 02",
+    "TemplateName": "JKR AR - Pelan Siling",
+    "OnSheet": false,
+    "SheetNumber": ""
+   },
+   {
+    "Id": 3015,
+    "Name": "3D - Aras 02",
+    "Kind": "ThreeD",
+    "LevelName": "Aras 02",
+    "TemplateName": "JKR AR - 3D",
+    "OnSheet": false,
+    "SheetNumber": ""
+   },
+   {
+    "Id": 3016,
+    "Name": "Dokumen - Pelan Aras 02",
+    "Kind": "FloorPlan",
+    "LevelName": "Aras 02",
+    "TemplateName": "JKR Dokumen - Pelan",
+    "OnSheet": true,
+    "SheetNumber": "A-103"
+   },
+   {
+    "Id": 3017,
+    "Name": "PBT - Pelan Aras 02",
+    "Kind": "FloorPlan",
+    "LevelName": "Aras 02",
+    "TemplateName": "JKR PBT - Pelan",
+    "OnSheet": false,
+    "SheetNumber": ""
+   },
+   {
+    "Id": 3018,
+    "Name": "BOMBA - Pelan Aras 02",
+    "Kind": "FloorPlan",
+    "LevelName": "Aras 02",
+    "TemplateName": "JKR BOMBA - Pelan",
+    "OnSheet": false,
+    "SheetNumber": ""
+   },
+   {
+    "Id": 3019,
+    "Name": "WIP - Pelan Aras 03",
+    "Kind": "FloorPlan",
+    "LevelName": "Aras 03",
+    "TemplateName": "JKR AR - Pelan Lantai",
+    "OnSheet": false,
+    "SheetNumber": ""
+   },
+   {
+    "Id": 3020,
+    "Name": "WIP - Siling Aras 03",
+    "Kind": "CeilingPlan",
+    "LevelName": "Aras 03",
+    "TemplateName": "JKR AR - Pelan Siling",
+    "OnSheet": false,
+    "SheetNumber": ""
+   },
+   {
+    "Id": 3021,
+    "Name": "3D - Aras 03",
+    "Kind": "ThreeD",
+    "LevelName": "Aras 03",
+    "TemplateName": "JKR AR - 3D",
+    "OnSheet": false,
+    "SheetNumber": ""
+   },
+   {
+    "Id": 3022,
+    "Name": "Dokumen - Pelan Aras 03",
+    "Kind": "FloorPlan",
+    "LevelName": "Aras 03",
+    "TemplateName": "JKR Dokumen - Pelan",
+    "OnSheet": true,
+    "SheetNumber": "A-104"
+   },
+   {
+    "Id": 3023,
+    "Name": "PBT - Pelan Aras 03",
+    "Kind": "FloorPlan",
+    "LevelName": "Aras 03",
+    "TemplateName": "JKR PBT - Pelan",
+    "OnSheet": false,
+    "SheetNumber": ""
+   },
+   {
+    "Id": 3024,
+    "Name": "BOMBA - Pelan Aras 03",
+    "Kind": "FloorPlan",
+    "LevelName": "Aras 03",
+    "TemplateName": "JKR BOMBA - Pelan",
+    "OnSheet": false,
+    "SheetNumber": ""
+   },
+   {
+    "Id": 3025,
+    "Name": "WIP - Pelan Aras 04",
+    "Kind": "FloorPlan",
+    "LevelName": "Aras 04",
+    "TemplateName": "JKR AR - Pelan Lantai",
+    "OnSheet": false,
+    "SheetNumber": ""
+   },
+   {
+    "Id": 3026,
+    "Name": "WIP - Siling Aras 04",
+    "Kind": "CeilingPlan",
+    "LevelName": "Aras 04",
+    "TemplateName": "JKR AR - Pelan Siling",
+    "OnSheet": false,
+    "SheetNumber": ""
+   },
+   {
+    "Id": 3027,
+    "Name": "3D - Aras 04",
+    "Kind": "ThreeD",
+    "LevelName": "Aras 04",
+    "TemplateName": "JKR AR - 3D",
+    "OnSheet": false,
+    "SheetNumber": ""
+   },
+   {
+    "Id": 3028,
+    "Name": "Dokumen - Pelan Aras 04",
+    "Kind": "FloorPlan",
+    "LevelName": "Aras 04",
+    "TemplateName": "JKR Dokumen - Pelan",
+    "OnSheet": true,
+    "SheetNumber": "A-105"
+   },
+   {
+    "Id": 3029,
+    "Name": "PBT - Pelan Aras 04",
+    "Kind": "FloorPlan",
+    "LevelName": "Aras 04",
+    "TemplateName": "JKR PBT - Pelan",
+    "OnSheet": false,
+    "SheetNumber": ""
+   },
+   {
+    "Id": 3030,
+    "Name": "BOMBA - Pelan Aras 04",
+    "Kind": "FloorPlan",
+    "LevelName": "Aras 04",
+    "TemplateName": "JKR BOMBA - Pelan",
+    "OnSheet": false,
+    "SheetNumber": ""
+   },
+   {
+    "Id": 3031,
+    "Name": "3D - Aras Bumbung",
+    "Kind": "ThreeD",
+    "LevelName": "Aras Bumbung",
+    "TemplateName": "JKR AR - 3D",
+    "OnSheet": false,
+    "SheetNumber": ""
+   },
+   {
+    "Id": 3032,
+    "Name": "Elevation Utara",
+    "Kind": "Elevation",
+    "LevelName": "",
+    "TemplateName": "JKR AR - Elevation",
+    "OnSheet": true,
+    "SheetNumber": "A-201"
+   },
+   {
+    "Id": 3033,
+    "Name": "PBT - Elevation Utara",
+    "Kind": "Elevation",
+    "LevelName": "",
+    "TemplateName": "JKR PBT - Elevation",
+    "OnSheet": false,
+    "SheetNumber": ""
+   },
+   {
+    "Id": 3034,
+    "Name": "Elevation Selatan",
+    "Kind": "Elevation",
+    "LevelName": "",
+    "TemplateName": "JKR AR - Elevation",
+    "OnSheet": true,
+    "SheetNumber": "A-201"
+   },
+   {
+    "Id": 3035,
+    "Name": "PBT - Elevation Selatan",
+    "Kind": "Elevation",
+    "LevelName": "",
+    "TemplateName": "JKR PBT - Elevation",
+    "OnSheet": false,
+    "SheetNumber": ""
+   },
+   {
+    "Id": 3036,
+    "Name": "Elevation Timur",
+    "Kind": "Elevation",
+    "LevelName": "",
+    "TemplateName": "JKR AR - Elevation",
+    "OnSheet": true,
+    "SheetNumber": "A-201"
+   },
+   {
+    "Id": 3037,
+    "Name": "PBT - Elevation Timur",
+    "Kind": "Elevation",
+    "LevelName": "",
+    "TemplateName": "JKR PBT - Elevation",
+    "OnSheet": false,
+    "SheetNumber": ""
+   },
+   {
+    "Id": 3038,
+    "Name": "Elevation Barat",
+    "Kind": "Elevation",
+    "LevelName": "",
+    "TemplateName": "JKR AR - Elevation",
+    "OnSheet": true,
+    "SheetNumber": "A-201"
+   },
+   {
+    "Id": 3039,
+    "Name": "PBT - Elevation Barat",
+    "Kind": "Elevation",
+    "LevelName": "",
+    "TemplateName": "JKR PBT - Elevation",
+    "OnSheet": false,
+    "SheetNumber": ""
+   },
+   {
+    "Id": 3040,
+    "Name": "Section A-A",
+    "Kind": "Section",
+    "LevelName": "",
+    "TemplateName": "JKR AR - Section",
+    "OnSheet": true,
+    "SheetNumber": "A-301"
+   },
+   {
+    "Id": 3041,
+    "Name": "Section B-B",
+    "Kind": "Section",
+    "LevelName": "",
+    "TemplateName": "JKR AR - Section",
+    "OnSheet": true,
+    "SheetNumber": "A-301"
+   },
+   {
+    "Id": 3042,
+    "Name": "PBT - Section A-A",
+    "Kind": "Section",
+    "LevelName": "",
+    "TemplateName": "JKR PBT - Section",
+    "OnSheet": false,
+    "SheetNumber": ""
+   },
+   {
+    "Id": 3043,
+    "Name": "BOMBA - Section A-A",
+    "Kind": "Section",
+    "LevelName": "",
+    "TemplateName": "JKR BOMBA - Section",
+    "OnSheet": false,
+    "SheetNumber": ""
+   },
+   {
+    "Id": 3044,
+    "Name": "BOMBA - Laluan Keluar",
+    "Kind": "DraftingView",
+    "LevelName": "",
+    "TemplateName": "JKR_BOMBA",
+    "OnSheet": false,
+    "SheetNumber": ""
+   },
+   {
+    "Id": 3045,
+    "Name": "Legend Pintu & Tingkap",
+    "Kind": "Legend",
+    "LevelName": "",
+    "TemplateName": "",
+    "OnSheet": true,
+    "SheetNumber": "A-501"
+   },
+   {
+    "Id": 3046,
+    "Name": "Detail Pintu",
+    "Kind": "Detail",
+    "LevelName": "",
+    "TemplateName": "",
+    "OnSheet": true,
+    "SheetNumber": "A-501"
+   },
+   {
+    "Id": 3047,
+    "Name": "Detail Tingkap",
+    "Kind": "Detail",
+    "LevelName": "",
+    "TemplateName": "",
+    "OnSheet": true,
+    "SheetNumber": "A-502"
+   },
+   {
+    "Id": 3048,
+    "Name": "WIP - Aras Bumbung",
+    "Kind": "FloorPlan",
+    "LevelName": "Aras Bumbung",
+    "TemplateName": "JKR_AR_WIP",
+    "OnSheet": false,
+    "SheetNumber": ""
+   },
+   {
+    "Id": 3049,
+    "Name": "WIP - Siling Aras Bumbung",
+    "Kind": "CeilingPlan",
+    "LevelName": "Aras Bumbung",
+    "TemplateName": "JKR_AR_WIP",
+    "OnSheet": false,
+    "SheetNumber": ""
+   },
+   {
+    "Id": 3050,
+    "Name": "Dokumen - 3D Aras Tanah",
+    "Kind": "ThreeD",
+    "LevelName": "Aras Tanah",
+    "TemplateName": "JKR Dokumen - 3D",
+    "OnSheet": false,
+    "SheetNumber": ""
+   },
+   {
+    "Id": 3051,
+    "Name": "Dokumen - 3D Aras 01",
+    "Kind": "ThreeD",
+    "LevelName": "Aras 01",
+    "TemplateName": "JKR Dokumen - 3D",
+    "OnSheet": false,
+    "SheetNumber": ""
+   },
+   {
+    "Id": 3052,
+    "Name": "Dokumen - 3D Aras 02",
+    "Kind": "ThreeD",
+    "LevelName": "Aras 02",
+    "TemplateName": "JKR Dokumen - 3D",
+    "OnSheet": false,
+    "SheetNumber": ""
+   },
+   {
+    "Id": 3053,
+    "Name": "Dokumen - 3D Aras 03",
+    "Kind": "ThreeD",
+    "LevelName": "Aras 03",
+    "TemplateName": "JKR Dokumen - 3D",
+    "OnSheet": false,
+    "SheetNumber": ""
+   },
+   {
+    "Id": 3054,
+    "Name": "Dokumen - 3D Aras 04",
+    "Kind": "ThreeD",
+    "LevelName": "Aras 04",
+    "TemplateName": "JKR Dokumen - 3D",
+    "OnSheet": false,
+    "SheetNumber": ""
+   },
+   {
+    "Id": 3055,
+    "Name": "Dokumen - 3D Aras Bumbung",
+    "Kind": "ThreeD",
+    "LevelName": "Aras Bumbung",
+    "TemplateName": "JKR Dokumen - 3D",
+    "OnSheet": false,
+    "SheetNumber": ""
+   }
+  ],
+  "ViewTemplates": [
+   "JKR AR - Pelan Lantai",
+   "JKR AR - Pelan Siling",
+   "JKR AR - Elevation",
+   "JKR AR - Section",
+   "JKR AR - 3D",
+   "JKR PBT - Pelan",
+   "JKR PBT - Elevation",
+   "JKR PBT - Section",
+   "JKR BOMBA - Pelan",
+   "JKR BOMBA - Section",
+   "JKR Dokumen - Pelan",
+   "JKR_BOMBA",
+   "JKR Dokumen - 3D"
+  ],
+  "Schedules": [
+   {
+    "Id": 4001,
+    "Name": "Jadual SoA",
+    "Category": "Rooms",
+    "Fields": [
+     "Number",
+     "Name",
+     "Level",
+     "Area",
+     "Department",
+     "Kemasan_Lantai_jkr_stt",
+     "Kemasan_Dinding_jkr_stt",
+     "Kemasan_Siling_jkr_stt",
+     "Diterima_jkr_siy",
+     "Luas_Brif_jkr_sia",
+     "Kod_Ruang_AR_jkr_stt",
+     "Occupancy",
+     "Ceiling Finish",
+     "Wall Finish",
+     "Floor Finish",
+     "Tinggi_Siling_jkr_sil",
+     "Kod_Kambi_jkr_sit",
+     "Kod_Sistem_Pengudaraan_jkr_sit",
+     "Kod_Department_jkr_sit"
+    ],
+    "RowElementIds": [
+     800001,
+     800002,
+     800003,
+     800004,
+     800005,
+     800006,
+     800007,
+     800008,
+     800009,
+     800010
+    ],
+    "IsTemplate": false
+   },
+   {
+    "Id": 4002,
+    "Name": "Door Schedule",
+    "Category": "Doors",
+    "Fields": [
+     "Type Mark",
+     "Width",
+     "Height",
+     "Kod_Jenis_jkr_stt"
+    ],
+    "RowElementIds": [
+     204511,
+     204600,
+     204601,
+     204602
+    ],
+    "IsTemplate": false
+   },
+   {
+    "Id": 4003,
+    "Name": "Window Schedule",
+    "Category": "Windows",
+    "Fields": [
+     "Type Mark",
+     "Width",
+     "Height"
+    ],
+    "RowElementIds": [
+     206100,
+     206101,
+     206300
+    ],
+    "IsTemplate": false
+   },
+   {
+    "Id": 4004,
+    "Name": "Material Takeoff",
+    "Category": "",
+    "Fields": [
+     "Material: Name",
+     "Material: Area"
+    ],
+    "RowElementIds": [],
+    "IsTemplate": false
+   },
+   {
+    "Id": 4005,
+    "Name": "Wall Schedule",
+    "Category": "Walls",
+    "Fields": [
+     "Type",
+     "Width"
+    ],
+    "RowElementIds": [
+     205002,
+     205100
+    ],
+    "IsTemplate": false
+   },
+   {
+    "Id": 4006,
+    "Name": "Floor Schedule",
+    "Category": "Floors",
+    "Fields": [
+     "Type",
+     "Area"
+    ],
+    "RowElementIds": [
+     207000
+    ],
+    "IsTemplate": false
+   },
+   {
+    "Id": 4007,
+    "Name": "Railing Schedule",
+    "Category": "Railings",
+    "Fields": [
+     "Type",
+     "Length"
+    ],
+    "RowElementIds": [
+     210000
+    ],
+    "IsTemplate": false
+   },
+   {
+    "Id": 4008,
+    "Name": "Ceiling Schedule",
+    "Category": "Ceilings",
+    "Fields": [
+     "Type",
+     "Area"
+    ],
+    "RowElementIds": [
+     208000
+    ],
+    "IsTemplate": false
+   },
+   {
+    "Id": 4009,
+    "Name": "Roof Schedule",
+    "Category": "Roofs",
+    "Fields": [
+     "Type",
+     "Area"
+    ],
+    "RowElementIds": [
+     209000
+    ],
+    "IsTemplate": false
+   },
+   {
+    "Id": 4010,
+    "Name": "Stair Schedule",
+    "Category": "Stairs",
+    "Fields": [
+     "Type",
+     "Count"
+    ],
+    "RowElementIds": [],
+    "IsTemplate": false
+   }
+  ],
+  "Sheets": [
+   {
+    "Id": 5900,
+    "Number": "A-101",
+    "Name": "Pelan Aras Tanah",
+    "TitleBlock": "JKR_A1_Titleblock : A1",
+    "Params": {
+     "Project Name": "Dewan Serbaguna Kg. Baru",
+     "Sheet Name": "Pelan Aras Tanah",
+     "Drawn By": "AR. Siti Aminah",
+     "Sheet Issue Date": "2026-11-02"
+    },
+    "ViewKinds": [
+     "FloorPlan"
+    ],
+    "ViewNames": [
+     "Dokumen - Pelan Aras Tanah"
+    ]
+   },
+   {
+    "Id": 5901,
+    "Number": "A-102",
+    "Name": "Pelan Aras 01",
+    "TitleBlock": "JKR_A1_Titleblock : A1",
+    "Params": {
+     "Project Name": "Dewan Serbaguna Kg. Baru",
+     "Sheet Name": "Pelan Aras 01",
+     "Drawn By": "AR. Siti Aminah",
+     "Sheet Issue Date": "2026-11-02"
+    },
+    "ViewKinds": [
+     "FloorPlan"
+    ],
+    "ViewNames": [
+     "Dokumen - Pelan Aras 01"
+    ]
+   },
+   {
+    "Id": 5902,
+    "Number": "A-103",
+    "Name": "Pelan Aras 02",
+    "TitleBlock": "JKR_A1_Titleblock : A1",
+    "Params": {
+     "Project Name": "Dewan Serbaguna Kg. Baru",
+     "Sheet Name": "Pelan Aras 02",
+     "Drawn By": "AR. Siti Aminah",
+     "Sheet Issue Date": "2026-11-02"
+    },
+    "ViewKinds": [
+     "FloorPlan"
+    ],
+    "ViewNames": [
+     "Dokumen - Pelan Aras 02"
+    ]
+   },
+   {
+    "Id": 5903,
+    "Number": "A-104",
+    "Name": "Pelan Aras 03",
+    "TitleBlock": "JKR_A1_Titleblock : A1",
+    "Params": {
+     "Project Name": "Dewan Serbaguna Kg. Baru",
+     "Sheet Name": "Pelan Aras 03",
+     "Drawn By": "AR. Siti Aminah",
+     "Sheet Issue Date": "2026-11-02"
+    },
+    "ViewKinds": [
+     "FloorPlan"
+    ],
+    "ViewNames": [
+     "Dokumen - Pelan Aras 03"
+    ]
+   },
+   {
+    "Id": 5904,
+    "Number": "A-105",
+    "Name": "Pelan Aras 04",
+    "TitleBlock": "JKR_A1_Titleblock : A1",
+    "Params": {
+     "Project Name": "Dewan Serbaguna Kg. Baru",
+     "Sheet Name": "Pelan Aras 04",
+     "Drawn By": "AR. Siti Aminah",
+     "Sheet Issue Date": "2026-11-02"
+    },
+    "ViewKinds": [
+     "FloorPlan"
+    ],
+    "ViewNames": [
+     "Dokumen - Pelan Aras 04"
+    ]
+   },
+   {
+    "Id": 5910,
+    "Number": "A-201",
+    "Name": "Elevation",
+    "TitleBlock": "JKR_A1_Titleblock : A1",
+    "Params": {
+     "Project Name": "Dewan Serbaguna Kg. Baru",
+     "Sheet Name": "Elevation",
+     "Drawn By": "AR. Siti Aminah",
+     "Sheet Issue Date": "2026-11-02"
+    },
+    "ViewKinds": [
+     "Elevation",
+     "Elevation",
+     "Elevation",
+     "Elevation"
+    ],
+    "ViewNames": [
+     "Elevation Utara",
+     "Elevation Selatan",
+     "Elevation Timur",
+     "Elevation Barat"
+    ]
+   },
+   {
+    "Id": 5911,
+    "Number": "A-301",
+    "Name": "Section",
+    "TitleBlock": "JKR_A1_Titleblock : A1",
+    "Params": {
+     "Project Name": "Dewan Serbaguna Kg. Baru",
+     "Sheet Name": "Section",
+     "Drawn By": "AR. Siti Aminah",
+     "Sheet Issue Date": "2026-11-02"
+    },
+    "ViewKinds": [
+     "Section",
+     "Section"
+    ],
+    "ViewNames": [
+     "Section A-A",
+     "Section B-B"
+    ]
+   },
+   {
+    "Id": 5912,
+    "Number": "A-401",
+    "Name": "Pelan Siling",
+    "TitleBlock": "JKR_A1_Titleblock : A1",
+    "Params": {
+     "Project Name": "Dewan Serbaguna Kg. Baru",
+     "Sheet Name": "Pelan Siling",
+     "Drawn By": "AR. Siti Aminah",
+     "Sheet Issue Date": "2026-11-02"
+    },
+    "ViewKinds": [
+     "CeilingPlan"
+    ],
+    "ViewNames": [
+     "WIP - Siling Aras Tanah"
+    ]
+   },
+   {
+    "Id": 5913,
+    "Number": "A-501",
+    "Name": "Butiran Pintu",
+    "TitleBlock": "JKR_A1_Titleblock : A1",
+    "Params": {
+     "Project Name": "Dewan Serbaguna Kg. Baru",
+     "Sheet Name": "Butiran Pintu",
+     "Drawn By": "AR. Siti Aminah",
+     "Sheet Issue Date": "2026-11-02"
+    },
+    "ViewKinds": [
+     "Detail",
+     "Legend"
+    ],
+    "ViewNames": [
+     "Detail Pintu",
+     "Legend Pintu & Tingkap"
+    ]
+   },
+   {
+    "Id": 5914,
+    "Number": "A-502",
+    "Name": "Butiran Tingkap",
+    "TitleBlock": "JKR_A1_Titleblock : A1",
+    "Params": {
+     "Project Name": "Dewan Serbaguna Kg. Baru",
+     "Sheet Name": "Butiran Tingkap",
+     "Drawn By": "AR. Siti Aminah",
+     "Sheet Issue Date": "2026-11-02"
+    },
+    "ViewKinds": [
+     "Detail"
+    ],
+    "ViewNames": [
+     "Detail Tingkap"
+    ]
+   }
+  ],
+  "Links": [
+   {
+    "Name": "jkrST24_5a_(BEde1A_p14-001)_A1_w-01.rvt",
+    "Status": "Loaded"
+   },
+   {
+    "Name": "jkrME24_5a_(BEde1A_p14-001)_A1_w-01.rvt",
+    "Status": "Loaded"
+   },
+   {
+    "Name": "jkrEL24_5a_(BEde1A_p14-001)_A1_w-01.rvt",
+    "Status": "Loaded"
+   }
+  ],
+  "ProjectInfo": {
+   "Project Name": "Dewan Serbaguna Kg. Baru",
+   "Project Number": "JKR/BEde1A/p14-001",
+   "Building Name": "Dewan Serbaguna",
+   "Client Name": "Kementerian Belia dan Sukan",
+   "Project Address": "Lot 1234, Jalan Dewan, 43000 Kajang",
+   "Project Status": "Reka bentuk terperinci",
+   "Project Issue Date": "2026-11-02",
+   "Author": "AR. Siti Aminah",
+   "Arkitek_jkr_sit": "Ir. Contoh Arkitek",
+   "Arkitek_Kanan_jkr_sit": "Ir. Contoh Arkitek",
+   "Arkitek_Penguasa_jkr_sit": "Ir. Contoh Arkitek",
+   "Arkitek_Penguasa_Kanan_jkr_sit": "Ir. Contoh Arkitek",
+   "Pengarah_AR_jkr_sit": "Ir. Contoh Pengarah",
+   "Pengarah_Kanan_AR_jkr_sit": "Ir. Contoh Pengarah",
+   "Pengarah_Projek_jkr_sit": "Ir. Contoh Pengarah",
+   "Perunding_Alam_Sekitar_jkr_sit": "Ir. Contoh Perunding",
+   "Perunding_Arkitek_jkr_sit": "Ir. Contoh Perunding",
+   "Perunding_Arkitek_Landskap_jkr_sit": "Ir. Contoh Perunding",
+   "Perunding_Elektrik_jkr_sit": "Ir. Contoh Perunding",
+   "Perunding_Informasi_Teknologi_jkr_sit": "Ir. Contoh Perunding",
+   "Perunding_Juru_Ukur_Bahan_jkr_sit": "Ir. Contoh Perunding",
+   "Perunding_Jurutera_Awam_dan_Struktur_jkr_sit": "Ir. Contoh Perunding",
+   "Perunding_Mekanikal_jkr_sit": "Ir. Contoh Perunding",
+   "Perunding_Peralatan_Perubatan_jkr_sit": "Ir. Contoh Perunding",
+   "Perunding_Perancangan_Ruang_Perubatan_jkr_sit": "Ir. Contoh Perunding",
+   "Kedudukan_Project_Base_Point_jkr_sit": "Grid A & 1",
+   "No_Fail_AR_jkr_sit": "Ir. Contoh No",
+   "No_Model_BIM_AR_jkr_sit": "Ir. Contoh No",
+   "Template_Asal_jkr_sit": "Ir. Contoh Template",
+   "URL_Projek_jkr_siu": "https://cde.jkr.gov.my/p/BEde1A",
+   "Bilangan_Kapasiti_jkr_sit": "63",
+   "Bilangan_Parkir_Diperlukan_jkr_sii": "64",
+   "Bilangan_Parkir_Disediakan_jkr_sii": "65",
+   "Luas_Brif_Projek_jkr_sia": "146.0",
+   "Kumpulan_Maksud_Bangunan_jkr_sit": "Ir. Contoh Kumpulan",
+   "Luas_Bersih_NFA_jkr_sia": "148.0",
+   "Luas_Kasar_GFA_jkr_sia": "149.0",
+   "Luas_Tapak_Bangunan_jkr_sia": "150.0",
+   "Luas_Tapak_Projek_jkr_sia": "151.0",
+   "Alamat_Pelanggan_jkr_six": "Ir. Contoh Alamat",
+   "Kos_Projek_jkr_sic": "RM 12,500,000",
+   "Tarikh_Milik_Tapak_jkr_sit": "2026-08-12",
+   "Tarikh_Kelulusan_Bomba_jkr_sit": "2026-08-13",
+   "Tarikh_Kelulusan_PBT_jkr_sit": "2026-08-14",
+   "Tarikh_Kelulusan_Pelanggan_jkr_sit": "2026-08-15"
+  },
+  "CategoryCounts": {
+   "Doors": 10,
+   "Windows": 3,
+   "Walls": 6,
+   "Floors": 5,
+   "Ceilings": 5,
+   "Roofs": 1,
+   "Railings": 3,
+   "Rooms": 10,
+   "Stairs": 2,
+   "Columns": 0,
+   "Structural Columns": 0,
+   "Casework": 0
+  },
+  "ReadErrors": []
+ }
+}

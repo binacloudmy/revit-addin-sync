@@ -144,30 +144,94 @@ namespace RevitWebAppSync.Tests
                 .ToDictionary(e => (string)e.Attribute(x + "Key"), e => ((string)e.Attribute("Color")).ToUpperInvariant());
         }
 
-        [Theory]
-        [InlineData("Bz.Brand", "#F2C200")]
-        [InlineData("Bz.OnBrand", "#0F0F0F")]
-        [InlineData("Bz.Ink", "#0F0F0F")]
-        [InlineData("Bz.Chrome", "#0B0F1A")]
-        [InlineData("Bz.Chrome2", "#161C2B")]
-        [InlineData("Bz.Text", "#161616")]
-        [InlineData("Bz.Text2", "#4B4F57")]
-        [InlineData("Bz.Text3", "#686C74")]
-        [InlineData("Bz.Line", "#E7E6E2")]
-        [InlineData("Bz.Line2", "#D6D4CE")]
-        [InlineData("Bz.Sunken", "#F5F5F3")]
-        [InlineData("Bz.BrandTint", "#FEF8DC")]
-        [InlineData("Bz.High", "#C23B3B")]
-        [InlineData("Bz.HighText", "#B42F2F")]
-        [InlineData("Bz.Med", "#EA580C")]
-        [InlineData("Bz.MedText", "#B83D0B")]
-        [InlineData("Bz.Low", "#6B7079")]
-        [InlineData("Bz.Manual", "#4A4EB0")]
-        [InlineData("Bz.ManualBg", "#F2F2FC")]
-        [InlineData("Bz.Ok", "#2E7D4F")]
-        public void Tokens_are_the_briefs_values(string key, string hex)
+        /// <summary>The pane uses the product's design tokens (UI/Copilot/CopilotTokens.xaml).
+        /// Every Bz.* brush mirrors the Cp.* key named in its comment, so the two files
+        /// are read and compared here: a Copilot palette change that is not carried into
+        /// the pane fails this test.</summary>
+        private static Dictionary<string, string> CopilotBrushes()
         {
-            Assert.Equal(hex, Brushes()[key]);
+            var doc = XDocument.Load(Path.Combine(RepoRoot(), "UI", "Copilot", "CopilotTokens.xaml"));
+            XNamespace x = "http://schemas.microsoft.com/winfx/2006/xaml";
+            return doc.Root.Elements()
+                .Where(e => e.Name.LocalName == "SolidColorBrush")
+                .ToDictionary(e => (string)e.Attribute(x + "Key"), e => ((string)e.Attribute("Color")).ToUpperInvariant());
+        }
+
+        /// <summary>Bz key → the Cp key it mirrors, read from the comment after each brush.</summary>
+        private static Dictionary<string, string> TokenMirrors()
+        {
+            var text = File.ReadAllText(Path.Combine(RepoRoot(), "UI", "Jkr", "Panel", "PanelTokens.xaml"));
+            var rx = new System.Text.RegularExpressions.Regex("x:Key=\"(Bz\\.[A-Za-z0-9.]+)\"[^\n]*?<!--\\s*(Cp\\.[A-Za-z0-9.]+)\\s*-->");
+            return rx.Matches(text).Cast<System.Text.RegularExpressions.Match>()
+                .ToDictionary(m => m.Groups[1].Value, m => m.Groups[2].Value);
+        }
+
+        [Theory]
+        [InlineData("Bz.Brand", "Cp.Jkr.Dark.Action")]
+        [InlineData("Bz.OnBrand", "Cp.Jkr.Dark.OnAction")]
+        [InlineData("Bz.Ink", "Cp.Dark.Ink2")]
+        [InlineData("Bz.Chrome", "Cp.Dark.Bg")]
+        [InlineData("Bz.Chrome2", "Cp.Dark.Sunken")]
+        [InlineData("Bz.Surface", "Cp.Dark.Bg")]
+        [InlineData("Bz.Text", "Cp.Dark.Ink")]
+        [InlineData("Bz.Text2", "Cp.Dark.Muted")]
+        [InlineData("Bz.Text3", "Cp.Jkr.Dark.Faint")]
+        [InlineData("Bz.Line", "Cp.Dark.Line")]
+        [InlineData("Bz.Line2", "Cp.Dark.Hair2")]
+        [InlineData("Bz.Sunken", "Cp.Dark.Sunken")]
+        [InlineData("Bz.BrandTint", "Cp.Dark.BlueSoft")]
+        [InlineData("Bz.High", "Cp.Jkr.Dark.FailDot")]
+        [InlineData("Bz.HighText", "Cp.Jkr.Dark.Fail")]
+        [InlineData("Bz.Med", "Cp.Jkr.Dark.WarnDot")]
+        [InlineData("Bz.MedText", "Cp.Jkr.Dark.Warn")]
+        [InlineData("Bz.Low", "Cp.Jkr.Dark.Listed")]
+        [InlineData("Bz.Manual", "Cp.Jkr.Dark.Person")]
+        [InlineData("Bz.ManualBg", "Cp.Jkr.Dark.PersonBg")]
+        [InlineData("Bz.Ok", "Cp.Jkr.Dark.Pass")]
+        public void Tokens_are_the_Copilot_design_tokens(string key, string cpKey)
+        {
+            Assert.Equal(CopilotBrushes()[cpKey], Brushes()[key]);
+        }
+
+        [Fact]
+        public void Every_mirrored_token_matches_its_Copilot_source()
+        {
+            var bz = Brushes();
+            var cp = CopilotBrushes();
+            var mirrors = TokenMirrors();
+            Assert.True(mirrors.Count >= 60, "mirror comments not found: " + mirrors.Count);
+            foreach (var m in mirrors)
+            {
+                Assert.True(cp.ContainsKey(m.Value), m.Key + " mirrors unknown " + m.Value);
+                Assert.True(bz[m.Key] == cp[m.Value], m.Key + " = " + bz[m.Key] + " but " + m.Value + " = " + cp[m.Value]);
+            }
+        }
+
+        [Fact]
+        public void The_fixed_Slate_keys_are_the_Copilot_dark_palette()
+        {
+            // CopilotTheme.Palette holds ("light", "dark") per Cp key; Cp.Dark.<Name> must
+            // be that key's dark value, so the always-dark JKR pane tracks Copilot's Slate.
+            var theme = File.ReadAllText(Path.Combine(RepoRoot(), "UI", "Copilot", "CopilotTheme.cs"));
+            var rx = new System.Text.RegularExpressions.Regex("\\[\"Cp\\.([A-Za-z0-9]+)\"\\]\\s*=\\s*\\(\"#[0-9A-Fa-f]+\",\\s*\"(#[0-9A-Fa-f]+)\"\\)");
+            var dark = rx.Matches(theme).Cast<System.Text.RegularExpressions.Match>()
+                .ToDictionary(m => m.Groups[1].Value, m => m.Groups[2].Value.ToUpperInvariant());
+            var cp = CopilotBrushes();
+            var pairs = new[] { ("Bg", "Bg"), ("Sunken", "Sunken"), ("Menu", "Menu"), ("Ink", "Ink"), ("Ink2", "Ink2"),
+                                ("Muted", "Muted"), ("Line", "Line"), ("Hair2", "Hair2"), ("LineSoft", "LineSoft"),
+                                ("Hover", "Hover"), ("Accent", "Accent"), ("BlueSoft", "BlueSoft"), ("BlueText", "BlueText"),
+                                ("CodeFg", "CodeFg") };
+            foreach (var (fixedName, themeKey) in pairs)
+                Assert.True(cp["Cp.Dark." + fixedName] == dark[themeKey],
+                    "Cp.Dark." + fixedName + " = " + cp["Cp.Dark." + fixedName] + " but CopilotTheme dark Cp." + themeKey + " = " + dark[themeKey]);
+        }
+
+        [Fact]
+        public void The_pane_no_longer_uses_the_yellow_brand()
+        {
+            var dir = Path.Combine(RepoRoot(), "UI", "Jkr", "Panel");
+            foreach (var f in Directory.GetFiles(dir, "*.xaml"))
+                Assert.DoesNotContain("F2C200", File.ReadAllText(f).ToUpperInvariant());
         }
 
         [Fact]

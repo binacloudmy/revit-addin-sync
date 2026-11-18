@@ -4,79 +4,67 @@
         Width="560" SizeToContent="Height"
         WindowStyle="None" AllowsTransparency="True" ResizeMode="NoResize"
         Background="Transparent" WindowStartupLocation="CenterOwner"
-        ShowInTaskbar="False" FontFamily="Segoe UI" FontSize="13"
-        Foreground="#161616" TextOptions.TextFormattingMode="Display">
-    <!-- Prototype "Model Audit Prototype.dc.html" .cf-scrim / .cf (frames f-confirm,
-         f-paid). Colours are the prototype's literal values until step 7 moves
-         them into the pane's token dictionary. -->
+        ShowInTaskbar="False" FontFamily="{DynamicResource Bz.Font.Sans}" FontSize="13"
+        Foreground="{DynamicResource Bz.Text}" TextOptions.TextFormattingMode="Display">
+    <!-- Confirm before a write: Direction C "Verify", step confirm. The dark card,
+         a 44 px header over a hairline, the change rows on soft dividers (old value
+         struck in fail tone, new value in pass tone), the pause and consent panels
+         flat, and Cancel / Confirm on the sunken bar. No animation. -->
     <Window.Resources>
-        <Style x:Key="BtnGhost" TargetType="Button">
-            <Setter Property="Background" Value="#FFFFFF"/>
-            <Setter Property="Foreground" Value="#2B2E33"/>
-            <Setter Property="BorderBrush" Value="#D6D4CE"/>
-            <Setter Property="FontSize" Value="12"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="Bd" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="1" CornerRadius="5" Padding="10,6,10,6">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="#F5F5F3"/>
-                            </Trigger>
-                            <Trigger Property="IsKeyboardFocused" Value="True">
-                                <Setter TargetName="Bd" Property="BorderBrush" Value="#0F0F0F"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-        <Style x:Key="BtnPrimary" TargetType="Button">
-            <Setter Property="Background" Value="#F2C200"/>
-            <Setter Property="Foreground" Value="#0F0F0F"/>
-            <Setter Property="FontSize" Value="12"/>
-            <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="Bd" Background="{TemplateBinding Background}" CornerRadius="5" Padding="10,6,10,6"
-                                BorderThickness="1" BorderBrush="Transparent">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="#E3B600"/>
-                            </Trigger>
-                            <Trigger Property="IsKeyboardFocused" Value="True">
-                                <Setter TargetName="Bd" Property="BorderBrush" Value="#0F0F0F"/>
-                            </Trigger>
-                            <Trigger Property="IsEnabled" Value="False">
-                                <Setter TargetName="Bd" Property="Background" Value="#EDEDEA"/>
-                                <Setter Property="Foreground" Value="#8A8D93"/>
-                                <Setter Property="Cursor" Value="Arrow"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="pack://application:,,,/RevitWebAppSync;component/UI/Jkr/Panel/PanelTokens.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+
+            <!-- Consent tick: a 16 px box on the blue tint, amber when ticked -->
+            <Style x:Key="ConsentBoxStyle" TargetType="CheckBox">
+                <Setter Property="Foreground" Value="{StaticResource Bz.TextBody}"/>
+                <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="MinHeight" Value="28"/>
+                <Setter Property="FocusVisualStyle" Value="{StaticResource Bz.FocusRing}"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="CheckBox">
+                            <Grid Background="Transparent">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Border x:Name="Box" Width="16" Height="16" CornerRadius="4" Margin="0,1,8,0" VerticalAlignment="Top"
+                                        Background="{StaticResource Bz.Sunken}" BorderBrush="{StaticResource Bz.Line2}" BorderThickness="1" SnapsToDevicePixels="True">
+                                    <Path x:Name="Tick" Data="M5,12 L10,17 L19,7" Stroke="{StaticResource Bz.OnBrand}" StrokeThickness="3"
+                                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                                          Width="10" Height="10" Stretch="Uniform" Visibility="Collapsed"/>
+                                </Border>
+                                <ContentPresenter Grid.Column="1" VerticalAlignment="Top"/>
+                            </Grid>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Box" Property="BorderBrush" Value="{StaticResource Bz.Brand}"/>
+                                </Trigger>
+                                <Trigger Property="IsChecked" Value="True">
+                                    <Setter TargetName="Box" Property="Background" Value="{StaticResource Bz.Brand}"/>
+                                    <Setter TargetName="Box" Property="BorderBrush" Value="{StaticResource Bz.Brand}"/>
+                                    <Setter TargetName="Tick" Property="Visibility" Value="Visible"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+        </ResourceDictionary>
     </Window.Resources>
 
-    <!-- Scrim: rgba(9,11,16,.6). Clicking it cancels. Normally the window covers
-         Revit's main window (CoverRevitWindow); if that can't be measured it
-         sizes to the card, and the scrim margin leaves room for the shadow. -->
-    <Grid x:Name="Scrim" Background="#99090B10" MouseLeftButtonDown="Scrim_MouseDown">
-        <Border x:Name="Card" MaxWidth="420" Margin="40" Background="#FFFFFF" CornerRadius="8"
-                Padding="22,20,22,20" VerticalAlignment="Center" HorizontalAlignment="Center"
+    <!-- Scrim over Revit. Clicking it cancels. Normally the window covers Revit's
+         main window (CoverRevitWindow); if that can't be measured it sizes to the
+         card, and the scrim margin leaves room for the shadow. -->
+    <Grid x:Name="Scrim" Background="{StaticResource Bz.Scrim}" MouseLeftButtonDown="Scrim_MouseDown">
+        <Border x:Name="Card" MaxWidth="440" Margin="40" Background="{StaticResource Bz.Surface}"
+                BorderBrush="{StaticResource Bz.Line2}" BorderThickness="1" CornerRadius="12"
+                VerticalAlignment="Center" HorizontalAlignment="Center"
                 MouseLeftButtonDown="Card_MouseDown">
             <Border.Effect>
-                <!-- box-shadow: 0 24px 64px rgba(0,0,0,.4) -->
-                <DropShadowEffect Color="Black" BlurRadius="64" ShadowDepth="24" Direction="270" Opacity="0.4"/>
+                <DropShadowEffect Color="#000000" BlurRadius="40" ShadowDepth="12" Direction="270" Opacity="0.55"/>
             </Border.Effect>
             <!-- Grid, not StackPanel: when the card is capped by the window height
                  the change list (the * row) shrinks and scrolls, so the buttons
@@ -91,26 +79,29 @@
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
-                <TextBlock Grid.Row="0" x:Name="TitleText" FontSize="16" FontWeight="SemiBold" Foreground="#161616"
-                           TextWrapping="Wrap"/>
-                <TextBlock Grid.Row="1" x:Name="SubText" FontSize="12.5" Foreground="#4B4F57" LineHeight="19.4"
-                           TextWrapping="Wrap" Margin="0,14,0,0"/>
+                <!-- Header, 44 px: the title over a hairline -->
+                <Border Grid.Row="0" MinHeight="44" BorderBrush="{StaticResource Bz.Line}" BorderThickness="0,0,0,1" Padding="18,0,18,0">
+                    <TextBlock x:Name="TitleText" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource Bz.Text}"
+                               TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,11,0,11"/>
+                </Border>
 
-                <!-- .cf-rows: max 220 tall, scrolls -->
-                <Border Grid.Row="2" Margin="0,14,0,0" BorderBrush="#E7E6E2" BorderThickness="1" CornerRadius="6"
-                        VerticalAlignment="Top" MinHeight="60">
+                <TextBlock Grid.Row="1" x:Name="SubText" FontSize="13" Foreground="{StaticResource Bz.Text2}" LineHeight="19.5"
+                           TextWrapping="Wrap" Margin="18,14,18,0"/>
+
+                <!-- The changes: soft dividers, no frame; max 220 tall, scrolls -->
+                <Border Grid.Row="2" Margin="18,12,18,0" BorderBrush="{StaticResource Bz.Line}" BorderThickness="0,1,0,0"
+                        VerticalAlignment="Top" MinHeight="44" ClipToBounds="True">
                     <ScrollViewer MaxHeight="220" VerticalScrollBarVisibility="Auto" ClipToBounds="True">
-                        <!-- Last row's divider is hidden under the frame (prototype .cf-r:last-child). -->
-                        <ItemsControl x:Name="RowsList" Margin="0,0,0,-1">
+                        <ItemsControl x:Name="RowsList">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
-                                    <Border Padding="10,8,10,8" BorderBrush="#EFEEEA" BorderThickness="0,0,0,1">
+                                    <Border Padding="0,9,0,9" BorderBrush="{StaticResource Bz.LineSoft}" BorderThickness="0,0,0,1">
                                         <StackPanel>
-                                            <TextBlock Text="{Binding Caption}" FontSize="11" Foreground="#686C74"
-                                                       TextTrimming="CharacterEllipsis"/>
-                                            <TextBlock FontFamily="JetBrains Mono, Cascadia Mono, Consolas" FontSize="11.5"
-                                                       TextWrapping="Wrap" Margin="0,2,0,0">
-                                                <Run Text="{Binding Actual, Mode=OneWay}" Foreground="#A12E2E"/><Run Text=" → " Foreground="#161616"/><Run Text="{Binding Proposed, Mode=OneWay}" Foreground="#1E6B3F"/>
+                                            <TextBlock Text="{Binding Caption}" FontSize="12.5" Foreground="{StaticResource Bz.Text}"
+                                                       TextTrimming="CharacterEllipsis" ToolTip="{Binding Caption}"/>
+                                            <TextBlock FontFamily="{StaticResource Bz.Font.Mono}" FontSize="12"
+                                                       TextWrapping="Wrap" Margin="0,4,0,0">
+                                                <Run Text="{Binding Actual, Mode=OneWay}" Foreground="{StaticResource Bz.Tone.Fail}" TextDecorations="Strikethrough"/><Run Text="  →  " Foreground="{StaticResource Bz.Text3}"/><Run Text="{Binding Proposed, Mode=OneWay}" Foreground="{StaticResource Bz.Tone.Pass}" FontWeight="SemiBold"/>
                                             </TextBlock>
                                         </StackPanel>
                                     </Border>
@@ -120,26 +111,32 @@
                     </ScrollViewer>
                 </Border>
 
-                <!-- "Revit may pause" (500+ affected elements). Same amber as the consent box. -->
-                <Border Grid.Row="3" x:Name="PauseBox" Visibility="Collapsed" Margin="0,14,0,0" Background="#FEF8DC"
-                        CornerRadius="6" Padding="12,10,12,10">
-                    <TextBlock x:Name="PauseText" FontSize="12.5" LineHeight="18.75" TextWrapping="Wrap" Foreground="#161616"/>
+                <!-- "Revit may pause" (500+ affected elements): the warning tint -->
+                <Border Grid.Row="3" x:Name="PauseBox" Visibility="Collapsed" Margin="18,12,18,0" Background="{StaticResource Bz.MedBg}"
+                        CornerRadius="10" Padding="14,10,14,10">
+                    <TextBlock x:Name="PauseText" FontSize="12" LineHeight="18" TextWrapping="Wrap" Foreground="{StaticResource Bz.MedText}"/>
                 </Border>
 
-                <!-- .cons: paid action consent; starts unticked -->
-                <Border Grid.Row="4" x:Name="ConsentBox" Visibility="Collapsed" Margin="0,14,0,0" Background="#FEF8DC"
-                        CornerRadius="6" Padding="12,10,12,10" Cursor="Hand">
-                    <CheckBox x:Name="ConsentCheck" VerticalContentAlignment="Top"
+                <!-- Paid action consent on the blue info tint; starts unticked -->
+                <Border Grid.Row="4" x:Name="ConsentBox" Visibility="Collapsed" Margin="18,12,18,0" Background="{StaticResource Bz.BrandTint}"
+                        CornerRadius="10" Padding="14,10,14,10" Cursor="Hand">
+                    <CheckBox x:Name="ConsentCheck" Style="{StaticResource ConsentBoxStyle}" VerticalContentAlignment="Top"
                               Checked="Consent_Changed" Unchecked="Consent_Changed">
-                        <TextBlock x:Name="ConsentText" FontSize="12.5" LineHeight="18.75" TextWrapping="Wrap"
-                                   Foreground="#161616" Margin="4,0,0,0"/>
+                        <TextBlock x:Name="ConsentText" FontSize="12" LineHeight="18" TextWrapping="Wrap"
+                                   Foreground="{StaticResource Bz.TextBody}"/>
                     </CheckBox>
                 </Border>
 
-                <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
-                    <Button x:Name="CancelBtn" Style="{StaticResource BtnGhost}" Click="Cancel_Click" IsCancel="True"/>
-                    <Button x:Name="ConfirmBtn" Style="{StaticResource BtnPrimary}" Margin="8,0,0,0" Click="Confirm_Click"/>
-                </StackPanel>
+                <!-- Footer: Cancel and Confirm, right-aligned, on the sunken bar -->
+                <Border Grid.Row="5" Margin="0,18,0,0" Background="{StaticResource Bz.Sunken}" BorderBrush="{StaticResource Bz.Line}"
+                        BorderThickness="0,1,0,0" CornerRadius="0,0,11,11" Padding="18,10,18,10">
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button x:Name="CancelBtn" Style="{StaticResource Bz.Btn.Ghost}" Height="36" Padding="14,0,14,0" FontSize="12.5"
+                                BorderBrush="{StaticResource Bz.Line2}" Click="Cancel_Click" IsCancel="True"/>
+                        <Button x:Name="ConfirmBtn" Style="{StaticResource Bz.Btn.Primary}" Height="36" Padding="16,0,16,0" FontSize="12.5"
+                                Margin="8,0,0,0" Click="Confirm_Click"/>
+                    </StackPanel>
+                </Border>
             </Grid>
         </Border>
     </Grid>

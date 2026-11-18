@@ -50,7 +50,10 @@ namespace RevitWebAppSync.UI.Jkr.Export
     /// (2-design/claude-design/borang-export-template.html + DESIGN-HANDOFF.md):
     /// every row of the form, marked from the run's BIM010 summary (which holds a
     /// mark for every row, passing ones included — never rebuilt from the issue
-    /// list), with remarks from the issues on that row. Three-state rule: comply
+    /// list), with remarks from the issues on that row. With a spec-based summary
+    /// (SpecBorang: the marks and summary box of the JKR Model Audit spec, the same
+    /// numbers as the Results screen) the remarks list the issues behind each mark.
+    /// Three-state rule: comply
     /// → √, not comply → X, a person decides → neither, remark "SEMAK MANUAL — …".
     /// The template is English only, so the form is English whatever the pane's
     /// language. WPF- and Revit-free.
@@ -207,6 +210,8 @@ namespace RevitWebAppSync.UI.Jkr.Export
         /// a person decides, else dark grey.</summary>
         public static (string Text, string Color) RemarkFor(string key, string mark, Bim010Summary summary, IReadOnlyList<IssueVm> issues)
         {
+            if (summary != null && summary.SpecBased)
+                return SpecRemarkFor(key, mark, summary, issues ?? Array.Empty<IssueVm>());
             var onRow = issues.Where(i => string.Equals(i.BorangKey, key, StringComparison.OrdinalIgnoreCase)
                                           && !(i.Status == IssueStatus.Fixed && i.FixVerified)).ToList();
             var parts = new List<string>();
@@ -225,6 +230,46 @@ namespace RevitWebAppSync.UI.Jkr.Export
             var text = string.Join("; ", parts);
             var color = mark == "n" ? Red : mark == "m" ? ManualBlue : TextColor;
             return (text, color);
+        }
+
+        /// <summary>
+        /// Remarks for a row of a spec-based summary (SpecBorang): the issues behind the
+        /// row's mark, picked by id (not by the issue's Borang key: an older checker's
+        /// issue on the same row may say X where the spec says a person decides).
+        /// Failures first (their state: fixed / ignored); then "SEMAK MANUAL — " with
+        /// what a person decides — issues the spec leaves to a person are listed there
+        /// even when their checker called them a failure — and the checks not yet
+        /// checked. With no issues, the row's notes. A √ row has no remark.
+        /// </summary>
+        private static (string Text, string Color) SpecRemarkFor(string key, string mark, Bim010Summary summary, IReadOnlyList<IssueVm> issues)
+        {
+            var color = mark == "n" ? Red : mark == "m" ? ManualBlue : TextColor;
+            if (!summary.Rows.TryGetValue(key, out var rm) || rm == null || mark == "y" || mark == "") return ("", color);
+
+            var live = issues.Where(i => i != null && !(i.Status == IssueStatus.Fixed && i.FixVerified)).ToList();
+            List<IssueVm> Of(IEnumerable<string> ids) =>
+                (ids ?? Enumerable.Empty<string>()).SelectMany(id => live.Where(i => i.Id == id)).Distinct().ToList();
+            var failIssues = Of(rm.FailIssueIds);
+            var manualIssues = Of(rm.ManualIssueIds).Concat(failIssues.Where(i => i.NeedsPerson)).Distinct().ToList();
+            failIssues = failIssues.Where(i => !i.NeedsPerson).ToList();
+
+            var parts = new List<string>();
+            var fails = failIssues.Select(FailText).Where(t => t.Length > 0).Distinct().ToList();
+            if (fails.Count == 0 && mark == "n")
+            {
+                var manualNotes = new HashSet<string>(rm.ManualNotes ?? new List<string>());
+                fails = rm.Notes.Where(n => !manualNotes.Contains(n) && n != rm.NotCheckedNote).Select(Clean).Where(n => n.Length > 0).Distinct().ToList();
+            }
+            if (fails.Count > 0) parts.Add(string.Join("; ", Cap(fails)));
+
+            var reasons = manualIssues.Select(i => Clean(i.Description).Length > 0 ? Clean(i.Description) : FailText(i))
+                                      .Where(t => t.Length > 0).Distinct().ToList();
+            if (reasons.Count == 0) reasons = (rm.ManualNotes ?? new List<string>()).Select(Clean).Where(n => n.Length > 0).Distinct().ToList();
+            reasons = Cap(reasons);
+            if (!string.IsNullOrEmpty(rm.NotCheckedNote)) reasons.Add(rm.NotCheckedNote);
+            if (reasons.Count > 0) parts.Add("SEMAK MANUAL — " + string.Join("; ", reasons));
+
+            return (string.Join("; ", parts), color);
         }
 
         private static string FailText(IssueVm i)
