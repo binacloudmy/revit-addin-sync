@@ -72,8 +72,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
     {
         private static readonly Dictionary<string, string> SevColor = new Dictionary<string, string>
         {
-            // Cp.Jkr.FailDot / WarnDot / ListedDot (UI/Copilot/CopilotTokens.xaml)
-            ["High"] = "#d95757", ["Med"] = "#d98a2b", ["Low"] = "#9397ab",
+            // Cp.Jkr.Dark.FailDot / WarnDot / ListedDot (UI/Copilot/CopilotTokens.xaml):
+            // the pane is always dark (Direction C).
+            ["High"] = "#ff6b5e", ["Med"] = "#f5b942", ["Low"] = "#8a94a6",
         };
 
         private readonly PanelCore _core;
