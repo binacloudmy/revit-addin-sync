@@ -644,6 +644,59 @@ namespace Tests
         }
 
         [Fact]
+        public void A_symbol_is_placed_where_its_linework_is_not_at_a_far_base_point()
+        {
+            // The block's linework sits 400 m / 250 m off its own base point, so every insert
+            // point lands far off the sheet while the symbol is drawn in the room.
+            CadDocument doc = TwoRooms();
+            double h = 100, lx = 400000, ly = -250000;
+            BlockRecord light = Block(doc, "LIGHT-A",
+                new Line(new XYZ(lx - h, ly - h, 0), new XYZ(lx + h, ly - h, 0)),
+                new Line(new XYZ(lx + h, ly - h, 0), new XYZ(lx + h, ly + h, 0)),
+                new Line(new XYZ(lx + h, ly + h, 0), new XYZ(lx - h, ly + h, 0)),
+                new Line(new XYZ(lx - h, ly + h, 0), new XYZ(lx - h, ly - h, 0)));
+
+            Insert(doc, light, 3000 - lx, 2500 - ly);                          // drawn mid-room
+            Insert(doc, light, 350 + ly, 2500 - lx, rotationDeg: 90);          // drawn 200 mm off the left wall
+            Insert(doc, light, 3000 + lx, 1000 - ly, sx: -1);                  // mirrored, drawn in the room
+
+            ElectricalCensusResult census = ElectricalCensus.Build(doc);
+
+            Assert.Equal(3, census.Totals.InsidePlans);
+            Assert.Equal(1, census.Blocks.Single(b => b.Key == "LIGHT-A").NearWall);
+        }
+
+        [Fact]
+        public void A_socket_on_an_outside_wall_face_is_inside_the_plan()
+        {
+            CadDocument doc = TwoRooms();
+            BlockRecord socket = SquareBlock(doc, "SOCKET", 100);
+            Insert(doc, socket, 3000, -150);    // on the bottom wall's outer face, outside the centreline box
+            Insert(doc, socket, 3000, -1500);   // well outside the house
+
+            ElectricalCensusResult census = ElectricalCensus.Build(doc);
+
+            Assert.Equal(1, census.Totals.InsidePlans);
+        }
+
+        [Fact]
+        public void A_small_floor_with_few_walls_still_pairs_like_walls()
+        {
+            Assert.True(ElectricalCensus.PairsLikeWalls(8, 0.25));
+            Assert.True(ElectricalCensus.PairsLikeWalls(6, 0.9));
+            Assert.True(ElectricalCensus.PairsLikeWalls(4, 0.6));
+            Assert.False(ElectricalCensus.PairsLikeWalls(7, 0.5));
+            Assert.False(ElectricalCensus.PairsLikeWalls(3, 1.0));
+
+            // One room of four walls - an attic - is a plan.
+            CadDocument doc = MmDrawing();
+            Room(doc, "A-WALL", 5000, 5000, 4000, 3000);
+            ElectricalCensusResult census = ElectricalCensus.Build(doc);
+            Assert.True(LayerOf(census, "A-WALL").PairsLikeWalls);
+            Assert.Single(census.Plans);
+        }
+
+        [Fact]
         public void Near_texts_keeps_the_five_most_common_within_reach()
         {
             CadDocument doc = MmDrawing();

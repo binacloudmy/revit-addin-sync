@@ -508,7 +508,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 double straight = pieces.Sum(PieceLength);
                 double paired = merged.Sum(wall => wall.Centerline.Length) * 2;
                 tally.PairedLengthShare = straight > 0 ? Math.Min(1.0, paired / straight) : 0;
-                tally.PairsLikeWalls = tally.WallPairs >= 8 && tally.PairedLengthShare >= 0.25;
+                tally.PairsLikeWalls = PairsLikeWalls(tally.WallPairs, tally.PairedLengthShare);
 
                 if (!tally.PairsLikeWalls) continue;
                 wallLike.AddRange(merged);
@@ -517,6 +517,16 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
             return wallLike;
         }
+
+        /// <summary>
+        /// A layer draws walls when its linework pairs into enough walls, over enough of its
+        /// length. Eight pairs over a quarter of the length is a floor plan. A small floor (an
+        /// attic, a roof room) has fewer walls, and a real one had few pairs on nearly all of its
+        /// wall layer and was missed: so fewer pairs count when nearly all the linework pairs.
+        /// Two or three pairs stay out, whatever the share: a symbol layer's stray box does that.
+        /// </summary>
+        internal static bool PairsLikeWalls(int pairs, double pairedLengthShare) =>
+            (pairs >= 8 && pairedLengthShare >= 0.25) || (pairs >= 4 && pairedLengthShare >= 0.6);
 
         /// <summary>
         /// MergeCollinearSegments one direction at a time, in 2 degree bins centred on the
@@ -739,13 +749,18 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 });
             }
 
+            // A cluster's box runs along wall centrelines, so it cuts the outer half of every
+            // outside wall off, and with it a light or a socket fixed to the outer face. The
+            // box grows by the near-wall distance to take them in.
+            double margin = o.NearWallMm;
             foreach (Instance instance in sink.Instances)
             {
                 if (!instance.Placed) continue;
-                var point = new Point(instance.X, instance.Y);
                 for (int i = 0; i < clusters.Count; i++)
                 {
-                    if (!clusters[i].Contains(point)) continue;
+                    PlanCluster c = clusters[i];
+                    if (instance.X < c.MinX - margin || instance.X > c.MaxX + margin ||
+                        instance.Y < c.MinY - margin || instance.Y > c.MaxY + margin) continue;
                     result.Plans[i].Symbols++;
                     instance.InPlan = true;
                     break;
@@ -1379,14 +1394,15 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
                 Tally(effective).Inserts++;
                 double width = Math.Abs(block.Width * scaleX), height = Math.Abs(block.Height * scaleY);
+                (double cx, double cy) = DrawnCentre(block, x, y, rotationRad, scaleX, scaleY, mirrored);
                 var instance = new Instance
                 {
                     Parent = parent,
                     Block = block,
                     Layer = effective,
-                    X = x,
-                    Y = y,
-                    Placed = IsFinite(x, y),
+                    X = cx,
+                    Y = cy,
+                    Placed = IsFinite(cx, cy),
                     WidthMm = IsFinite(width) ? width : 0,
                     HeightMm = IsFinite(height) ? height : 0,
                     Depth = depth,
@@ -1394,6 +1410,28 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 };
                 Instances.Add(instance);
                 _open.Add((depth, effective, instance));
+            }
+
+            /// <summary>
+            /// Where an insert is drawn: the centre of its definition's box, carried to world by
+            /// the insert's rotation, scale and mirror. Not the insert point: a block whose base
+            /// point sits far from its own linework puts the insert point there too. On a real
+            /// drawing every light's base point was kilometres off the plan while its linework
+            /// sat in the rooms, so no light counted as inside a plan or near a wall. A block
+            /// that draws nothing has no box, and keeps its insert point.
+            /// </summary>
+            internal static (double X, double Y) DrawnCentre(CadBlockInfo block, double x, double y, double rotationRad,
+                                                             double scaleX, double scaleY, bool mirrored)
+            {
+                if (!block.HasGeometry) return (x, y);
+                double lx = (block.MinX + block.MaxX) / 2, ly = (block.MinY + block.MaxY) / 2;
+                double cos = Math.Cos(rotationRad), sin = Math.Sin(rotationRad);
+                double flip = mirrored ? -1 : 1;
+                // Columns of the insert's linear map: x axis scaleX * (cos, sin), y axis
+                // scaleY * (-sin, cos), turned over when mirrored.
+                double wx = x + (scaleX * cos * lx) - (flip * scaleY * sin * ly);
+                double wy = y + (scaleX * sin * lx) + (flip * scaleY * cos * ly);
+                return IsFinite(wx, wy) ? (wx, wy) : (x, y);
             }
 
             /// <summary>
