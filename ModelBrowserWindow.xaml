@@ -167,6 +167,7 @@
                                      BorderThickness="0" Background="Transparent"
                                      ItemContainerStyle="{StaticResource BrowseItemStyle}"
                                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                     ScrollViewer.VerticalScrollBarVisibility="Visible"
                                      SelectionMode="Single"
                                      SelectionChanged="ModelsListBox_SelectionChanged">
                                 <ListBox.ItemTemplate>
