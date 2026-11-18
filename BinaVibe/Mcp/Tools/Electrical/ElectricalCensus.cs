@@ -136,8 +136,11 @@ namespace BinaVibe.Mcp.Tools.Electrical
         public int Symbols;
     }
 
+    /// <summary>One row of a drawn legend: the symbol, and the words written beside it.</summary>
     internal sealed class CensusLegendRow
     {
+        public string Block = "";
+        public string? Text;
     }
 
     internal sealed class CensusTotals
@@ -152,6 +155,10 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
         /// <summary>Instances inside any reported plan.</summary>
         public int InsidePlans;
+
+        /// <summary>Texts reading LEGEND, PETUNJUK, SIMBOL or SYMBOL: a legend exists even
+        /// when none of its rows could be read.</summary>
+        public int LegendTitleTexts;
     }
 
     internal sealed class ElectricalCensusResult
@@ -164,6 +171,147 @@ namespace BinaVibe.Mcp.Tools.Electrical
         public CensusTotals Totals = new CensusTotals();
         public bool BlocksTruncated, LayersTruncated, PlansTruncated, LegendTruncated, SymbolsAreExploded;
         public Dictionary<string, double> TimingsSeconds = new Dictionary<string, double>();
+
+        /// <summary>The census as plain nested dictionaries and lists with snake_case keys -
+        /// the one wire shape, for the CLI's JSON and for a tool result alike. It carries
+        /// counts, names and sizes; never an instance's coordinates.</summary>
+        public Dictionary<string, object?> ToWire()
+        {
+            var drawing = new Dictionary<string, object?>
+            {
+                ["units"] = new Dictionary<string, object?>
+                {
+                    ["mm_per_unit"] = Drawing.MmPerUnit,
+                    ["source"] = Drawing.UnitsSource,
+                    ["header_units"] = Drawing.HeaderUnits,
+                    ["header_mm_per_unit"] = Drawing.HeaderMmPerUnit,
+                },
+                ["extent_m"] = new Dictionary<string, object?>
+                {
+                    ["width"] = Math.Round(Drawing.WidthM, 2),
+                    ["height"] = Math.Round(Drawing.HeightM, 2),
+                },
+                ["entities"] = Drawing.Entities,
+                ["aec"] = new Dictionary<string, object?>
+                {
+                    ["refused"] = Drawing.AecRefused,
+                    ["warning"] = Drawing.AecWarning,
+                },
+                ["inserts"] = new Dictionary<string, object?>
+                {
+                    ["total"] = Totals.Inserts,
+                    ["top_level"] = Totals.TopLevel,
+                    ["nested"] = Totals.Nested,
+                    ["named"] = Totals.Named,
+                    ["anonymous"] = Totals.Anonymous,
+                    ["inside_plans"] = Totals.InsidePlans,
+                },
+                ["unresolved_xrefs"] = Totals.UnresolvedXrefs.Cast<object?>().ToList(),
+                ["bound_xref_layers"] = Totals.BoundXrefLayers,
+                ["legend_title_texts"] = Totals.LegendTitleTexts,
+                ["symbols_are_exploded"] = SymbolsAreExploded,
+            };
+
+            List<object?> blocks = Blocks.Select(block => (object?)new Dictionary<string, object?>
+            {
+                ["key"] = block.Key,
+                ["anonymous"] = block.Anonymous,
+                ["record_names"] = block.RecordNames.Cast<object?>().ToList(),
+                ["count"] = block.Count,
+                ["layers"] = block.Layers.Select(layer => (object?)new Dictionary<string, object?>
+                {
+                    ["layer"] = layer.Name,
+                    ["count"] = layer.Count,
+                }).ToList(),
+                ["depth"] = new Dictionary<string, object?> { ["min"] = block.MinDepth, ["max"] = block.MaxDepth },
+                ["extent_mm"] = new Dictionary<string, object?>
+                {
+                    ["w"] = Math.Round(block.WidthMm),
+                    ["h"] = Math.Round(block.HeightMm),
+                },
+                ["is_container"] = block.IsContainer,
+                ["unresolved_xref"] = block.UnresolvedXref,
+                ["attributes"] = block.Attributes.Select(attribute => (object?)new Dictionary<string, object?>
+                {
+                    ["tag"] = attribute.Tag,
+                    ["samples"] = attribute.Samples.Cast<object?>().ToList(),
+                }).ToList(),
+                ["near_texts"] = block.NearTexts.Select(text => (object?)new Dictionary<string, object?>
+                {
+                    ["text"] = text.Name,
+                    ["count"] = text.Count,
+                }).ToList(),
+                ["near_wall"] = block.NearWall,
+            }).ToList();
+
+            List<object?> layers = Layers.Select(layer => (object?)new Dictionary<string, object?>
+            {
+                ["layer"] = layer.Name,
+                ["counts"] = new Dictionary<string, object?>
+                {
+                    ["lines"] = layer.Lines,
+                    ["open_polylines"] = layer.OpenPolylines,
+                    ["closed_polylines"] = layer.ClosedPolylines,
+                    ["arcs"] = layer.Arcs,
+                    ["texts"] = layer.Texts,
+                    ["inserts"] = layer.Inserts,
+                    ["hatch_loops"] = layer.HatchLoops,
+                    ["dimension_pieces"] = layer.DimensionPieces,
+                },
+                ["length_m"] = new Dictionary<string, object?>
+                {
+                    ["total"] = layer.LengthM,
+                    ["loose"] = layer.LooseLengthM,
+                    ["in_blocks"] = layer.InBlocksLengthM,
+                },
+                ["open_polylines_over_1m"] = layer.OpenPolylinesOver1m,
+                ["axis_aligned_share"] = layer.AxisAlignedShare,
+                ["walls"] = new Dictionary<string, object?>
+                {
+                    ["pairs"] = layer.WallPairs,
+                    ["pairs_unmerged"] = layer.WallPairsUnmerged,
+                    ["paired_length_share"] = layer.PairedLengthShare,
+                    ["pairs_like_walls"] = layer.PairsLikeWalls,
+                    ["skipped"] = layer.WallsSkipped,
+                },
+            }).ToList();
+
+            List<object?> plans = Plans.Select(plan => (object?)new Dictionary<string, object?>
+            {
+                ["cluster"] = plan.Cluster,
+                ["width_m"] = plan.WidthM,
+                ["height_m"] = plan.HeightM,
+                ["walls"] = plan.Walls,
+                ["titles"] = plan.Titles.Cast<object?>().ToList(),
+                ["symbols"] = plan.Symbols,
+            }).ToList();
+
+            List<object?> legend = Legend.Select(row => (object?)new Dictionary<string, object?>
+            {
+                ["block"] = row.Block,
+                ["text"] = row.Text,
+            }).ToList();
+
+            var timings = new Dictionary<string, object?>();
+            foreach (string name in new[] { "read", "walk", "walls", "plans", "proximity", "legend" })
+            {
+                timings[name] = TimingsSeconds.TryGetValue(name, out double seconds) ? Math.Round(seconds, 3) : 0.0;
+            }
+
+            return new Dictionary<string, object?>
+            {
+                ["drawing"] = drawing,
+                ["blocks"] = blocks,
+                ["blocks_truncated"] = BlocksTruncated,
+                ["layers"] = layers,
+                ["layers_truncated"] = LayersTruncated,
+                ["plans"] = plans,
+                ["plans_truncated"] = PlansTruncated,
+                ["legend"] = legend,
+                ["legend_truncated"] = LegendTruncated,
+                ["timings_s"] = timings,
+            };
+        }
     }
 
     internal static class ElectricalCensus
@@ -172,7 +320,17 @@ namespace BinaVibe.Mcp.Tools.Electrical
         public static ElectricalCensusResult Read(string path, CensusOptions? options = null)
         {
             var clock = Stopwatch.StartNew();
-            CadDocument document = CadRenderSource.Read(path);
+            // Read here rather than through CadRenderSource.Read so the reader is disposed and
+            // the file is not left locked once the census is taken.
+            CadDocument document;
+            if (path.EndsWith(".dxf", StringComparison.OrdinalIgnoreCase))
+            {
+                using (var reader = new ACadSharp.IO.DxfReader(path)) document = reader.Read();
+            }
+            else
+            {
+                using (var reader = new ACadSharp.IO.DwgReader(path)) document = reader.Read();
+            }
             double read = clock.Elapsed.TotalSeconds;
 
             ElectricalCensusResult result = Build(document, options);
@@ -229,6 +387,10 @@ namespace BinaVibe.Mcp.Tools.Electrical
             }
             BuildLayers(sink, o, result);
             BuildTotals(sink, result);
+
+            clock.Restart();
+            BuildLegend(sink, clusters, o, result);
+            result.TimingsSeconds["legend"] = clock.Elapsed.TotalSeconds;
 
             // Exploded: every symbol-like insert sits on the architectural background, so the
             // electrical symbols themselves can only be loose linework.
@@ -670,6 +832,105 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
             totals.BoundXrefLayers = sink.Layers.Keys.Count(name =>
                 name.IndexOf("$0$", StringComparison.Ordinal) >= 0 || name.IndexOf("|", StringComparison.Ordinal) >= 0);
+        }
+
+        // ---------------------------------------------------------------- legend
+
+        private static readonly string[] LegendWords = { "LEGEND", "PETUNJUK", "SIMBOL", "SYMBOL" };
+
+        /// <summary>
+        /// Reads a drawn legend: a column of different symbols off the plans, each with its
+        /// description written to its right. A column of one repeated symbol is a row of
+        /// sockets along a wall, not a legend, so a column needs mostly distinct classes.
+        /// </summary>
+        private static void BuildLegend(CensusSink sink, List<PlanCluster> clusters, CensusOptions o,
+                                        ElectricalCensusResult result)
+        {
+            result.Totals.LegendTitleTexts = sink.Texts.Count(text => ContainsAny(text.Value, LegendWords));
+
+            const double Margin = 1000;
+            List<Instance> candidates = sink.Instances
+                .Where(instance => instance.Block.NestedInserts == 0)
+                .Where(instance => !clusters.Any(cluster =>
+                    instance.X >= cluster.MinX - Margin && instance.X <= cluster.MaxX + Margin &&
+                    instance.Y >= cluster.MinY - Margin && instance.Y <= cluster.MaxY + Margin))
+                .OrderBy(instance => instance.X)
+                .ToList();
+
+            // Columns: symbols whose x lies within 500 mm of the column's first one.
+            var columns = new List<List<Instance>>();
+            foreach (Instance instance in candidates)
+            {
+                List<Instance>? last = columns.Count > 0 ? columns[columns.Count - 1] : null;
+                if (last != null && instance.X - last[0].X <= 500) last.Add(instance);
+                else columns.Add(new List<Instance> { instance });
+            }
+
+            var grid = new TextGrid(sink.Texts, 1000);
+            var rows = new List<CensusLegendRow>();
+
+            foreach (List<Instance> column in columns)
+            {
+                foreach (List<Instance> run in SplitByGap(column))
+                {
+                    int distinct = run.Select(instance => instance.Key).Distinct(StringComparer.Ordinal).Count();
+                    if (run.Count < 3 || distinct < Math.Max(3, 0.6 * run.Count)) continue;
+
+                    foreach (Instance instance in run)
+                    {
+                        rows.Add(new CensusLegendRow { Block = instance.Key, Text = DescriptionOf(instance, grid) });
+                    }
+                }
+            }
+
+            result.LegendTruncated = rows.Count > o.MaxLegendRows;
+            result.Legend = rows.Take(o.MaxLegendRows).ToList();
+        }
+
+        /// <summary>A column top to bottom, broken wherever two rows sit more than six symbol
+        /// heights apart.</summary>
+        private static IEnumerable<List<Instance>> SplitByGap(List<Instance> column)
+        {
+            List<Instance> sorted = column.OrderByDescending(instance => instance.Y).ToList();
+            var run = new List<Instance> { sorted[0] };
+
+            for (int i = 1; i < sorted.Count; i++)
+            {
+                double height = Math.Max(SymbolHeight(sorted[i - 1]), SymbolHeight(sorted[i]));
+                if (sorted[i - 1].Y - sorted[i].Y > 6 * height)
+                {
+                    yield return run;
+                    run = new List<Instance>();
+                }
+                run.Add(sorted[i]);
+            }
+
+            yield return run;
+        }
+
+        private static double SymbolHeight(Instance instance) =>
+            Math.Max(Math.Max(instance.HeightMm, instance.WidthMm), 100);
+
+        /// <summary>The nearest text to the right of a legend symbol, on its line.</summary>
+        private static string? DescriptionOf(Instance instance, TextGrid grid)
+        {
+            double symbolHeight = SymbolHeight(instance);
+            CensusText? best = null;
+            double bestDx = double.MaxValue;
+
+            foreach (CensusText text in grid.Within(instance.X, instance.Y - 3000, instance.X + 8000, instance.Y + 3000))
+            {
+                double dx = text.X - instance.X;
+                double dy = Math.Abs(text.Y + (text.Height / 2) - instance.Y);
+                if (dx <= 0 || dx > 8000) continue;
+                if (dy > Math.Max(text.Height, symbolHeight)) continue;
+                if (dx >= bestDx) continue;
+
+                best = text;
+                bestDx = dx;
+            }
+
+            return best == null ? null : Truncate(best.Value, 60);
         }
 
         // ---------------------------------------------------------------- helpers

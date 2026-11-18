@@ -417,5 +417,141 @@ namespace Tests
             Insert(doc, SquareBlock(doc, "SOCKET-13A", 100), 3000, 2500, "E-POWER");
             Assert.False(ElectricalCensus.Build(doc).SymbolsAreExploded);
         }
+
+        private static readonly string[] LegendNames = { "SOCKET-13A", "DOWNLIGHT", "FAN", "SWITCH-1G", "DB" };
+
+        /// <summary>A legend off to the right of the plans: one of each symbol, top to bottom,
+        /// with its description 1 m to its right.</summary>
+        private static void AddLegend(CadDocument doc, double x, double topY)
+        {
+            Text(doc, "E-TEXT", x, topY + 800, "LEGEND", 400);
+            for (int i = 0; i < LegendNames.Length; i++)
+            {
+                double y = topY - (i * 600);
+                Insert(doc, SquareBlock(doc, LegendNames[i], 200), x, y, "E-LEGEND");
+                Text(doc, "E-TEXT", x + 1000, y - 100, LegendNames[i] + " DESCRIPTION", 200);
+            }
+        }
+
+        [Fact]
+        public void Legend_column_yields_block_and_description_rows()
+        {
+            CadDocument doc = TwoRooms();
+            AddLegend(doc, 60000, 10000);
+
+            ElectricalCensusResult census = ElectricalCensus.Build(doc);
+
+            Assert.Equal(5, census.Legend.Count);
+            Assert.Equal("SOCKET-13A", census.Legend[0].Block);
+            Assert.Equal("SOCKET-13A DESCRIPTION", census.Legend[0].Text);
+            Assert.Equal("DB DESCRIPTION", census.Legend[4].Text);
+            Assert.Equal(1, census.Totals.LegendTitleTexts);
+            Assert.False(census.LegendTruncated);
+        }
+
+        [Fact]
+        public void A_row_of_identical_sockets_is_not_a_legend()
+        {
+            CadDocument doc = TwoRooms();
+            BlockRecord socket = SquareBlock(doc, "SOCKET-13A", 200);
+            for (int i = 0; i < 6; i++)
+            {
+                Insert(doc, socket, 60000, 10000 - (i * 600), "E-POWER");
+                Text(doc, "E-TEXT", 61000, 10000 - (i * 600) - 100, "13A", 200);
+            }
+
+            ElectricalCensusResult census = ElectricalCensus.Build(doc);
+
+            Assert.Empty(census.Legend);
+        }
+
+        [Fact]
+        public void Caps_set_truncated_flags()
+        {
+            CadDocument doc = TwoRooms();
+            AddLegend(doc, 60000, 10000);
+            var options = new CensusOptions { MaxBlockClasses = 2, MaxLayers = 2, MaxPlans = 1, MaxLegendRows = 2 };
+
+            ElectricalCensusResult census = ElectricalCensus.Build(doc, options);
+
+            Assert.Equal(2, census.Blocks.Count);
+            Assert.True(census.BlocksTruncated);
+            Assert.Equal(2, census.Layers.Count);
+            Assert.True(census.LayersTruncated);
+            Assert.Single(census.Plans);
+            Assert.True(census.PlansTruncated);
+            Assert.Equal(2, census.Legend.Count);
+            Assert.True(census.LegendTruncated);
+
+            ElectricalCensusResult uncapped = ElectricalCensus.Build(doc);
+            Assert.False(uncapped.BlocksTruncated || uncapped.LayersTruncated || uncapped.PlansTruncated || uncapped.LegendTruncated);
+        }
+
+        private static IEnumerable<string> Keys(object? node)
+        {
+            if (node is Dictionary<string, object?> map)
+            {
+                foreach (KeyValuePair<string, object?> pair in map)
+                {
+                    yield return pair.Key;
+                    foreach (string key in Keys(pair.Value)) yield return key;
+                }
+            }
+            else if (node is List<object?> list)
+            {
+                foreach (object? item in list)
+                {
+                    foreach (string key in Keys(item)) yield return key;
+                }
+            }
+        }
+
+        [Fact]
+        public void Output_carries_no_instance_coordinates()
+        {
+            CadDocument doc = TwoRooms();
+            BlockRecord socket = SquareBlock(doc, "SOCKET-20A", 100);
+            Insert(doc, socket, 3000, 2500, "E-POWER");
+            Insert insert = Insert(doc, socket, 3123.457, 2500, "E-POWER");
+            insert.Attributes.Add(new AttributeEntity { Tag = "TAG", Value = "S1" });
+            AddLegend(doc, 60000, 10000);
+
+            Dictionary<string, object?> wire = ElectricalCensus.Build(doc).ToWire();
+            string json = System.Text.Json.JsonSerializer.Serialize(wire);
+
+            string[] banned = { "x", "y", "points", "at", "point", "position", "location" };
+            Assert.DoesNotContain(Keys(wire), key => banned.Contains(key, StringComparer.OrdinalIgnoreCase));
+            Assert.DoesNotContain("123457", json);
+            Assert.DoesNotContain("3123", json);
+            Assert.Contains("\"blocks\"", json);
+            Assert.Contains("\"timings_s\"", json);
+        }
+
+        [Fact]
+        public void Reads_a_dxf_written_by_the_test()
+        {
+            CadDocument doc = TwoRooms();
+            BlockRecord socket = SquareBlock(doc, "SOCKET-13A", 100);
+            for (int i = 0; i < 4; i++) Insert(doc, socket, 1000 + (i * 1000), 2500, "E-POWER");
+            Text(doc, "A-TEXT", 1000, -600, "PELAN LANTAI TINGKAT 1", 500);
+
+            string path = WriteDxf(doc);
+            try
+            {
+                ElectricalCensusResult census = ElectricalCensus.Read(path);
+
+                CensusBlockClass skt = census.Blocks.Single(b => b.Key == "SOCKET-13A");
+                Assert.Equal(4, skt.Count);
+                Assert.Equal("E-POWER", skt.Layers[0].Name);
+                Assert.True(LayerOf(census, "A-WALL").PairsLikeWalls);
+                Assert.Equal(2, census.Plans.Count);
+                Assert.Contains(census.Plans, plan => plan.Titles.Contains("PELAN LANTAI TINGKAT 1"));
+                Assert.True(census.TimingsSeconds.ContainsKey("read"));
+            }
+            finally
+            {
+                System.IO.File.Delete(path);
+            }
+        }
     }
 }
