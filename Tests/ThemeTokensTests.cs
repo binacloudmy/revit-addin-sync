@@ -242,7 +242,7 @@ namespace RevitAddinSync.Tests
         {
             // Spot checks that moving a literal to a token kept the light colour the view drew before
             // (old literal -> CopilotColors' old light -> v6 map -> value).
-            Assert.Equal("#9397ab", ThemeTokens.Hex("Cp.Faint", dark: false));          // was "#99a3b3"
+            Assert.Equal("#686d80", ThemeTokens.Hex("Cp.Faint", dark: false));          // was "#99a3b3", then "#9397ab" (2.9:1: too faint to read)
             Assert.Equal("#f7f7f6", ThemeTokens.Hex("Cp.Raised", dark: false));         // was "#f7f9fb" via From
             Assert.Equal("#c24545", ThemeTokens.Hex("Cp.ErrorText", dark: false));      // was "#b91c1c" via From
             Assert.Equal(("#d98a2b", "#F5B841"), ThemeTokens.Solid["Cp.Notice"]);       // was IsDark ? "#f2a33a" : "#d97706"

@@ -20,7 +20,7 @@
     <SolidColorBrush x:Key="Cp.Ink2"      Color="#1c1e26"/>
     <SolidColorBrush x:Key="Cp.Text"      Color="#22242a"/>
     <SolidColorBrush x:Key="Cp.Muted"     Color="#5d6170"/>
-    <SolidColorBrush x:Key="Cp.Faint"     Color="#9397ab"/>
+    <SolidColorBrush x:Key="Cp.Faint"     Color="#686d80"/>
     <SolidColorBrush x:Key="Cp.Line"      Color="#2122242A"/>
     <SolidColorBrush x:Key="Cp.Hair2"     Color="#3D22242A"/>
     <SolidColorBrush x:Key="Cp.LineSoft"  Color="#1522242A"/>
@@ -151,8 +151,8 @@
     <SolidColorBrush x:Key="Cp.Reasoning.Text"         Color="#75798c"/>   <!-- reasoning body -->
     <SolidColorBrush x:Key="Cp.Reasoning.TextMuted"    Color="#75798c"/>
     <SolidColorBrush x:Key="Cp.Reasoning.TextRowCount" Color="#5d6170"/>   <!-- result card row count (task 16 polish; distinct from TextMuted per handoff) -->
-    <SolidColorBrush x:Key="Cp.Reasoning.TextFaint"    Color="#9397ab"/>
-    <SolidColorBrush x:Key="Cp.Reasoning.TextFaint2"   Color="#9397ab"/>
+    <SolidColorBrush x:Key="Cp.Reasoning.TextFaint"    Color="#686d80"/>
+    <SolidColorBrush x:Key="Cp.Reasoning.TextFaint2"   Color="#686d80"/>
 
     <!-- Borders / surfaces -->
     <SolidColorBrush x:Key="Cp.Reasoning.Border"       Color="#2122242A"/>
@@ -202,7 +202,7 @@
     <SolidColorBrush x:Key="Cp.Run.Text"               Color="#22242a"/>
     <SolidColorBrush x:Key="Cp.Run.Text2"              Color="#3a3d48"/>
     <SolidColorBrush x:Key="Cp.Run.Muted"              Color="#5d6170"/>
-    <SolidColorBrush x:Key="Cp.Run.Faint"              Color="#7a7f90"/>
+    <SolidColorBrush x:Key="Cp.Run.Faint"              Color="#666b7c"/>
     <SolidColorBrush x:Key="Cp.Run.Accent"             Color="#2a69c6"/>
     <SolidColorBrush x:Key="Cp.Run.AccentHalo"         Color="#242a69c6"/>
     <SolidColorBrush x:Key="Cp.Run.AccentRing"         Color="#382a69c6"/>

@@ -42,7 +42,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 ["Cp.Ink2"]          = ("#1c1e26", "#F6F7F9"),
                 ["Cp.Text"]          = ("#22242a", "#EDEFF3"),
                 ["Cp.Muted"]         = ("#5d6170", "#A6ADBA"),
-                ["Cp.Faint"]         = ("#9397ab", "#8A91A0"),
+                ["Cp.Faint"]         = ("#686d80", "#8A91A0"),    // light: 5.1:1 on white, 4.8 on the paper ground (was #9397ab, 2.9)
                 ["Cp.Line"]          = ("#2122242A", "#12FFFFFF"),
                 ["Cp.Hair2"]         = ("#3D22242A", "#24FFFFFF"),
                 ["Cp.LineSoft"]      = ("#1522242A", "#0DFFFFFF"),
@@ -113,8 +113,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 ["Cp.Reasoning.Text"]           = ("#75798c", "#A6ADBA"),
                 ["Cp.Reasoning.TextMuted"]      = ("#75798c", "#A6ADBA"),
                 ["Cp.Reasoning.TextRowCount"]   = ("#5d6170", "#A6ADBA"),
-                ["Cp.Reasoning.TextFaint"]      = ("#9397ab", "#8A91A0"),
-                ["Cp.Reasoning.TextFaint2"]     = ("#9397ab", "#8A91A0"),
+                ["Cp.Reasoning.TextFaint"]      = ("#686d80", "#8A91A0"),
+                ["Cp.Reasoning.TextFaint2"]     = ("#686d80", "#8A91A0"),
                 ["Cp.Reasoning.Border"]         = ("#2122242A", "#12FFFFFF"),
                 ["Cp.Reasoning.Border2"]        = ("#2122242A", "#12FFFFFF"),
                 ["Cp.Reasoning.Border3"]        = ("#2122242A", "#12FFFFFF"),
@@ -150,7 +150,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 ["Cp.Run.Text"]      = ("#22242a", "#EDEFF3"),
                 ["Cp.Run.Text2"]     = ("#3a3d48", "#D3D7DF"),
                 ["Cp.Run.Muted"]     = ("#5d6170", "#A6ADBA"),
-                ["Cp.Run.Faint"]     = ("#7a7f90", "#8A91A0"),
+                ["Cp.Run.Faint"]     = ("#666b7c", "#8A91A0"),    // light: 5.3:1 on white, 4.7 on the raised surface (was #7a7f90, 3.5-4.0)
                 ["Cp.Run.Accent"]    = ("#2a69c6", "#5EA2FF"),    // the brand blue of the Z mark (was lime: the Working card read as another product)
                 ["Cp.Run.AccentHalo"] = ("#242a69c6", "#245EA2FF"),
                 ["Cp.Run.AccentRing"] = ("#382a69c6", "#385EA2FF"),
