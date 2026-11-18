@@ -182,6 +182,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>The server's own one-sentence answer (turn_end.result.reply), "" when it sent none. When set it is the headline
         /// and the model's prose above the card is hidden: the card says it once.</summary>
         public string ServerReply = "";
+        /// <summary>What the turn did not look at (result.not_searched: "link: Snowdon Towers (unloaded)"), one line each; the card's footnote says it, not the headline.</summary>
+        public List<string> NotSearched = new List<string>();
 
         /// <summary>True when the headline is the server's reply, so the pane shows no prose above the card.</summary>
         public bool ReplacesProse => Kind != ResultKind.None && ServerReply.Length > 0;
@@ -237,6 +239,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public ResultCardModel WithServerResult(BinaVibe.Copilot.Contracts.TurnResultDto? result)
         {
             ServerReply = (result?.Reply ?? "").Trim();
+            NotSearched = (result?.NotSearched ?? new List<string>()).Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()).ToList();
             Checks = CheckItems.From(result);
             // A server reply with no card to hang it on (a no-op, a plain answer) is still the headline, with the check disc.
             var bare = Kind == ResultKind.None && result != null && (result.Items?.Count ?? 0) == 0 && Checks.Count == 0 && CheckItems.NextOf(result).Count == 0;

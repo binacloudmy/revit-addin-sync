@@ -31,5 +31,14 @@ namespace RevitAddinSync.Tests
             Assert.Null(ProseSplit.RestAfterHeadline("56 doors.", ""));
             Assert.Equal("", ProseSplit.RestAfterHeadline("56 doors in 9 types.", "56 doors in 9 types."));
         }
+
+        [Fact]
+        public void TheScopeLine_NamesWhatWasNotSearched_AtMostThree()
+        {
+            Assert.Equal("", ScopeNote.Line(null, ReceiptLanguage.En));
+            Assert.Equal("Not searched: link: A (unloaded)", ScopeNote.Line(new[] { "link: A (unloaded)" }, ReceiptLanguage.En));
+            Assert.Equal("Not searched: a; b; c and 2 more", ScopeNote.Line(new[] { "a", "b", "c", "d", "e" }, ReceiptLanguage.En));
+            Assert.Equal("Tidak dicari: a; b; c dan 1 lagi", ScopeNote.Line(new[] { "a", "b", "c", "d" }, ReceiptLanguage.Ms));
+        }
     }
 }

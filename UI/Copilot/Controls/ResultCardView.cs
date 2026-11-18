@@ -76,11 +76,20 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             if (root.Children.Count > 0) block.Children.Add(outer);
             // The check card and Next are siblings of the main card, not inside it (boards Main, SmartTags).
             ChecksAndNext(block, card, lang, actions);
+            var scope = ScopeFootnote(card, lang);
+            if (scope != null) block.Children.Add(scope);
 
             var acts = ActionRow(card, ms, actions, canUndo, undone, undoOff);
             if (acts != null) block.Children.Add(acts);
             actions.Rows.Hook(block);   // the keys work with the card focused; a mark click finds its row here
             return block;
+        }
+
+        /// <summary>One caption line under the card: what the turn did not look at (result.not_searched), or null.</summary>
+        internal static FrameworkElement? ScopeFootnote(ResultCardModel? card, ReceiptLanguage lang)
+        {
+            var line = ScopeNote.Line(card?.NotSearched, lang);
+            return line.Length == 0 ? null : CardKit.Text(line, 11, "Cp.Muted", margin: new Thickness(2, 8, 2, 0));
         }
 
         /// <summary>The marks' section header (state 2 of the design): "58 door tags made", where they are, and on the right
