@@ -80,6 +80,90 @@ namespace Tests
             Assert.Equal("CANNOT TELL", answers.A3.Verdict);
         }
 
+        private static readonly ISet<string> NoWalls = new HashSet<string>();
+        private static readonly Dictionary<string, List<string>> NoLegend = new Dictionary<string, List<string>>();
+
+        [Fact]
+        public void Symbol_and_architectural_words_match_whole_tokens()
+        {
+            foreach (string name in new[] { "SOCKET", "PLUG-2", "LIGHT-A", "main hall light", "FAN-A", "DB-2", "TV/A", "E-SPARE", "Lampu Siling" })
+                Assert.True(ElectricalCensusSummary.NameLooksElectrical(name), name);
+            foreach (string name in new[] { "DOOR-1", "CHAIR", "PLUGGED", "TELPIT", "", "Q7" })
+                Assert.False(ElectricalCensusSummary.NameLooksElectrical(name), name);
+
+            // A bare E or EL in a text is an earth mark or a level, not the discipline.
+            Assert.False(ElectricalCensusSummary.TextLooksElectrical("E"));
+            Assert.False(ElectricalCensusSummary.TextLooksElectrical("EL"));
+            Assert.True(ElectricalCensusSummary.TextLooksElectrical("13A SWITCH SOCKET OUTLET"));
+            Assert.True(ElectricalCensusSummary.TextLooksElectrical("TWIN LED TUBE"));
+
+            foreach (string name in new[] { "DOOR", "dr", "SLIDING DOOR", "WINDOW-2", "JAMB4", "COL PLAN", "A-WALL", "Doors" })
+                Assert.True(ElectricalCensusSummary.LooksArchitectural(name), name);
+            foreach (string name in new[] { "SOCKET", "WINE", "COLOUR", "DRAIN" })
+                Assert.False(ElectricalCensusSummary.LooksArchitectural(name), name);
+        }
+
+        [Fact]
+        public void Evidence_comes_from_name_layer_attribute_legend_or_near_text()
+        {
+            Assert.Equal("name", ElectricalCensusSummary.ElectricalEvidence(Symbol("SOCKET", 10, "0"), NoWalls, NoLegend));
+            Assert.Equal("layer", ElectricalCensusSummary.ElectricalEvidence(Symbol("Q1", 10, "E-POWER"), NoWalls, NoLegend));
+
+            CensusBlockClass attributed = Symbol("Q2", 10, "SYM");
+            attributed.Attributes.Add(new CensusAttribute { Tag = "TYPE", Samples = { "DESK FAN" } });
+            Assert.Equal("attribute", ElectricalCensusSummary.ElectricalEvidence(attributed, NoWalls, NoLegend));
+
+            var legend = new Dictionary<string, List<string>> { ["Q3"] = new List<string> { "40", "13A SWITCH SOCKET OUTLET" } };
+            Assert.Equal("legend", ElectricalCensusSummary.ElectricalEvidence(Symbol("Q3", 10, "SYM"), NoWalls, legend));
+
+            CensusBlockClass labelled = Symbol("Q4", 10, "SYM");
+            labelled.NearTexts.Add(new CensusCount { Name = "LAMPU", Count = 4 });
+            Assert.Equal("near text", ElectricalCensusSummary.ElectricalEvidence(labelled, NoWalls, NoLegend));
+            labelled.NearTexts[0].Count = 1; // beside one instance in ten: a stray label
+            Assert.Null(ElectricalCensusSummary.ElectricalEvidence(labelled, NoWalls, NoLegend));
+        }
+
+        [Fact]
+        public void Evidence_skips_architectural_blocks_and_wall_layers_unless_the_name_is_electrical()
+        {
+            var walls = new HashSet<string> { "A-WALL" };
+            CensusBlockClass onWall = Symbol("Q5", 10, "A-WALL");
+            onWall.NearTexts.Add(new CensusCount { Name = "SOCKET", Count = 10 });
+            Assert.Null(ElectricalCensusSummary.ElectricalEvidence(onWall, walls, NoLegend));
+            Assert.Null(ElectricalCensusSummary.ElectricalEvidence(Symbol("JAMB", 10, "E-POWER"), NoWalls, NoLegend));
+            Assert.Null(ElectricalCensusSummary.ElectricalEvidence(Symbol("Q6", 10, "A-DOOR"), NoWalls, NoLegend));
+            Assert.Equal("name", ElectricalCensusSummary.ElectricalEvidence(Symbol("WALL LIGHT", 10, "A-WALL"), walls, NoLegend));
+        }
+
+        [Fact]
+        public void A1_yes_for_named_symbols_on_layer_0()
+        {
+            // Sockets and lights named as such but drawn on layer 0, next to door blocks.
+            ElectricalCensusResult census = Census(
+                new[] { Symbol("SOCKET", 30, "0"), Symbol("LIGHT-A", 20, "0"), Symbol("DOOR-1", 40, "A-DOOR") },
+                new[] { WallLayer() });
+
+            CensusAnswer a1 = ElectricalCensusSummary.Answer(census).A1;
+            Assert.Equal("YES", a1.Verdict);
+            Assert.Contains(a1.Lines, line => line.StartsWith("electrical-looking: 2 classes, 50 instances", System.StringComparison.Ordinal));
+            Assert.Contains(a1.Lines, line => line == "evidence: name 2 classes / 50");
+            Assert.Contains(a1.Lines, line => line.StartsWith("top electrical classes: SOCKET x30 on 0 (name), LIGHT-A x20 on 0 (name)", System.StringComparison.Ordinal));
+        }
+
+        [Fact]
+        public void A1_partly_when_the_electrical_symbols_are_mostly_anonymous_or_few()
+        {
+            CensusBlockClass anonymous = Symbol("anon:0001", 40, "E-POWER");
+            anonymous.Anonymous = true;
+            ElectricalCensusResult census = Census(new[] { anonymous, Symbol("SOCKET", 10, "0") }, new[] { WallLayer() });
+            Assert.Equal("PARTLY", ElectricalCensusSummary.Answer(census).A1.Verdict);
+
+            Assert.Equal("PARTLY", ElectricalCensusSummary.A1Verdict(12, 12, exploded: false));
+            Assert.Equal("NO", ElectricalCensusSummary.A1Verdict(4, 4, exploded: false));
+            Assert.Equal("NO", ElectricalCensusSummary.A1Verdict(100, 100, exploded: true));
+            Assert.Equal("YES", ElectricalCensusSummary.A1Verdict(20, 14, exploded: false));
+        }
+
         [Fact]
         public void A2_no_without_a_wall_like_layer()
         {
@@ -170,7 +254,7 @@ namespace Tests
             Assert.Contains("file     sample.dwg", text);
             Assert.Contains("read+census 2.0 s", text);
             Assert.Contains("AEC      none", text);
-            Assert.Contains("A1  Electrical symbols are named block inserts on electrical layers:  YES", text);
+            Assert.Contains("A1  Electrical symbols are named block inserts:  YES", text);
             Assert.Contains("A2  The drawing carries the architectural background:  YES", text);
             Assert.Contains("A3  Conduit is drawn as lines/polylines on its own layer:  NO", text);
             Assert.Contains("legend   0 rows read (legend titles found: 0)", text);

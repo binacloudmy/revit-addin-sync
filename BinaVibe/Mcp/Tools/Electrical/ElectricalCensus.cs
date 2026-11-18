@@ -190,6 +190,11 @@ namespace BinaVibe.Mcp.Tools.Electrical
         public List<CensusBlockClass>? AllBlocks;
         public List<CensusLayer>? AllLayers;
 
+        /// <summary>Every legend row before the cap, for the A1 evidence: a sheet of several
+        /// plans repeats its symbol columns in schedules, and the rows that describe a symbol
+        /// can fall past the cap. Never in the wire shape; null on a result built by hand.</summary>
+        public List<CensusLegendRow>? AllLegend;
+
         /// <summary>The census as plain nested dictionaries and lists with snake_case keys -
         /// the one wire shape, for the CLI's JSON and for a tool result alike. It carries
         /// counts, names and sizes; never an instance's coordinates.</summary>
@@ -1120,6 +1125,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
             }
 
             result.LegendTruncated = rows.Count > o.MaxLegendRows;
+            result.AllLegend = rows;
             result.Legend = rows.Take(o.MaxLegendRows).ToList();
         }
 

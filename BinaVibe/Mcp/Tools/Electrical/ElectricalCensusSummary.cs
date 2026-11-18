@@ -2,7 +2,7 @@
 // Phase 0 summary of an electrical census: the three assumptions the spec (§10, §11) has to
 // check on real drawings before the later phases are built, answered YES / PARTLY / NO.
 //
-//   A1  Electrical symbols are named block inserts on electrical layers.
+//   A1  Electrical symbols are named block inserts (whatever layer they sit on).
 //   A2  The drawing carries the architectural background (walls, plans).
 //   A3  Conduit is drawn as lines/polylines on its own layer.
 //
@@ -126,6 +126,94 @@ namespace BinaVibe.Mcp.Tools.Electrical
             }
         }
 
+        /// <summary>Words that name an electrical symbol, in a block name or in the words written
+        /// with it. The layer words, and the short ones a drafter names a symbol by but nobody
+        /// names a layer by alone (PLUG, DB, TV, TEL).</summary>
+        private static readonly string[] SymbolWords = ElectricalWords.Concat(new[]
+        {
+            "LAMP", "PLUG", "DB", "MSB", "SSB", "ISOLATOR", "TV", "TEL", "DATA", "LED", "LUMINAIRE",
+            "DOWNLIGHT", "SPOTLIGHT", "FLOODLIGHT", "OUTLET", "JUNCTION",
+        }).ToArray();
+
+        /// <summary>Words that name a piece of the building or its furniture, never a symbol of
+        /// the electrical services.</summary>
+        private static readonly string[] ArchitecturalWords =
+        {
+            "DOOR", "DR", "PINTU", "WIN", "WINDOW", "TINGKAP", "JAMB", "COL", "COLUMN", "TIANG", "WALL", "DINDING",
+            "STAIR", "TANGGA", "CHAIR", "TABLE", "BED", "SOFA", "FURNITURE", "FURN", "SINK", "BASIN", "WC", "TOILET",
+        };
+
+        /// <summary>Whether a whole token of the text is one of the words (inflected forms
+        /// count; see IsWord). Long words also match inside a run-together token.</summary>
+        private static bool HasWord(string text, string[] words)
+        {
+            if (string.IsNullOrEmpty(text)) return false;
+            foreach (string token in Tokens(text))
+            {
+                foreach (string word in words)
+                {
+                    if (IsWord(token, word)) return true;
+                    if (word.Length >= CompoundableLength && token.IndexOf(word, StringComparison.Ordinal) >= 0) return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>A block name that names an electrical symbol: an electrical word, or a
+        /// layer-style electrical name ("E-LIGHT", "ELEC-1").</summary>
+        internal static bool NameLooksElectrical(string name) => HasWord(name, SymbolWords) || LooksElectrical(name);
+
+        /// <summary>Text written with a symbol (an attribute, a legend row, a nearby label)
+        /// that describes an electrical one. Words only: a bare "E" or "EL" in a text is an
+        /// earth mark or a level, not a discipline.</summary>
+        internal static bool TextLooksElectrical(string text) => HasWord(text, SymbolWords);
+
+        internal static bool LooksArchitectural(string name) => HasWord(name, ArchitecturalWords);
+
+        /// <summary>The fewest electrical-looking instances for A1 to answer YES.</summary>
+        internal const int MinElectricalInstances = 20;
+
+        /// <summary>The share of electrical-looking instances that must be named blocks for YES.</summary>
+        internal const double NamedShareForYes = 0.7;
+
+        /// <summary>
+        /// Why a block class looks like an electrical symbol, or null when it does not. The
+        /// evidence is tried in this order and the first that holds is returned: "name" (the
+        /// block's own name), "layer" (the layer most of it sits on), "attribute" (an attribute
+        /// tag or value), "legend" (a legend row drawn with it), "near text" (a word written
+        /// beside at least a fifth of its instances).
+        ///
+        /// An electrical name wins over everything else: a "WALL LIGHT" is a light, wherever it
+        /// sits. Without one, a class whose name or main layer is architectural (door, window,
+        /// jamb, column, wall...) or whose main layer draws walls is the building, and nothing
+        /// written near it makes it a symbol.
+        /// </summary>
+        internal static string? ElectricalEvidence(CensusBlockClass block, ISet<string> wallLikeLayers,
+                                                   IReadOnlyDictionary<string, List<string>> legend)
+        {
+            string key = block.Anonymous ? string.Empty : block.Key;
+            if (NameLooksElectrical(key)) return "name";
+
+            List<CensusCount> layers = block.AllLayers ?? block.Layers;
+            string main = layers.Count > 0 ? layers[0].Name : string.Empty;
+            if (LooksArchitectural(key) || LooksArchitectural(main) || wallLikeLayers.Contains(main)) return null;
+
+            if (LooksElectrical(main)) return "layer";
+
+            if (block.Attributes.Any(attribute => TextLooksElectrical(attribute.Tag) ||
+                                                  attribute.Samples.Any(TextLooksElectrical)))
+            {
+                return "attribute";
+            }
+
+            if (legend.TryGetValue(block.Key, out List<string>? rows) && rows.Any(TextLooksElectrical)) return "legend";
+
+            double needed = Math.Max(2, 0.2 * block.Count);
+            if (block.NearTexts.Any(text => text.Count >= needed && TextLooksElectrical(text.Name))) return "near text";
+
+            return null;
+        }
+
         /// <summary>A class drawn at the size of a symbol (50 mm to 2 m), not a container.</summary>
         private static bool SymbolSized(CensusBlockClass block)
         {
@@ -137,6 +225,20 @@ namespace BinaVibe.Mcp.Tools.Electrical
         private static string F(double value, string format = "0.#") => value.ToString(format, CultureInfo.InvariantCulture);
 
         private static string Percent(double part, double whole) => whole > 0 ? F(100.0 * part / whole, "0") + "%" : "0%";
+
+        /// <summary>
+        /// A1 from the counts: YES when at least MinElectricalInstances instances look
+        /// electrical and NamedShareForYes of them are named (not anonymous) blocks; NO when the
+        /// symbols look exploded, or under five instances look electrical (what
+        /// electrical content there is, is loose linework); PARTLY otherwise - some electrical
+        /// blocks, too few, or too many of them anonymous.
+        /// </summary>
+        internal static string A1Verdict(int electricalSymbols, int namedElectrical, bool exploded)
+        {
+            if (exploded || electricalSymbols < 5) return "NO";
+            if (electricalSymbols >= MinElectricalInstances && namedElectrical >= NamedShareForYes * electricalSymbols) return "YES";
+            return "PARTLY";
+        }
 
         public static CensusAnswers Answer(ElectricalCensusResult census)
         {
@@ -156,18 +258,53 @@ namespace BinaVibe.Mcp.Tools.Electrical
             int anonymousGroups = allBlocks.Count(block => block.Anonymous);
             CensusTotals totals = census.Totals;
 
+            // Which symbol-sized classes look electrical, and why: the question is whether the
+            // electrical symbols are named blocks, wherever the drafter layered them.
+            var wallLikeLayers = new HashSet<string>(allLayers.Where(layer => layer.PairsLikeWalls).Select(layer => layer.Name),
+                                                     StringComparer.Ordinal);
+            var legendTexts = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+            foreach (CensusLegendRow row in census.AllLegend ?? census.Legend)
+            {
+                if (string.IsNullOrEmpty(row.Text)) continue;
+                if (!legendTexts.TryGetValue(row.Block, out List<string>? texts))
+                {
+                    texts = new List<string>();
+                    legendTexts[row.Block] = texts;
+                }
+                texts.Add(row.Text!);
+            }
+
+            List<(CensusBlockClass Block, string Evidence)> electrical = symbolSized
+                .Select(block => (Block: block, Evidence: ElectricalEvidence(block, wallLikeLayers, legendTexts)))
+                .Where(pair => pair.Evidence != null)
+                .Select(pair => (pair.Block, pair.Evidence!))
+                .ToList();
+            int electricalSymbols = electrical.Sum(pair => pair.Block.Count);
+            int namedElectrical = electrical.Where(pair => !pair.Block.Anonymous).Sum(pair => pair.Block.Count);
+
             CensusAnswer a1 = answers.A1;
-            if (electricalInstances >= 0.7 * symbolInstances && electricalInstances >= 20) a1.Verdict = "YES";
-            else if (census.SymbolsAreExploded || (electricalInstances < 5 && looseElectricalM > 50)) a1.Verdict = "NO";
-            else a1.Verdict = "PARTLY";
+            a1.Verdict = A1Verdict(electricalSymbols, namedElectrical, census.SymbolsAreExploded);
 
             a1.Lines.Add(totals.Inserts + " inserts, " + Percent(totals.Named, totals.Inserts) + " named, " +
                          Percent(totals.Anonymous, totals.Inserts) + " anonymous in " + anonymousGroups + " shape groups");
             a1.Lines.Add("symbol-sized: " + symbolSized.Count + " classes, " + symbolInstances + " instances");
+            a1.Lines.Add("electrical-looking: " + electrical.Count + " classes, " + electricalSymbols + " instances (" +
+                         Percent(electricalSymbols, symbolInstances) + " of symbol-sized), " +
+                         Percent(namedElectrical, electricalSymbols) + " of them named blocks");
+            a1.Lines.Add("evidence: " + (electrical.Count == 0 ? "none" : string.Join(", ", electrical
+                .GroupBy(pair => pair.Evidence)
+                .OrderByDescending(group => group.Sum(pair => pair.Block.Count)).ThenBy(group => group.Key, StringComparer.Ordinal)
+                .Select(group => group.Key + " " + group.Count() + " classes / " + group.Sum(pair => pair.Block.Count)))));
             a1.Lines.Add("on electrical-looking layers: " + electricalClasses + " classes, " + electricalInstances +
                          " instances (" + Percent(electricalInstances, symbolInstances) + " of symbol-sized)");
             a1.Lines.Add("loose linework on electrical-looking layers: " + F(looseElectricalM, "0") + " m" +
                          (census.SymbolsAreExploded ? " (symbols look exploded)" : ""));
+            a1.Lines.Add("top electrical classes: " + (electrical.Count == 0 ? "none" : string.Join(", ", electrical
+                .OrderByDescending(pair => pair.Block.Count).ThenBy(pair => pair.Block.Key, StringComparer.Ordinal)
+                .Take(10)
+                .Select(pair => pair.Block.Key + " x" + pair.Block.Count +
+                                (LayersOf(pair.Block).Count > 0 ? " on " + LayersOf(pair.Block)[0].Name : "") +
+                                " (" + pair.Evidence + ")"))));
             a1.Lines.Add("top classes: " + string.Join(", ", allBlocks.Take(10).Select(block =>
                 block.Key + " x" + block.Count + (block.Layers.Count > 0 ? " on " + block.Layers[0].Name : ""))));
 
@@ -242,7 +379,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                        : drawing.AecWarning ?? "none";
             text.Append("AEC      ").Append(aec).Append('\n');
 
-            AppendAnswer(text, "A1", "Electrical symbols are named block inserts on electrical layers", answers.A1);
+            AppendAnswer(text, "A1", "Electrical symbols are named block inserts", answers.A1);
             AppendAnswer(text, "A2", "The drawing carries the architectural background", answers.A2);
             AppendAnswer(text, "A3", "Conduit is drawn as lines/polylines on its own layer", answers.A3);
 
