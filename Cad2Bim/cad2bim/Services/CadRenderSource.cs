@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Text;
 using ACadSharp;
 using ACadSharp.Entities;
@@ -36,6 +37,73 @@ namespace Cad2Bim.Services {
         void Polyline(IReadOnlyList<(double X, double Y)> points, bool isClosed, string layer, CadSource source);
         void Arc(IReadOnlyList<(double X, double Y)> points, ArcParams? parameters, string layer, CadSource source);
         void Text(double x, double y, double height, string value, string layer, CadSource source);
+    }
+
+    /// <summary>
+    /// What a block definition is, read once per definition: the name to file it under, its
+    /// local extent and what it is made of. A census needs the shape of an anonymous block to
+    /// tell one anonymous copy from another, and the walker is the only code that opens block
+    /// definitions, so it hands this over rather than a bare name.
+    /// </summary>
+    public sealed class CadBlockInfo {
+        internal CadBlockInfo(string name, string recordName, bool isAnonymous, bool isUnresolvedXref,
+                              bool hasGeometry, double minX, double minY, double maxX, double maxY,
+                              IReadOnlyDictionary<string, int> entityCounts, int nestedInserts) {
+            Name = name;
+            RecordName = recordName;
+            IsAnonymous = isAnonymous;
+            IsUnresolvedXref = isUnresolvedXref;
+            HasGeometry = hasGeometry;
+            MinX = minX; MinY = minY; MaxX = maxX; MaxY = maxY;
+            EntityCounts = entityCounts;
+            NestedInserts = nestedInserts;
+        }
+
+        /// <summary>The source block's name for an anonymous copy of a dynamic block (the
+        /// drafter's "SOCKET-13A" rather than "*U12"), else the record's own name.</summary>
+        public string Name { get; }
+
+        /// <summary>The block record's raw name, e.g. "*U12".</summary>
+        public string RecordName { get; }
+
+        /// <summary>An anonymous record whose source block could not be found, so
+        /// <see cref="Name"/> is only the raw "*U.." name.</summary>
+        public bool IsAnonymous { get; }
+
+        /// <summary>An external reference whose drawing was not bound in: the flag is set and
+        /// the definition holds nothing.</summary>
+        public bool IsUnresolvedXref { get; }
+
+        /// <summary>False when the definition draws nothing, so the extent below is zero.</summary>
+        public bool HasGeometry { get; }
+
+        /// <summary>The definition's box in drawing units, relative to its base point.</summary>
+        public double MinX { get; }
+        public double MinY { get; }
+        public double MaxX { get; }
+        public double MaxY { get; }
+        public double Width => MaxX - MinX;
+        public double Height => MaxY - MinY;
+
+        /// <summary>The definition's own entities (not those of nested blocks), by type name.</summary>
+        public IReadOnlyDictionary<string, int> EntityCounts { get; }
+
+        /// <summary>How many inserts sit directly in the definition.</summary>
+        public int NestedInserts { get; }
+    }
+
+    /// <summary>
+    /// An optional second interface for an <see cref="ICadSink"/>: a sink that implements it is
+    /// also told about every block insert, so it can count symbols as well as stroke them.
+    /// Sinks that do not implement it get exactly the calls they always did.
+    /// </summary>
+    public interface ICadSymbolSink {
+        /// <summary>Called for every insert at any nesting depth, once per MINSERT cell, in
+        /// world coordinates (drawing units), before that insert's contents reach the
+        /// ICadSink. Inserts inside a dimension's own block (arrowheads) are not reported.</summary>
+        void Symbol(CadBlockInfo block, string layer, double x, double y, double rotationRad,
+                    double scaleX, double scaleY, bool mirrored, int depth,
+                    IReadOnlyDictionary<string, string> attributes);
     }
 
     /// <summary>
@@ -227,7 +295,7 @@ namespace Cad2Bim.Services {
                     break;
 
                 case Insert insert:
-                    EmitInsert(insert, sink, xform, depth, layer);
+                    EmitInsert(insert, sink, xform, depth, layer, source);
                     break;
 
                 // Boundary outlines only — the pattern fill itself is not drawn. Explode() here
@@ -617,8 +685,20 @@ namespace Cad2Bim.Services {
             }
         }
 
-        private static void EmitInsert(Insert insert, ICadSink sink, Xform xform, int depth, string layer) {
+        private static readonly IReadOnlyDictionary<string, string> NoAttributes =
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        private static void EmitInsert(Insert insert, ICadSink sink, Xform xform, int depth, string layer,
+                                       CadSource source) {
+            if (insert.Block == null) return;
+
             var basePoint = insert.Block.BlockEntity.BasePoint;
+
+            // Only a sink that asked for symbols pays for the block info and the attributes.
+            // A dimension's arrowheads are inserts too, but they are not the drawing's symbols.
+            ICadSymbolSink? symbols = source == CadSource.Dimension ? null : sink as ICadSymbolSink;
+            CadBlockInfo? info = symbols != null ? InfoFor(insert.Block) : null;
+            IReadOnlyDictionary<string, string> attributes = symbols != null ? AttributesOf(insert) : NoAttributes;
             double cos = Math.Cos(insert.Rotation);
             double sin = Math.Sin(insert.Rotation);
 
@@ -649,6 +729,17 @@ namespace Cad2Bim.Services {
                         originY - ((b * basePoint.X) + (d * basePoint.Y)));
 
                     Xform composed = outer.Compose(local);
+
+                    if (symbols != null) {
+                        var (worldX, worldY) = outer.Apply(originX, originY);
+                        double scaleX = Math.Sqrt((composed.A * composed.A) + (composed.B * composed.B));
+                        double scaleY = Math.Sqrt((composed.C * composed.C) + (composed.D * composed.D));
+                        bool mirrored = ((composed.A * composed.D) - (composed.B * composed.C)) < 0;
+
+                        symbols.Symbol(info!, layer, worldX, worldY, Math.Atan2(composed.B, composed.A),
+                                       scaleX, scaleY, mirrored, depth, attributes);
+                    }
+
                     foreach (Entity child in insert.Block.Entities) {
                         Emit(child, sink, composed, depth + 1, CadSource.Block);
                     }
@@ -661,6 +752,101 @@ namespace Cad2Bim.Services {
                 EmitText(sink, xform, attribute.InsertPoint.X, attribute.InsertPoint.Y,
                          attribute.Height, attribute.Value, layer, CadSource.Block);
             }
+        }
+
+        /// <summary>An insert's attributes by tag: empty tags skipped, the first value wins.</summary>
+        private static IReadOnlyDictionary<string, string> AttributesOf(Insert insert) {
+            Dictionary<string, string>? found = null;
+
+            foreach (AttributeEntity attribute in insert.Attributes) {
+                if (string.IsNullOrWhiteSpace(attribute.Tag)) continue;
+
+                found ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                if (!found.ContainsKey(attribute.Tag)) found[attribute.Tag] = attribute.Value ?? string.Empty;
+            }
+
+            return found ?? NoAttributes;
+        }
+
+        // One CadBlockInfo per definition, however many times it is inserted. Keyed weakly so a
+        // document that goes away takes its entries with it.
+        private static readonly ConditionalWeakTable<ACadSharp.Tables.BlockRecord, CadBlockInfo> Infos = new();
+
+        private static CadBlockInfo InfoFor(ACadSharp.Tables.BlockRecord block) =>
+            Infos.GetValue(block, BuildInfo);
+
+        private static CadBlockInfo BuildInfo(ACadSharp.Tables.BlockRecord block) {
+            string recordName = block.Name ?? string.Empty;
+
+            // A dynamic block's every variation is an anonymous copy ("*U12"); the definition
+            // it was made from carries the name the drafter knows it by.
+            string? sourceName = null;
+            bool anonymous = block.IsAnonymous || recordName.StartsWith("*", StringComparison.Ordinal);
+            if (anonymous) {
+                try {
+                    ACadSharp.Tables.BlockRecord? origin = block.Source;
+                    if (origin != null && !string.IsNullOrEmpty(origin.Name)) sourceName = origin.Name;
+                } catch (Exception) {
+                    // A malformed dynamic-block graph is no reason to stop a walk.
+                }
+            }
+
+            var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+            int nestedInserts = 0;
+            foreach (Entity entity in block.Entities) {
+                string type = entity.GetType().Name;
+                counts[type] = counts.TryGetValue(type, out int count) ? count + 1 : 1;
+                if (entity is Insert) nestedInserts++;
+            }
+
+            bool xref = (block.Flags & ACadSharp.Blocks.BlockTypeFlags.XRef) != 0 ||
+                        (block.Flags & ACadSharp.Blocks.BlockTypeFlags.XRefOverlay) != 0;
+
+            // The extent comes from the same Emit the drawing goes through, shifted so the base
+            // point is the origin. The probe is not a symbol sink, so this reports no symbols.
+            CSMath.XYZ basePoint = block.BlockEntity != null ? block.BlockEntity.BasePoint : CSMath.XYZ.Zero;
+            var probe = new ExtentSink();
+            var shift = new Xform(1, 0, 0, 1, -basePoint.X, -basePoint.Y);
+            foreach (Entity child in block.Entities) {
+                Emit(child, probe, shift, 1, CadSource.Block);
+            }
+
+            return new CadBlockInfo(
+                sourceName ?? recordName, recordName, anonymous && sourceName == null,
+                xref && block.Entities.Count == 0, probe.Any,
+                probe.Any ? probe.MinX : 0, probe.Any ? probe.MinY : 0,
+                probe.Any ? probe.MaxX : 0, probe.Any ? probe.MaxY : 0,
+                counts, nestedInserts);
+        }
+
+        /// <summary>Keeps only the bounding box of everything it is shown.</summary>
+        private sealed class ExtentSink : ICadSink {
+            public bool Any;
+            public double MinX = double.MaxValue, MinY = double.MaxValue;
+            public double MaxX = double.MinValue, MaxY = double.MinValue;
+
+            private void Grow(double x, double y) {
+                if (double.IsNaN(x) || double.IsNaN(y) || double.IsInfinity(x) || double.IsInfinity(y)) return;
+                Any = true;
+                if (x < MinX) MinX = x;
+                if (y < MinY) MinY = y;
+                if (x > MaxX) MaxX = x;
+                if (y > MaxY) MaxY = y;
+            }
+
+            public void Polyline(IReadOnlyList<(double X, double Y)> points, bool isClosed,
+                                 string layer, CadSource source) {
+                foreach (var point in points) Grow(point.X, point.Y);
+            }
+
+            public void Arc(IReadOnlyList<(double X, double Y)> points, ArcParams? parameters,
+                            string layer, CadSource source) {
+                foreach (var point in points) Grow(point.X, point.Y);
+            }
+
+            // Text has no extent of its own here, only an insertion point.
+            public void Text(double x, double y, double height, string value,
+                             string layer, CadSource source) => Grow(x, y);
         }
 
         private static void EmitArc(ICadSink sink, Xform xform, CadArc arc, string layer, CadSource source) {
