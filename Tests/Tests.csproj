@@ -58,6 +58,7 @@
     <Compile Include="..\Services\SyncApiClient.cs" Link="Services\SyncApiClient.cs" />
     <Compile Include="..\Services\SyncProgress.cs" Link="Services\SyncProgress.cs" />
     <Compile Include="..\Services\SyncRunner.cs" Link="Services\SyncRunner.cs" />
+    <Compile Include="..\SaveFederatedFileDto.cs" Link="SaveFederatedFileDto.cs" />
     <Compile Include="..\Services\BinaAccessDeniedException.cs" Link="Services\BinaAccessDeniedException.cs" />
     <Compile Include="..\LoginModels.cs" Link="LoginModels.cs" />
     <Compile Include="..\Services\SyncProtocolModels.cs" Link="Services\SyncProtocolModels.cs" />
