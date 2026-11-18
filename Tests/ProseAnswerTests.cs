@@ -74,12 +74,24 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void A_very_long_first_sentence_is_cut_and_the_whole_text_is_kept_as_detail()
+        public void A_very_long_first_sentence_is_cut_and_the_detail_continues_from_the_cut()
         {
             var text = Words(80) + ". Second sentence.";
             var (h, rest) = ProseSplit.Split(text);
             Assert.True(h.Length <= ProseSplit.MaxHeadlineChars + 1);
-            Assert.Equal(text, rest);
+            Assert.NotEqual(text, rest);                                                        // the cut sentence is not said twice
+            Assert.Equal(text, h.TrimEnd('\u2026') + " " + rest);                                // and no word is lost
+        }
+
+        [Fact]
+        public void TheCountAnswerOfThe141Pass_IsNotSaidTwice()
+        {
+            var text = "There are 56 doors visible in the active view (\"Aras 01 (07d_Dokumen)\"): 20 × (PTh300a) 750 x 2100 sd-d, 12 × (PTt760b) 3700 x 2100 sd-d, 8 × (PTr680a) 900 x 2100 sd-a, and the remaining types make up the rest — host model only, as all 6 linked models are unloaded and were not searched.";
+            var (h, rest) = ProseSplit.Split(text);
+            Assert.EndsWith("…", h);
+            Assert.DoesNotContain("There are 56 doors visible", rest);                          // the detail does not start the sentence again
+            Assert.StartsWith("model only", rest.Replace("— ", ""), System.StringComparison.Ordinal);
+            Assert.Equal(text.Replace(" — ", " "), (h.TrimEnd('…') + " " + rest).Replace(" — ", " "));
         }
 
         [Fact]

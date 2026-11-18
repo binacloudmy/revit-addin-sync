@@ -18,7 +18,9 @@ namespace RevitWebAppSync.UI.Copilot.Model
             var t = (text ?? "").Trim();
             if (t.Length <= max) return t;
             var space = t.LastIndexOf(' ', max - 1);
-            return t.Substring(0, space > max / 2 ? space : max - 1).TrimEnd(',', ';', ':', ' ') + "…";
+            var cut = space > max / 2 ? space : max - 1;
+            if (cut > 0 && char.IsHighSurrogate(t[cut - 1])) cut--;      // never split an emoji or other surrogate pair
+            return t.Substring(0, cut).TrimEnd(',', ';', ':', ' ') + "…";
         }
     }
 }

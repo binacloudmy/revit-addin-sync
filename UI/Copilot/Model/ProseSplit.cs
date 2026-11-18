@@ -55,12 +55,46 @@ namespace RevitWebAppSync.UI.Copilot.Model
             {
                 // no sentence end in the first line: the line is the headline when it is short, else it is cut
                 if (firstLine.Length <= MaxHeadlineChars) return (Plain(firstLine), newline < 0 ? "" : t.Substring(newline + 1).Trim());
-                return (Plain(CardText.Clamp(firstLine, MaxHeadlineChars)), t);
+                return CutHeadline(t, firstLine);
             }
             var headline = firstLine.Substring(0, end + 1);
             var rest = t.Substring(end + 1).Trim();
-            if (headline.Length > MaxHeadlineChars) return (Plain(CardText.Clamp(headline, MaxHeadlineChars)), t);
+            if (headline.Length > MaxHeadlineChars) return CutHeadline(t, headline);
             return (Plain(headline), rest);
+        }
+
+        /// <summary>A first sentence too long for a headline: the headline is its first words with "…", and the detail CONTINUES from the cut, so no word is
+        /// lost and none is said twice (0.0.141 pass: the count answer showed the cut sentence and then the whole sentence again).</summary>
+        private static (string Headline, string Remainder) CutHeadline(string text, string longSentence)
+        {
+            var cut = CardText.Clamp(longSentence, MaxHeadlineChars);
+            var kept = cut.TrimEnd('\u2026');
+            // Not inside an open "(" (a cut like 'view ("Aras…' reads broken): back up to before it when it sits in the second half.
+            var open = kept.LastIndexOf('(');
+            if (open > kept.Length / 2 && open > kept.LastIndexOf(')'))
+            {
+                var shorter = kept.Substring(0, open).TrimEnd(',', ';', ':', ' ');
+                if (shorter.Length > 0) kept = shorter;
+            }
+            // The detail continues from the cut; an emphasis span the cut ran through (an odd number of ** __ ~~ or ` seen) is opened again on it.
+            var rest = text.StartsWith(kept, StringComparison.Ordinal)
+                ? OpenMarkers(kept) + text.Substring(kept.Length).TrimStart(',', ';', ':', ' ', '\n', '\r')
+                : text;
+            return (Plain(kept + "\u2026"), rest);
+        }
+
+        /// <summary>The emphasis markers left open in <paramref name="consumed"/> (an odd number of occurrences), to put back in front of what follows.</summary>
+        private static string OpenMarkers(string consumed)
+        {
+            var counts = new Dictionary<string, int>();
+            for (var i = 0; i < consumed.Length;)
+            {
+                var m = MarkerAt(consumed, i);
+                if (m == null) { i++; continue; }
+                counts[m] = (counts.TryGetValue(m, out var c) ? c : 0) + 1;
+                i += m.Length;
+            }
+            return string.Concat(EmphasisMarkers.Where(m => counts.TryGetValue(m, out var c) && c % 2 == 1));
         }
 
         /// <summary>The index of the character that ends the first sentence ('.', '!' or '?' followed by space or the end, not a decimal, not an

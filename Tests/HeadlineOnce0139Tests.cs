@@ -82,5 +82,42 @@ namespace RevitAddinSync.Tests
             var text = "Aras 01 has 23 placed rooms, total 1109.06 m²:\n\n| No. | Room |\n|---|---|\n| 1 | A |";
             Assert.Equal("| No. | Room |\n|---|---|\n| 1 | A |", ProseSplit.RestAfterHeadline(text, "Aras 01 has 23 placed rooms, total 1109.06 m²: | No."));
         }
+
+        [Fact]
+        public void AReplyThatIsACutPrefixOfTheFirstSentence_IsNotRepeatedInTheBody()
+        {
+            // The backend's result.reply is the first sentence cut to <= 140 chars (a prefix, with or without "…"); the streamed text carries the whole sentence.
+            var text = "There are 56 doors visible in the active view (\"Aras 01 (07d_Dokumen)\"): 20 × (PTh300a) 750 x 2100 sd-d, 12 × (PTt760b) 3700 x 2100 sd-d, 8 × (PTr680a) 900 x 2100 sd-a, and the remaining types make up the rest — host model only, as all 6 linked models are unloaded and were not searched. More below.";
+            foreach (var reply in new[] { text.Substring(0, 138).TrimEnd() + "…", text.Substring(0, 138).TrimEnd(), text.Substring(0, 139).TrimEnd() + "..." })
+            {
+                var rest = ProseSplit.RestAfterHeadline(text, reply);
+                Assert.NotNull(rest);
+                Assert.DoesNotContain("There are 56 doors visible", rest);
+                Assert.EndsWith("More below.", rest);
+            }
+        }
+
+        [Fact]
+        public void ACutThroughBold_ReopensItOnTheBody()
+        {
+            var text = "**" + string.Join(" ", System.Linq.Enumerable.Range(1, 60).Select(i => "word" + i)) + "** and then the end.";
+            var (h, rest) = ProseSplit.Split(text);
+            Assert.EndsWith("…", h);
+            Assert.StartsWith("**word", rest);                                                    // the span the cut ran through is bold again in the body
+        }
+
+        [Fact]
+        public void TheCutNeverSplitsAnEmoji_AndNeverEndsInsideAnOpenParenthesis()
+        {
+            var emoji = new string('a', 218) + "😀" + new string('b', 30);
+            var cut = RevitWebAppSync.UI.Copilot.Model.CardText.Clamp(emoji, 220);
+            var body = cut.TrimEnd('…');
+            Assert.False(body.Length > 0 && char.IsHighSurrogate(body[body.Length - 1]), "a high surrogate was left at the cut");
+
+            var sentence = string.Join(" ", System.Linq.Enumerable.Range(1, 30).Select(i => "word" + i)) + " (an aside that goes on and on and on and on and on, so the cut lands inside it and it never closes before the headline limit is reached) tail.";
+            var (h, rest) = ProseSplit.Split(sentence);
+            Assert.DoesNotContain("(", h);                                                          // backed up to before the open parenthesis
+            Assert.StartsWith("(an aside", rest);
+        }
     }
 }
