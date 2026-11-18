@@ -124,7 +124,7 @@ namespace RevitWebAppSync
 
         private string _uploadKey;
 
-        public async Task<bool> UploadToS3Async(string signedUrl, string filePath, Action<int> onProgress = null)
+        public async Task<bool> UploadToS3Async(string signedUrl, string filePath, Action<int> onProgress = null, Action<long, long> onBytes = null)
         {
             try
             {
@@ -147,6 +147,7 @@ namespace RevitWebAppSync
                 // Track upload progress
                 var progressContent = new ProgressableStreamContent(content, (sent, total) =>
                 {
+                    onBytes?.Invoke(sent, total);
                     if (total > 0)
                     {
                         int progressPercent = (int)((sent * 100) / total);
@@ -329,7 +330,8 @@ namespace RevitWebAppSync
             }
         }
 
-        public async Task<AutodeskUploadResult> UploadFileAsync(string binaAccessToken, string filePath, string disciplineType = null, Action<int> onProgress = null)
+        /// <param name="onBytes">Real bytes (sent, total) of the S3 upload, called per small chunk; callers should throttle.</param>
+        public async Task<AutodeskUploadResult> UploadFileAsync(string binaAccessToken, string filePath, string disciplineType = null, Action<int> onProgress = null, Action<long, long> onBytes = null)
         {
             try
             {
@@ -367,7 +369,7 @@ namespace RevitWebAppSync
                 {
                     int totalProgress = 50 + (int)(s3Progress * 0.3); // 50-80%
                     onProgress?.Invoke(totalProgress);
-                });
+                }, onBytes);
                 
                 if (!uploadSuccess)
                 {

@@ -46,7 +46,7 @@ namespace RevitWebAppSync.Tests
         public void Bytes_are_clamped_and_a_zero_total_does_not_divide_by_zero()
         {
             Assert.Equal(100, new SyncProgress(SyncPhase.Uploading, 999, 100).BytesDone);
-            Assert.Equal(15, new SyncProgress(SyncPhase.Uploading, 5, 0).Percent);
+            Assert.Equal(8, new SyncProgress(SyncPhase.Uploading, 5, 0).Percent);
         }
 
         private static string TempFile(int bytes)
@@ -163,6 +163,68 @@ namespace RevitWebAppSync.Tests
                 Assert.Equal(2L * size, h.Received);
             }
             finally { File.Delete(path); }
+        }
+
+        [Theory]
+        [InlineData(SyncPhase.Hashing, 0, 0)]
+        [InlineData(SyncPhase.Hashing, 100, 5)]
+        [InlineData(SyncPhase.Registering, 0, 5)]
+        [InlineData(SyncPhase.Uploading, 0, 8)]
+        [InlineData(SyncPhase.Uploading, 50, 29)]
+        [InlineData(SyncPhase.Uploading, 100, 50)]
+        [InlineData(SyncPhase.PreparingViewer, 0, 50)]
+        [InlineData(SyncPhase.PreparingViewer, 40, 68)]    // 50 + 45 * 0.4
+        [InlineData(SyncPhase.PreparingViewer, 100, 95)]
+        [InlineData(SyncPhase.Finalizing, 0, 95)]
+        public void Each_step_owns_its_slice_of_the_bar(SyncPhase phase, int bytesOf100, int expected)
+            => Assert.Equal(expected, new SyncProgress(phase, bytesOf100, 100).Percent);
+
+        [Fact]
+        public void Viewer_text_shows_megabytes_and_percent_and_falls_back_before_bytes_flow()
+        {
+            Assert.Equal("Preparing the viewer: 12 MB of 37 MB · 32%",
+                new SyncProgress(SyncPhase.PreparingViewer, 12L * 1048576, 37L * 1048576).Text);
+            Assert.Equal("Preparing the viewer…", new SyncProgress(SyncPhase.PreparingViewer).Text);
+        }
+
+        [Fact]
+        public void Throttle_passes_about_one_report_per_step_and_always_the_last_byte()
+        {
+            var t = new ByteThrottle(1000);
+            var passed = new List<long>();
+            for (long done = 100; done <= 5050; done += 100)
+                if (t.ShouldReport(done, 5050)) passed.Add(done);
+            Assert.Equal(new long[] { 1000, 2000, 3000, 4000, 5000 }, passed);
+            Assert.True(t.ShouldReport(5050, 5050));   // the last byte always goes through
+        }
+
+        [Fact]
+        public void Throttle_survives_a_restarted_count()
+        {
+            var t = new ByteThrottle(1000);
+            Assert.True(t.ShouldReport(3000, 9000));
+            Assert.False(t.ShouldReport(3100, 9000));
+            Assert.True(t.ShouldReport(1200, 9000));   // count restarted below the last report
+        }
+
+        [Fact]
+        public async Task Autodesk_upload_content_reports_every_byte_it_writes()
+        {
+            const int size = 100000;
+            var seen = new List<(long Sent, long Total)>();
+            var h = new DrainHandler();
+            using (var http = new HttpClient(h))
+            {
+                var inner = new ByteArrayContent(new byte[size]);
+                var content = new ProgressableStreamContent(inner, (s, t) => seen.Add((s, t)));
+                var resp = await http.PutAsync("https://s3.test/put", content);
+                Assert.True(resp.IsSuccessStatusCode);
+            }
+            Assert.Equal(size, h.Received);
+            Assert.NotEmpty(seen);
+            Assert.All(seen, x => Assert.Equal(size, x.Total));
+            for (int i = 1; i < seen.Count; i++) Assert.True(seen[i].Sent > seen[i - 1].Sent);
+            Assert.Equal(size, seen[seen.Count - 1].Sent);
         }
     }
 }

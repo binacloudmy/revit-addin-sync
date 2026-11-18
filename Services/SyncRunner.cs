@@ -192,12 +192,18 @@ namespace RevitWebAppSync.Services
                 // sync, which is about the model bytes.
                 string urn = null;
                 progress?.Report(new SyncProgress(SyncPhase.PreparingViewer));
+                var viewerThrottle = new ByteThrottle();
                 try
                 {
                     // AutodeskApiService is not IDisposable; it owns its own client.
                     var autodesk = new AutodeskApiService();
                     var autodeskResult = await autodesk
-                        .UploadFileAsync(req.AccessToken, req.UploadPath, req.DisciplineType)
+                        .UploadFileAsync(req.AccessToken, req.UploadPath, req.DisciplineType, null,
+                            (sent, total) =>
+                            {
+                                if (viewerThrottle.ShouldReport(sent, total))
+                                    progress?.Report(new SyncProgress(SyncPhase.PreparingViewer, sent, total));
+                            })
                         .ConfigureAwait(false);
                     urn = autodeskResult?.UrnInBase64;
                 }
