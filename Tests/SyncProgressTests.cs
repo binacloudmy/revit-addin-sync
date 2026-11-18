@@ -29,7 +29,8 @@ namespace RevitWebAppSync.Tests
                 new SyncProgress(SyncPhase.Registering),
                 new SyncProgress(SyncPhase.Uploading, 0, 1000), new SyncProgress(SyncPhase.Uploading, 500, 1000),
                 new SyncProgress(SyncPhase.Uploading, 1000, 1000),
-                new SyncProgress(SyncPhase.PreparingViewer), new SyncProgress(SyncPhase.Finalizing)
+                new SyncProgress(SyncPhase.PreparingViewer), new SyncProgress(SyncPhase.PreparingViewer, 500, 1000),
+                new SyncProgress(SyncPhase.PreparingViewer, 1000, 1000), new SyncProgress(SyncPhase.Finalizing)
             };
             int last = -1;
             foreach (var s in steps) { Assert.True(s.Percent >= last, s.Text); last = s.Percent; }
