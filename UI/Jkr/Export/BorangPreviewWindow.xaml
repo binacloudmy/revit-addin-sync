@@ -3,91 +3,81 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Width="900" Height="720"
         WindowStyle="None" AllowsTransparency="True" ResizeMode="NoResize"
-        Background="#E9E6E0" WindowStartupLocation="CenterOwner"
-        ShowInTaskbar="False" FontFamily="Segoe UI" FontSize="12">
-    <!-- Export preview (prototype .exp / .exp-bar / .exp-doc; frames e-p1, e-sum).
-         The pages are the PDF's own pages, rendered by the same engine. -->
+        Background="{DynamicResource Bz.Sunken}" WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False" FontFamily="{DynamicResource Bz.Font.Sans}" FontSize="12" Foreground="{DynamicResource Bz.Text}"
+        TextOptions.TextFormattingMode="Display" UseLayoutRounding="True" SnapsToDevicePixels="True">
+    <!-- Export preview (prototype .exp / .exp-bar / .exp-doc; frames e-p1, e-sum), in
+         Direction C's dark look (BorangBM): a 44 px header with a hairline, PDF as the
+         light button, the issue export as ghost, Close. The pages are the PDF's own
+         pages, rendered by the same engine, shown as they are. -->
     <Window.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="pack://application:,,,/RevitWebAppSync;component/UI/Jkr/Panel/PanelTokens.xaml"/>
             </ResourceDictionary.MergedDictionaries>
 
-            <!-- .exp-close: transparent, light border -->
-            <Style x:Key="BarBtn" TargetType="Button">
-                <Setter Property="Foreground" Value="#E6E9EE"/>
-                <Setter Property="FontSize" Value="12"/>
-                <Setter Property="Cursor" Value="Hand"/>
-                <Setter Property="FocusVisualStyle" Value="{StaticResource Bz.FocusRing}"/>
-                <Setter Property="Template">
-                    <Setter.Value>
-                        <ControlTemplate TargetType="Button">
-                            <Border x:Name="Bd" Background="Transparent" BorderBrush="#4B4F57" BorderThickness="1" CornerRadius="5" Padding="12,6,12,6">
-                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                            </Border>
-                            <ControlTemplate.Triggers>
-                                <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="Bd" Property="Background" Value="#1F232B"/>
-                                </Trigger>
-                                <Trigger Property="IsEnabled" Value="False">
-                                    <Setter Property="Opacity" Value="0.5"/>
-                                </Trigger>
-                            </ControlTemplate.Triggers>
-                        </ControlTemplate>
-                    </Setter.Value>
-                </Setter>
+            <!-- Close: a ghost button without its hairline until hovered -->
+            <Style x:Key="BarBtn" TargetType="Button" BasedOn="{StaticResource Bz.Btn.Ghost}">
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="BorderBrush" Value="Transparent"/>
+                <Setter Property="Foreground" Value="{StaticResource Bz.Text2}"/>
             </Style>
         </ResourceDictionary>
     </Window.Resources>
 
-    <Grid>
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
-        </Grid.RowDefinitions>
+    <Border BorderBrush="{StaticResource Bz.Line2}" BorderThickness="1">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
 
-        <!-- .exp-bar -->
-        <Border Background="#0F0F0F" Padding="16,10,16,10">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                <StackPanel VerticalAlignment="Center">
-                    <TextBlock x:Name="TitleText" Foreground="#E6E9EE" FontSize="12"/>
-                    <TextBlock x:Name="StatusText" Foreground="#8B94A5" FontSize="11" Margin="0,2,0,0" TextTrimming="CharacterEllipsis"
-                               Visibility="Collapsed"/>
-                </StackPanel>
-                <StackPanel Grid.Column="1" Orientation="Horizontal">
-                    <Button x:Name="IssuesBtn" Style="{StaticResource BarBtn}" Margin="0,0,8,0" Click="Issues_Click"/>
-                    <Button x:Name="PdfBtn" Style="{StaticResource Bz.Btn.Primary}" Margin="0,0,8,0" Click="Pdf_Click">
-                        <StackPanel Orientation="Horizontal">
-                            <Path Data="M12,3 L12,15 M7,10 L12,15 L17,10 M5,21 L19,21" Stroke="#0F0F0F" StrokeThickness="2"
-                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
-                                  Width="13" Height="13" Stretch="Uniform" VerticalAlignment="Center"/>
-                            <TextBlock Text="PDF" Margin="6,0,0,0" VerticalAlignment="Center"/>
-                        </StackPanel>
-                    </Button>
-                    <Button x:Name="CloseBtn" Style="{StaticResource BarBtn}" Click="Close_Click"/>
-                </StackPanel>
-            </Grid>
-        </Border>
+            <!-- .exp-bar: 44 px header, hairline below -->
+            <Border Background="{StaticResource Bz.Surface}" BorderBrush="{StaticResource Bz.Line}" BorderThickness="0,0,0,1"
+                    Padding="14,0,10,0" MinHeight="44">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,6,12,6">
+                        <TextBlock x:Name="TitleText" Foreground="{StaticResource Bz.Text}" FontSize="12.5" FontWeight="SemiBold"
+                                   TextTrimming="CharacterEllipsis"/>
+                        <TextBlock x:Name="StatusText" Foreground="{StaticResource Bz.Text2}" FontSize="11" Margin="0,2,0,0" TextTrimming="CharacterEllipsis"
+                                   Visibility="Collapsed"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button x:Name="IssuesBtn" Style="{StaticResource Bz.Btn.Ghost}" Height="32" Padding="12,0,12,0" Margin="0,0,8,0" Click="Issues_Click"/>
+                        <Button x:Name="PdfBtn" Style="{StaticResource Bz.Btn.Ink}" Height="32" Padding="14,0,14,0" Margin="0,0,8,0" Click="Pdf_Click">
+                            <StackPanel Orientation="Horizontal">
+                                <Path Data="M12,3 L12,15 M7,10 L12,15 L17,10 M5,21 L19,21"
+                                      Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="2"
+                                      StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                                      Width="13" Height="13" Stretch="Uniform" VerticalAlignment="Center"/>
+                                <TextBlock Text="PDF" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="CloseBtn" Style="{StaticResource BarBtn}" Height="32" Padding="10,0,10,0" Click="Close_Click"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
 
-        <!-- .exp-doc: the pages -->
-        <ScrollViewer x:Name="Doc" Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
-                      Focusable="False" PanningMode="VerticalOnly">
-            <ItemsControl x:Name="PagesList" Margin="24" HorizontalAlignment="Center">
-                <ItemsControl.ItemTemplate>
-                    <DataTemplate>
-                        <Border Background="#FFFFFF" BorderBrush="#B8B2A8" BorderThickness="1" Margin="0,0,0,22" Width="722">
-                            <Border.Effect>
-                                <DropShadowEffect Color="#28221C" BlurRadius="26" ShadowDepth="10" Direction="270" Opacity="0.14"/>
-                            </Border.Effect>
-                            <Image Source="{Binding}" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"/>
-                        </Border>
-                    </DataTemplate>
-                </ItemsControl.ItemTemplate>
-            </ItemsControl>
-        </ScrollViewer>
-    </Grid>
+            <!-- .exp-doc: the pages, as rendered -->
+            <ScrollViewer x:Name="Doc" Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                          Focusable="False" PanningMode="VerticalOnly">
+                <ItemsControl x:Name="PagesList" Margin="24" HorizontalAlignment="Center">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border BorderBrush="{StaticResource Bz.Line}" BorderThickness="1" Margin="0,0,0,22" Width="722">
+                                <Border.Effect>
+                                    <DropShadowEffect Color="Black" BlurRadius="24" ShadowDepth="8" Direction="270" Opacity="0.5"/>
+                                </Border.Effect>
+                                <Image Source="{Binding}" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"/>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </Grid>
+    </Border>
 </Window>
