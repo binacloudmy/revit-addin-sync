@@ -29,13 +29,15 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
         /// <summary>The "More detail" toggle and the collapsed pane text, for a card that already has its own headline; null when the
         /// text only repeats the headline.</summary>
-        public static FrameworkElement? MoreDetail(string text, string headline, ReceiptLanguage lang, double maxWidth, bool tableDownloads)
+        public static FrameworkElement? MoreDetail(string text, string headline, ReceiptLanguage lang, double maxWidth, bool tableDownloads, ResultItems? cardRows = null)
         {
             var t = (text ?? "").Trim();
             if (t.Length == 0 || ProseSplit.Plain(t) == ProseSplit.Plain(headline.Trim())) return null;
             // The answer starts with its own headline: only what follows is "more detail", never the first sentence again.
             var rest = ProseSplit.RestAfterHeadline(t, headline);
             if (rest != null) { if (rest.Length == 0) return null; t = rest; }
+            // The card already draws these rows: the model's markdown table of the same rows is not shown a second time.
+            if (cardRows != null) { t = TableDedupe.Strip(t, cardRows); if (ProseSplit.Plain(t).Length == 0) return null; }
             return AddRest(new StackPanel(), t, true, lang, maxWidth, tableDownloads);
         }
 

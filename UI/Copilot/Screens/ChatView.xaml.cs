@@ -801,12 +801,12 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 // A prose answer that also has rows: the rows are the card; the full text sits behind "More detail" under it.
                 if (cardShown && serverProse)
                 {
-                    var more = Controls.ProseAnswer.MoreDetail(m.Text, m.ResultCard.ServerReply, m.Lang, textWidth, !evidenceExports);
+                    var more = Controls.ProseAnswer.MoreDetail(m.Text, m.ResultCard.ServerReply, m.Lang, textWidth, !evidenceExports, m.ResultCard.Items);
                     if (more != null) col.Children.Add(more);
                 }
                 else if (cardShown && m.ResultCard.AdoptedRest.Length > 0)
                 {
-                    var more = Controls.ProseAnswer.MoreDetail(m.ResultCard.AdoptedRest, m.ResultCard.ServerReply, m.Lang, textWidth, !evidenceExports);
+                    var more = Controls.ProseAnswer.MoreDetail(m.ResultCard.AdoptedRest, m.ResultCard.ServerReply, m.Lang, textWidth, !evidenceExports, m.ResultCard.Items);
                     if (more != null) col.Children.Add(more);
                 }
             }
