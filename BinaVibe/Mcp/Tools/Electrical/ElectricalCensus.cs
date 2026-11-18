@@ -431,43 +431,38 @@ namespace BinaVibe.Mcp.Tools.Electrical
         /// Per layer, so a pair is never made across two layers: that misses walls whose faces
         /// sit on different layers, and keeps electrical linework from pairing with the walls.
         /// Returns the walls of every wall-like layer.
+        ///
+        /// The thickness bounds are the defaults, passed to ClassifyWalls rather than set on
+        /// the shared Wall.SMin/SMax: the census can run beside a detect pass in the same
+        /// process (the add-in), and must neither see nor change the pane's settings. It still
+        /// reads Wall.MinFaceLength/MinFaceAspect/MaxFaceUses, which nothing here changes.
         /// </summary>
         private static List<Wall> TestLayersForWalls(CensusSink sink, CensusOptions o)
         {
             var wallLike = new List<Wall>();
-            double savedMin = Wall.SMin, savedMax = Wall.SMax;
-            Wall.SMin = Units.DefaultMinWallThicknessMm;
-            Wall.SMax = Units.DefaultMaxWallThicknessMm;
+            double sMin = Units.DefaultMinWallThicknessMm, sMax = Units.DefaultMaxWallThicknessMm;
 
-            try
+            foreach (LayerTally tally in sink.Layers.Values)
             {
-                foreach (LayerTally tally in sink.Layers.Values)
+                if (tally.Pieces.Count > o.MaxWallTestSegments)
                 {
-                    if (tally.Pieces.Count > o.MaxWallTestSegments)
-                    {
-                        tally.WallsSkipped = "too_many_segments";
-                        continue;
-                    }
-
-                    int faces = tally.Pieces.Count(p => PieceLength(p) >= Wall.MinFaceLength);
-                    if (faces < o.MinWallTestSegments) continue;
-
-                    List<Segment> segments = tally.Segments();
-                    List<Wall> merged = CadClassifier.ClassifyWalls(CadClassifier.MergeCollinearSegments(segments));
-                    tally.WallPairsUnmerged = CadClassifier.ClassifyWalls(segments).Count;
-                    tally.WallPairs = merged.Count;
-
-                    double paired = merged.Sum(wall => wall.Centerline.Length) * 2;
-                    tally.PairedLengthShare = tally.StraightLength > 0 ? Math.Min(1.0, paired / tally.StraightLength) : 0;
-                    tally.PairsLikeWalls = tally.WallPairs >= 8 && tally.PairedLengthShare >= 0.25;
-
-                    if (tally.PairsLikeWalls) wallLike.AddRange(merged);
+                    tally.WallsSkipped = "too_many_segments";
+                    continue;
                 }
-            }
-            finally
-            {
-                Wall.SMin = savedMin;
-                Wall.SMax = savedMax;
+
+                int faces = tally.Pieces.Count(p => PieceLength(p) >= Wall.MinFaceLength);
+                if (faces < o.MinWallTestSegments) continue;
+
+                List<Segment> segments = tally.Segments();
+                List<Wall> merged = CadClassifier.ClassifyWalls(CadClassifier.MergeCollinearSegments(segments), sMin, sMax);
+                tally.WallPairsUnmerged = CadClassifier.ClassifyWalls(segments, sMin, sMax).Count;
+                tally.WallPairs = merged.Count;
+
+                double paired = merged.Sum(wall => wall.Centerline.Length) * 2;
+                tally.PairedLengthShare = tally.StraightLength > 0 ? Math.Min(1.0, paired / tally.StraightLength) : 0;
+                tally.PairsLikeWalls = tally.WallPairs >= 8 && tally.PairedLengthShare >= 0.25;
+
+                if (tally.PairsLikeWalls) wallLike.AddRange(merged);
             }
 
             return wallLike;

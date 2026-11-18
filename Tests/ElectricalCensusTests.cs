@@ -309,6 +309,37 @@ namespace Tests
         }
 
         [Fact]
+        public void Wall_test_uses_its_own_bounds_and_leaves_the_shared_ones_alone()
+        {
+            // A pane set to 1-2 m walls must neither stop the census finding 150 mm walls nor
+            // be changed by it, even for a moment.
+            double savedMin = Cad2Bim.Wall.SMin, savedMax = Cad2Bim.Wall.SMax;
+            Cad2Bim.Wall.SMin = 1000;
+            Cad2Bim.Wall.SMax = 2000;
+            try
+            {
+                var faces = new List<Cad2Bim.Segment>
+                {
+                    new Cad2Bim.Segment(new Cad2Bim.Point(0, 0), new Cad2Bim.Point(3000, 0)),
+                    new Cad2Bim.Segment(new Cad2Bim.Point(0, 150), new Cad2Bim.Point(3000, 150)),
+                };
+                Assert.Single(Cad2Bim.CadClassifier.ClassifyWalls(faces, 50, 400));
+                Assert.Empty(Cad2Bim.CadClassifier.ClassifyWalls(faces));
+
+                ElectricalCensusResult census = ElectricalCensus.Build(TwoRooms());
+
+                Assert.True(LayerOf(census, "A-WALL").PairsLikeWalls);
+                Assert.Equal(1000, Cad2Bim.Wall.SMin);
+                Assert.Equal(2000, Cad2Bim.Wall.SMax);
+            }
+            finally
+            {
+                Cad2Bim.Wall.SMin = savedMin;
+                Cad2Bim.Wall.SMax = savedMax;
+            }
+        }
+
+        [Fact]
         public void A_layer_over_the_segment_cap_is_skipped()
         {
             CadDocument doc = TwoRooms();

@@ -212,11 +212,15 @@ namespace Cad2Bim {
         /// openings, room boundaries — works on this rather than on the face pair.</summary>
         public Segment Centerline { get; }
 
-        public Wall(Segment e1, Segment e2) {
+        public Wall(Segment e1, Segment e2) : this(e1, e2, SMin, SMax) { }
+
+        /// <summary>A wall checked against the given thickness bounds rather than the shared
+        /// <see cref="SMin"/>/<see cref="SMax"/>, for a caller that must not change those.</summary>
+        public Wall(Segment e1, Segment e2, double sMin, double sMax) {
             double d = Segment.Distance(e1, e2);
 
             if (!e1.isParallelTo(e2)) throw new ArgumentException("Wall segments must be parallel.");
-            if (d < SMin || d > SMax) throw new ArgumentException("Wall thickness out of bounds.");
+            if (d < sMin || d > sMax) throw new ArgumentException("Wall thickness out of bounds.");
 
             Geometry = new List<GeometryElement> {e1, e2};
             Thickness = d;
@@ -341,7 +345,12 @@ namespace Cad2Bim {
         // rather than which pairs are admissible: candidates must overlap when projected onto the
         // shared direction, and the closest admissible candidate wins instead of the first one
         // scanned. Pairing is still exclusive - a face belongs to at most one wall.
-        public static List<Wall> ClassifyWalls(IReadOnlyList<Segment> Segments) {
+        public static List<Wall> ClassifyWalls(IReadOnlyList<Segment> Segments) =>
+            ClassifyWalls(Segments, Wall.SMin, Wall.SMax);
+
+        /// <summary>The same pairing with the thickness bounds passed in, so a caller with its
+        /// own bounds (the electrical census) need not set the process-wide Wall.SMin/SMax.</summary>
+        public static List<Wall> ClassifyWalls(IReadOnlyList<Segment> Segments, double sMin, double sMax) {
 
             List<Wall> walls = new List<Wall>();
 
@@ -359,7 +368,7 @@ namespace Cad2Bim {
 
             // Only segments within SMax of this one can be its far face, and the grid answers
             // that without walking the whole drawing. Same pairs as a full scan, same order.
-            var index = new SegmentIndex(Segments, Math.Max(Wall.SMax * 4, 1000));
+            var index = new SegmentIndex(Segments, Math.Max(sMax * 4, 1000));
 
             for (int i=0; i < Segments.Count; i++) {
                 Segment s1 = Segments[i];
@@ -369,7 +378,7 @@ namespace Cad2Bim {
                 Segment? nearest = null;
                 double nearestDistance = double.MaxValue;
 
-                foreach (int j in index.Near(s1, Wall.SMax)) {
+                foreach (int j in index.Near(s1, sMax)) {
                     if(j <= i) continue;
                     Segment s2 = Segments[j];
 
@@ -378,7 +387,7 @@ namespace Cad2Bim {
                     if(!s1.isParallelTo(s2)) continue;
 
                     double d = Segment.Distance(s1, s2);
-                    if(d<Wall.SMin || d>Wall.SMax) continue;
+                    if(d<sMin || d>sMax) continue;
 
                     // Hatch strokes are as long as they are far apart; walls are not.
                     if(Math.Min(s1.Length, s2.Length) < d * Wall.MinFaceAspect) continue;
@@ -393,7 +402,7 @@ namespace Cad2Bim {
 
                 if(nearest is null) continue;
 
-                walls.Add(new Wall(s1, nearest));
+                walls.Add(new Wall(s1, nearest, sMin, sMax));
 
                 Spend(s1);
                 Spend(nearest);
