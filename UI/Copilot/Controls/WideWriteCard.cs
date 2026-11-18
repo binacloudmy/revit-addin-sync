@@ -326,10 +326,13 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         {
             // A gate that deletes: the approving button is the kit's Secondary in the warning colour (red outline and text), not the safe lime primary. Same
             // label, same place, same answer; only the colour changes.
-            var b = spec.Role == WideRole.Primary && !spec.Destructive ? CardKit.Primary(spec.Label, onClick) : CardKit.Secondary(spec.Label, onClick);
+            // wrapText: the kit's wrapping template (a star column), else the label sits in a horizontal StackPanel that measures it at infinite width: a long
+            // label ("Only the 10 doors found at Width = 900 mm: write to those") was cut at both ends (0.0.141 live check).
+            var b = spec.Role == WideRole.Primary && !spec.Destructive ? CardKit.Primary(spec.Label, onClick, wrapText: true) : CardKit.Secondary(spec.Label, onClick, wrapText: true);
             b.MinHeight = 34;
             b.HorizontalAlignment = HorizontalAlignment.Left;
-            var text = new TextBlock { Text = spec.Label ?? "", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 7, 0, 7) };
+            b.HorizontalContentAlignment = HorizontalAlignment.Left;
+            var text = new TextBlock { Text = spec.Label ?? "", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 1, 0, 1) };
             if (spec.Destructive)
             {
                 text.SetResourceReference(TextBlock.ForegroundProperty, "Cp.IssueFg");   // text: 6.5:1 on white (Cp.Red is 3.9); the outline keeps Cp.Red

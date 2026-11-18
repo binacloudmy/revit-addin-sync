@@ -167,9 +167,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             return b;
         }
 
-        public static Button Primary(string label, Action onClick, string? icon = null, bool compact = false) => Make(Kit.Primary, label, onClick, icon, compact);
+        public static Button Primary(string label, Action onClick, string? icon = null, bool compact = false, bool wrapText = false) => Make(Kit.Primary, label, onClick, icon, compact, wrapText);
 
-        public static Button Secondary(string label, Action onClick, string? icon = null, bool compact = false) => Make(Kit.Secondary, label, onClick, icon, compact);
+        public static Button Secondary(string label, Action onClick, string? icon = null, bool compact = false, bool wrapText = false) => Make(Kit.Secondary, label, onClick, icon, compact, wrapText);
 
         public static Button Ghost(string label, Action onClick, string? icon = null, bool compact = false) => Make(Kit.Ghost, label, onClick, icon, compact);
 
