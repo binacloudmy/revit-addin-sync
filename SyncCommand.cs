@@ -198,7 +198,6 @@ namespace RevitWebAppSync
                         Comment = options.Comment,
                         ClientInfo = clientInfo,
                         LinkedFiles = linkedFiles,
-                        AccessToken = beToken,
                         Progress = options.Progress,
                         // The chain the user picked. Null on an ordinary sync,
                         // where the server resolves the lineage from the filename

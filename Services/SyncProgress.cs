@@ -3,7 +3,7 @@ using System.Globalization;
 
 namespace RevitWebAppSync.Services
 {
-    public enum SyncPhase { Hashing, Registering, Uploading, PreparingViewer, Finalizing }
+    public enum SyncPhase { Hashing, Registering, Uploading, Finalizing }
 
     /// <summary>
     /// One progress report from a sync run: which step it is on and, for the two
@@ -24,9 +24,9 @@ namespace RevitWebAppSync.Services
 
         // Share of the bar each step owns. Upload is the long one; the others get
         // a slice so the bar never sits still between steps. shortcut: fixed
-        // weights, not measured — retune if hashing or the viewer step dominate.
-        private static readonly int[] Start = { 0, 10, 15, 85, 95 };
-        private static readonly int[] End = { 10, 15, 85, 95, 100 };
+        // weights, not measured — retune if hashing or saving dominate.
+        private static readonly int[] Start = { 0, 10, 15, 95 };
+        private static readonly int[] End = { 10, 15, 95, 100 };
 
         /// <summary>Overall 0-100. Can step back once if an upload retry restarts.</summary>
         public int Percent
@@ -50,7 +50,6 @@ namespace RevitWebAppSync.Services
                     case SyncPhase.Hashing: return Bytes("Checking the model", false);
                     case SyncPhase.Registering: return "Contacting BINA…";
                     case SyncPhase.Uploading: return Bytes("Uploading", true);
-                    case SyncPhase.PreparingViewer: return "Preparing the viewer…";
                     default: return "Saving the new version…";
                 }
             }
