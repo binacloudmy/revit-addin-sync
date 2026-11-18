@@ -392,7 +392,7 @@ namespace RevitWebAppSync
                             $"Files were uploaded but failed to register in BINA backend.\n\n" +
                             $"Error: {saveResult.Message}\n" +
                             $"OBS Upload: ✅ Success\n\n" +
-                            $"Check the log files on Desktop for more details.");
+                            $"Check bina_upload_log.txt on your Desktop for more details.");
                     }
                 }
                 finally

@@ -41,11 +41,9 @@ Files are automatically copied to: `%APPDATA%\Autodesk\Revit\Addins\{RevitVersio
 
 ### 3. Configuration
 
-Configure your APS credentials and web app settings in `App.config` or environment variables:
+Configure the web app settings in `App.config` or environment variables:
 
 ```xml
-<add key="APS_CLIENT_ID" value="your-client-id" />
-<add key="APS_CLIENT_SECRET" value="your-client-secret" />
 <add key="WebApp_BaseUrl" value="https://your-webapp.com/api" />
 <add key="WebApp_ApiKey" value="your-api-key" />
 ```
