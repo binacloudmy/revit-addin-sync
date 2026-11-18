@@ -371,6 +371,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 if ((env.Highlight?.Selected ?? 0) > 0) { last = (env.Highlight!.Selected, env.Highlight.VisibleInView); continue; }
                 if (env.Data is { ValueKind: System.Text.Json.JsonValueKind.Object } data
                     && data.TryGetProperty("ui", out var ui) && ui.ValueKind == System.Text.Json.JsonValueKind.Object
+                    && !(ui.TryGetProperty("applied", out var applied) && applied.ValueKind == System.Text.Json.JsonValueKind.False)   // a preview run, or one whose UI hook is missing, changed nothing in Revit
                     && ui.TryGetProperty("selected", out var n) && n.ValueKind == System.Text.Json.JsonValueKind.Number && n.TryGetInt32(out var count))
                     last = count > 0 ? (count, 0) : (0, 0);          // a later run that set an EMPTY selection leaves nothing selected: the card must not claim the earlier find's
             }

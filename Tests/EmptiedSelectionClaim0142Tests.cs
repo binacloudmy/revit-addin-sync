@@ -30,5 +30,21 @@ namespace RevitAddinSync.Tests
             Assert.Equal((3, 0), ResultCardModel.FinalSelection(new[] { Find(10, 8), CodeSelected(0), CodeSelected(3) }));
             Assert.Equal((10, 8), ResultCardModel.FinalSelection(new[] { Find(10, 8), new Envelope { Ok = true, Status = EnvelopeStatus.Done, Phase = EnvelopePhase.Read } }));   // a call that says nothing about the selection changes nothing
         }
+
+        private static Envelope CodeUi(string applied, int n) => new Envelope
+        {
+            Ok = true, Status = EnvelopeStatus.Done, Phase = EnvelopePhase.Read, Summary = "Ran.",
+            Data = JsonDocument.Parse("{\"mode\":\"read\",\"ui\":{\"applied\":" + applied + ",\"selected\":" + n + "}}").RootElement.Clone(),
+        };
+
+        [Fact]
+        public void ARunWhoseUiWasNotApplied_ChangesNoClaim()
+        {
+            // A preview run (UiDelivery.Never) or one with no UI hook reports its requests with applied = false: nothing happened in Revit.
+            Assert.Equal((10, 8), ResultCardModel.FinalSelection(new[] { Find(10, 8), CodeUi("false", 0) }));      // an empty selection never applied does not erase the claim
+            Assert.Equal((0, 0), ResultCardModel.FinalSelection(new[] { CodeUi("false", 5) }));                     // a selection never applied is not a claim
+            Assert.Equal((0, 0), ResultCardModel.FinalSelection(new[] { Find(10, 8), CodeUi("true", 0) }));          // applied: the empty selection wins
+            Assert.Equal((4, 0), ResultCardModel.FinalSelection(new[] { CodeUi("true", 4) }));
+        }
     }
 }
