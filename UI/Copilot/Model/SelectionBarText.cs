@@ -33,6 +33,11 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// bar. VisibleInView 0 means Revit did not say, so every selected element counts as in view (the old card said nothing
         /// about visibility then either). <paramref name="rest"/> is the elements outside the selection that the isolate hides,
         /// when a count for them is known (0 when it is not).</summary>
+        /// <summary>The stacked bar and its legend are for a selection that SPLITS (in view / not visible / hidden by the isolate): two segments or more. A
+        /// selection wholly in view is one blue bar and one legend line saying "Selected in view 56" beside "Selected in Revit: 56" (UX review B1: one fact five
+        /// times), so it draws neither.</summary>
+        public static bool ShowsBar(IReadOnlyList<SelectionSegment>? segments) => segments != null && segments.Count >= 2;
+
         public static List<SelectionSegment> Segments(int selected, int visibleInView, bool isolated, ReceiptLanguage lang, int rest = 0)
         {
             var list = new List<SelectionSegment>();

@@ -187,8 +187,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         /// <summary>"Show all 24 sheets" / "Show fewer": accent text, a hairline above, 38 high.</summary>
         private static FrameworkElement FoldToggle(ItemSection section, int units, List<FrameworkElement> behindFold, ReceiptLanguage lang)
         {
-            var all = ItemsBody.ShowAllLabel(section, lang, units);
-            var fewer = ItemsBody.ShowFewerLabel(lang);
+            var all = ItemsBody.ShowAllLabel(section, lang, units) + " ▾";     // a chevron says it opens (spec 3.2)
+            var fewer = ItemsBody.ShowFewerLabel(lang) + " ▴";
             var open = false;
             Button? toggle = null;
             toggle = CardKit.Ghost(all, () =>

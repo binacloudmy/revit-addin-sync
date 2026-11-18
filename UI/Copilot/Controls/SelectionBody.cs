@@ -30,7 +30,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
             var top = new StackPanel { Margin = new Thickness(14, 14, 14, 14) };
             var segments = SelectionBarText.Segments(card.Selected, card.VisibleInView, card.Isolated, lang);
-            if (segments.Count > 0)
+            if (SelectionBarText.ShowsBar(segments))
             {
                 top.Children.Add(Bar(segments));
                 top.Children.Add(Legend(segments));
@@ -41,7 +41,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 var lines = SelectionLines.For(card, lang);
                 if (lines.Count > 0)
                 {
-                    var body = new StackPanel { Margin = new Thickness(0, segments.Count > 0 ? 12 : 0, 0, 0) };
+                    var body = new StackPanel { Margin = new Thickness(0, SelectionBarText.ShowsBar(segments) ? 12 : 0, 0, 0) };
                     foreach (var l in lines) body.Children.Add(CardKit.Text(l, 11.5, "Cp.Ink2", margin: new Thickness(0, 1, 0, 1)));
                     top.Children.Add(body);
                 }
