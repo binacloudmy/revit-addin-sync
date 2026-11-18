@@ -119,6 +119,37 @@ namespace Tests
         }
 
         [Fact]
+        public void Caps_shorten_the_tables_but_not_the_answers()
+        {
+            // A furniture class tops the table; the electrical symbols, one of them spread over
+            // seven layers, fall past every cap. The answers must not notice the caps.
+            ACadSharp.CadDocument doc = new ACadSharp.CadDocument();
+            doc.Header.InsUnits = ACadSharp.Types.Units.UnitsType.Millimeters;
+            CensusFixture.Room(doc, "A-WALL", 0, 0, 30000, 20000);
+            ACadSharp.Tables.BlockRecord chair = CensusFixture.SquareBlock(doc, "CHAIR", 500);
+            ACadSharp.Tables.BlockRecord socket = CensusFixture.SquareBlock(doc, "SOCKET-13A", 100);
+            ACadSharp.Tables.BlockRecord light = CensusFixture.SquareBlock(doc, "DOWNLIGHT", 200);
+            for (int i = 0; i < 20; i++) CensusFixture.Insert(doc, chair, 1000 + (i * 600), 10000, "I-FURN");
+            string[] powerLayers = { "E-POWER", "E-POWER-1", "E-POWER-2", "E-POWER-3", "E-POWER-4", "E-POWER-5", "E-POWER-6" };
+            for (int i = 0; i < 35; i++) CensusFixture.Insert(doc, socket, 1000 + (i * 700), 300, powerLayers[i % powerLayers.Length]);
+            for (int i = 0; i < 15; i++) CensusFixture.Insert(doc, light, 1000 + (i * 800), 5000, "E-LIGHT");
+
+            ElectricalCensusResult capped = ElectricalCensus.Build(doc, new CensusOptions { MaxBlockClasses = 1, MaxLayers = 1 });
+            ElectricalCensusResult uncapped = ElectricalCensus.Build(doc);
+            Assert.True(capped.BlocksTruncated && capped.LayersTruncated);
+            Assert.Equal(5, uncapped.Blocks.Single(b => b.Key == "SOCKET-13A").Layers.Count);
+
+            CensusAnswers a = ElectricalCensusSummary.Answer(capped), b = ElectricalCensusSummary.Answer(uncapped);
+            foreach (var (left, right) in new[] { (a.A1, b.A1), (a.A2, b.A2), (a.A3, b.A3) })
+            {
+                Assert.Equal(right.Verdict, left.Verdict);
+                Assert.Equal(right.Lines, left.Lines);
+            }
+            Assert.Equal("YES", b.A1.Verdict);
+            Assert.Contains(b.A1.Lines, line => line.StartsWith("on electrical-looking layers: 2 classes, 50 instances", System.StringComparison.Ordinal));
+        }
+
+        [Fact]
         public void Format_prints_the_three_answers()
         {
             ElectricalCensusResult census = Census(

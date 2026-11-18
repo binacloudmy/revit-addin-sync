@@ -83,7 +83,13 @@ namespace BinaVibe.Mcp.Tools.Electrical
         public bool Anonymous;
         public List<string> RecordNames = new List<string>();
         public int Count;
+        /// <summary>The five layers holding most of this class's instances: the table's view.</summary>
         public List<CensusCount> Layers = new List<CensusCount>();
+
+        /// <summary>Every layer, uncapped, for the summary's answers; never in the wire shape.
+        /// Null on a class built by hand, where <see cref="Layers"/> is all there is.</summary>
+        public List<CensusCount>? AllLayers;
+
         public int MinDepth;
         public int MaxDepth;
         public double WidthMm;
@@ -170,6 +176,13 @@ namespace BinaVibe.Mcp.Tools.Electrical
         public CensusTotals Totals = new CensusTotals();
         public bool BlocksTruncated, LayersTruncated, PlansTruncated, LegendTruncated, SymbolsAreExploded;
         public Dictionary<string, double> TimingsSeconds = new Dictionary<string, double>();
+
+        /// <summary>Every block class and every layer before the caps, in the same order as
+        /// <see cref="Blocks"/> and <see cref="Layers"/>. The caps only shorten the printed
+        /// and JSON tables; the A1-A3 answers are worked out from these. Never in the wire
+        /// shape. Null on a result built by hand, where the capped lists are all there is.</summary>
+        public List<CensusBlockClass>? AllBlocks;
+        public List<CensusLayer>? AllLayers;
 
         /// <summary>The census as plain nested dictionaries and lists with snake_case keys -
         /// the one wire shape, for the CLI's JSON and for a tool result alike. It carries
@@ -715,12 +728,12 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     NearWall = list.Count(instance => instance.NearWall),
                 };
 
-                block.Layers = list
+                block.AllLayers = list
                     .GroupBy(instance => instance.Layer, StringComparer.Ordinal)
                     .Select(byLayer => new CensusCount { Name = byLayer.Key, Count = byLayer.Count() })
                     .OrderByDescending(count => count.Count).ThenBy(count => count.Name, StringComparer.Ordinal)
-                    .Take(5)
                     .ToList();
+                block.Layers = block.AllLayers.Take(5).ToList();
 
                 if (info.IsAnonymous)
                 {
@@ -761,6 +774,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 .ToList();
 
             result.BlocksTruncated = classes.Count > o.MaxBlockClasses;
+            result.AllBlocks = classes;
             result.Blocks = classes.Take(o.MaxBlockClasses).ToList();
         }
 
@@ -830,6 +844,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 .ToList();
 
             result.LayersTruncated = layers.Count > o.MaxLayers;
+            result.AllLayers = layers;
             result.Layers = layers.Take(o.MaxLayers).ToList();
         }
 

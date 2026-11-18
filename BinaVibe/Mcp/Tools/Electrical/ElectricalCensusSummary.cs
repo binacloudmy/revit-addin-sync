@@ -85,13 +85,18 @@ namespace BinaVibe.Mcp.Tools.Electrical
         {
             var answers = new CensusAnswers();
 
+            // The answers count everything; the caps only shorten the tables (see AllBlocks).
+            List<CensusBlockClass> allBlocks = census.AllBlocks ?? census.Blocks;
+            List<CensusLayer> allLayers = census.AllLayers ?? census.Layers;
+            List<CensusCount> LayersOf(CensusBlockClass block) => block.AllLayers ?? block.Layers;
+
             // ------------------------------------------------------------ A1
-            List<CensusBlockClass> symbolSized = census.Blocks.Where(SymbolSized).ToList();
+            List<CensusBlockClass> symbolSized = allBlocks.Where(SymbolSized).ToList();
             int symbolInstances = symbolSized.Sum(block => block.Count);
-            int electricalInstances = symbolSized.Sum(block => block.Layers.Where(l => LooksElectrical(l.Name)).Sum(l => l.Count));
-            int electricalClasses = symbolSized.Count(block => block.Layers.Count > 0 && LooksElectrical(block.Layers[0].Name));
-            double looseElectricalM = census.Layers.Where(layer => LooksElectrical(layer.Name)).Sum(layer => layer.LooseLengthM);
-            int anonymousGroups = census.Blocks.Count(block => block.Anonymous);
+            int electricalInstances = symbolSized.Sum(block => LayersOf(block).Where(l => LooksElectrical(l.Name)).Sum(l => l.Count));
+            int electricalClasses = symbolSized.Count(block => LayersOf(block).Count > 0 && LooksElectrical(LayersOf(block)[0].Name));
+            double looseElectricalM = allLayers.Where(layer => LooksElectrical(layer.Name)).Sum(layer => layer.LooseLengthM);
+            int anonymousGroups = allBlocks.Count(block => block.Anonymous);
             CensusTotals totals = census.Totals;
 
             CensusAnswer a1 = answers.A1;
@@ -106,11 +111,11 @@ namespace BinaVibe.Mcp.Tools.Electrical
                          " instances (" + Percent(electricalInstances, symbolInstances) + " of symbol-sized)");
             a1.Lines.Add("loose linework on electrical-looking layers: " + F(looseElectricalM, "0") + " m" +
                          (census.SymbolsAreExploded ? " (symbols look exploded)" : ""));
-            a1.Lines.Add("top classes: " + string.Join(", ", census.Blocks.Take(10).Select(block =>
+            a1.Lines.Add("top classes: " + string.Join(", ", allBlocks.Take(10).Select(block =>
                 block.Key + " x" + block.Count + (block.Layers.Count > 0 ? " on " + block.Layers[0].Name : ""))));
 
             // ------------------------------------------------------------ A2
-            List<CensusLayer> wallLike = census.Layers.Where(layer => layer.PairsLikeWalls).ToList();
+            List<CensusLayer> wallLike = allLayers.Where(layer => layer.PairsLikeWalls).ToList();
             int nearWall = symbolSized.Sum(block => block.NearWall);
             int titled = census.Plans.Count(plan => plan.Titles.Count > 0);
 
@@ -130,7 +135,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                          "; bound-xref layers: " + totals.BoundXrefLayers);
 
             // ------------------------------------------------------------ A3
-            List<CensusLayer> candidates = census.Layers.Where(layer =>
+            List<CensusLayer> candidates = allLayers.Where(layer =>
             {
                 if (!LooksElectrical(layer.Name) || layer.PairsLikeWalls || layer.LooseLengthM < 20) return false;
                 int primitives = layer.Lines + layer.OpenPolylines + layer.ClosedPolylines + layer.Arcs + layer.Texts + layer.Inserts;
