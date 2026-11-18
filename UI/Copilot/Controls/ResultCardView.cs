@@ -241,7 +241,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 var ok = card.Mismatches == 0;
                 // "Read back from Revit: 2 of 2 types match · affects 52 Lighting Fixtures": in the unit that was written.
                 var text = card.ReadBackText(ms ? ReceiptLanguage.Ms : ReceiptLanguage.En);
-                wrap.Children.Add(Chip(ok ? "Cp.Tier1Bg" : "Cp.AmberBg", ok ? "Cp.Green" : "Cp.AmberFg", text,
+                wrap.Children.Add(Chip(ok ? "Cp.Tier1Bg" : "Cp.AmberBg", ok ? "Cp.Tier1Fg" : "Cp.AmberFg", text,
                     ok ? "M3,7.2 L5.8,10 L11,4.2" : "M7,3.5 V8 M7,10.2 V10.3"));
             }
             if (!string.IsNullOrEmpty(card.Elapsed))

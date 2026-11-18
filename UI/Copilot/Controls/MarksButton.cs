@@ -48,6 +48,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             var nothing = state == MarksState.Shown && !Safe(actions.MarksDrawn, true);
             b.IsEnabled = !nothing;
             b.ToolTip = nothing ? NothingToHide : null;
+            System.Windows.Controls.ToolTipService.SetShowOnDisabled(b, true);   // a disabled button shows no tooltip otherwise: the reason would never appear
         }
 
         private static bool Safe(Func<bool>? f, bool fallback)

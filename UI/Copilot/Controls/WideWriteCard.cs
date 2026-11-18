@@ -332,7 +332,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             var text = new TextBlock { Text = spec.Label ?? "", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 7, 0, 7) };
             if (spec.Destructive)
             {
-                text.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Red");
+                text.SetResourceReference(TextBlock.ForegroundProperty, "Cp.IssueFg");   // text: 6.5:1 on white (Cp.Red is 3.9); the outline keeps Cp.Red
                 text.FontWeight = FontWeights.SemiBold;
                 b.SetResourceReference(Control.BorderBrushProperty, "Cp.Red");
                 b.BorderThickness = new Thickness(1);

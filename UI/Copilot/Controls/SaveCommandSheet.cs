@@ -120,7 +120,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 FontSize = 12, TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 0, 0, 8), Visibility = Visibility.Collapsed,
             };
-            _errorLine.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Red");
+            _errorLine.SetResourceReference(TextBlock.ForegroundProperty, "Cp.IssueFg");
             footerStack.Children.Add(_errorLine);
             var footerRow = new Grid();
             footerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });

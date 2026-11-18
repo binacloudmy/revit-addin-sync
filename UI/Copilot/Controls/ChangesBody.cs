@@ -126,7 +126,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 var left = CardKit.Text("", 12, "Cp.TextSecondary");
                 var w = new Run(written); w.SetResourceReference(TextElement.ForegroundProperty, "Cp.TextSecondary");
                 var dot = new Run(" · "); dot.SetResourceReference(TextElement.ForegroundProperty, "Cp.Faint");
-                var b = new Run(backText); b.SetResourceReference(TextElement.ForegroundProperty, "Cp.Amber");
+                var b = new Run(backText); b.SetResourceReference(TextElement.ForegroundProperty, "Cp.AmberFg");
                 left.Inlines.Add(w); left.Inlines.Add(dot); left.Inlines.Add(b);
                 line.Children.Add(left);
                 var right = CardKit.Text(total, 11, "Cp.Faint", mono: true, wrap: false);
@@ -345,7 +345,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     chip.SetResourceReference(Border.BackgroundProperty, "Cp.AmberBg");
                     var row = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
                     row.Children.Add(Icon(CardKit.Icons.Undo, "Cp.Amber", 11, 1.8, new Thickness(0, 0, 5, 0)));
-                    row.Children.Add(CardKit.Text(ChangesBodyText.ChipText(g.ChangedBack, false, lang), 11.5, "Cp.Amber", FontWeights.Medium, wrap: false));
+                    row.Children.Add(CardKit.Text(ChangesBodyText.ChipText(g.ChangedBack, false, lang), 11.5, "Cp.AmberFg", FontWeights.Medium, wrap: false));
                     chip.Child = row;
                     Grid.SetColumn(chip, 1);
                     top.Children.Add(chip);
@@ -606,7 +606,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     box.SetResourceReference(Control.BackgroundProperty, "Cp.Bg");
                     box.SetResourceReference(Control.ForegroundProperty, "Cp.Ink");
                     box.SetResourceReference(Control.BorderBrushProperty, "Cp.Blue");
-                    var msg = CardKit.Text(err ?? "", 10.5, "Cp.Red");
+                    var msg = CardKit.Text(err ?? "", 10.5, "Cp.IssueFg");
                     msg.Visibility = err == null ? Visibility.Collapsed : Visibility.Visible;
                     var busy = false;
                     async void Commit()
