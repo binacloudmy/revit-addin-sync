@@ -110,7 +110,7 @@ namespace RevitWebAppSync.UI.Issues
         /// span several models, so some of their elements will belong to a model
         /// the user does not have open.
         /// </summary>
-        public string SourceLabel => IsCoordination ? "Coordination" : "Design";
+        public string SourceLabel => IsCoordination ? "Federation" : "Design";
 
         public Visibility CoordinationVisibility =>
             IsCoordination ? Visibility.Visible : Visibility.Collapsed;
