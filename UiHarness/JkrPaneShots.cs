@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -10,8 +11,10 @@ using System.Windows.Threading;
 using BinaVibe.Mcp.Tools.Audit;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using RevitWebAppSync.Handlers;
 using RevitWebAppSync.Services;
 using RevitWebAppSync.Services.JkrSpec;
+using RevitWebAppSync.UI.Jkr.Modals;
 using RevitWebAppSync.UI.Jkr.Panel;
 using RevitWebAppSync.UI.Jkr.Panel.Core;
 using RevitWebAppSync.UI.Jkr.ViewModels;
@@ -28,6 +31,8 @@ namespace UiHarness
     /// as a real scan does; the sample's "model" snapshot goes through the add-in's
     /// spec evaluators (SpecChecks.Run). Evaluators not written yet give no result,
     /// and those checks show as not checked.
+    /// Also the issue detail (a fixable and a manual issue of the failing run), the
+    /// confirm dialog before a write, and the Fix all result window.
     /// Invoked by `UiHarness --shot-jkr &lt;dir&gt;`. No Revit, no backend.
     /// </summary>
     internal static class JkrPaneShots
@@ -69,6 +74,98 @@ namespace UiHarness
             // The backend check failed: the add-in's own checks and the BIM010 checker still answer.
             Shot(dir, "jkr-backend-down.png", s => ShowRun(s, Failing, backendDown: true), 790);
             Shot(dir, "jkr-backend-down-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing, backendDown: true); });
+
+            // The issue detail and the two fix modals (Direction C: Task, Verify).
+            DetailShot(dir, "jkr-detail-fix-en.png", i => !i.IsHuman && i.Status == ItemStatus.Open && i.Fix == FixKind.Fix);
+            DetailShot(dir, "jkr-detail-manual-en.png", i => i.IsHuman);
+            ConfirmShot(dir, "jkr-confirm-en.png");
+            FixResultShot(dir, "jkr-fixresult-en.png");
+        }
+
+        /// <summary>The detail window over the failing run, at the first issue that
+        /// matches. The detail is opened on the core only (not Detail.Open), so the
+        /// shell does not place its own window over the screen.</summary>
+        private static void DetailShot(string dir, string file, Func<PanelItem, bool> pick)
+        {
+            var shell = new JkrPaneShell(new Grid());
+            var host = new Window
+            {
+                Width = 400, Height = 1100, WindowStyle = WindowStyle.None, ShowInTaskbar = false,
+                Left = -4000, Top = -4000, ResizeMode = ResizeMode.NoResize, Content = shell,
+            };
+            host.Show();
+            Settle(300);
+            try
+            {
+                shell.Model.IsEn = true;
+                ShowRun(shell, Failing);
+                Settle(300);
+                var item = shell.Core.Issues.FirstOrDefault(pick);
+                if (item == null) { Console.WriteLine(file + ": no matching issue in " + Failing); return; }
+                shell.Core.Open(item.Id);
+                RenderWindow(NewWindow<DetailWindow>(shell.Detail), dir, file);
+            }
+            catch (Exception ex) { Console.WriteLine(file + ": failed — " + ex); }
+            finally { host.Close(); }
+        }
+
+        /// <summary>The confirm dialog with the failing run's first ready-made fixes,
+        /// over the pause threshold so the "Revit may pause" panel shows.</summary>
+        private static void ConfirmShot(string dir, string file)
+        {
+            try
+            {
+                var json = JObject.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "data", Failing)));
+                var response = json["response"].ToObject<ModelCheckResponse>(JsonSerializer.CreateDefault());
+                var rows = IssueMapper.MapAll(response)
+                    .Where(i => i.AutoFixable && !string.IsNullOrEmpty(i.FixAction))
+                    .Take(5)
+                    .Select(JkrConfirmRow.FromIssue)
+                    .ToList();
+                var model = new JkrConfirmModel(JkrConfirmKind.Fix, rows, JkrFixBatch.PauseWarningElementCount + 120, PanelStrings.En);
+                RenderWindow(NewWindow<JkrConfirmWindow>(model), dir, file);
+            }
+            catch (Exception ex) { Console.WriteLine(file + ": failed — " + ex); }
+        }
+
+        /// <summary>The Fix all result: 42 written, and failures in three reasons
+        /// (category without JKR parameters, model group, a reason Revit gave).</summary>
+        private static void FixResultShot(string dir, string file)
+        {
+            try
+            {
+                var r = new RenameResult();
+                void Param(long id, string param, string why) =>
+                    r.RecordFailure(RenameResult.MakeFixKey("set_parameter", id, param), id, PaneText.ParamWhat(param, id, PanelStrings.En), why);
+                for (var i = 0; i < 7; i++)
+                    Param(578862, "P" + i + "_jkr_stt", $"Parameter 'P{i}_jkr_stt' not found on element 578862. Element category does not accept bound parameters.");
+                foreach (var id in new long[] { 901102, 901105, 930585 })
+                    Param(id, "LOD_jkr_sit", $"Element {id} is inside a model group — Revit blocks instance parameter edits outside group edit mode.");
+                Param(921291, "Bahan_jkr_stm", "The value is outside the range Revit allows.");
+                var model = new FixResultModel(r, 42, fixAll: true, id => id == 578862 ? "Generic Models" : null, PanelStrings.En);
+                RenderWindow(NewWindow<FixResultWindow>(model), dir, file);
+            }
+            catch (Exception ex) { Console.WriteLine(file + ": failed — " + ex); }
+        }
+
+        /// <summary>The pop-ups take their model in a private constructor (their public
+        /// entry points place them over Revit's window and show them modally).</summary>
+        private static T NewWindow<T>(object model) where T : Window =>
+            (T)Activator.CreateInstance(typeof(T), BindingFlags.Instance | BindingFlags.NonPublic, null, new[] { model }, null);
+
+        /// <summary>Off-screen, settle, save the window's content, close.</summary>
+        private static void RenderWindow(Window w, string dir, string file)
+        {
+            w.WindowStartupLocation = WindowStartupLocation.Manual;
+            w.ShowInTaskbar = false;
+            w.Left = -4000;
+            w.Top = -4000;
+            w.Show();
+            Settle(600);
+            var root = w.Content as FrameworkElement ?? w;
+            Save(root, Path.Combine(dir, file), (int)Math.Ceiling(w.ActualHeight));
+            w.Close();
+            Console.WriteLine("wrote " + file);
         }
 
         /// <summary>A run as the panel builds it, then the Running → Results hand-off.
