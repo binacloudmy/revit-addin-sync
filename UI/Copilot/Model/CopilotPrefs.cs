@@ -26,6 +26,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>The theme the pane opens with: the drafter's own choice, else the default (D5).</summary>
         public bool EffectiveDark => ThemeChosen ? Dark : ThemeTokens.DefaultDark;
 
+        /// <summary>The theme the pane opens with, Auto included: the drafter's own choice always wins; until then the pane follows Revit's UI theme when it
+        /// can be read (<paramref name="revitDark"/>: Revit 2024+), else the default (dark, D5).</summary>
+        public bool ResolveDark(bool? revitDark) => ThemeChosen ? Dark : (revitDark ?? ThemeTokens.DefaultDark);
+
         /// <summary>Set once the user submits a star rating — the inline rating
         /// nudge never appears again after this.</summary>
         public bool RatingSubmitted { get; set; }

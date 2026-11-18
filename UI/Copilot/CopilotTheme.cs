@@ -61,8 +61,42 @@ namespace RevitWebAppSync.UI.Copilot
                 _loaded = true;
             }
 
-            // Apply the persisted choice on first load (default = dark, decision D5).
-            ApplyTheme(CopilotPrefs.Load().EffectiveDark, persist: false, notify: false);
+            // Apply the persisted choice on first load; with none, follow Revit's UI theme (Auto), else dark (decision D5).
+            var prefs = CopilotPrefs.Load();
+            _userChose = prefs.ThemeChosen;
+            ApplyTheme(prefs.ResolveDark(RevitThemeProbe.TryIsDark()), persist: false, notify: false);
+            StartFollowingRevit();
+        }
+
+        // ── Auto: follow Revit's UI theme until the drafter picks one ─────────────────────────────────────────────
+        private static volatile bool _userChose;
+        private static System.Windows.Threading.DispatcherTimer? _follow;
+        /// <summary>How often Revit's theme is looked at while the drafter has not chosen one (a cheap static read on the UI thread).</summary>
+        public static readonly TimeSpan FollowEvery = TimeSpan.FromSeconds(2);
+
+        private static void StartFollowingRevit()
+        {
+            try
+            {
+                if (_follow != null || Application.Current == null) return;
+                // Started even when Revit's theme cannot be read yet (its UI may not be ready at startup): every tick asks again, cheaply, and does nothing
+                // while the answer is null.
+                _follow = new System.Windows.Threading.DispatcherTimer(System.Windows.Threading.DispatcherPriority.Background, Application.Current.Dispatcher) { Interval = FollowEvery };
+                _follow.Tick += (_, __) => FollowTick();
+                _follow.Start();
+            }
+            catch { /* best effort: the pane keeps its theme */ }
+        }
+
+        private static void FollowTick()
+        {
+            try
+            {
+                if (_userChose) { _follow?.Stop(); return; }                      // a manual choice always wins
+                var revit = RevitThemeProbe.TryIsDark();
+                if (revit is bool dark && dark != IsDark) ApplyTheme(dark, persist: false, notify: true);
+            }
+            catch { /* never throws into the dispatcher */ }
         }
 
         /// <summary>Flip and persist the theme (moon button).</summary>
@@ -93,6 +127,7 @@ namespace RevitWebAppSync.UI.Copilot
 
             if (persist)
             {
+                _userChose = true;
                 var p = CopilotPrefs.Load();
                 p.Dark = dark;
                 p.ThemeChosen = true;   // the drafter's own flip: kept from now on
