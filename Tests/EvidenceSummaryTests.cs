@@ -196,8 +196,9 @@ namespace RevitAddinSync.Tests
         [Fact]
         public void Caution_TwoIndependentPlans_AFailureWithNoMatchingLaterDoneWrite_StaysAmber()
         {
-            // set_parameters failed before commit; only a run_revit_code write is done afterwards: a different plan.
-            var ev = TurnOf((ToolNames.SetParameters, WriteEnv(EnvelopeStatus.Failed, EnvelopePhase.Preview)), (ToolNames.RunRevitCode, WriteEnv(EnvelopeStatus.Done)));
+            // Code failed before commit and a set_parameters write is done afterwards: a different plan, amber. (The reverse, set_parameters failed then code
+            // done, is the CN09 fallback and raises no banner: FallbackToCodeNoBanner0143Tests.)
+            var ev = TurnOf((ToolNames.RunRevitCode, WriteEnv(EnvelopeStatus.Failed, EnvelopePhase.Preview)), (ToolNames.SetParameters, WriteEnv(EnvelopeStatus.Done)));
             Assert.True(ev.Caution);
             Assert.Equal(0, ev.RetriedAttempts);
             // the failure comes last: amber

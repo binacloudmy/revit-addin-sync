@@ -111,6 +111,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
         private readonly List<string> _writeTools = new List<string>();
         /// <summary>Per write: the call declared changes (expected adds, modifies or deletes above 0) and is not a stored playbook.</summary>
         private readonly List<bool> _writeDeclared = new List<bool>();
+        private readonly List<string> _writeParam = new List<string>();
         private bool _serverClaims;
         private readonly List<CommittedWrite> _committed = new List<CommittedWrite>();
         private readonly List<ResultTable> _tables = new List<ResultTable>();
@@ -166,19 +167,49 @@ namespace RevitWebAppSync.UI.Copilot.Model
             _writeTools[i] == ToolNames.RunRevitCode && _writes[i].StatusKind() == EnvelopeStatusKind.Noop
             && BinaVibe.Copilot.Code.CodeEnvelopes.IsDeliberateStop(_writes[i]);
 
-        /// <summary>An attempt that failed BEFORE committing (a compile error, a policy block, a busy Revit) and
-        /// that a later done write of the same tool followed: the retry worked. Never a partial or committed
-        /// write (something may have changed), never a write the drafter declined, never a noop.</summary>
+        /// <summary>An attempt that failed BEFORE committing (a compile error, a policy block, a busy Revit), or at the commit with nothing touched, and
+        /// that a later done write followed: of the same tool, or code after a failed set_parameters (the retry worked). Never a partial write or one that
+        /// touched elements (something may have changed), never a write the drafter declined, never a noop.</summary>
         private bool Retried(int i)
         {
             var w = _writes[i];
             var status = w.StatusKind();
             if (status == EnvelopeStatusKind.Done || status == EnvelopeStatusKind.Partial || status == EnvelopeStatusKind.Rejected || status == EnvelopeStatusKind.Noop) return false;
-            if (w.PhaseKind() == EnvelopePhaseKind.Commit) return false;
+            // Failed before the commit, or at the commit with nothing touched (every element refused, e.g. a read-only parameter): nothing changed.
+            if (w.PhaseKind() == EnvelopePhaseKind.Commit && !ChangedNothing(w)) return false;
             for (var j = i + 1; j < _writes.Count; j++)
-                if (_writes[j].StatusKind() == EnvelopeStatusKind.Done && _writeTools[j] == _writeTools[i]) return true;
+            {
+                if (_writes[j].StatusKind() != EnvelopeStatusKind.Done) continue;
+                if (_writeTools[j] == _writeTools[i]) return true;
+                // The model fell back from set_parameters to code for the same request (CN09: "Type Name" is read-only, the rename ran as code): the failed
+                // attempt changed nothing and the code write LANDED (commit phase, not a preview) and its change report modified the same parameter, so the
+                // turn has nothing left unapplied. When that cannot be shown the banner stays: a harmless amber beats a false "the retry was applied".
+                if (_writeTools[i] == ToolNames.SetParameters && _writeTools[j] == ToolNames.RunRevitCode
+                    && _writes[j].PhaseKind() == EnvelopePhaseKind.Commit && ModifiedSameParameter(_writes[j], _writeParam[i])) return true;
+            }
             return false;
         }
+
+        /// <summary>The write's change report lists a modified element whose field is the parameter the failed call tried to set ("Type Name" also matches
+        /// "Name": a type rename reports the type's name).</summary>
+        private static bool ModifiedSameParameter(Envelope e, string param)
+        {
+            var wanted = (param ?? "").Trim();
+            if (wanted.Length == 0 || e.Changes?.Touched?.Modified == null) return false;
+            static string N(string s) => (s ?? "").Trim().ToLowerInvariant();
+            foreach (var m in e.Changes.Touched.Modified)
+            {
+                var f = N(m.Field);
+                if (f.Length == 0) continue;
+                if (f == N(wanted)) return true;
+                if ((f == "name" && N(wanted) == "type name") || (f == "type name" && N(wanted) == "name")) return true;
+            }
+            return false;
+        }
+
+        private static bool ChangedNothing(Envelope e) =>
+            // Positive evidence only: a commit-phase failure that carries no change report at all stays amber (it may have applied part of the write).
+            e.Changes?.Touched != null && (e.Changes.Touched.Added.Count + e.Changes.Touched.Modified.Count + e.Changes.Touched.Deleted.Count) == 0;
 
         /// <summary>True whenever a write in the turn is not status done, unless it was a failed attempt that a later
         /// done write of the same tool retried (RetriedAttempts says so instead), or code that changed nothing. The amber warning.</summary>
@@ -347,6 +378,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                         _writes.Add(env);
                         _writeTools.Add(call.Tool ?? "");
                         _writeDeclared.Add(DeclaresChange(call));
+                        _writeParam.Add(call.Args.ValueKind == JsonValueKind.Object && call.Args.TryGetProperty("param", out var pp) && pp.ValueKind == JsonValueKind.String ? pp.GetString() ?? "" : "");
                         if (env.PhaseKind() == EnvelopePhaseKind.Commit && env.StatusKind() == EnvelopeStatusKind.Done)
                             _committed.Add(new CommittedWrite
                             {
