@@ -11,7 +11,6 @@ namespace RevitWebAppSync
         public long FileSize { get; set; }
         public string FileType { get; set; }
         public int UploadedBy { get; set; }
-        public string UrnInBase64 { get; set; }
         public string DisciplineType { get; set; }
         public FederatedFileMetadata Metadata { get; set; }
     }

@@ -111,8 +111,6 @@ namespace UiHarness
                 Version = "12",
                 BinaObsSuccess = true,
                 BinaLocation = "projects/demo/structure",
-                AutodeskOssSuccess = true,
-                AutodeskUrn = "urn:adsk.objects:os.object:demo/hospital_structure.rvt",
                 RegistrationSuccess = true,
                 LinkedFiles = new List<LinkedFileInfo>(),
             }));

@@ -281,7 +281,7 @@ namespace RevitWebAppSync
         {
             try
             {
-                System.Diagnostics.Debug.WriteLine("[BINA] Starting dual upload process: OBS + Autodesk OSS");
+                System.Diagnostics.Debug.WriteLine("[BINA] Starting federated file upload to BINA storage");
 
                 // Load configuration
                 BinaConfig config = BinaConfig.Load();
@@ -306,7 +306,6 @@ namespace RevitWebAppSync
                 doc.Save();
 
                 var binaService = new BinaApiService(config.Email, config.Password);
-                var autodeskService = new AutodeskApiService();
 
                 try
                 {
@@ -350,28 +349,8 @@ namespace RevitWebAppSync
 
                     System.Diagnostics.Debug.WriteLine("[BINA] ✅ OBS upload completed successfully");
 
-                    // Step 3: Upload to Autodesk OSS
-                    System.Diagnostics.Debug.WriteLine("[BINA] Uploading to Autodesk OSS...");
-                    
-                    var autodeskUploadResult = await Task.Run(() => autodeskService.UploadFileAsync(
-                        binaAccessToken, 
-                        doc.PathName, 
-                        "MainFile", // discipline type for federated file
-                        (progress) => {
-                            System.Diagnostics.Debug.WriteLine($"[AUTODESK] Upload progress: {progress}%");
-                        }
-                    ));
-
-                    if (autodeskUploadResult == null)
-                    {
-                        TaskDialog.Show("Partial Upload", "File uploaded to OBS but failed to upload to Autodesk OSS.\n\nCheck the autodesk_upload_log.txt file on Desktop for more details.\n\nOBS upload was successful.");
-                        // Continue to save with OBS data only
-                    }
-
-                    System.Diagnostics.Debug.WriteLine("[BINA] ✅ Autodesk OSS upload completed successfully");
-
-                    // Step 4: Save federated file info to BINA backend with both URLs
-                    System.Diagnostics.Debug.WriteLine($"[BINA] Saving federated file metadata with OBS URL and Autodesk URN");
+                    // Step 3: Save federated file info to the BINA backend
+                    System.Diagnostics.Debug.WriteLine("[BINA] Saving federated file metadata");
                     
                     string cleanFileUrl = presignedUrl.Split('?')[0]; // Remove query parameters from OBS URL
                     cleanFileUrl = cleanFileUrl.Replace(":443", ""); // Remove port 443
@@ -385,7 +364,6 @@ namespace RevitWebAppSync
                         FileSize = fileParams.size,
                         FileType = "rvt",
                         UploadedBy = config.UserId,
-                        UrnInBase64 = autodeskUploadResult?.UrnInBase64, // Autodesk URN for viewer (null if failed)
                         DisciplineType = "MainFile", // Federated files are always MainFile type
                         Metadata = new FederatedFileMetadata
                         {
@@ -401,15 +379,8 @@ namespace RevitWebAppSync
                         string successMessage = $"Federated file uploaded successfully!\n\n" +
                             $"File: {Path.GetFileName(doc.PathName)}\n" +
                             $"Version: {saveResult.Data?.Version}\n" +
-                            $"OBS Storage: ✅ Uploaded\n" +
-                            $"Autodesk OSS: {(autodeskUploadResult != null ? "✅ Uploaded" : "❌ Failed")}\n";
-                        
-                        if (autodeskUploadResult != null)
-                        {
-                            successMessage += $"URN: {autodeskUploadResult.UrnInBase64}\n" +
-                                            $"Autodesk Viewer: Ready\n";
-                        }
-                        
+                            $"OBS Storage: ✅ Uploaded\n";
+
                         successMessage += $"Linked disciplines: {string.Join(", ", ExtractDisciplineNames(linkedFiles))}\n\n" +
                                         $"Your federated model is now available in the BINA cloud.";
 
@@ -420,16 +391,13 @@ namespace RevitWebAppSync
                         TaskDialog.Show("Registration Failed", 
                             $"Files were uploaded but failed to register in BINA backend.\n\n" +
                             $"Error: {saveResult.Message}\n" +
-                            $"OBS Upload: ✅ Success\n" +
-                            $"Autodesk OSS: {(autodeskUploadResult != null ? "✅ Success" : "❌ Failed")}\n" +
-                            $"URN: {autodeskUploadResult?.UrnInBase64 ?? "N/A"}\n\n" +
+                            $"OBS Upload: ✅ Success\n\n" +
                             $"Check the log files on Desktop for more details.");
                     }
                 }
                 finally
                 {
                     binaService.Dispose();
-                    autodeskService.Dispose();
                 }
             }
             catch (Exception ex)

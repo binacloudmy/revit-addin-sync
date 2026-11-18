@@ -1,6 +1,6 @@
 # Revit Web App Sync Add-in
 
-A Revit add-in that syncs Revit files to a web application through Autodesk APS integration.
+A Revit add-in that syncs Revit files to BINA Cloud (BINA's own storage; no Autodesk APS).
 
 ## Prerequisites
 
@@ -54,7 +54,7 @@ Configure your APS credentials and web app settings in `App.config` or environme
 
 1. Open Revit and load a project file
 2. Click "Sync to Web" button in the ribbon
-3. Authenticate with Autodesk account (first time)
+3. Sign in to BINA (first time)
 4. Select target project and monitor progress
 
 ## Development

@@ -81,20 +81,6 @@ namespace RevitWebAppSync
                 BinaLocationText.Text = "Upload failed";
             }
             
-            // Autodesk OSS Status
-            if (_resultData.AutodeskOssSuccess)
-            {
-                AutodeskStatusText.Text = "✅ Ready";
-                AutodeskStatusText.Foreground = System.Windows.Media.Brushes.Green;
-                AutodeskUrnText.Text = $"URN: {TruncateUrn(_resultData.AutodeskUrn)}";
-            }
-            else
-            {
-                AutodeskStatusText.Text = "❌ Failed";
-                AutodeskStatusText.Foreground = System.Windows.Media.Brushes.Red;
-                AutodeskUrnText.Text = "Autodesk viewer not available";
-            }
-            
             // Registration Status
             if (_resultData.RegistrationSuccess)
             {
@@ -123,12 +109,6 @@ namespace RevitWebAppSync
             }
             
             return $"{size:F1} {sizeUnits[unitIndex]}";
-        }
-        
-        private string TruncateUrn(string urn)
-        {
-            if (string.IsNullOrEmpty(urn)) return "N/A";
-            return urn.Length > 50 ? urn.Substring(0, 50) + "..." : urn;
         }
         
         private void ViewInBinaButton_Click(object sender, RoutedEventArgs e)
@@ -166,9 +146,6 @@ namespace RevitWebAppSync
         public bool BinaObsSuccess { get; set; }
         public string BinaLocation { get; set; }
         
-        public bool AutodeskOssSuccess { get; set; }
-        public string AutodeskUrn { get; set; }
-        
         public bool RegistrationSuccess { get; set; }
         
         public List<LinkedFileInfo> LinkedFiles { get; set; }
@@ -182,7 +159,7 @@ namespace RevitWebAppSync
         public string FatalError { get; set; }
 
 
-        public bool IsFullySuccessful => BinaObsSuccess && AutodeskOssSuccess && RegistrationSuccess;
-        public bool IsPartiallySuccessful => BinaObsSuccess && (AutodeskOssSuccess || RegistrationSuccess);
+        public bool IsFullySuccessful => BinaObsSuccess && RegistrationSuccess;
+        public bool IsPartiallySuccessful => BinaObsSuccess;   // stored but not (fully) registered
     }
 }
