@@ -86,6 +86,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         /// <summary>The marks' section header (state 2 of the design): "58 door tags made", where they are, and on the right
         /// "Go to view" (when they are all in another view) and "Hide marks" / "Show in model". It follows the model: the
         /// words and buttons change when the marks are shown, hidden, or the view changes. Null when there is nothing to mark.</summary>
+        /// <summary>Below this width of the card header the buttons move under the words (a half-width dock).</summary>
+        internal const double NarrowHeaderWidth = 380;
+
         internal static FrameworkElement? MarksHeader(TurnEvidenceActions actions)
         {
             var marks = MarksButton.Build(actions, ghost: true);
@@ -95,18 +98,38 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
             var head = new Border { Padding = new Thickness(14, 8, 10, 8), BorderThickness = new Thickness(0, 0, 0, 1), MinHeight = 44 };
             head.SetResourceReference(Border.BorderBrushProperty, "Cp.Line");
-            var dock = new DockPanel { LastChildFill = true };
+            // Words on the left, the buttons ("Go to view", "Hide marks") on the right; in a narrow dock the buttons go on a row of their own under the words,
+            // so the title and the tools keep their width instead of wrapping one word to a line.
+            var dock = new Grid();
+            dock.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            dock.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            dock.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            dock.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            var side = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Top };
             marks.Margin = new Thickness(6, 0, 0, 0); marks.VerticalAlignment = VerticalAlignment.Center;
-            DockPanel.SetDock(marks, Dock.Right);
-            dock.Children.Add(marks);
             Button? go = null;
             if (actions.GoToView != null)
             {
                 go = CardKit.Secondary(CardButtons.GoToView, () => { if (Other() is (long id, string _)) actions.GoToView(id); }, compact: true);
                 go.Margin = new Thickness(6, 0, 0, 0); go.VerticalAlignment = VerticalAlignment.Center;
-                DockPanel.SetDock(go, Dock.Right);
-                dock.Children.Add(go);
+                side.Children.Add(go);
             }
+            side.Children.Add(marks);
+            Grid.SetRow(side, 0); Grid.SetColumn(side, 1);
+            dock.Children.Add(side);
+            var narrowNow = false;
+            dock.SizeChanged += (_, e) =>
+            {
+                if (!e.WidthChanged || e.NewSize.Width <= 0) return;
+                var narrow = e.NewSize.Width < NarrowHeaderWidth;
+                if (narrow == narrowNow) return;
+                narrowNow = narrow;
+                Grid.SetRow(side, narrow ? 1 : 0);
+                Grid.SetColumn(side, narrow ? 0 : 1);
+                Grid.SetColumnSpan(side, narrow ? 2 : 1);
+                side.HorizontalAlignment = narrow ? HorizontalAlignment.Left : HorizontalAlignment.Right;
+                side.Margin = narrow ? new Thickness(-6, 6, 0, 0) : new Thickness(0);
+            };
             var words = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
             var title = CardKit.Text(Safe(actions.MarksTitle), 13, "Cp.Ink", FontWeights.SemiBold);
             var where = CardKit.Text("", 11.5, "Cp.Muted", margin: new Thickness(0, 1, 0, 0));
@@ -132,6 +155,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 }
                 words.Children.Add(tools);
             }
+            Grid.SetRow(words, 0); Grid.SetColumn(words, 0);
             dock.Children.Add(words);
             head.Child = dock;
 
