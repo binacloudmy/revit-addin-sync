@@ -100,14 +100,14 @@ pipeline {
                 ]) {
                     pwsh '''
                         $ErrorActionPreference = 'Stop'
-                        $extra = @()
+                        $extra = @{}   # hashtable: an array splat would pass -EngineZip as a positional value
                         if ($env:REVIT_RELEASE_PREFIX) {
                             Write-Host "TEST publish to $env:REVIT_RELEASE_PREFIX - addin-only, no engine bundle"
                         } else {
                             # Seed exactly the engine the staging feed already serves (fails loudly if it cannot).
                             $r = & installer/fetch-engine-bundle.ps1 -Prefix 'revit-copilot/releases-staging' `
                                    -OutDir (Join-Path (Get-Location) 'artifacts/engine')
-                            if ([string]$r.present -eq 'true') { $extra = @('-EngineZip', $r.zip) }
+                            if ([string]$r.present -eq 'true') { $extra.EngineZip = [string]$r.zip }
                         }
                         & installer/build-unsigned-staging.ps1 -Tag $env:RELEASE_TAG @extra
                         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -156,13 +156,13 @@ pipeline {
                 ]) {
                     pwsh '''
                         $ErrorActionPreference = 'Stop'
-                        $extra = @()
+                        $extra = @{}   # hashtable: an array splat would pass -EngineZip as a positional value
                         if ($env:REVIT_RELEASE_PREFIX) {
                             Write-Host "TEST publish to $env:REVIT_RELEASE_PREFIX - addin-only, no engine bundle"
                         } else {
                             $r = & installer/fetch-engine-bundle.ps1 -Prefix 'revit-copilot/releases-staging' `
                                    -OutDir (Join-Path (Get-Location) 'artifacts/engine')
-                            if ([string]$r.present -eq 'true') { $extra = @('-EngineZip', $r.zip) }
+                            if ([string]$r.present -eq 'true') { $extra.EngineZip = [string]$r.zip }
                         }
                         & installer/sign-release.ps1 -Tag $env:RELEASE_TAG -Thumbprint $env:CERT_THUMBPRINT @extra
                         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
