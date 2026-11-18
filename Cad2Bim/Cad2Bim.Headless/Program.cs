@@ -25,7 +25,10 @@ namespace Cad2Bim.Headless {
                     "  --aspect=3                  how many times longer than thick a wall face must be\n" +
                     "  --facegap=150               gap in a face that still counts as one face (mm)\n" +
                     "  --bridge=2000               widest doorway a room boundary may jump (mm)\n" +
-                    "  --ifc=out.ifc               write the result as an IFC model");
+                    "  --ifc=out.ifc               write the result as an IFC model\n" +
+                    "  --census                    electrical census: phase 0 summary on stdout, timings on stderr\n" +
+                    "  --json                      with --census: print only the census JSON\n" +
+                    "  --census-out=census.json    with --census: also write the JSON there (outside the repo)");
                 return 2;
             }
 
@@ -34,6 +37,9 @@ namespace Cad2Bim.Headless {
                 Console.Error.WriteLine($"no such file: {path}");
                 return 2;
             }
+
+            // The census is its own measurement: one walk, none of the wall/room pipeline below.
+            if (args.Contains("--census")) return CensusCommand.Run(path, args);
 
             var filter = new LayerFilter {
                 IncludeHatch = args.Contains("--hatch"),

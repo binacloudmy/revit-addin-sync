@@ -20,6 +20,14 @@
     <Compile Include="..\cad2bim\ViewModels\Shapes\*.cs" Link="Shared\%(Filename)%(Extension)" />
   </ItemGroup>
 
+  <!-- The electrical census (the census option): Revit-free sources from the add-in, linked so the
+       CLI measures with exactly the code the add-in runs. -->
+  <ItemGroup>
+    <Compile Include="..\..\BinaVibe\Mcp\Tools\Electrical\ElectricalCensus.cs" Link="Shared\ElectricalCensus.cs" />
+    <Compile Include="..\..\BinaVibe\Mcp\Tools\Electrical\ElectricalCensusSummary.cs" Link="Shared\ElectricalCensusSummary.cs" />
+    <Compile Include="..\..\Services\CadToBim\CadSourceVerdict.cs" Link="Shared\CadSourceVerdict.cs" />
+  </ItemGroup>
+
   <!-- WPF-only sources that live at the project root next to the model. -->
   <ItemGroup>
     <Compile Remove="..\cad2bim\App.xaml.cs" />
