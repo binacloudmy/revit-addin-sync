@@ -298,6 +298,7 @@
     <!-- Electrical census (phase 0): one CAD walk counted into block classes, layers and
          drawing facts. Cad2Bim engine + CadSourceVerdict (linked above) and System only. -->
     <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\ElectricalCensus.cs" Link="ElectricalCensus.cs" />
+    <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\ElectricalCensusSummary.cs" Link="ElectricalCensusSummary.cs" />
     <!-- read_schedule / write_schedule decision logic: which updates survive
          validation, where the row window falls, whether rows map 1:1 to
          elements. Split out of Schedules.cs (which needs a live Document) for

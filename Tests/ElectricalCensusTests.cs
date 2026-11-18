@@ -1,3 +1,4 @@
+#nullable enable
 // ElectricalCensus: one walk of a drawing counted into block classes, layers and drawing
 // facts. Every drawing here is built in memory (CensusFixture); one test round-trips a DXF
 // the test writes itself. No real drawing is ever read or checked in.
