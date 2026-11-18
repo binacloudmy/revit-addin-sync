@@ -346,6 +346,27 @@ namespace Tests
         }
 
         [Fact]
+        public void Extent_and_scale_agree_with_the_wall_pipeline()
+        {
+            // ModelSource sizes the drawing from its segments: straight pieces and the chords of
+            // an arc a squashing insert turned into an ellipse, but not a true arc. A far arc
+            // of each kind tells the census whether it does the same.
+            CadDocument doc = MmDrawing();
+            BlockRecord swing = Block(doc, "SWING", new Arc { Center = new XYZ(0, 0, 0), Radius = 500, StartAngle = 0, EndAngle = Math.PI / 2 });
+            Insert(doc, swing, 100000, 0, "A-DOOR", sx: 1, sy: 2);   // squashed: chords, counted
+            Insert(doc, swing, -50000, 0, "A-DOOR");                  // a real arc: not counted
+
+            ElectricalCensusResult census = ElectricalCensus.Build(doc);
+            Cad2Bim.CadModel model = Cad2Bim.ModelSource.Read(doc);
+
+            double minX = model.Segments.Min(s => Math.Min(s.P1.x, s.P2.x));
+            double maxX = model.Segments.Max(s => Math.Max(s.P1.x, s.P2.x));
+            Assert.Equal(model.Scale, census.Drawing.MmPerUnit);
+            Assert.Equal((maxX - minX) * model.Scale / 1000.0, census.Drawing.WidthM, 6);
+            Assert.Equal(100.5, census.Drawing.WidthM, 3);
+        }
+
+        [Fact]
         public void Units_report_header_when_it_is_believable()
         {
             var doc = new CadDocument();

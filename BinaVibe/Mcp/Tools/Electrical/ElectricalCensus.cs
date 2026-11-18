@@ -1105,8 +1105,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     tally.StraightLength += length;
                     if (IsAxisAligned(dx, dy)) tally.AxisAlignedLength += length;
                     tally.Pieces.Add((a.X, a.Y, b.X, b.Y));
-                    Grow(a.X, a.Y);
-                    Grow(b.X, b.Y);
+                    GrowBySegment(a, b);
                 }
 
                 if (source == CadSource.Geometry) tally.LooseLength += run; else tally.InBlocksLength += run;
@@ -1126,7 +1125,12 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 {
                     double dx = points[i + 1].X - points[i].X, dy = points[i + 1].Y - points[i].Y;
                     double chord = Math.Sqrt((dx * dx) + (dy * dy));
-                    if (IsFinite(chord)) length += chord;
+                    if (!IsFinite(chord)) continue;
+                    length += chord;
+
+                    // ModelSource keeps an arc the transform kept round as an arc, and only an
+                    // arc it squashed as chords; only the chords size the drawing there.
+                    if (parameters == null) GrowBySegment(points[i], points[i + 1]);
                 }
 
                 tally.ArcLength += length;
@@ -1174,6 +1178,24 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     Depth = depth,
                     Attributes = attributes,
                 });
+            }
+
+            /// <summary>
+            /// Grows the extent by one segment exactly when ModelSource.Read (default filter)
+            /// would keep it as a classifier segment, so Units.Resolve sees the same box here as
+            /// in the wall pipeline: straight pieces from model space and blocks, chords of
+            /// non-conformal arcs, never hatch or dimension pieces or true arcs, nothing under
+            /// ModelSink's 1e-3 unit minimum. What remains different: the pane passes its own
+            /// layer filter (include/exclude, roles), which the census cannot know, and a
+            /// NaN/infinite point that ModelSource keeps is skipped here.
+            /// </summary>
+            private void GrowBySegment((double X, double Y) a, (double X, double Y) b)
+            {
+                const double MinSegmentLengthSquared = 1e-6; // ModelSource.ModelSink's
+                double dx = b.X - a.X, dy = b.Y - a.Y;
+                if (!IsFinite(a.X, a.Y) || !IsFinite(b.X, b.Y) || (dx * dx) + (dy * dy) < MinSegmentLengthSquared) return;
+                Grow(a.X, a.Y);
+                Grow(b.X, b.Y);
             }
 
             private void Grow(double x, double y)
