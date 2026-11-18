@@ -107,6 +107,19 @@ namespace Cad2Bim.Services {
     }
 
     /// <summary>
+    /// Optional, beside <see cref="ICadSymbolSink"/>: a sink that implements both is also told
+    /// when the contents of the insert it was last told about have all arrived, so it knows
+    /// which insert (if any) a later piece of linework sits in. A separate interface, not a
+    /// new member, so existing symbol sinks compile and behave as before.
+    /// </summary>
+    public interface ICadSymbolScopeSink {
+        /// <summary>Called once per MINSERT cell, after that cell's contents and before the
+        /// next entity, with the same depth its <see cref="ICadSymbolSink.Symbol"/> had.
+        /// The insert's attribute texts arrive after the last cell's call.</summary>
+        void SymbolEnd(int depth);
+    }
+
+    /// <summary>
     /// Walks a CadDocument into world coordinates: blocks flattened, curves tessellated,
     /// nothing classified or filtered. What each consumer keeps is its own business.
     /// </summary>
@@ -697,6 +710,7 @@ namespace Cad2Bim.Services {
             // Only a sink that asked for symbols pays for the block info and the attributes.
             // A dimension's arrowheads are inserts too, but they are not the drawing's symbols.
             ICadSymbolSink? symbols = source == CadSource.Dimension ? null : sink as ICadSymbolSink;
+            ICadSymbolScopeSink? scope = symbols != null ? sink as ICadSymbolScopeSink : null;
             CadBlockInfo? info = symbols != null ? InfoFor(insert.Block) : null;
             IReadOnlyDictionary<string, string> attributes = symbols != null ? AttributesOf(insert) : NoAttributes;
             double cos = Math.Cos(insert.Rotation);
@@ -743,6 +757,8 @@ namespace Cad2Bim.Services {
                     foreach (Entity child in insert.Block.Entities) {
                         Emit(child, sink, composed, depth + 1, CadSource.Block);
                     }
+
+                    scope?.SymbolEnd(depth);
                 }
             }
 

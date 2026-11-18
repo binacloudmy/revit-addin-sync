@@ -126,6 +126,45 @@ namespace Tests
         }
 
         [Fact]
+        public void Linework_and_text_on_layer_0_inside_a_block_take_the_inserts_layer()
+        {
+            // PARENT holds a CHILD insert on E-EMERGENCY and then, after it, its own line,
+            // arc and text on layer 0. CHILD's line is on layer 0 too. The parent's pieces belong
+            // to the layer PARENT is placed on, the child's to the child's, and none to "0".
+            CadDocument doc = MmDrawing();
+            var child = new BlockRecord("CHILD");
+            child.Entities.Add(new Line(new XYZ(0, 0, 0), new XYZ(1000, 0, 0)) { Layer = Layer(doc, "0") });
+            doc.BlockRecords.Add(child);
+
+            var parent = new BlockRecord("PARENT");
+            parent.Entities.Add(MakeInsert(doc, child, 0, 0, "E-EMERGENCY"));
+            parent.Entities.Add(new Line(new XYZ(0, 500, 0), new XYZ(2000, 500, 0)) { Layer = Layer(doc, "0") });
+            parent.Entities.Add(new Arc { Center = new XYZ(0, 0, 0), Radius = 100, StartAngle = 0, EndAngle = Math.PI, Layer = Layer(doc, "0") });
+            parent.Entities.Add(new TextEntity { InsertPoint = new XYZ(0, 800, 0), Height = 100, Value = "L1", Layer = Layer(doc, "0") });
+            doc.BlockRecords.Add(parent);
+            Insert(doc, parent, 5000, 5000, "E-LIGHT");
+            Line(doc, "0", 0, 10000, 3000, 10000); // loose, in model space: stays on "0"
+
+            ElectricalCensusResult census = ElectricalCensus.Build(doc);
+
+            CensusLayer light = LayerOf(census, "E-LIGHT");
+            Assert.Equal(1, light.Lines);
+            Assert.Equal(1, light.Arcs);
+            Assert.Equal(1, light.Texts);
+            Assert.Equal(2.0 + (Math.PI * 0.1), light.InBlocksLengthM, 3);
+
+            CensusLayer emergency = LayerOf(census, "E-EMERGENCY");
+            Assert.Equal(1, emergency.Lines);
+            Assert.Equal(1.0, emergency.InBlocksLengthM, 6);
+
+            CensusLayer zero = LayerOf(census, "0");
+            Assert.Equal(1, zero.Lines);
+            Assert.Equal(0, zero.Arcs);
+            Assert.Equal(0, zero.Texts);
+            Assert.Equal(0, zero.InBlocksLengthM, 6);
+        }
+
+        [Fact]
         public void Container_block_is_flagged_and_its_children_still_counted()
         {
             CadDocument doc = MmDrawing();
@@ -193,16 +232,16 @@ namespace Tests
             ElectricalCensusResult census = ElectricalCensus.Build(doc);
 
             CensusLayer power = LayerOf(census, layer);
-            Assert.Equal(2, power.Lines);
+            Assert.Equal(6, power.Lines); // two loose, four in the insert's square
             Assert.Equal(1, power.OpenPolylines);
             Assert.Equal(1, power.ClosedPolylines);
             Assert.Equal(1, power.Arcs);
             Assert.Equal(1, power.Texts);
             Assert.Equal(1, power.Inserts);
             // 1 + 1 + 2 + 0.341 m of straight line and half a 500 mm circle loose; the insert's
-            // own square sits on layer 0, so it is not counted here.
+            // own square is on layer 0, so it is drawn on the insert's layer, in a block.
             Assert.Equal(4.0 + 0.2 + Math.Sqrt(0.02) + (Math.PI * 0.5), power.LooseLengthM, 2);
-            Assert.Equal(0, power.InBlocksLengthM, 6);
+            Assert.Equal(0.4, power.InBlocksLengthM, 6);
         }
 
         [Fact]
@@ -220,8 +259,8 @@ namespace Tests
             doc.Entities.Add(new Arc { Center = new XYZ(double.NaN, 0, 0), Radius = 500, StartAngle = 0, EndAngle = Math.PI, Layer = Layer(doc, layer) });
             Text(doc, layer, double.NaN, 500, "13A");
             BlockRecord socket = SquareBlock(doc, "SOCKET", 100);
-            Insert(doc, socket, double.NaN, 3000, layer);
-            Insert(doc, socket, 3000, 3000, layer);
+            Insert(doc, socket, double.NaN, 3000, "E-POWER");
+            Insert(doc, socket, 3000, 3000, "E-POWER");
 
             ElectricalCensusResult census = ElectricalCensus.Build(doc);
 

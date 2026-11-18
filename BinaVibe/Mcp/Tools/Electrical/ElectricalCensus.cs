@@ -1036,7 +1036,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
             }
         }
 
-        private sealed class CensusSink : ICadSink, ICadSymbolSink
+        private sealed class CensusSink : ICadSink, ICadSymbolSink, ICadSymbolScopeSink
         {
             public readonly Dictionary<string, LayerTally> Layers = new Dictionary<string, LayerTally>(StringComparer.Ordinal);
             public readonly List<Instance> Instances = new List<Instance>();
@@ -1046,9 +1046,25 @@ namespace BinaVibe.Mcp.Tools.Electrical
             public double MinX = double.MaxValue, MinY = double.MaxValue;
             public double MaxX = double.MinValue, MaxY = double.MinValue;
 
-            // The effective layer of each open insert, outermost first. Symbol arrives in
-            // pre-order, so popping to the new insert's depth leaves its parent on top.
+            // The effective layer of each open insert, outermost first. Symbol pushes, SymbolEnd
+            // pops once the insert's contents are through, so the top is always the insert the
+            // next piece sits in. Symbol also pops to its own depth, in case a walker never
+            // says SymbolEnd.
             private readonly List<(int Depth, string Layer)> _open = new List<(int Depth, string Layer)>();
+
+            /// <summary>Anything on layer 0 inside a block is drawn on the layer of the insert
+            /// that holds it, which is how AutoCAD shows it. Outside a block, 0 is 0.</summary>
+            private string Effective(string? layer)
+            {
+                string own = layer ?? string.Empty;
+                if ((own.Length == 0 || own == "0") && _open.Count > 0) return _open[_open.Count - 1].Layer;
+                return own;
+            }
+
+            public void SymbolEnd(int depth)
+            {
+                while (_open.Count > 0 && _open[_open.Count - 1].Depth >= depth) _open.RemoveAt(_open.Count - 1);
+            }
 
             private LayerTally Tally(string layer)
             {
@@ -1062,6 +1078,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
             public void Polyline(IReadOnlyList<(double X, double Y)> points, bool isClosed, string layer, CadSource source)
             {
+                layer = Effective(layer);
                 LayerTally tally = Tally(layer);
 
                 if (source == CadSource.Hatch) { tally.HatchLoops++; return; }
@@ -1098,6 +1115,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
             public void Arc(IReadOnlyList<(double X, double Y)> points, ArcParams? parameters, string layer, CadSource source)
             {
+                layer = Effective(layer);
                 LayerTally tally = Tally(layer);
                 if (source == CadSource.Hatch) { tally.HatchLoops++; return; }
                 if (source == CadSource.Dimension) { tally.DimensionPieces++; return; }
@@ -1117,6 +1135,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
             public void Text(double x, double y, double height, string value, string layer, CadSource source)
             {
+                layer = Effective(layer);
                 LayerTally tally = Tally(layer);
                 if (source == CadSource.Dimension) { tally.DimensionPieces++; return; }
                 if (source == CadSource.Hatch) return;
@@ -1137,13 +1156,8 @@ namespace BinaVibe.Mcp.Tools.Electrical
             {
                 while (_open.Count > 0 && _open[_open.Count - 1].Depth >= depth) _open.RemoveAt(_open.Count - 1);
 
-                // An insert on layer 0 inside a block takes the layer its parent was placed on,
-                // which is how AutoCAD draws it.
-                string effective = layer ?? string.Empty;
-                if ((effective.Length == 0 || effective == "0") && _open.Count > 0)
-                {
-                    effective = _open[_open.Count - 1].Layer;
-                }
+                // An insert on layer 0 inside a block takes the layer its parent was placed on.
+                string effective = Effective(layer);
                 _open.Add((depth, effective));
 
                 Tally(effective).Inserts++;
