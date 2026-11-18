@@ -119,7 +119,6 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
         // Wall hint: does this layer's own linework pair up like wall faces?
         public int WallPairs;
-        public int WallPairsUnmerged;
         public double PairedLengthShare;
         public bool PairsLikeWalls;
         public string? WallsSkipped;
@@ -269,7 +268,6 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 ["walls"] = new Dictionary<string, object?>
                 {
                     ["pairs"] = layer.WallPairs,
-                    ["pairs_unmerged"] = layer.WallPairsUnmerged,
                     ["paired_length_share"] = layer.PairedLengthShare,
                     ["pairs_like_walls"] = layer.PairsLikeWalls,
                     ["skipped"] = layer.WallsSkipped,
@@ -403,7 +401,8 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
             clock.Restart();
             MarkNearWalls(sink, o);
-            Dictionary<string, List<CensusCount>> nearTexts = NearTexts(sink, o);
+            var texts = new TextGrid(sink.Texts, 1000);
+            Dictionary<string, List<CensusCount>> nearTexts = NearTexts(sink, texts, o);
             result.TimingsSeconds["proximity"] = clock.Elapsed.TotalSeconds;
 
             BuildBlockClasses(sink, o, result);
@@ -415,7 +414,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
             BuildTotals(sink, result);
 
             clock.Restart();
-            BuildLegend(sink, clusters, o, result);
+            BuildLegend(sink, texts, clusters, o, result);
             result.TimingsSeconds["legend"] = clock.Elapsed.TotalSeconds;
 
             // Exploded: every symbol-like insert sits on the architectural background, so the
@@ -481,14 +480,15 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
                 List<Segment> segments = tally.Segments();
                 List<Wall> merged = CadClassifier.ClassifyWalls(CadClassifier.MergeCollinearSegments(segments), sMin, sMax);
-                tally.WallPairsUnmerged = CadClassifier.ClassifyWalls(segments, sMin, sMax).Count;
                 tally.WallPairs = merged.Count;
 
                 double paired = merged.Sum(wall => wall.Centerline.Length) * 2;
                 tally.PairedLengthShare = tally.StraightLength > 0 ? Math.Min(1.0, paired / tally.StraightLength) : 0;
                 tally.PairsLikeWalls = tally.WallPairs >= 8 && tally.PairedLengthShare >= 0.25;
 
-                if (tally.PairsLikeWalls) wallLike.AddRange(merged);
+                if (!tally.PairsLikeWalls) continue;
+                wallLike.AddRange(merged);
+                tally.WallSegments = segments;
             }
 
             return wallLike;
@@ -576,7 +576,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
             var faces = new List<Segment>();
             foreach (LayerTally tally in sink.Layers.Values)
             {
-                if (tally.PairsLikeWalls) faces.AddRange(tally.Segments());
+                if (tally.WallSegments != null) faces.AddRange(tally.WallSegments);
             }
             if (faces.Count == 0) return;
 
@@ -609,9 +609,8 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
         /// <summary>The words written near each class's instances: per class, the five most
         /// frequent values, each counted once per instance it is near.</summary>
-        private static Dictionary<string, List<CensusCount>> NearTexts(CensusSink sink, CensusOptions o)
+        private static Dictionary<string, List<CensusCount>> NearTexts(CensusSink sink, TextGrid grid, CensusOptions o)
         {
-            var grid = new TextGrid(sink.Texts, 1000);
             var perClass = new Dictionary<string, Dictionary<string, int>>(StringComparer.Ordinal);
 
             foreach (Instance instance in sink.Instances)
@@ -819,7 +818,6 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     OpenPolylinesOver1m = tally.OpenRunLengths.Count(length => length > o.LongOpenPolylineMm),
                     AxisAlignedShare = alignedTotal > 0 ? Math.Round(tally.AxisAlignedLength / alignedTotal, 3) : 0,
                     WallPairs = tally.WallPairs,
-                    WallPairsUnmerged = tally.WallPairsUnmerged,
                     PairedLengthShare = Math.Round(tally.PairedLengthShare, 3),
                     PairsLikeWalls = tally.PairsLikeWalls,
                     WallsSkipped = tally.WallsSkipped,
@@ -867,7 +865,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
         /// description written to its right. A column of one repeated symbol is a row of
         /// sockets along a wall, not a legend, so a column needs mostly distinct classes.
         /// </summary>
-        private static void BuildLegend(CensusSink sink, List<PlanCluster> clusters, CensusOptions o,
+        private static void BuildLegend(CensusSink sink, TextGrid grid, List<PlanCluster> clusters, CensusOptions o,
                                         ElectricalCensusResult result)
         {
             result.Totals.LegendTitleTexts = sink.Texts.Count(text => ContainsAny(text.Value, LegendWords));
@@ -890,7 +888,6 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 else columns.Add(new List<Instance> { instance });
             }
 
-            var grid = new TextGrid(sink.Texts, 1000);
             var rows = new List<CensusLegendRow>();
 
             foreach (List<Instance> column in columns)
@@ -1014,7 +1011,11 @@ namespace BinaVibe.Mcp.Tools.Electrical
             public double LooseLength, InBlocksLength, StraightLength, ArcLength, AxisAlignedLength;
             public List<double> OpenRunLengths = new List<double>();
 
-            public int WallPairs, WallPairsUnmerged;
+            public int WallPairs;
+
+            /// <summary>The segments the wall test paired, kept for the near-wall pass when
+            /// the layer pairs like walls; null otherwise.</summary>
+            public List<Segment>? WallSegments;
             public double PairedLengthShare;
             public bool PairsLikeWalls;
             public string? WallsSkipped;
@@ -1218,9 +1219,18 @@ namespace BinaVibe.Mcp.Tools.Electrical
             /// <summary>Restates everything kept in millimetres, once the scale is known.</summary>
             public void Rescale(double scale)
             {
+                // One key per definition, not per insert: an anonymous key is a SHA-1 of the
+                // block's shape, and a drawing inserts the same few blocks thousands of times.
+                // CadBlockInfo is one object per definition and compares by reference.
+                var keys = new Dictionary<CadBlockInfo, string>();
                 foreach (Instance instance in Instances)
                 {
-                    instance.Key = ClassKey(instance.Block, scale);
+                    if (!keys.TryGetValue(instance.Block, out string? key))
+                    {
+                        key = ClassKey(instance.Block, scale);
+                        keys[instance.Block] = key;
+                    }
+                    instance.Key = key;
                 }
 
                 if (scale == 1.0) return;

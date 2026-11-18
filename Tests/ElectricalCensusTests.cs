@@ -405,7 +405,6 @@ namespace Tests
             Assert.True(wall.WallPairs >= 8, "pairs " + wall.WallPairs);
             Assert.True(wall.PairedLengthShare >= 0.25, "share " + wall.PairedLengthShare);
             Assert.True(wall.PairsLikeWalls);
-            Assert.True(wall.WallPairsUnmerged >= 8);
             Assert.Null(wall.WallsSkipped);
 
             CensusLayer conduit = LayerOf(census, "E-CONDUIT");
@@ -662,6 +661,7 @@ namespace Tests
             Assert.DoesNotContain("3123", json);
             Assert.Contains("\"blocks\"", json);
             Assert.Contains("\"timings_s\"", json);
+            Assert.DoesNotContain("pairs_unmerged", json); // dropped: it cost a second wall pass per layer
         }
 
         [Fact]
