@@ -27,7 +27,10 @@ namespace Tests
 
             public void Arc(IReadOnlyList<(double X, double Y)> points, ArcParams? parameters, string layer, CadSource source) { }
 
-            public void Text(double x, double y, double height, string value, string layer, CadSource source) { }
+            public List<(double X, double Y, string Value)> Texts { get; } = new();
+
+            public void Text(double x, double y, double height, string value, string layer, CadSource source) =>
+                Texts.Add((x, y, value));
         }
 
         private static BlockRecord BlockWithLine(CadDocument doc, string name, XYZ from, XYZ to)
@@ -114,6 +117,34 @@ namespace Tests
             List<(double X, double Y)> line = Assert.Single(sink.Polylines);
             AssertNear((995, 2000), line[0]);
             AssertNear((985, 2000), line[1]);
+        }
+
+        [Fact]
+        public void A_minus_Z_inserts_attribute_lands_where_it_is_drawn()
+        {
+            // The attribute is stored in the same OCS as its insert: (-100, 60) with extrusion
+            // -Z is world (100, 60), right beside the block's line at world (100, 50).
+            var doc = new CadDocument();
+            BlockRecord block = BlockWithLine(doc, "TAGGED", new XYZ(0, 0, 0), new XYZ(10, 0, 0));
+            var insert = new Insert(block) { InsertPoint = new XYZ(-100, 50, 0), Normal = new XYZ(0, 0, -1) };
+            insert.Attributes.Add(new AttributeEntity
+            {
+                Tag = "TAG",
+                Value = "S1",
+                InsertPoint = new XYZ(-100, 60, 0),
+                Normal = new XYZ(0, 0, -1),
+                Height = 2.5,
+            });
+            doc.Entities.Add(insert);
+
+            var sink = new LineSink();
+            CadRenderSource.Walk(doc, sink);
+
+            List<(double X, double Y)> line = Assert.Single(sink.Polylines);
+            AssertNear((100, 50), line[0]);
+            var text = Assert.Single(sink.Texts);
+            Assert.Equal("S1", text.Value);
+            AssertNear((100, 60), (text.X, text.Y));
         }
     }
 }

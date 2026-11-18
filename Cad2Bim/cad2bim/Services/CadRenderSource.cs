@@ -747,9 +747,10 @@ namespace Cad2Bim.Services {
             }
 
             // Block attributes carry the door mark, the room number, the window code — the
-            // drawing's own words for what the block is. They sit in world space already.
+            // drawing's own words for what the block is. They sit in the parent's space, in the
+            // insert's OCS like the insert point does, so they go through the same OCS map.
             foreach (AttributeEntity attribute in insert.Attributes) {
-                EmitText(sink, xform, attribute.InsertPoint.X, attribute.InsertPoint.Y,
+                EmitText(sink, outer, attribute.InsertPoint.X, attribute.InsertPoint.Y,
                          attribute.Height, attribute.Value, layer, CadSource.Block);
             }
         }
