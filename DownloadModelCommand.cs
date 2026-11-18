@@ -84,6 +84,22 @@ namespace RevitWebAppSync
 
                     string downloadedPath = browser.DownloadedPath;
 
+                    // Remember where this file came from, so Sync can start on the
+                    // right project, folder and model even when the model carries
+                    // no Revit document id (web uploads, promoted copies).
+                    Services.ModelRecordStore.Save(new Services.ModelRecord
+                    {
+                        Path = downloadedPath,
+                        ProjectId = browser.DownloadedProjectId,
+                        FolderId = browser.DownloadedFolderId,
+                        DisciplineType = browser.DownloadedDiscipline,
+                        DesignId = browser.DownloadedDesignId,
+                        LineageId = browser.DownloadedLineageId,
+                        DocGuid = browser.DownloadedDocGuid,
+                        Name = browser.DownloadedName,
+                        Source = "download",
+                    });
+
                     // Opening the model IS the confirmation — a drafter who just
                     // waited out a download wants to be working in it, not hunting
                     // it down in Explorer first. Safe to call here: ShowDialog has
