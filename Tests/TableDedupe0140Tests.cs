@@ -48,5 +48,24 @@ namespace RevitAddinSync.Tests
             var md = "| Room | Area |\n|---|---|\n" + string.Join("\n", rows.Select(r => "| " + r.Item1 + " | 1 |"));
             Assert.Equal(md, TableDedupe.Strip(md, Items(rows)));
         }
+
+        [Fact]
+        public void TheBackendsRealShape_TitleJoinedFromTheFirstCells_Matches()
+        {
+            // develop-38 (stored turn 30b66cba): "No." holds the room number, so the card title is "DE02 Dewan Utama" (two cells joined), cells {Area: "512.88 m²"}, count 1.
+            var items = new ResultItems();
+            var s = new ItemSection();
+            foreach (var (t, a) in new[] { ("DE02 Dewan Utama", "512.88 m²"), ("RM03 Anjung Kanan", "108.69 m²"), ("RM04 Anjung Kiri", "106.76 m²") })
+                s.Rows.Add(new ItemRow { Kind = "row", Title = t, Count = 1, Cells = new List<(string, string)> { ("Area", a) } });
+            items.Sections.Add(s);
+            var md = "| No. | Room | Area (m²) |\n|---|---|---|\n| DE02 | Dewan Utama | 512.88 |\n| RM03 | Anjung Kanan | 108.69 |\n| RM04 | Anjung Kiri | 106.76 |";
+            Assert.Equal("", TableDedupe.Strip(md, items));
+            Assert.Equal("Intro.", TableDedupe.Strip("Intro.\n\n" + md, items));
+            // a table of single-cell titles with a row-number column, and one that is only one of the two cells, still work / keep as they should
+            var single = "| No. | Room | Area |\n|---|---|---|\n| 1 | DE02 Dewan Utama | 512.88 |\n| 2 | RM03 Anjung Kanan | 108.69 |\n| 3 | RM04 Anjung Kiri | 106.76 |";
+            Assert.Equal("", TableDedupe.Strip(single, items));
+            var other = "| No. | Room | Area |\n|---|---|---|\n| DE02 | Hall | 512.88 |\n| RM03 | Anjung Kanan | 108.69 |\n| RM04 | Anjung Kiri | 106.76 |";
+            Assert.Equal(other, TableDedupe.Strip(other, items));
+        }
     }
 }

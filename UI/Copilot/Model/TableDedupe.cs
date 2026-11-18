@@ -16,7 +16,6 @@ namespace RevitWebAppSync.UI.Copilot.Model
         private const int MaxCardRows = ItemsBody.MaxRowsPerSection;
 
         private static readonly Regex SeparatorCell = new Regex(@"^:?-{1,}:?$", RegexOptions.Compiled);
-        private static readonly HashSet<string> IndexHeaders = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "no", "no.", "#", "bil", "bil.", "nombor", "num", "number" };
 
         public static string Strip(string? markdown, ResultItems? items)
         {
@@ -64,17 +63,32 @@ namespace RevitWebAppSync.UI.Copilot.Model
             var data = rows.Skip(1).ToList();
             if (data.Count != section.Rows.Count) return false;                  // not the same rows (or the table is longer than the card shows)
 
-            // The title column: the first, or the second when the first is only a row number.
-            var titleCol = header.Length > 1 && IndexHeaders.Contains(header[0].Trim()) ? 1 : 0;
-            if (data.Any(r => r.Length <= titleCol)) return false;
+            // The backend makes a card row's title from the table row's first one to three cells ("DE02" + "Dewan Utama" = "DE02 Dewan Utama"); a leading
+            // row-number column ("1", "2" ...) is skipped when that matches better. Each table row must take exactly one card title.
+            var remaining = section.Rows.Select(r => Norm(r.Title)).ToList();
+            var widest = 0;
+            var offsetUsed = 0;
+            foreach (var cells in data)
+            {
+                var hit = false;
+                for (var offset = 0; offset <= 1 && !hit; offset++)
+                    for (var width = 1; width <= 3 && !hit; width++)
+                    {
+                        if (offset + width > cells.Length) break;
+                        var candidate = Norm(string.Join(" ", cells.Skip(offset).Take(width)));
+                        var at = remaining.IndexOf(candidate);
+                        if (at < 0) continue;
+                        remaining.RemoveAt(at);
+                        widest = Math.Max(widest, width);
+                        offsetUsed = Math.Max(offsetUsed, offset);
+                        hit = true;
+                    }
+                if (!hit) return false;
+            }
 
-            // A column the card cannot show (it draws the title, the count and the cells) keeps the table.
-            var cardColumns = 1 + (section.Rows.Any(r => r.Count != null) ? 1 : 0) + section.Rows.Max(r => r.Cells.Count) + titleCol;
-            if (header.Length > cardColumns) return false;
-
-            var tableTitles = data.Select(r => Norm(r[titleCol])).OrderBy(x => x, StringComparer.Ordinal).ToList();
-            var cardTitles = section.Rows.Select(r => Norm(r.Title)).OrderBy(x => x, StringComparer.Ordinal).ToList();
-            return tableTitles.SequenceEqual(cardTitles, StringComparer.Ordinal);
+            // A column the card cannot show (it draws the title, the cells and a count above 1) keeps the table.
+            var cardColumns = offsetUsed + widest + section.Rows.Max(r => r.Cells.Count) + (section.Rows.Any(r => (r.Count ?? 1) > 1) ? 1 : 0);
+            return header.Length <= cardColumns;
         }
     }
 }
