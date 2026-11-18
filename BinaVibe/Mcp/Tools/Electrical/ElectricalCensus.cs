@@ -298,7 +298,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 timings[name] = TimingsSeconds.TryGetValue(name, out double seconds) ? Math.Round(seconds, 3) : 0.0;
             }
 
-            return new Dictionary<string, object?>
+            var wire = new Dictionary<string, object?>
             {
                 ["drawing"] = drawing,
                 ["blocks"] = blocks,
@@ -311,6 +311,32 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 ["legend_truncated"] = LegendTruncated,
                 ["timings_s"] = timings,
             };
+
+            Sanitize(wire);
+            return wire;
+        }
+
+        /// <summary>JSON has no NaN or Infinity, and System.Text.Json throws on them: whatever
+        /// slipped past the walk becomes null here, so the census can always be written.</summary>
+        private static void Sanitize(object? node)
+        {
+            if (node is Dictionary<string, object?> map)
+            {
+                foreach (string key in map.Keys.ToList())
+                {
+                    object? value = map[key];
+                    if (value is double number && !ElectricalCensus.IsFinite(number)) map[key] = null;
+                    else Sanitize(value);
+                }
+            }
+            else if (node is List<object?> list)
+            {
+                for (int i = 0; i < list.Count; i++)
+                {
+                    if (list[i] is double number && !ElectricalCensus.IsFinite(number)) list[i] = null;
+                    else Sanitize(list[i]);
+                }
+            }
         }
     }
 
@@ -517,6 +543,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
             foreach (Instance instance in sink.Instances)
             {
+                if (!instance.Placed) continue;
                 var point = new Point(instance.X, instance.Y);
                 for (int i = 0; i < clusters.Count; i++)
                 {
@@ -556,6 +583,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
             var index = new SegmentIndex(faces, 2000);
             foreach (Instance instance in sink.Instances)
             {
+                if (!instance.Placed) continue;
                 var at = new Point(instance.X, instance.Y);
 
                 // A zero-length query segment: Near only reads its box. Never ask it whether it
@@ -588,6 +616,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
             foreach (Instance instance in sink.Instances)
             {
+                if (!instance.Placed) continue;
                 double reach = o.TextReachFactor * Math.Max(instance.WidthMm, instance.HeightMm);
                 reach = Math.Max(300, Math.Min(3000, reach));
 
@@ -845,7 +874,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
             const double Margin = 1000;
             List<Instance> candidates = sink.Instances
-                .Where(instance => instance.Block.NestedInserts == 0)
+                .Where(instance => instance.Placed && instance.Block.NestedInserts == 0)
                 .Where(instance => !clusters.Any(cluster =>
                     instance.X >= cluster.MinX - Margin && instance.X <= cluster.MaxX + Margin &&
                     instance.Y >= cluster.MinY - Margin && instance.Y <= cluster.MaxY + Margin))
@@ -945,6 +974,11 @@ namespace BinaVibe.Mcp.Tools.Electrical
             return trimmed.Length <= length ? trimmed : trimmed.Substring(0, length);
         }
 
+        // double.IsFinite is not on net48.
+        internal static bool IsFinite(double value) => !double.IsNaN(value) && !double.IsInfinity(value);
+
+        private static bool IsFinite(double x, double y) => IsFinite(x) && IsFinite(y);
+
         // ---------------------------------------------------------------- the walk
 
         /// <summary>One placed symbol, in millimetres once rescaled. Never leaves this file.</summary>
@@ -959,6 +993,10 @@ namespace BinaVibe.Mcp.Tools.Electrical
             public IReadOnlyDictionary<string, string> Attributes = null!;
             public bool NearWall;
             public bool InPlan;
+
+            /// <summary>False when the walk handed over a NaN or infinite position: the
+            /// instance is counted, but kept out of every "where is it" question.</summary>
+            public bool Placed = true;
         }
 
         private sealed class CensusText
@@ -1041,7 +1079,10 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     var b = points[(i + 1) % points.Count];
                     double dx = b.X - a.X, dy = b.Y - a.Y;
                     double length = Math.Sqrt((dx * dx) + (dy * dy));
-                    if (length <= 0) continue;
+
+                    // A NaN passes "length <= 0", and one bad vertex would poison every sum
+                    // of the layer and the JSON with it: skip the pieces it touches.
+                    if (!IsFinite(length) || length <= 0 || !IsFinite(a.X, a.Y) || !IsFinite(b.X, b.Y)) continue;
 
                     run += length;
                     tally.StraightLength += length;
@@ -1066,7 +1107,8 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 for (int i = 0; i + 1 < points.Count; i++)
                 {
                     double dx = points[i + 1].X - points[i].X, dy = points[i + 1].Y - points[i].Y;
-                    length += Math.Sqrt((dx * dx) + (dy * dy));
+                    double chord = Math.Sqrt((dx * dx) + (dy * dy));
+                    if (IsFinite(chord)) length += chord;
                 }
 
                 tally.ArcLength += length;
@@ -1083,7 +1125,10 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 if (clean.Length == 0) return;
 
                 tally.Texts++;
-                Texts.Add(new CensusText { X = x, Y = y, Height = height, Value = clean, Layer = layer });
+
+                // Counted, but only a text with a real position is kept for "what is written near".
+                if (!IsFinite(x, y)) return;
+                Texts.Add(new CensusText { X = x, Y = y, Height = IsFinite(height) ? height : 0, Value = clean, Layer = layer });
             }
 
             public void Symbol(CadBlockInfo block, string layer, double x, double y, double rotationRad,
@@ -1102,14 +1147,16 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 _open.Add((depth, effective));
 
                 Tally(effective).Inserts++;
+                double width = Math.Abs(block.Width * scaleX), height = Math.Abs(block.Height * scaleY);
                 Instances.Add(new Instance
                 {
                     Block = block,
                     Layer = effective,
                     X = x,
                     Y = y,
-                    WidthMm = Math.Abs(block.Width * scaleX),
-                    HeightMm = Math.Abs(block.Height * scaleY),
+                    Placed = IsFinite(x, y),
+                    WidthMm = IsFinite(width) ? width : 0,
+                    HeightMm = IsFinite(height) ? height : 0,
                     Depth = depth,
                     Attributes = attributes,
                 });
@@ -1117,7 +1164,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
             private void Grow(double x, double y)
             {
-                if (double.IsNaN(x) || double.IsNaN(y) || double.IsInfinity(x) || double.IsInfinity(y)) return;
+                if (!IsFinite(x, y)) return;
                 HasExtent = true;
                 if (x < MinX) MinX = x;
                 if (y < MinY) MinY = y;

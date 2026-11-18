@@ -206,6 +206,51 @@ namespace Tests
         }
 
         [Fact]
+        public void A_nan_vertex_is_skipped_and_never_reaches_the_json()
+        {
+            CadDocument doc = MmDrawing();
+            string layer = "E-CONDUIT";
+            var route = new LwPolyline { Layer = Layer(doc, layer) };
+            route.Vertices.Add(new LwPolyline.Vertex(new XY(0, 1000)));
+            route.Vertices.Add(new LwPolyline.Vertex(new XY(2000, 1000)));
+            route.Vertices.Add(new LwPolyline.Vertex(new XY(double.NaN, 1000)));
+            route.Vertices.Add(new LwPolyline.Vertex(new XY(2000, 3000)));
+            route.Vertices.Add(new LwPolyline.Vertex(new XY(2000, double.PositiveInfinity)));
+            doc.Entities.Add(route);
+            doc.Entities.Add(new Arc { Center = new XYZ(double.NaN, 0, 0), Radius = 500, StartAngle = 0, EndAngle = Math.PI, Layer = Layer(doc, layer) });
+            Text(doc, layer, double.NaN, 500, "13A");
+            BlockRecord socket = SquareBlock(doc, "SOCKET", 100);
+            Insert(doc, socket, double.NaN, 3000, layer);
+            Insert(doc, socket, 3000, 3000, layer);
+
+            ElectricalCensusResult census = ElectricalCensus.Build(doc);
+
+            CensusLayer conduit = LayerOf(census, layer);
+            Assert.Equal(2.0, conduit.LengthM, 6);
+            Assert.False(double.IsNaN(conduit.AxisAlignedShare));
+            Assert.Equal(30, census.Drawing.WidthM, 6);
+            Assert.Equal(2, census.Blocks.Single(b => b.Key == "SOCKET").Count);
+
+            string json = System.Text.Json.JsonSerializer.Serialize(census.ToWire());
+            Assert.DoesNotContain("NaN", json);
+            Assert.DoesNotContain("Infinity", json);
+        }
+
+        [Fact]
+        public void Wire_replaces_a_non_finite_number_with_null()
+        {
+            var census = new ElectricalCensusResult();
+            census.Drawing.MmPerUnit = double.NaN;
+            census.Layers.Add(new CensusLayer { Name = "X", LengthM = double.PositiveInfinity });
+            census.TimingsSeconds["walk"] = double.NaN;
+
+            string json = System.Text.Json.JsonSerializer.Serialize(census.ToWire());
+
+            Assert.Contains("\"mm_per_unit\":null", json);
+            Assert.Contains("\"total\":null", json);
+        }
+
+        [Fact]
         public void Open_polylines_over_1m_are_counted()
         {
             CadDocument doc = MmDrawing();
