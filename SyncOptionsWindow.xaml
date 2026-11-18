@@ -244,7 +244,7 @@
                        VerticalAlignment="Center"/>
         </StackPanel>
 
-        <ProgressBar x:Name="OutcomeProgress" Height="6" IsIndeterminate="True"
+        <ProgressBar x:Name="OutcomeProgress" Height="6" IsIndeterminate="True" Minimum="0" Maximum="100"
                      Margin="0,18,0,0"/>
 
         <TextBlock x:Name="OutcomeMessage" Margin="0,16,0,0" TextWrapping="Wrap"
