@@ -29,7 +29,7 @@ namespace RevitWebAppSync.Tests
                 new SyncProgress(SyncPhase.Registering),
                 new SyncProgress(SyncPhase.Uploading, 0, 1000), new SyncProgress(SyncPhase.Uploading, 500, 1000),
                 new SyncProgress(SyncPhase.Uploading, 1000, 1000),
-                new SyncProgress(SyncPhase.PreparingViewer), new SyncProgress(SyncPhase.Finalizing)
+                new SyncProgress(SyncPhase.Finalizing)
             };
             int last = -1;
             foreach (var s in steps) { Assert.True(s.Percent >= last, s.Text); last = s.Percent; }
@@ -161,6 +161,100 @@ namespace RevitWebAppSync.Tests
                 var api = new SyncApiClient("https://be.test", "t", new HttpClient(h));
                 Assert.True(await api.UploadAsync("https://store.test/put", path));
                 Assert.Equal(2L * size, h.Received);
+            }
+            finally { File.Delete(path); }
+        }
+
+        [Theory]
+        [InlineData(SyncPhase.Hashing, 100, 10)]
+        [InlineData(SyncPhase.Registering, 0, 10)]
+        [InlineData(SyncPhase.Uploading, 0, 15)]
+        [InlineData(SyncPhase.Uploading, 50, 55)]
+        [InlineData(SyncPhase.Uploading, 100, 95)]
+        [InlineData(SyncPhase.Finalizing, 0, 95)]
+        public void Each_step_owns_its_slice_of_the_bar(SyncPhase phase, int of100, int expected)
+            => Assert.Equal(expected, new SyncProgress(phase, of100, 100).Percent);
+
+        // Fake BINA server + storage. Records every host called and the commit body.
+        private sealed class FakeServer : HttpMessageHandler
+        {
+            public readonly List<string> Hosts = new List<string>();
+            public string CommitBody;
+            public HttpStatusCode StorageStatus = HttpStatusCode.OK;
+
+            protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage r, CancellationToken ct)
+            {
+                Hosts.Add(r.RequestUri.Host);
+                string url = r.RequestUri.ToString();
+                if (r.RequestUri.Host == "store.test")
+                {
+                    await r.Content.CopyToAsync(Stream.Null);
+                    return new HttpResponseMessage(StorageStatus);
+                }
+                string json;
+                if (url.EndsWith("sync/init")) json = "{\"uploadUrl\":\"https://store.test/put\",\"fileKey\":\"k1\"}";
+                else if (url.EndsWith("sync/commit"))
+                {
+                    CommitBody = await r.Content.ReadAsStringAsync();
+                    json = "{\"status\":\"created\",\"designId\":7,\"version\":1,\"name\":\"m.rvt\"}";
+                }
+                else json = "{}";
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json")
+                };
+            }
+        }
+
+        private static SyncRunner.Request Req(SyncApiClient api, string path, IProgress<SyncProgress> p) =>
+            new SyncRunner.Request
+            {
+                Api = api, UploadPath = path, FileName = "m.rvt", ProjectId = 1, DisciplineType = "Architecture",
+                Progress = p
+            };
+
+        [Fact]
+        public async Task A_sync_runs_hash_contact_upload_save_in_order_and_never_calls_autodesk()
+        {
+            string path = TempFile(3 * 1048576);
+            try
+            {
+                var server = new FakeServer();
+                var api = new SyncApiClient("https://be.test", "t", new HttpClient(server));
+                var seen = new Collect<SyncProgress>();
+
+                var result = await SyncRunner.RunAsync(Req(api, path, seen));
+
+                Assert.True(result.Succeeded, result.Message);
+                // Phases only ever move forward and appear exactly in this order.
+                var order = new List<SyncPhase>();
+                foreach (var p in seen.Items) if (order.Count == 0 || order[order.Count - 1] != p.Phase) order.Add(p.Phase);
+                Assert.Equal(new[] { SyncPhase.Hashing, SyncPhase.Registering, SyncPhase.Uploading, SyncPhase.Finalizing }, order);
+                int last = -1;
+                foreach (var p in seen.Items) { Assert.True(p.Percent >= last); last = p.Percent; }
+
+                Assert.DoesNotContain(server.Hosts, h => h.Contains("autodesk"));
+                Assert.Equal(new[] { "be.test", "store.test", "be.test" }, server.Hosts);   // init, upload, commit
+                Assert.DoesNotContain("\"urnInBase64\":\"", server.CommitBody ?? "");
+            }
+            finally { File.Delete(path); }
+        }
+
+        [Fact]
+        public async Task A_refused_upload_fails_the_sync_at_the_upload_step_and_never_commits()
+        {
+            string path = TempFile(1048576);
+            try
+            {
+                var server = new FakeServer { StorageStatus = HttpStatusCode.Forbidden };
+                var api = new SyncApiClient("https://be.test", "t", new HttpClient(server));
+                var seen = new Collect<SyncProgress>();
+
+                var result = await SyncRunner.RunAsync(Req(api, path, seen));
+
+                Assert.False(result.Succeeded);
+                Assert.Equal(SyncPhase.Uploading, seen.Items[seen.Items.Count - 1].Phase);   // what "Stopped at" shows
+                Assert.Null(server.CommitBody);
             }
             finally { File.Delete(path); }
         }

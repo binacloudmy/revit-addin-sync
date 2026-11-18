@@ -17,7 +17,6 @@ namespace RevitWebAppSync.Services
         public sealed class Request
         {
             public SyncApiClient Api { get; set; }
-            public string AccessToken { get; set; }
             public string UploadPath { get; set; }
             public string FileName { get; set; }
             public int ProjectId { get; set; }
@@ -183,29 +182,8 @@ namespace RevitWebAppSync.Services
                     };
                 }
 
-                // Autodesk OSS gives the viewer URN. Translation itself stays
-                // manual (users trigger it from the Design module, where it is
-                // metered against the org's daily quota) — but bina-be refuses to
-                // translate a design with no URN, so a sync that skipped this
-                // would quietly disable that button for every model it uploaded.
-                // Best-effort: a viewer that cannot be prepared must not fail the
-                // sync, which is about the model bytes.
-                string urn = null;
-                progress?.Report(new SyncProgress(SyncPhase.PreparingViewer));
-                try
-                {
-                    // AutodeskApiService is not IDisposable; it owns its own client.
-                    var autodesk = new AutodeskApiService();
-                    var autodeskResult = await autodesk
-                        .UploadFileAsync(req.AccessToken, req.UploadPath, req.DisciplineType)
-                        .ConfigureAwait(false);
-                    urn = autodeskResult?.UrnInBase64;
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"[BINA] Autodesk upload failed (non-fatal): {ex.Message}");
-                }
-
+                // No Autodesk/APS upload here any more: BINA views models through its
+                // own ODA conversion, and the commit's urnInBase64 is optional.
                 progress?.Report(new SyncProgress(SyncPhase.Finalizing));
                 var commit = await req.Api.CommitAsync(new SyncCommitRequest
                 {
@@ -225,7 +203,6 @@ namespace RevitWebAppSync.Services
                     FileKey = init.FileKey,
                     SyncSessionId = syncSessionId,
                     Comment = req.Comment,
-                    UrnInBase64 = urn,
                     ClientInfo = req.ClientInfo,
                     // Present only on the first sync after a rollback; the server
                     // labels the version it creates and the caller then clears the
