@@ -776,8 +776,6 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 col.Children.Add(proseLayout
                     ? Controls.ProseAnswer.Build(m.Text, m.Lang, textWidth, tableDownloads: !evidenceExports, serverHeadline: serverProse ? m.ResultCard.ServerReply : null, warn: m.ResultCard != null && m.ResultCard.ClaimMismatch)
                     : CopilotMessageBubble.MarkdownText(m.Text, textWidth, tableDownloads: !evidenceExports));
-                // A prose answer with no card: what the turn did not look at is one caption line under it, not words inside the headline.
-                if (!cardShown && serverProse && Controls.ResultCardView.ScopeFootnote(m.ResultCard, m.Lang) is FrameworkElement scopeNote) col.Children.Add(scopeNote);
                 // Copyable: right-click → Copy message, plus a hover ⧉ button.
                 CopilotMessageBubble.AttachCopyMenu(col, m.Text);
                 col.Children.Add(CopilotMessageBubble.HoverReveal(aiRow, CopilotMessageBubble.CopyButton(m.Text)));

@@ -59,5 +59,19 @@ namespace RevitAddinSync.Tests
             var through = "**56 doors in 9 types, and the biggest group is (PTh300a)** with 20.";
             Assert.Equal("**the biggest group is (PTh300a)** with 20.", ProseSplit.RestAfterHeadline(through, "56 doors in 9 types, and"));
         }
+
+        [Fact]
+        public void TheNotSearchedList_IsParsedButNeverDrawn_OnTheAnswer()
+        {
+            // The user (18 Nov): "no need to show this part for the Copilot response": result.not_searched stays on the model (the contract is kept),
+            // no control draws it: neither the card nor the prose answer, nor under "More detail".
+            var dir = new System.IO.DirectoryInfo(System.IO.Directory.GetCurrentDirectory());
+            while (dir != null && !System.IO.File.Exists(System.IO.Path.Combine(dir.FullName, "RevitWebAppSync.csproj"))) dir = dir.Parent;
+            string Src(string rel) => System.IO.File.ReadAllText(System.IO.Path.Combine(dir!.FullName, rel));
+            Assert.DoesNotContain("ScopeFootnote", Src("UI/Copilot/Controls/ResultCardView.cs"));
+            Assert.DoesNotContain("ScopeFootnote", Src("UI/Copilot/Screens/ChatView.xaml.cs"));
+            Assert.DoesNotContain("ScopeNote.Line", Src("UI/Copilot/Controls/ResultCardView.cs"));
+            Assert.Contains("NotSearched = (result?.NotSearched", Src("UI/Copilot/Model/ResultCardModel.cs"));   // still read from the result
+        }
     }
 }
