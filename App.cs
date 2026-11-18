@@ -700,21 +700,6 @@ namespace RevitWebAppSync
                 LargeImage = LoadIcon("Issues", 32)
             };
 
-            // LEGACY — Federate Disciplines is retired; the command itself is
-            // excluded from the build (FederateDisciplinesCommand.cs). This button
-            // was already never added to a panel; kept commented for reference.
-            // PushButtonData federateButtonData = new PushButtonData(
-            // "FederateDisciplines",
-            // "Federate Disciplines",
-            // Assembly.GetExecutingAssembly().Location,
-            // "RevitWebAppSync.FederateDisciplinesCommand")
-            // {
-            // ToolTip = "Link Downloaded Discipline Files",
-            // LongDescription = "Link previously downloaded discipline files to the current Revit document for coordination and clash detection.",
-            // Image = LoadImage("RevitWebAppSync.Resources.revitSave.png", 16),
-            // LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
-            // };
-
             PushButtonData askAiButtonData = new PushButtonData(
                 "AskAI",
                 "AI Assistant",
@@ -844,11 +829,13 @@ namespace RevitWebAppSync
             aiPanel.AddItem(askAiButtonData);
             cadPanel.AddItem(cadToBimButtonData);
 
-            // Compliance (JKR, Bomba, Fire), Cost Tracker, Rollback and
-            // BimDiscipline ("Shared Download") are hidden on purpose in every
-            // build: the code stays, nothing adds a ribbon button for them. The
-            // dev RevitWebAppSync.addin has the BimDiscipline entry commented out
-            // for the same reason. Do not re-add an item without a product call.
+            // Compliance (JKR, Bomba, Fire), Cost Tracker and Rollback are hidden
+            // on purpose in every build: the code stays, nothing adds a ribbon
+            // button for them. BimDiscipline ("Shared Download") has no ribbon
+            // button (retired, see above); its RevitWebAppSync.addin entry is
+            // visible again, as on staging (user decision 18 Nov: follow staging
+            // for now, revisit Shared Download later). Do not re-add a ribbon item
+            // without a product call.
             // (jkrComplianceButtonData, bombaComplianceButtonData and
             // costDashboardButtonData above are built but deliberately unused.)
 
@@ -859,7 +846,6 @@ namespace RevitWebAppSync
 
             // Fire Compliance stays hidden (restored only if explicitly requested)
             // (complianceButtonData: no panel, hidden on purpose.)
-            // cdePanel.AddItem(federateButtonData); // Hidden as requested
         }
 
         // Holds a built command on the tab without letting it run yet.

@@ -17,7 +17,6 @@ namespace RevitWebAppSync.Services
         public sealed class Request
         {
             public SyncApiClient Api { get; set; }
-            public string AccessToken { get; set; }
             public string UploadPath { get; set; }
             public string FileName { get; set; }
             public int ProjectId { get; set; }
@@ -51,6 +50,21 @@ namespace RevitWebAppSync.Services
             /// and has not yet published the result (86d3ut47q). Null otherwise.
             /// </summary>
             public int? RolledBackFromDesignId { get; set; }
+
+            /// <summary>
+            /// Receives step and byte progress from the real work. Optional; the
+            /// dialog passes a UI-bound one. Reports may arrive from a worker thread.
+            /// </summary>
+            public IProgress<SyncProgress> Progress { get; set; }
+        }
+
+        // Synchronous, unlike Progress<T>: reports from the worker must reach the
+        // UI in order, and Progress<T> without a sync context uses the thread pool.
+        private sealed class Direct<T> : IProgress<T>
+        {
+            private readonly Action<T> _a;
+            public Direct(Action<T> a) { _a = a; }
+            public void Report(T value) => _a(value);
         }
 
         public sealed class Result
@@ -79,7 +93,11 @@ namespace RevitWebAppSync.Services
             try
             {
                 var fileInfo = new System.IO.FileInfo(req.UploadPath);
-                string fileHash = SyncApiClient.ComputeFileHash(req.UploadPath);
+                var progress = req.Progress;
+                progress?.Report(new SyncProgress(SyncPhase.Hashing, 0, fileInfo.Length));
+                string fileHash = SyncApiClient.ComputeFileHash(req.UploadPath,
+                    new Direct<long>(b => progress?.Report(new SyncProgress(SyncPhase.Hashing, b, fileInfo.Length))));
+                progress?.Report(new SyncProgress(SyncPhase.Registering));
 
                 // The server's own unchanged check is currently switched off, so
                 // an identical re-sync would presign, re-upload the whole central
@@ -150,7 +168,10 @@ namespace RevitWebAppSync.Services
                     };
                 }
 
-                bool uploaded = await req.Api.UploadAsync(init.UploadUrl, req.UploadPath).ConfigureAwait(false);
+                progress?.Report(new SyncProgress(SyncPhase.Uploading, 0, fileInfo.Length));
+                bool uploaded = await req.Api.UploadAsync(init.UploadUrl, req.UploadPath,
+                    new Direct<long>(b => progress?.Report(new SyncProgress(SyncPhase.Uploading, b, fileInfo.Length))))
+                    .ConfigureAwait(false);
                 if (!uploaded)
                 {
                     return new Result
@@ -161,28 +182,9 @@ namespace RevitWebAppSync.Services
                     };
                 }
 
-                // Autodesk OSS gives the viewer URN. Translation itself stays
-                // manual (users trigger it from the Design module, where it is
-                // metered against the org's daily quota) — but bina-be refuses to
-                // translate a design with no URN, so a sync that skipped this
-                // would quietly disable that button for every model it uploaded.
-                // Best-effort: a viewer that cannot be prepared must not fail the
-                // sync, which is about the model bytes.
-                string urn = null;
-                try
-                {
-                    // AutodeskApiService is not IDisposable; it owns its own client.
-                    var autodesk = new AutodeskApiService();
-                    var autodeskResult = await autodesk
-                        .UploadFileAsync(req.AccessToken, req.UploadPath, req.DisciplineType)
-                        .ConfigureAwait(false);
-                    urn = autodeskResult?.UrnInBase64;
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"[BINA] Autodesk upload failed (non-fatal): {ex.Message}");
-                }
-
+                // No Autodesk/APS upload here any more: BINA views models through its
+                // own ODA conversion, and the commit's urnInBase64 is optional.
+                progress?.Report(new SyncProgress(SyncPhase.Finalizing));
                 var commit = await req.Api.CommitAsync(new SyncCommitRequest
                 {
                     ProjectId = req.ProjectId,
@@ -201,7 +203,6 @@ namespace RevitWebAppSync.Services
                     FileKey = init.FileKey,
                     SyncSessionId = syncSessionId,
                     Comment = req.Comment,
-                    UrnInBase64 = urn,
                     ClientInfo = req.ClientInfo,
                     // Present only on the first sync after a rollback; the server
                     // labels the version it creates and the caller then clears the
