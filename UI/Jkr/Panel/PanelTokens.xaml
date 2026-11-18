@@ -1,11 +1,13 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <!-- JKR pane tokens and shared styles.
+    <!-- JKR pane tokens and shared styles. The pane is always dark ("Direction C" of
+         the JKR design canvas): Copilot's Slate surfaces and ink, an amber primary
+         action, and the Cp.Jkr.Dark.* state colours.
 
          The pane uses the product's design system (UI/Copilot/CopilotTokens.xaml:
-         Inter, the #2a69c6 accent, the hairline / sunken / ink scale) so it reads as
-         one product with the Copilot pane. The Bz.* keys are the pane's own
-         vocabulary; each one mirrors the Cp.* key named in its comment, and
+         Inter, the Slate dark scale) so it reads as one product with the Copilot
+         pane in dark mode. The Bz.* keys are the pane's own vocabulary; each one
+         mirrors the Cp.* key named in its comment, and
          Tests/PaneShellTests keeps the two in step. They are real brushes, not
          StaticResource aliases: a compiled (deferred) dictionary cannot resolve an
          alias entry at load time ("Cannot find resource named 'Bz.Chrome'").
@@ -13,8 +15,8 @@
          The Copilot dictionary is merged here as well as at application level so a
          view can also use a Cp.* key directly, and so the pane renders without the
          Copilot panel having loaded first (UiHarness, a pane opened before Copilot).
-         The pane is light-only: the Copilot dark theme mutates the application-level
-         brushes, not these. -->
+         The pane is dark whatever the Copilot theme: it reads the fixed Cp.Dark.* and
+         Cp.Jkr.Dark.* keys, which CopilotTheme never flips. -->
     <ResourceDictionary.MergedDictionaries>
         <ResourceDictionary Source="pack://application:,,,/RevitWebAppSync;component/UI/Copilot/CopilotTokens.xaml"/>
     </ResourceDictionary.MergedDictionaries>
@@ -24,87 +26,83 @@
     <FontFamily x:Key="Bz.Font.Mono">Geist Mono, Cascadia Mono, Consolas, Courier New, monospace</FontFamily>
 
     <!-- ── Ink and surfaces ── -->
-    <SolidColorBrush x:Key="Bz.Ink"          Color="#1c1e26"/>   <!-- Cp.Ink2 -->
-    <SolidColorBrush x:Key="Bz.Text"         Color="#22242a"/>   <!-- Cp.Ink -->
-    <SolidColorBrush x:Key="Bz.TextBody"     Color="#22242a"/>   <!-- Cp.Text -->
-    <SolidColorBrush x:Key="Bz.Text2"        Color="#5d6170"/>   <!-- Cp.Muted -->
-    <SolidColorBrush x:Key="Bz.Text3"        Color="#9397ab"/>   <!-- Cp.Faint -->
-    <SolidColorBrush x:Key="Bz.Surface"      Color="#ffffff"/>   <!-- Cp.Bg -->
-    <SolidColorBrush x:Key="Bz.Sunken"       Color="#f7f7f6"/>   <!-- Cp.PanelBg -->
-    <SolidColorBrush x:Key="Bz.Sunken2"      Color="#f0f1f7"/>   <!-- Cp.Sunken -->
-    <SolidColorBrush x:Key="Bz.Line"         Color="#2122242A"/> <!-- Cp.Line -->
-    <SolidColorBrush x:Key="Bz.Line2"        Color="#3D22242A"/> <!-- Cp.Hair2 -->
-    <SolidColorBrush x:Key="Bz.LineSoft"     Color="#1522242A"/> <!-- Cp.LineSoft -->
-    <SolidColorBrush x:Key="Bz.Hover"        Color="#0D22242A"/> <!-- Cp.Hover -->
-    <SolidColorBrush x:Key="Bz.Disabled"     Color="#f0f1f7"/>   <!-- Cp.Sunken -->
-    <SolidColorBrush x:Key="Bz.DisabledText" Color="#9397ab"/>   <!-- Cp.Faint -->
-    <SolidColorBrush x:Key="Bz.Scrim"        Color="#8C0F172A"/>
-
-    <!-- ── Brand = the product accent ── -->
-    <Color x:Key="Bz.BrandColor">#2a69c6</Color>
-    <SolidColorBrush x:Key="Bz.Brand"         Color="#2a69c6"/>   <!-- Cp.Accent -->
-    <SolidColorBrush x:Key="Bz.BrandHover"    Color="#22549e"/>   <!-- Cp.BlueHover -->
-    <SolidColorBrush x:Key="Bz.OnBrand"       Color="#ffffff"/>   <!-- Cp.AccentContrast -->
-    <SolidColorBrush x:Key="Bz.BrandTint"     Color="#edf3fd"/>   <!-- Cp.PurpleSoft -->
-    <SolidColorBrush x:Key="Bz.BrandTintLine" Color="#a9c6f4"/>   <!-- Cp.PurpleLine -->
-    <SolidColorBrush x:Key="Bz.BrandTintText" Color="#22549e"/>   <!-- Cp.BlueText -->
-    <SolidColorBrush x:Key="Bz.BrandSoft"     Color="#1A2A69C6"/> <!-- Cp.BlueSoft -->
+    <SolidColorBrush x:Key="Bz.Ink"               Color="#f4f7fb"/> <!-- Cp.Dark.Ink2 -->
+    <SolidColorBrush x:Key="Bz.Text"              Color="#e8eef6"/> <!-- Cp.Dark.Ink -->
+    <SolidColorBrush x:Key="Bz.TextBody"          Color="#e8eef6"/> <!-- Cp.Dark.Ink -->
+    <SolidColorBrush x:Key="Bz.Text2"             Color="#8a94a6"/> <!-- Cp.Dark.Muted -->
+    <SolidColorBrush x:Key="Bz.Text3"             Color="#7f8a9e"/> <!-- Cp.Jkr.Dark.Faint -->
+    <SolidColorBrush x:Key="Bz.Surface"           Color="#131d2b"/> <!-- Cp.Dark.Bg -->
+    <SolidColorBrush x:Key="Bz.Sunken"            Color="#0c1420"/> <!-- Cp.Dark.Sunken -->
+    <SolidColorBrush x:Key="Bz.Sunken2"           Color="#172231"/> <!-- Cp.Jkr.Dark.Raised -->
+    <SolidColorBrush x:Key="Bz.Line"              Color="#12FFFFFF"/> <!-- Cp.Dark.Line -->
+    <SolidColorBrush x:Key="Bz.Line2"             Color="#24FFFFFF"/> <!-- Cp.Dark.Hair2 -->
+    <SolidColorBrush x:Key="Bz.LineSoft"          Color="#0DFFFFFF"/> <!-- Cp.Dark.LineSoft -->
+    <SolidColorBrush x:Key="Bz.Hover"             Color="#0DFFFFFF"/> <!-- Cp.Dark.Hover -->
+    <SolidColorBrush x:Key="Bz.Disabled"          Color="#1e2a3a"/> <!-- Cp.Jkr.Dark.Disabled -->
+    <SolidColorBrush x:Key="Bz.DisabledText"      Color="#7f8a9e"/> <!-- Cp.Jkr.Dark.Faint -->
+    <SolidColorBrush x:Key="Bz.Scrim"             Color="#B3060A12"/> <!-- Cp.Jkr.Dark.Scrim -->
+    <Color x:Key="Bz.BrandColor">#f5b942</Color>
+    <SolidColorBrush x:Key="Bz.Brand"             Color="#f5b942"/> <!-- Cp.Jkr.Dark.Action -->
+    <SolidColorBrush x:Key="Bz.BrandHover"        Color="#ffc85c"/> <!-- Cp.Jkr.Dark.ActionHover -->
+    <SolidColorBrush x:Key="Bz.OnBrand"           Color="#1a1407"/> <!-- Cp.Jkr.Dark.OnAction -->
+    <SolidColorBrush x:Key="Bz.BrandTint"         Color="#2660A5FA"/> <!-- Cp.Dark.BlueSoft -->
+    <SolidColorBrush x:Key="Bz.BrandTintLine"     Color="#3360A5FA"/> <!-- Cp.Dark.BlueLine -->
+    <SolidColorBrush x:Key="Bz.BrandTintText"     Color="#9cc3f7"/> <!-- Cp.Dark.BlueText -->
+    <SolidColorBrush x:Key="Bz.BrandSoft"         Color="#29F5B942"/> <!-- Cp.Jkr.Dark.ActionSoft -->
 
     <!-- ── Chrome (title and context bars): light, like the Copilot pane ── -->
-    <SolidColorBrush x:Key="Bz.Chrome"       Color="#ffffff"/>   <!-- Cp.Bg -->
-    <SolidColorBrush x:Key="Bz.Chrome2"      Color="#f7f7f6"/>   <!-- Cp.PanelBg -->
-    <SolidColorBrush x:Key="Bz.ChromeText"   Color="#22242a"/>   <!-- Cp.Ink -->
-    <SolidColorBrush x:Key="Bz.ChromeMuted"  Color="#9397ab"/>   <!-- Cp.Faint -->
-    <SolidColorBrush x:Key="Bz.ChromeStrong" Color="#1c1e26"/>   <!-- Cp.Ink2 -->
+    <SolidColorBrush x:Key="Bz.Chrome"            Color="#131d2b"/> <!-- Cp.Dark.Bg -->
+    <SolidColorBrush x:Key="Bz.Chrome2"           Color="#0c1420"/> <!-- Cp.Dark.Sunken -->
+    <SolidColorBrush x:Key="Bz.ChromeText"        Color="#e8eef6"/> <!-- Cp.Dark.Ink -->
+    <SolidColorBrush x:Key="Bz.ChromeMuted"       Color="#7f8a9e"/> <!-- Cp.Jkr.Dark.Faint -->
+    <SolidColorBrush x:Key="Bz.ChromeStrong"      Color="#f4f7fb"/> <!-- Cp.Dark.Ink2 -->
 
     <!-- ── Severity, manual, ok (issue tabs) ── -->
-    <SolidColorBrush x:Key="Bz.High"      Color="#d95757"/>   <!-- Cp.Jkr.FailDot -->
-    <SolidColorBrush x:Key="Bz.HighText"  Color="#b42f2f"/>   <!-- Cp.Jkr.Fail -->
-    <SolidColorBrush x:Key="Bz.HighBg"    Color="#fdecec"/>   <!-- Cp.Jkr.FailBg -->
-    <SolidColorBrush x:Key="Bz.Med"       Color="#d98a2b"/>   <!-- Cp.Jkr.WarnDot -->
-    <SolidColorBrush x:Key="Bz.MedText"   Color="#9a5a0b"/>   <!-- Cp.Jkr.Warn -->
-    <SolidColorBrush x:Key="Bz.MedBg"     Color="#fdf1dc"/>   <!-- Cp.Jkr.WarnBg -->
-    <SolidColorBrush x:Key="Bz.Low"       Color="#5d6170"/>   <!-- Cp.Jkr.Listed -->
-    <SolidColorBrush x:Key="Bz.Manual"    Color="#22549e"/>   <!-- Cp.Jkr.Person -->
-    <SolidColorBrush x:Key="Bz.ManualBg"  Color="#e8f0fb"/>   <!-- Cp.Jkr.PersonBg -->
-    <SolidColorBrush x:Key="Bz.ManualDot" Color="#2a69c6"/>   <!-- Cp.Jkr.PersonDot -->
-    <SolidColorBrush x:Key="Bz.Ok"        Color="#1f6f4a"/>   <!-- Cp.Jkr.Pass -->
-    <SolidColorBrush x:Key="Bz.OkBg"      Color="#e3f4ea"/>   <!-- Cp.Jkr.PassBg -->
+    <SolidColorBrush x:Key="Bz.High"              Color="#ff6b5e"/> <!-- Cp.Jkr.Dark.FailDot -->
+    <SolidColorBrush x:Key="Bz.HighText"          Color="#ff7a6e"/> <!-- Cp.Jkr.Dark.Fail -->
+    <SolidColorBrush x:Key="Bz.HighBg"            Color="#33FF6B5E"/> <!-- Cp.Jkr.Dark.FailBg -->
+    <SolidColorBrush x:Key="Bz.Med"               Color="#f5b942"/> <!-- Cp.Jkr.Dark.WarnDot -->
+    <SolidColorBrush x:Key="Bz.MedText"           Color="#f5b942"/> <!-- Cp.Jkr.Dark.Warn -->
+    <SolidColorBrush x:Key="Bz.MedBg"             Color="#24F5B942"/> <!-- Cp.Jkr.Dark.WarnBg -->
+    <SolidColorBrush x:Key="Bz.Low"               Color="#a7b0bf"/> <!-- Cp.Jkr.Dark.Listed -->
+    <SolidColorBrush x:Key="Bz.Manual"            Color="#8db8ff"/> <!-- Cp.Jkr.Dark.Person -->
+    <SolidColorBrush x:Key="Bz.ManualBg"          Color="#2E7FB0FF"/> <!-- Cp.Jkr.Dark.PersonBg -->
+    <SolidColorBrush x:Key="Bz.ManualDot"         Color="#7fb0ff"/> <!-- Cp.Jkr.Dark.PersonDot -->
+    <SolidColorBrush x:Key="Bz.Ok"                Color="#4fd38f"/> <!-- Cp.Jkr.Dark.Pass -->
+    <SolidColorBrush x:Key="Bz.OkBg"              Color="#264FD38F"/> <!-- Cp.Jkr.Dark.PassBg -->
 
     <!-- ── Checklist state tones (text / fill / dot), one per spec state ── -->
-    <SolidColorBrush x:Key="Bz.Tone.Fail"       Color="#b42f2f"/>   <!-- Cp.Jkr.Fail -->
-    <SolidColorBrush x:Key="Bz.Tone.FailBg"     Color="#fdecec"/>   <!-- Cp.Jkr.FailBg -->
-    <SolidColorBrush x:Key="Bz.Tone.FailDot"    Color="#d95757"/>   <!-- Cp.Jkr.FailDot -->
-    <SolidColorBrush x:Key="Bz.Tone.Critical"   Color="#9f1d1d"/>   <!-- Cp.Jkr.Critical -->
-    <SolidColorBrush x:Key="Bz.Tone.CriticalBg" Color="#fbd5d5"/>   <!-- Cp.Jkr.CriticalBg -->
-    <SolidColorBrush x:Key="Bz.Tone.Pass"       Color="#1f6f4a"/>   <!-- Cp.Jkr.Pass -->
-    <SolidColorBrush x:Key="Bz.Tone.PassBg"     Color="#e3f4ea"/>   <!-- Cp.Jkr.PassBg -->
-    <SolidColorBrush x:Key="Bz.Tone.PassDot"    Color="#2f9a72"/>   <!-- Cp.Jkr.PassDot -->
-    <SolidColorBrush x:Key="Bz.Tone.Partial"    Color="#9a5a0b"/>   <!-- Cp.Jkr.Warn -->
-    <SolidColorBrush x:Key="Bz.Tone.PartialBg"  Color="#fdf1dc"/>   <!-- Cp.Jkr.WarnBg -->
-    <SolidColorBrush x:Key="Bz.Tone.PartialDot" Color="#d98a2b"/>   <!-- Cp.Jkr.WarnDot -->
-    <SolidColorBrush x:Key="Bz.Tone.Warn"       Color="#9a5a0b"/>   <!-- Cp.Jkr.Warn -->
-    <SolidColorBrush x:Key="Bz.Tone.WarnBg"     Color="#fdf1dc"/>   <!-- Cp.Jkr.WarnBg -->
-    <SolidColorBrush x:Key="Bz.Tone.WarnLine"   Color="#fde68a"/>   <!-- Cp.AmberLn -->
-    <SolidColorBrush x:Key="Bz.Tone.Person"     Color="#22549e"/>   <!-- Cp.Jkr.Person -->
-    <SolidColorBrush x:Key="Bz.Tone.PersonBg"   Color="#e8f0fb"/>   <!-- Cp.Jkr.PersonBg -->
-    <SolidColorBrush x:Key="Bz.Tone.PersonDot"  Color="#2a69c6"/>   <!-- Cp.Jkr.PersonDot -->
-    <SolidColorBrush x:Key="Bz.Tone.Pending"    Color="#8a5a00"/>   <!-- Cp.Jkr.Pending -->
-    <SolidColorBrush x:Key="Bz.Tone.PendingBg"  Color="#fff6dd"/>   <!-- Cp.Jkr.PendingBg -->
-    <SolidColorBrush x:Key="Bz.Tone.Listed"     Color="#5d6170"/>   <!-- Cp.Jkr.Listed -->
-    <SolidColorBrush x:Key="Bz.Tone.ListedBg"   Color="#eef0f4"/>   <!-- Cp.Jkr.ListedBg -->
-    <SolidColorBrush x:Key="Bz.Tone.ListedDot"  Color="#9397ab"/>   <!-- Cp.Jkr.ListedDot -->
-    <SolidColorBrush x:Key="Bz.Tone.Na"         Color="#4b6578"/>   <!-- Cp.Jkr.Na -->
-    <SolidColorBrush x:Key="Bz.Tone.NaBg"       Color="#e9eef2"/>   <!-- Cp.Jkr.NaBg -->
-    <SolidColorBrush x:Key="Bz.Tone.NaDot"      Color="#7f98ab"/>   <!-- Cp.Jkr.NaDot -->
-    <SolidColorBrush x:Key="Bz.Tone.None"       Color="#5d6170"/>   <!-- Cp.Jkr.None -->
-    <SolidColorBrush x:Key="Bz.Tone.NoneBg"     Color="#f0f1f7"/>   <!-- Cp.Jkr.NoneBg -->
-    <SolidColorBrush x:Key="Bz.Track"           Color="#e6e8ef"/>   <!-- Cp.Jkr.Track -->
-    <SolidColorBrush x:Key="Bz.CodeBg"          Color="#f0f1f7"/>   <!-- Cp.CodeBg -->
-    <SolidColorBrush x:Key="Bz.CodeFg"          Color="#22549e"/>   <!-- Cp.CodeFg -->
-    <SolidColorBrush x:Key="Bz.InkHover"        Color="#3a3d46"/>
-
-    <!-- ── Focus ring: 2 px accent, 2 px out ── -->
+    <SolidColorBrush x:Key="Bz.Tone.Fail"         Color="#ff7a6e"/> <!-- Cp.Jkr.Dark.Fail -->
+    <SolidColorBrush x:Key="Bz.Tone.FailBg"       Color="#33FF6B5E"/> <!-- Cp.Jkr.Dark.FailBg -->
+    <SolidColorBrush x:Key="Bz.Tone.FailDot"      Color="#ff6b5e"/> <!-- Cp.Jkr.Dark.FailDot -->
+    <SolidColorBrush x:Key="Bz.Tone.Critical"     Color="#ffb4ab"/> <!-- Cp.Jkr.Dark.Critical -->
+    <SolidColorBrush x:Key="Bz.Tone.CriticalBg"   Color="#4DFF6B5E"/> <!-- Cp.Jkr.Dark.CriticalBg -->
+    <SolidColorBrush x:Key="Bz.Tone.Pass"         Color="#4fd38f"/> <!-- Cp.Jkr.Dark.Pass -->
+    <SolidColorBrush x:Key="Bz.Tone.PassBg"       Color="#264FD38F"/> <!-- Cp.Jkr.Dark.PassBg -->
+    <SolidColorBrush x:Key="Bz.Tone.PassDot"      Color="#4fd38f"/> <!-- Cp.Jkr.Dark.PassDot -->
+    <SolidColorBrush x:Key="Bz.Tone.Partial"      Color="#f5b942"/> <!-- Cp.Jkr.Dark.Warn -->
+    <SolidColorBrush x:Key="Bz.Tone.PartialBg"    Color="#24F5B942"/> <!-- Cp.Jkr.Dark.WarnBg -->
+    <SolidColorBrush x:Key="Bz.Tone.PartialDot"   Color="#f5b942"/> <!-- Cp.Jkr.Dark.WarnDot -->
+    <SolidColorBrush x:Key="Bz.Tone.Warn"         Color="#f5b942"/> <!-- Cp.Jkr.Dark.Warn -->
+    <SolidColorBrush x:Key="Bz.Tone.WarnBg"       Color="#24F5B942"/> <!-- Cp.Jkr.Dark.WarnBg -->
+    <SolidColorBrush x:Key="Bz.Tone.WarnLine"     Color="#59F5B942"/> <!-- Cp.Jkr.Dark.WarnLine -->
+    <SolidColorBrush x:Key="Bz.Tone.Person"       Color="#8db8ff"/> <!-- Cp.Jkr.Dark.Person -->
+    <SolidColorBrush x:Key="Bz.Tone.PersonBg"     Color="#2E7FB0FF"/> <!-- Cp.Jkr.Dark.PersonBg -->
+    <SolidColorBrush x:Key="Bz.Tone.PersonDot"    Color="#7fb0ff"/> <!-- Cp.Jkr.Dark.PersonDot -->
+    <SolidColorBrush x:Key="Bz.Tone.Pending"      Color="#f5b942"/> <!-- Cp.Jkr.Dark.Pending -->
+    <SolidColorBrush x:Key="Bz.Tone.PendingBg"    Color="#1AF5B942"/> <!-- Cp.Jkr.Dark.PendingBg -->
+    <SolidColorBrush x:Key="Bz.Tone.Listed"       Color="#a7b0bf"/> <!-- Cp.Jkr.Dark.Listed -->
+    <SolidColorBrush x:Key="Bz.Tone.ListedBg"     Color="#1FFFFFFF"/> <!-- Cp.Jkr.Dark.ListedBg -->
+    <SolidColorBrush x:Key="Bz.Tone.ListedDot"    Color="#8a94a6"/> <!-- Cp.Jkr.Dark.ListedDot -->
+    <SolidColorBrush x:Key="Bz.Tone.Na"           Color="#9fbcd0"/> <!-- Cp.Jkr.Dark.Na -->
+    <SolidColorBrush x:Key="Bz.Tone.NaBg"         Color="#268FB0C4"/> <!-- Cp.Jkr.Dark.NaBg -->
+    <SolidColorBrush x:Key="Bz.Tone.NaDot"        Color="#8fb0c4"/> <!-- Cp.Jkr.Dark.NaDot -->
+    <SolidColorBrush x:Key="Bz.Tone.None"         Color="#8a94a6"/> <!-- Cp.Dark.Muted -->
+    <SolidColorBrush x:Key="Bz.Tone.NoneBg"       Color="#1FFFFFFF"/> <!-- Cp.Jkr.Dark.ListedBg -->
+    <SolidColorBrush x:Key="Bz.Track"             Color="#22303f"/> <!-- Cp.Jkr.Dark.Track -->
+    <SolidColorBrush x:Key="Bz.CodeBg"            Color="#0c1420"/> <!-- Cp.Dark.Sunken -->
+    <SolidColorBrush x:Key="Bz.CodeFg"            Color="#9cc3f7"/> <!-- Cp.Dark.CodeFg -->
+    <SolidColorBrush x:Key="Bz.InkHover"          Color="#ffffff"/> <!-- Cp.Jkr.Dark.InkHover -->
     <Style x:Key="Bz.FocusRing">
         <Setter Property="Control.Template">
             <Setter.Value>

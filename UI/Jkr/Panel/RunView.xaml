@@ -10,29 +10,13 @@
             </ResourceDictionary.MergedDictionaries>
             <BooleanToVisibilityConverter x:Key="B2V"/>
 
-            <!-- spinner: 12 px ring, accent arc, 0.8 s turn -->
+            <!-- spinner: 12 px ring, accent arc. No Storyboard (Storyboards crash Revit
+                 dockable panes): each spinner registers on Loaded and RunView turns its own
+                 RotateTransform on a DispatcherTimer. -->
             <Style x:Key="Spinner" TargetType="Grid">
                 <Setter Property="Width" Value="12"/>
                 <Setter Property="Height" Value="12"/>
                 <Setter Property="RenderTransformOrigin" Value="0.5,0.5"/>
-                <Setter Property="RenderTransform">
-                    <Setter.Value><RotateTransform/></Setter.Value>
-                </Setter>
-                <Style.Triggers>
-                    <Trigger Property="IsVisible" Value="True">
-                        <Trigger.EnterActions>
-                            <BeginStoryboard x:Name="SpinSb">
-                                <Storyboard>
-                                    <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(RotateTransform.Angle)"
-                                                     From="0" To="360" Duration="0:0:0.8" RepeatBehavior="Forever"/>
-                                </Storyboard>
-                            </BeginStoryboard>
-                        </Trigger.EnterActions>
-                        <Trigger.ExitActions>
-                            <StopStoryboard BeginStoryboardName="SpinSb"/>
-                        </Trigger.ExitActions>
-                    </Trigger>
-                </Style.Triggers>
             </Style>
         </ResourceDictionary>
     </UserControl.Resources>
@@ -54,7 +38,10 @@
             <!-- bar: 6 px, accent fill = sections done / 5 -->
             <Grid x:Name="BarTrack" Height="6" Margin="0,14,0,0">
                 <Border Background="{StaticResource Bz.Track}" CornerRadius="3"/>
-                <Border x:Name="BarFill" Background="{StaticResource Bz.Brand}" CornerRadius="3" HorizontalAlignment="Left" Width="0"/>
+                <!-- scaled, never resized (transform-only motion) -->
+                <Border x:Name="BarFill" Background="{StaticResource Bz.Brand}" CornerRadius="3" RenderTransformOrigin="0,0.5">
+                    <Border.RenderTransform><ScaleTransform x:Name="BarScale" ScaleX="0"/></Border.RenderTransform>
+                </Border>
             </Grid>
 
             <!-- steps -->
@@ -85,7 +72,7 @@
                                         <StackPanel Orientation="Horizontal" Visibility="{Binding IsChecking, Converter={StaticResource B2V}}">
                                             <TextBlock Text="{Binding DataContext.CheckingLabel, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
                                                        FontSize="11.5" Foreground="{StaticResource Bz.Brand}" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                                            <Grid Style="{StaticResource Spinner}" Margin="8,0,0,0" VerticalAlignment="Center">
+                                            <Grid Style="{StaticResource Spinner}" Margin="8,0,0,0" VerticalAlignment="Center" Loaded="Spinner_Loaded" Unloaded="Spinner_Unloaded">
                                                 <Ellipse Stroke="{StaticResource Bz.Track}" StrokeThickness="2"/>
                                                 <Path Data="M6,1 A5,5 0 0 1 11,6" Stroke="{StaticResource Bz.Brand}" StrokeThickness="2" StrokeStartLineCap="Round"/>
                                             </Grid>

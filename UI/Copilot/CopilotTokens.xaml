@@ -137,6 +137,67 @@
     <SolidColorBrush x:Key="Cp.Jkr.NaDot"      Color="#7f98ab"/>
     <SolidColorBrush x:Key="Cp.Jkr.Track"      Color="#e6e8ef"/>
 
+    <!-- ═══════════ SLATE (fixed dark) ═══════════
+         The Copilot palette's dark column (CopilotTheme.Palette, "Slate") as fixed
+         keys. CopilotTheme flips the Cp.Bg / Cp.Ink … brushes between light and dark;
+         these never flip, so a surface that is always dark (the JKR pane,
+         "Direction C") reads the same values whatever the Copilot theme. -->
+    <SolidColorBrush x:Key="Cp.Dark.Bg"          Color="#131d2b"/>
+    <SolidColorBrush x:Key="Cp.Dark.Sunken"      Color="#0c1420"/>
+    <SolidColorBrush x:Key="Cp.Dark.Menu"        Color="#1a2433"/>
+    <SolidColorBrush x:Key="Cp.Dark.Ink"         Color="#e8eef6"/>
+    <SolidColorBrush x:Key="Cp.Dark.Ink2"        Color="#f4f7fb"/>
+    <SolidColorBrush x:Key="Cp.Dark.Muted"       Color="#8a94a6"/>
+    <SolidColorBrush x:Key="Cp.Dark.Line"        Color="#12FFFFFF"/>
+    <SolidColorBrush x:Key="Cp.Dark.Hair2"       Color="#24FFFFFF"/>
+    <SolidColorBrush x:Key="Cp.Dark.LineSoft"    Color="#0DFFFFFF"/>
+    <SolidColorBrush x:Key="Cp.Dark.Hover"       Color="#0DFFFFFF"/>
+    <SolidColorBrush x:Key="Cp.Dark.Accent"      Color="#60a5fa"/>
+    <SolidColorBrush x:Key="Cp.Dark.BlueSoft"    Color="#2660A5FA"/>
+    <SolidColorBrush x:Key="Cp.Dark.BlueLine"    Color="#3360A5FA"/>
+    <SolidColorBrush x:Key="Cp.Dark.BlueText"    Color="#9cc3f7"/>
+    <SolidColorBrush x:Key="Cp.Dark.CodeFg"      Color="#9cc3f7"/>
+
+    <!-- ═══════════ JKR PANE, DARK ("Direction C") ═══════════
+         State and action colours for the always-dark JKR pane. Text colours are
+         ≥ 4.5:1 on Cp.Dark.Bg and Cp.Dark.Sunken; fills are low-alpha tints. The
+         primary action is amber (Direction C), kept apart from the warning amber by
+         lightness: the action is a filled button, a warning is text on a tint. -->
+    <SolidColorBrush x:Key="Cp.Jkr.Dark.Faint"      Color="#7f8a9e"/>
+    <SolidColorBrush x:Key="Cp.Jkr.Dark.Raised"     Color="#172231"/>
+    <SolidColorBrush x:Key="Cp.Jkr.Dark.Action"     Color="#f5b942"/>
+    <SolidColorBrush x:Key="Cp.Jkr.Dark.ActionHover" Color="#ffc85c"/>
+    <SolidColorBrush x:Key="Cp.Jkr.Dark.OnAction"   Color="#1a1407"/>
+    <SolidColorBrush x:Key="Cp.Jkr.Dark.ActionSoft" Color="#29F5B942"/>
+    <SolidColorBrush x:Key="Cp.Jkr.Dark.Disabled"   Color="#1e2a3a"/>
+    <SolidColorBrush x:Key="Cp.Jkr.Dark.Scrim"      Color="#B3060A12"/>
+    <SolidColorBrush x:Key="Cp.Jkr.Dark.Fail"       Color="#ff7a6e"/>
+    <SolidColorBrush x:Key="Cp.Jkr.Dark.FailBg"     Color="#33FF6B5E"/>
+    <SolidColorBrush x:Key="Cp.Jkr.Dark.FailLine"   Color="#59FF6B5E"/>
+    <SolidColorBrush x:Key="Cp.Jkr.Dark.FailDot"    Color="#ff6b5e"/>
+    <SolidColorBrush x:Key="Cp.Jkr.Dark.Critical"   Color="#ffb4ab"/>
+    <SolidColorBrush x:Key="Cp.Jkr.Dark.CriticalBg" Color="#4DFF6B5E"/>
+    <SolidColorBrush x:Key="Cp.Jkr.Dark.Pass"       Color="#4fd38f"/>
+    <SolidColorBrush x:Key="Cp.Jkr.Dark.PassBg"     Color="#264FD38F"/>
+    <SolidColorBrush x:Key="Cp.Jkr.Dark.PassDot"    Color="#4fd38f"/>
+    <SolidColorBrush x:Key="Cp.Jkr.Dark.Warn"       Color="#f5b942"/>
+    <SolidColorBrush x:Key="Cp.Jkr.Dark.WarnBg"     Color="#24F5B942"/>
+    <SolidColorBrush x:Key="Cp.Jkr.Dark.WarnLine"   Color="#59F5B942"/>
+    <SolidColorBrush x:Key="Cp.Jkr.Dark.WarnDot"    Color="#f5b942"/>
+    <SolidColorBrush x:Key="Cp.Jkr.Dark.Person"     Color="#8db8ff"/>
+    <SolidColorBrush x:Key="Cp.Jkr.Dark.PersonBg"   Color="#2E7FB0FF"/>
+    <SolidColorBrush x:Key="Cp.Jkr.Dark.PersonDot"  Color="#7fb0ff"/>
+    <SolidColorBrush x:Key="Cp.Jkr.Dark.Pending"    Color="#f5b942"/>
+    <SolidColorBrush x:Key="Cp.Jkr.Dark.PendingBg"  Color="#1AF5B942"/>
+    <SolidColorBrush x:Key="Cp.Jkr.Dark.Listed"     Color="#a7b0bf"/>
+    <SolidColorBrush x:Key="Cp.Jkr.Dark.ListedBg"   Color="#1FFFFFFF"/>
+    <SolidColorBrush x:Key="Cp.Jkr.Dark.ListedDot"  Color="#8a94a6"/>
+    <SolidColorBrush x:Key="Cp.Jkr.Dark.Na"         Color="#9fbcd0"/>
+    <SolidColorBrush x:Key="Cp.Jkr.Dark.NaBg"       Color="#268FB0C4"/>
+    <SolidColorBrush x:Key="Cp.Jkr.Dark.NaDot"      Color="#8fb0c4"/>
+    <SolidColorBrush x:Key="Cp.Jkr.Dark.Track"      Color="#22303f"/>
+    <SolidColorBrush x:Key="Cp.Jkr.Dark.InkHover"   Color="#ffffff"/>
+
     <!-- ═══════════ TOOL ICON-TILE PALETTES ═══════════ -->
     <SolidColorBrush x:Key="Cp.Tile.BlueBg"   Color="#dbeafe"/>
     <SolidColorBrush x:Key="Cp.Tile.BlueFg"   Color="#1d4ed8"/>
