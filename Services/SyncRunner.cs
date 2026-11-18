@@ -51,6 +51,21 @@ namespace RevitWebAppSync.Services
             /// and has not yet published the result (86d3ut47q). Null otherwise.
             /// </summary>
             public int? RolledBackFromDesignId { get; set; }
+
+            /// <summary>
+            /// Receives step and byte progress from the real work. Optional; the
+            /// dialog passes a UI-bound one. Reports may arrive from a worker thread.
+            /// </summary>
+            public IProgress<SyncProgress> Progress { get; set; }
+        }
+
+        // Synchronous, unlike Progress<T>: reports from the worker must reach the
+        // UI in order, and Progress<T> without a sync context uses the thread pool.
+        private sealed class Direct<T> : IProgress<T>
+        {
+            private readonly Action<T> _a;
+            public Direct(Action<T> a) { _a = a; }
+            public void Report(T value) => _a(value);
         }
 
         public sealed class Result
@@ -79,7 +94,11 @@ namespace RevitWebAppSync.Services
             try
             {
                 var fileInfo = new System.IO.FileInfo(req.UploadPath);
-                string fileHash = SyncApiClient.ComputeFileHash(req.UploadPath);
+                var progress = req.Progress;
+                progress?.Report(new SyncProgress(SyncPhase.Hashing, 0, fileInfo.Length));
+                string fileHash = SyncApiClient.ComputeFileHash(req.UploadPath,
+                    new Direct<long>(b => progress?.Report(new SyncProgress(SyncPhase.Hashing, b, fileInfo.Length))));
+                progress?.Report(new SyncProgress(SyncPhase.Registering));
 
                 // The server's own unchanged check is currently switched off, so
                 // an identical re-sync would presign, re-upload the whole central
@@ -150,7 +169,10 @@ namespace RevitWebAppSync.Services
                     };
                 }
 
-                bool uploaded = await req.Api.UploadAsync(init.UploadUrl, req.UploadPath).ConfigureAwait(false);
+                progress?.Report(new SyncProgress(SyncPhase.Uploading, 0, fileInfo.Length));
+                bool uploaded = await req.Api.UploadAsync(init.UploadUrl, req.UploadPath,
+                    new Direct<long>(b => progress?.Report(new SyncProgress(SyncPhase.Uploading, b, fileInfo.Length))))
+                    .ConfigureAwait(false);
                 if (!uploaded)
                 {
                     return new Result
@@ -169,6 +191,7 @@ namespace RevitWebAppSync.Services
                 // Best-effort: a viewer that cannot be prepared must not fail the
                 // sync, which is about the model bytes.
                 string urn = null;
+                progress?.Report(new SyncProgress(SyncPhase.PreparingViewer));
                 try
                 {
                     // AutodeskApiService is not IDisposable; it owns its own client.
@@ -183,6 +206,7 @@ namespace RevitWebAppSync.Services
                     System.Diagnostics.Debug.WriteLine($"[BINA] Autodesk upload failed (non-fatal): {ex.Message}");
                 }
 
+                progress?.Report(new SyncProgress(SyncPhase.Finalizing));
                 var commit = await req.Api.CommitAsync(new SyncCommitRequest
                 {
                     ProjectId = req.ProjectId,

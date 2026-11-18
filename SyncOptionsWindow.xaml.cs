@@ -92,6 +92,15 @@ namespace RevitWebAppSync
         /// echoed on the progress and success views.</summary>
         public string PrepareAction { get; set; }
 
+        /// <summary>
+        /// Hand this to the sync request so the upload's real steps and bytes
+        /// drive the bar. Built on the UI thread, so reports land back on it.
+        /// </summary>
+        public IProgress<SyncProgress> Progress { get; }
+
+        // Last step the run reported, so a failure can say where it stopped.
+        private SyncProgress _lastProgress;
+
         /// <summary>True from Sync click until the runner returns. Blocks every
         /// way of closing the window — abandoning the upload would leave the
         /// command frozen behind a closed dialog.</summary>
@@ -161,6 +170,7 @@ namespace RevitWebAppSync
         {
             InitializeComponent();
 
+            Progress = new UiProgress(this);
             _api = api;
             // A file downloaded from Cloud Docs is named "X-v2.rvt"; syncing it
             // back under that name would start a new lineage next to the one it
@@ -803,9 +813,37 @@ namespace RevitWebAppSync
 
         // ------------------------------------------------- progress & outcome
 
+        // Explicit Dispatcher, not Progress<T>: that one captures the sync context
+        // when built, and this window is built before ShowDialog starts the pump,
+        // where Current can be null — reports would then touch the UI from a worker.
+        private sealed class UiProgress : IProgress<SyncProgress>
+        {
+            private readonly SyncOptionsWindow _w;
+            public UiProgress(SyncOptionsWindow w) { _w = w; }
+            public void Report(SyncProgress p) => _w.Dispatcher.BeginInvoke(new Action(() => _w.OnSyncProgress(p)));
+        }
+
+        private void OnSyncProgress(SyncProgress p)
+        {
+            // A report posted just before the run ended can arrive after the
+            // outcome is up; it must not repaint the bar over it.
+            if (!_uploading) return;
+            _lastProgress = p;
+            OutcomeProgress.IsIndeterminate = false;
+            OutcomeProgress.Value = p.Percent;
+            OutcomeDetail.Text = p.Text + "\n" + KeepOpenHint();
+        }
+
+        private string KeepOpenHint()
+            => (string.IsNullOrEmpty(PrepareAction) ? "" : PrepareAction + " ")
+               + "Keep Revit open — a large model can take a while.";
+
         private void ShowUploadingState(string folderName)
         {
             _uploading = true;
+            _lastProgress = null;
+            OutcomeProgress.IsIndeterminate = true;
+            OutcomeProgress.Value = 0;
             FormRoot.Visibility = Visibility.Collapsed;
             OutcomeRoot.Visibility = Visibility.Visible;
 
@@ -817,9 +855,7 @@ namespace RevitWebAppSync
             OutcomeTitle.Text = "Syncing to BINA";
             OutcomeMessage.Text = $"Uploading \"{_fileName}\" to {SelectedProjectName}"
                 + (string.IsNullOrEmpty(folderName) ? "…" : $" → {folderName}…");
-            OutcomeDetail.Text =
-                (string.IsNullOrEmpty(PrepareAction) ? "" : PrepareAction + " ")
-                + "Keep Revit open — a large model can take a while.";
+            OutcomeDetail.Text = KeepOpenHint();
         }
 
         private void ShowOutcomeState(SyncRunner.Result result)
@@ -844,7 +880,9 @@ namespace RevitWebAppSync
                 SetBadge("✕", "#B91C1C", "#FEF2F2");
                 OutcomeTitle.Text = "Sync failed";
                 OutcomeMessage.Text = result.Message ?? "Unknown error.";
-                OutcomeDetail.Text = "Nothing was published. Go back to try again.";
+                // Say where it stopped: "failed" alone leaves a 2 GB upload guessing.
+                OutcomeDetail.Text = (_lastProgress == null ? "" : "Stopped at: " + _lastProgress.Text + "\n")
+                    + "Nothing was published. Go back to try again.";
                 BackButton.Visibility = Visibility.Visible;
             }
             else if (result.Unchanged)
