@@ -413,6 +413,60 @@ namespace Tests
         }
 
         [Fact]
+        public void Socket_symbols_with_parallel_strokes_do_not_pair_like_walls()
+        {
+            // A socket symbol: two 400 mm strokes 100 mm apart on layer 0, which pair exactly like
+            // a thin wall. Forty of them on POWER1 are still symbols, not walls; the real walls
+            // around them still pair.
+            CadDocument doc = TwoRooms();
+            BlockRecord socket = Block(doc, "SOCKET-13A",
+                new Line(new XYZ(-200, 0, 0), new XYZ(200, 0, 0)),
+                new Line(new XYZ(-200, 100, 0), new XYZ(200, 100, 0)));
+            for (int i = 0; i < 40; i++) Insert(doc, socket, 1000 + ((i % 10) * 3000), 8000 + ((i / 10) * 2000), "POWER1");
+
+            ElectricalCensusResult census = ElectricalCensus.Build(doc);
+
+            CensusLayer skt = LayerOf(census, "POWER1");
+            Assert.Equal(80, skt.Lines); // still counted, just not tested as wall faces
+            Assert.Equal(0, skt.WallPairs);
+            Assert.False(skt.PairsLikeWalls);
+            Assert.True(LayerOf(census, "A-WALL").PairsLikeWalls);
+        }
+
+        [Fact]
+        public void Walls_inside_one_large_container_block_still_pair_like_walls()
+        {
+            // An architect's background inserted as one block (with a nested symbol, so a
+            // container): its walls are in a block but far larger than a symbol, so they count.
+            CadDocument doc = MmDrawing();
+            BlockRecord door = SquareBlock(doc, "DOOR", 900);
+            var walls = new List<Entity>();
+            foreach (double x0 in new[] { 0.0, 12000.0 })
+            {
+                const double w = 6000, h = 5000, t = 150;
+                walls.Add(new Line(new XYZ(x0, 0, 0), new XYZ(x0 + w, 0, 0)));
+                walls.Add(new Line(new XYZ(x0 + t, t, 0), new XYZ(x0 + w - t, t, 0)));
+                walls.Add(new Line(new XYZ(x0, h, 0), new XYZ(x0 + w, h, 0)));
+                walls.Add(new Line(new XYZ(x0 + t, h - t, 0), new XYZ(x0 + w - t, h - t, 0)));
+                walls.Add(new Line(new XYZ(x0, 0, 0), new XYZ(x0, h, 0)));
+                walls.Add(new Line(new XYZ(x0 + t, t, 0), new XYZ(x0 + t, h - t, 0)));
+                walls.Add(new Line(new XYZ(x0 + w, 0, 0), new XYZ(x0 + w, h, 0)));
+                walls.Add(new Line(new XYZ(x0 + w - t, t, 0), new XYZ(x0 + w - t, h - t, 0)));
+            }
+            walls.Add(MakeInsert(doc, door, 3000, 2500));
+            BlockRecord background = Block(doc, "ARCH-BG", walls.ToArray());
+            Insert(doc, background, 2000, 2000, "A-BG");
+
+            ElectricalCensusResult census = ElectricalCensus.Build(doc);
+
+            CensusLayer bg = LayerOf(census, "A-BG");
+            Assert.Equal(0, bg.LooseLengthM, 6);
+            Assert.True(bg.WallPairs >= 8, "pairs " + bg.WallPairs);
+            Assert.True(bg.PairedLengthShare >= 0.25, "share " + bg.PairedLengthShare);
+            Assert.True(bg.PairsLikeWalls);
+        }
+
+        [Fact]
         public void Wall_test_uses_its_own_bounds_and_leaves_the_shared_ones_alone()
         {
             // A pane set to 1-2 m walls must neither stop the census finding 150 mm walls nor

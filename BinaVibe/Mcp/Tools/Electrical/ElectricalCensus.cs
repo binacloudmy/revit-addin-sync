@@ -45,6 +45,10 @@ namespace BinaVibe.Mcp.Tools.Electrical
         /// survey, not a wall layer.</summary>
         public int MaxWallTestSegments = 80000;
         public int MinWallTestSegments = 8;
+
+        /// <summary>Linework inside an insert at most this wide and high (world mm) is a
+        /// symbol's, and is left out of the wall hint.</summary>
+        public double SymbolMaxExtentMm = 2000;
     }
 
     /// <summary>The drawing as a whole: units, size, how its inserts break down.</summary>
@@ -482,21 +486,30 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
             foreach (LayerTally tally in sink.Layers.Values)
             {
-                if (tally.Pieces.Count > o.MaxWallTestSegments)
+                // Only pieces that can be a wall face: loose ones, and ones inside a block that
+                // is not a symbol (see IsInsideSymbol). The share is taken over the same pieces.
+                var pieces = new List<(double X1, double Y1, double X2, double Y2)>(tally.Pieces.Count);
+                for (int i = 0; i < tally.Pieces.Count; i++)
+                {
+                    if (!IsInsideSymbol(tally.PieceOwners[i], o)) pieces.Add(tally.Pieces[i]);
+                }
+
+                if (pieces.Count > o.MaxWallTestSegments)
                 {
                     tally.WallsSkipped = "too_many_segments";
                     continue;
                 }
 
-                int faces = tally.Pieces.Count(p => PieceLength(p) >= Wall.MinFaceLength);
+                int faces = pieces.Count(p => PieceLength(p) >= Wall.MinFaceLength);
                 if (faces < o.MinWallTestSegments) continue;
 
-                List<Segment> segments = tally.Segments();
+                List<Segment> segments = LayerTally.Segments(pieces, tally.Name);
                 List<Wall> merged = CadClassifier.ClassifyWalls(CadClassifier.MergeCollinearSegments(segments), sMin, sMax);
                 tally.WallPairs = merged.Count;
 
+                double straight = pieces.Sum(PieceLength);
                 double paired = merged.Sum(wall => wall.Centerline.Length) * 2;
-                tally.PairedLengthShare = tally.StraightLength > 0 ? Math.Min(1.0, paired / tally.StraightLength) : 0;
+                tally.PairedLengthShare = straight > 0 ? Math.Min(1.0, paired / straight) : 0;
                 tally.PairsLikeWalls = tally.WallPairs >= 8 && tally.PairedLengthShare >= 0.25;
 
                 if (!tally.PairsLikeWalls) continue;
@@ -505,6 +518,27 @@ namespace BinaVibe.Mcp.Tools.Electrical
             }
 
             return wallLike;
+        }
+
+        /// <summary>
+        /// True when a piece drawn inside this insert (null: loose, in model space) is part of
+        /// a symbol, and so kept out of the wall hint. A socket symbol's two parallel strokes
+        /// 100 mm apart pair exactly like a tiny wall: 318 of them made a socket layer look
+        /// like walls. Leaving out all block content would be simpler, but an architect's
+        /// background inserted as one block, or a bound xref, draws every wall inside a block,
+        /// and those must still count. So the rule is size: a piece is symbol linework when the
+        /// insert holding it, or any insert around that one, is at most SymbolMaxExtentMm
+        /// (2000 mm) across in world units. No plan fits in 2 m, so the rule needs no test for
+        /// nested inserts: a small block built of sub-blocks (a DB symbol) is still a symbol,
+        /// and a large block, container or not, keeps its walls.
+        /// </summary>
+        private static bool IsInsideSymbol(Instance? owner, CensusOptions o)
+        {
+            for (Instance? at = owner; at != null; at = at.Parent)
+            {
+                if (Math.Max(at.WidthMm, at.HeightMm) <= o.SymbolMaxExtentMm) return true;
+            }
+            return false;
         }
 
         private static double PieceLength((double X1, double Y1, double X2, double Y2) p)
@@ -1006,6 +1040,9 @@ namespace BinaVibe.Mcp.Tools.Electrical
             public bool NearWall;
             public bool InPlan;
 
+            /// <summary>The insert this one was placed inside, null at depth 0.</summary>
+            public Instance? Parent;
+
             /// <summary>False when the walk handed over a NaN or infinite position: the
             /// instance is counted, but kept out of every "where is it" question.</summary>
             public bool Placed = true;
@@ -1040,13 +1077,16 @@ namespace BinaVibe.Mcp.Tools.Electrical
             public List<(double X1, double Y1, double X2, double Y2)> Pieces =
                 new List<(double X1, double Y1, double X2, double Y2)>();
 
-            /// <summary>The kept pieces as classifier segments, built only when asked for.</summary>
-            public List<Segment> Segments()
+            /// <summary>Per piece, the innermost insert it was drawn in; null when loose.</summary>
+            public List<Instance?> PieceOwners = new List<Instance?>();
+
+            /// <summary>Pieces as classifier segments on a layer, built only when asked for.</summary>
+            public static List<Segment> Segments(List<(double X1, double Y1, double X2, double Y2)> pieces, string layer)
             {
-                var segments = new List<Segment>(Pieces.Count);
-                foreach (var p in Pieces)
+                var segments = new List<Segment>(pieces.Count);
+                foreach (var p in pieces)
                 {
-                    segments.Add(new Segment(new Point(p.X1, p.Y1), new Point(p.X2, p.Y2)) { Layer = Name });
+                    segments.Add(new Segment(new Point(p.X1, p.Y1), new Point(p.X2, p.Y2)) { Layer = layer });
                 }
                 return segments;
             }
@@ -1066,7 +1106,11 @@ namespace BinaVibe.Mcp.Tools.Electrical
             // pops once the insert's contents are through, so the top is always the insert the
             // next piece sits in. Symbol also pops to its own depth, in case a walker never
             // says SymbolEnd.
-            private readonly List<(int Depth, string Layer)> _open = new List<(int Depth, string Layer)>();
+            private readonly List<(int Depth, string Layer, Instance Instance)> _open =
+                new List<(int Depth, string Layer, Instance Instance)>();
+
+            /// <summary>The insert the next piece sits in, null in model space.</summary>
+            private Instance? Owner => _open.Count > 0 ? _open[_open.Count - 1].Instance : null;
 
             /// <summary>Anything on layer 0 inside a block is drawn on the layer of the insert
             /// that holds it, which is how AutoCAD shows it. Outside a block, 0 is 0.</summary>
@@ -1104,6 +1148,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 else if (points.Count == 2) tally.Lines++;
                 else tally.OpenPolylines++;
 
+                Instance? owner = Owner;
                 double run = 0;
                 int last = isClosed ? points.Count : points.Count - 1;
                 for (int i = 0; i < last; i++)
@@ -1121,6 +1166,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     tally.StraightLength += length;
                     if (IsAxisAligned(dx, dy)) tally.AxisAlignedLength += length;
                     tally.Pieces.Add((a.X, a.Y, b.X, b.Y));
+                    tally.PieceOwners.Add(owner);
                     GrowBySegment(a, b);
                 }
 
@@ -1178,12 +1224,13 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
                 // An insert on layer 0 inside a block takes the layer its parent was placed on.
                 string effective = Effective(layer);
-                _open.Add((depth, effective));
+                Instance? parent = Owner;
 
                 Tally(effective).Inserts++;
                 double width = Math.Abs(block.Width * scaleX), height = Math.Abs(block.Height * scaleY);
-                Instances.Add(new Instance
+                var instance = new Instance
                 {
+                    Parent = parent,
                     Block = block,
                     Layer = effective,
                     X = x,
@@ -1193,7 +1240,9 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     HeightMm = IsFinite(height) ? height : 0,
                     Depth = depth,
                     Attributes = attributes,
-                });
+                };
+                Instances.Add(instance);
+                _open.Add((depth, effective, instance));
             }
 
             /// <summary>
