@@ -276,5 +276,146 @@ namespace Tests
             Assert.Equal(10, LayerOf(census, "E-CONDUIT").LengthM, 6);
             Assert.Equal(1, LayerOf(census, "E-CONDUIT").OpenPolylinesOver1m);
         }
+
+        /// <summary>Two 6 x 5 m rooms of double-line walls, the second 30 m to the right.</summary>
+        private static CadDocument TwoRooms(string wallLayer = "A-WALL")
+        {
+            CadDocument doc = MmDrawing();
+            Room(doc, wallLayer, 0, 0, 6000, 5000);
+            Room(doc, wallLayer, 36000, 0, 6000, 5000);
+            return doc;
+        }
+
+        [Fact]
+        public void Wall_layer_pairs_like_walls_and_a_conduit_layer_does_not()
+        {
+            CadDocument doc = TwoRooms();
+            // Conduit: single orthogonal runs, nowhere near a parallel partner.
+            for (int i = 0; i < 10; i++) Line(doc, "E-CONDUIT", 1000, 1000 + (i * 1000), 5000, 1000 + (i * 1000));
+
+            ElectricalCensusResult census = ElectricalCensus.Build(doc);
+
+            CensusLayer wall = LayerOf(census, "A-WALL");
+            Assert.True(wall.WallPairs >= 8, "pairs " + wall.WallPairs);
+            Assert.True(wall.PairedLengthShare >= 0.25, "share " + wall.PairedLengthShare);
+            Assert.True(wall.PairsLikeWalls);
+            Assert.True(wall.WallPairsUnmerged >= 8);
+            Assert.Null(wall.WallsSkipped);
+
+            CensusLayer conduit = LayerOf(census, "E-CONDUIT");
+            Assert.Equal(0, conduit.WallPairs);
+            Assert.False(conduit.PairsLikeWalls);
+        }
+
+        [Fact]
+        public void A_layer_over_the_segment_cap_is_skipped()
+        {
+            CadDocument doc = TwoRooms();
+            ElectricalCensusResult census = ElectricalCensus.Build(doc, new CensusOptions { MaxWallTestSegments = 4 });
+
+            CensusLayer wall = LayerOf(census, "A-WALL");
+            Assert.Equal("too_many_segments", wall.WallsSkipped);
+            Assert.False(wall.PairsLikeWalls);
+        }
+
+        [Fact]
+        public void Near_wall_counts_instances_within_400mm()
+        {
+            CadDocument doc = TwoRooms();
+            BlockRecord socket = SquareBlock(doc, "SOCKET-13A", 100);
+            Insert(doc, socket, 350, 2500, "E-POWER");    // 200 mm off the left wall's inner face
+            Insert(doc, socket, 3000, 4500, "E-POWER");   // 350 mm below the top wall's inner face
+            Insert(doc, socket, 3000, 2500, "E-POWER");   // the middle of the room
+
+            ElectricalCensusResult census = ElectricalCensus.Build(doc);
+
+            Assert.Equal(2, census.Blocks.Single(b => b.Key == "SOCKET-13A").NearWall);
+        }
+
+        [Fact]
+        public void Two_rooms_30m_apart_are_two_plans_with_their_titles()
+        {
+            CadDocument doc = TwoRooms();
+            Text(doc, "A-TEXT", 1000, -600, "PELAN LANTAI TINGKAT 1", 500);
+            Text(doc, "A-TEXT", 1000, 2500, "BILIK TIDUR", 200);
+            Text(doc, "A-TEXT", 37000, -600, "Pelan Bumbung", 400);
+            BlockRecord light = SquareBlock(doc, "DOWNLIGHT", 200);
+            Insert(doc, light, 3000, 2500, "E-LIGHT");
+            Insert(doc, light, 39000, 2500, "E-LIGHT");
+            Insert(doc, light, 40000, 2500, "E-LIGHT");
+            Insert(doc, light, 20000, 15000, "E-LIGHT"); // on the sheet, in no plan
+
+            ElectricalCensusResult census = ElectricalCensus.Build(doc);
+
+            Assert.Equal(2, census.Plans.Count);
+            CensusPlan first = census.Plans.Single(p => p.Titles.Contains("PELAN LANTAI TINGKAT 1"));
+            CensusPlan second = census.Plans.Single(p => p.Titles.Contains("Pelan Bumbung"));
+            Assert.DoesNotContain("BILIK TIDUR", first.Titles);
+            Assert.Equal(1, first.Symbols);
+            Assert.Equal(2, second.Symbols);
+            Assert.InRange(first.WidthM, 5.8, 6.0);
+            Assert.True(first.Walls >= 4);
+            Assert.Equal(3, census.Totals.InsidePlans);
+        }
+
+        [Fact]
+        public void Near_texts_keeps_the_five_most_common_within_reach()
+        {
+            CadDocument doc = MmDrawing();
+            BlockRecord socket = SquareBlock(doc, "SOCKET", 100); // reach: 1.5 x 100, raised to 300
+            string[] labels = { "13A", "13A", "13A", "2G", "2G", "15A", "USB", "WP", "SW" };
+            for (int i = 0; i < labels.Length; i++)
+            {
+                double x = 1000 + (i * 2000);
+                Insert(doc, socket, x, 1000, "E-POWER");
+                Text(doc, "E-TEXT", x + 150, 1000, labels[i], 100);
+                Text(doc, "E-TEXT", x + 500, 1000, "FAR AWAY", 100);
+            }
+
+            ElectricalCensusResult census = ElectricalCensus.Build(doc);
+
+            List<CensusCount> near = census.Blocks.Single(b => b.Key == "SOCKET").NearTexts;
+            Assert.Equal(5, near.Count);
+            Assert.Equal("13A", near[0].Name);
+            Assert.Equal(3, near[0].Count);
+            Assert.Equal("2G", near[1].Name);
+            Assert.Equal(2, near[1].Count);
+            Assert.DoesNotContain(near, n => n.Name == "FAR AWAY");
+        }
+
+        [Fact]
+        public void Aec_warning_is_carried_and_does_not_throw()
+        {
+            CadDocument doc = TwoRooms();
+            doc.Classes.AddOrUpdate(new ACadSharp.Classes.DxfClass
+            {
+                DxfName = "AEC_WALL",
+                CppClassName = "AecDbWall",
+                ApplicationName = "AecArchBase",
+                IsAnEntity = true,
+                InstanceCount = 12,
+                ClassNumber = 600,
+            });
+
+            ElectricalCensusResult census = ElectricalCensus.Build(doc);
+
+            Assert.False(census.Drawing.AecRefused);
+            Assert.NotNull(census.Drawing.AecWarning);
+            Assert.Contains("12", census.Drawing.AecWarning);
+        }
+
+        [Fact]
+        public void Symbols_are_exploded_when_no_insert_sits_off_the_background()
+        {
+            CadDocument doc = TwoRooms();
+            BlockRecord door = SquareBlock(doc, "DOOR-900", 900);
+            Insert(doc, door, 3000, 150, "A-WALL");
+            for (int i = 0; i < 20; i++) Line(doc, "E-LIGHT", 1000, 1000 + (i * 100), 1100, 1000 + (i * 100));
+
+            Assert.True(ElectricalCensus.Build(doc).SymbolsAreExploded);
+
+            Insert(doc, SquareBlock(doc, "SOCKET-13A", 100), 3000, 2500, "E-POWER");
+            Assert.False(ElectricalCensus.Build(doc).SymbolsAreExploded);
+        }
     }
 }

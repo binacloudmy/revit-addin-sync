@@ -57,6 +57,11 @@ namespace BinaVibe.Mcp.Tools.Electrical
         public double WidthM;
         public double HeightM;
         public int Entities;
+
+        /// <summary>AutoCAD Architecture / Civil 3D / MEP objects: refused means nothing else
+        /// in the drawing was readable; a warning means some were skipped.</summary>
+        public bool AecRefused;
+        public string? AecWarning;
     }
 
     internal sealed class CensusCount
@@ -86,6 +91,12 @@ namespace BinaVibe.Mcp.Tools.Electrical
         public bool IsContainer;
         public bool UnresolvedXref;
         public List<CensusAttribute> Attributes = new List<CensusAttribute>();
+
+        /// <summary>The words most often written near an instance of this class.</summary>
+        public List<CensusCount> NearTexts = new List<CensusCount>();
+
+        /// <summary>Instances within NearWallMm of a face on a wall-like layer.</summary>
+        public int NearWall;
     }
 
     /// <summary>What one layer holds. Lengths in metres.</summary>
@@ -105,10 +116,24 @@ namespace BinaVibe.Mcp.Tools.Electrical
         public double InBlocksLengthM;
         public int OpenPolylinesOver1m;
         public double AxisAlignedShare;
+
+        // Wall hint: does this layer's own linework pair up like wall faces?
+        public int WallPairs;
+        public int WallPairsUnmerged;
+        public double PairedLengthShare;
+        public bool PairsLikeWalls;
+        public string? WallsSkipped;
     }
 
+    /// <summary>One cluster of walls on the sheet - usually one floor plan. No coordinates.</summary>
     internal sealed class CensusPlan
     {
+        public int Cluster;
+        public double WidthM;
+        public double HeightM;
+        public int Walls;
+        public List<string> Titles = new List<string>();
+        public int Symbols;
     }
 
     internal sealed class CensusLegendRow
@@ -124,6 +149,9 @@ namespace BinaVibe.Mcp.Tools.Electrical
         public int Anonymous;
         public List<string> UnresolvedXrefs = new List<string>();
         public int BoundXrefLayers;
+
+        /// <summary>Instances inside any reported plan.</summary>
+        public int InsidePlans;
     }
 
     internal sealed class ElectricalCensusResult
@@ -178,11 +206,303 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
             result.TimingsSeconds["walk"] = clock.Elapsed.TotalSeconds;
 
+            result.Drawing.AecRefused = AecVerdict(document, sink, out string? aecWarning);
+            result.Drawing.AecWarning = aecWarning;
+
+            clock.Restart();
+            List<Wall> walls = TestLayersForWalls(sink, o);
+            result.TimingsSeconds["walls"] = clock.Elapsed.TotalSeconds;
+
+            clock.Restart();
+            List<PlanCluster> clusters = BuildPlans(sink, walls, o, result);
+            result.TimingsSeconds["plans"] = clock.Elapsed.TotalSeconds;
+
+            clock.Restart();
+            MarkNearWalls(sink, o);
+            Dictionary<string, List<CensusCount>> nearTexts = NearTexts(sink, o);
+            result.TimingsSeconds["proximity"] = clock.Elapsed.TotalSeconds;
+
             BuildBlockClasses(sink, o, result);
+            foreach (CensusBlockClass block in result.Blocks)
+            {
+                if (nearTexts.TryGetValue(block.Key, out List<CensusCount>? near)) block.NearTexts = near;
+            }
             BuildLayers(sink, o, result);
             BuildTotals(sink, result);
 
+            // Exploded: every symbol-like insert sits on the architectural background, so the
+            // electrical symbols themselves can only be loose linework.
+            result.SymbolsAreExploded = !sink.Instances.Any(instance =>
+                instance.Block.NestedInserts == 0 && !sink.Layers[instance.Layer].PairsLikeWalls);
+
             return result;
+        }
+
+        // ---------------------------------------------------------------- AEC
+
+        private static bool AecVerdict(CadDocument document, CensusSink sink, out string? warning)
+        {
+            warning = null;
+            try
+            {
+                int readable = sink.Layers.Values.Sum(tally => tally.Pieces.Count) + sink.Texts.Count;
+                IEnumerable<(string, bool, int)> classes = document.Classes == null
+                    ? Enumerable.Empty<(string, bool, int)>()
+                    : document.Classes.Select(c => (c.DxfName, c.IsAnEntity, c.InstanceCount)).ToList();
+
+                bool refused = RevitWebAppSync.Services.CadToBim.CadSourceVerdict.IsRefused(classes, readable, out string verdictWarning);
+                warning = verdictWarning;
+                return refused;
+            }
+            catch (Exception ex)
+            {
+                // A census never fails on its warning.
+                warning = "AEC check failed: " + ex.Message;
+                return false;
+            }
+        }
+
+        // ---------------------------------------------------------------- walls
+
+        /// <summary>
+        /// Pairs each layer's own linework into walls, so a layer that draws walls says so.
+        /// Per layer, so a pair is never made across two layers: that misses walls whose faces
+        /// sit on different layers, and keeps electrical linework from pairing with the walls.
+        /// Returns the walls of every wall-like layer.
+        /// </summary>
+        private static List<Wall> TestLayersForWalls(CensusSink sink, CensusOptions o)
+        {
+            var wallLike = new List<Wall>();
+            double savedMin = Wall.SMin, savedMax = Wall.SMax;
+            Wall.SMin = Units.DefaultMinWallThicknessMm;
+            Wall.SMax = Units.DefaultMaxWallThicknessMm;
+
+            try
+            {
+                foreach (LayerTally tally in sink.Layers.Values)
+                {
+                    if (tally.Pieces.Count > o.MaxWallTestSegments)
+                    {
+                        tally.WallsSkipped = "too_many_segments";
+                        continue;
+                    }
+
+                    int faces = tally.Pieces.Count(p => PieceLength(p) >= Wall.MinFaceLength);
+                    if (faces < o.MinWallTestSegments) continue;
+
+                    List<Segment> segments = tally.Segments();
+                    List<Wall> merged = CadClassifier.ClassifyWalls(CadClassifier.MergeCollinearSegments(segments));
+                    tally.WallPairsUnmerged = CadClassifier.ClassifyWalls(segments).Count;
+                    tally.WallPairs = merged.Count;
+
+                    double paired = merged.Sum(wall => wall.Centerline.Length) * 2;
+                    tally.PairedLengthShare = tally.StraightLength > 0 ? Math.Min(1.0, paired / tally.StraightLength) : 0;
+                    tally.PairsLikeWalls = tally.WallPairs >= 8 && tally.PairedLengthShare >= 0.25;
+
+                    if (tally.PairsLikeWalls) wallLike.AddRange(merged);
+                }
+            }
+            finally
+            {
+                Wall.SMin = savedMin;
+                Wall.SMax = savedMax;
+            }
+
+            return wallLike;
+        }
+
+        private static double PieceLength((double X1, double Y1, double X2, double Y2) p)
+        {
+            double dx = p.X2 - p.X1, dy = p.Y2 - p.Y1;
+            return Math.Sqrt((dx * dx) + (dy * dy));
+        }
+
+        // ---------------------------------------------------------------- plans
+
+        private static readonly string[] TitleWords = { "PELAN", "PLAN", "LAYOUT", "TINGKAT", "ARAS", "LANTAI", "BUMBUNG" };
+
+        /// <summary>Clusters the wall-like layers' walls into plans, titles them from nearby
+        /// text, and counts the symbols each one holds.</summary>
+        private static List<PlanCluster> BuildPlans(CensusSink sink, List<Wall> walls, CensusOptions o,
+                                                    ElectricalCensusResult result)
+        {
+            List<PlanCluster> clusters = CadClassifier.ClusterPlans(CadClassifier.DeduplicateWalls(walls), null);
+            result.PlansTruncated = clusters.Count > o.MaxPlans;
+            clusters = clusters.Take(o.MaxPlans).ToList();
+
+            List<CensusText> titleTexts = sink.Texts.Where(text => ContainsAny(text.Value, TitleWords)).ToList();
+
+            for (int i = 0; i < clusters.Count; i++)
+            {
+                PlanCluster cluster = clusters[i];
+
+                // A plan's title sits under it, or close beside it.
+                double minX = cluster.MinX - 2000, maxX = cluster.MaxX + 2000;
+                double minY = cluster.MinY - (0.2 * cluster.Height), maxY = cluster.MaxY + 2000;
+
+                List<string> titles = titleTexts
+                    .Where(text => text.X >= minX && text.X <= maxX && text.Y >= minY && text.Y <= maxY)
+                    .OrderByDescending(text => text.Height)
+                    .Select(text => Truncate(text.Value, 60))
+                    .Distinct(StringComparer.Ordinal)
+                    .Take(3)
+                    .ToList();
+
+                result.Plans.Add(new CensusPlan
+                {
+                    Cluster = i,
+                    WidthM = Math.Round(cluster.Width / 1000.0, 2),
+                    HeightM = Math.Round(cluster.Height / 1000.0, 2),
+                    Walls = cluster.Walls.Count,
+                    Titles = titles,
+                });
+            }
+
+            foreach (Instance instance in sink.Instances)
+            {
+                var point = new Point(instance.X, instance.Y);
+                for (int i = 0; i < clusters.Count; i++)
+                {
+                    if (!clusters[i].Contains(point)) continue;
+                    result.Plans[i].Symbols++;
+                    instance.InPlan = true;
+                    break;
+                }
+                if (instance.InPlan) result.Totals.InsidePlans++;
+            }
+
+            return clusters;
+        }
+
+        private static bool ContainsAny(string value, string[] words)
+        {
+            string upper = value.ToUpperInvariant();
+            foreach (string word in words)
+            {
+                if (upper.IndexOf(word, StringComparison.Ordinal) >= 0) return true;
+            }
+            return false;
+        }
+
+        // ---------------------------------------------------------------- proximity
+
+        /// <summary>Marks every instance within NearWallMm of a face on a wall-like layer.</summary>
+        private static void MarkNearWalls(CensusSink sink, CensusOptions o)
+        {
+            var faces = new List<Segment>();
+            foreach (LayerTally tally in sink.Layers.Values)
+            {
+                if (tally.PairsLikeWalls) faces.AddRange(tally.Segments());
+            }
+            if (faces.Count == 0) return;
+
+            var index = new SegmentIndex(faces, 2000);
+            foreach (Instance instance in sink.Instances)
+            {
+                var at = new Point(instance.X, instance.Y);
+
+                // A zero-length query segment: Near only reads its box. Never ask it whether it
+                // is parallel to anything - it has no direction, and isParallelTo divides by it.
+                foreach (int i in index.Near(new Segment(at, at), o.NearWallMm))
+                {
+                    if (DistanceToSegment(at, faces[i]) > o.NearWallMm) continue;
+                    instance.NearWall = true;
+                    break;
+                }
+            }
+        }
+
+        private static double DistanceToSegment(Point p, Segment s)
+        {
+            double dx = s.P2.x - s.P1.x, dy = s.P2.y - s.P1.y;
+            double lengthSquared = (dx * dx) + (dy * dy);
+            double t = lengthSquared > 0 ? (((p.x - s.P1.x) * dx) + ((p.y - s.P1.y) * dy)) / lengthSquared : 0;
+            t = Math.Max(0, Math.Min(1, t));
+            double x = s.P1.x + (t * dx) - p.x, y = s.P1.y + (t * dy) - p.y;
+            return Math.Sqrt((x * x) + (y * y));
+        }
+
+        /// <summary>The words written near each class's instances: per class, the five most
+        /// frequent values, each counted once per instance it is near.</summary>
+        private static Dictionary<string, List<CensusCount>> NearTexts(CensusSink sink, CensusOptions o)
+        {
+            var grid = new TextGrid(sink.Texts, 1000);
+            var perClass = new Dictionary<string, Dictionary<string, int>>(StringComparer.Ordinal);
+
+            foreach (Instance instance in sink.Instances)
+            {
+                double reach = o.TextReachFactor * Math.Max(instance.WidthMm, instance.HeightMm);
+                reach = Math.Max(300, Math.Min(3000, reach));
+
+                var seen = new HashSet<string>(StringComparer.Ordinal);
+                foreach (CensusText text in grid.Within(instance.X - reach, instance.Y - reach,
+                                                        instance.X + reach, instance.Y + reach))
+                {
+                    double dx = text.X - instance.X, dy = text.Y - instance.Y;
+                    if ((dx * dx) + (dy * dy) > reach * reach) continue;
+                    seen.Add(Truncate(text.Value, 60));
+                }
+                if (seen.Count == 0) continue;
+
+                if (!perClass.TryGetValue(instance.Key, out Dictionary<string, int>? counts))
+                {
+                    counts = new Dictionary<string, int>(StringComparer.Ordinal);
+                    perClass[instance.Key] = counts;
+                }
+                foreach (string value in seen)
+                {
+                    counts[value] = counts.TryGetValue(value, out int count) ? count + 1 : 1;
+                }
+            }
+
+            return perClass.ToDictionary(
+                pair => pair.Key,
+                pair => pair.Value
+                    .OrderByDescending(entry => entry.Value).ThenBy(entry => entry.Key, StringComparer.Ordinal)
+                    .Take(5)
+                    .Select(entry => new CensusCount { Name = entry.Key, Count = entry.Value })
+                    .ToList(),
+                StringComparer.Ordinal);
+        }
+
+        /// <summary>Texts filed by grid cell, for "what is written near here".</summary>
+        private sealed class TextGrid
+        {
+            private readonly double _cell;
+            private readonly Dictionary<(long, long), List<CensusText>> _cells = new Dictionary<(long, long), List<CensusText>>();
+
+            public TextGrid(IEnumerable<CensusText> texts, double cell)
+            {
+                _cell = cell;
+                foreach (CensusText text in texts)
+                {
+                    var key = (Cell(text.X), Cell(text.Y));
+                    if (!_cells.TryGetValue(key, out List<CensusText>? list))
+                    {
+                        list = new List<CensusText>();
+                        _cells[key] = list;
+                    }
+                    list.Add(text);
+                }
+            }
+
+            private long Cell(double value) => (long)Math.Floor(value / _cell);
+
+            public IEnumerable<CensusText> Within(double minX, double minY, double maxX, double maxY)
+            {
+                long x0 = Cell(minX), x1 = Cell(maxX), y0 = Cell(minY), y1 = Cell(maxY);
+                for (long x = x0; x <= x1; x++)
+                {
+                    for (long y = y0; y <= y1; y++)
+                    {
+                        if (!_cells.TryGetValue((x, y), out List<CensusText>? list)) continue;
+                        foreach (CensusText text in list)
+                        {
+                            if (text.X >= minX && text.X <= maxX && text.Y >= minY && text.Y <= maxY) yield return text;
+                        }
+                    }
+                }
+            }
         }
 
         // ---------------------------------------------------------------- block classes
@@ -207,6 +527,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     HeightMm = Math.Round(Median(list.Select(instance => instance.HeightMm)), 1),
                     IsContainer = list.Any(instance => instance.Block.NestedInserts > 0),
                     UnresolvedXref = list.Any(instance => instance.Block.IsUnresolvedXref),
+                    NearWall = list.Count(instance => instance.NearWall),
                 };
 
                 block.Layers = list
@@ -311,6 +632,11 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     InBlocksLengthM = Math.Round(tally.InBlocksLength / 1000.0, 3),
                     OpenPolylinesOver1m = tally.OpenRunLengths.Count(length => length > o.LongOpenPolylineMm),
                     AxisAlignedShare = alignedTotal > 0 ? Math.Round(tally.AxisAlignedLength / alignedTotal, 3) : 0,
+                    WallPairs = tally.WallPairs,
+                    WallPairsUnmerged = tally.WallPairsUnmerged,
+                    PairedLengthShare = Math.Round(tally.PairedLengthShare, 3),
+                    PairsLikeWalls = tally.PairsLikeWalls,
+                    WallsSkipped = tally.WallsSkipped,
                 });
             }
 
@@ -375,6 +701,8 @@ namespace BinaVibe.Mcp.Tools.Electrical
             public double WidthMm, HeightMm;
             public int Depth;
             public IReadOnlyDictionary<string, string> Attributes = null!;
+            public bool NearWall;
+            public bool InPlan;
         }
 
         private sealed class CensusText
@@ -392,10 +720,26 @@ namespace BinaVibe.Mcp.Tools.Electrical
             public double LooseLength, InBlocksLength, StraightLength, ArcLength, AxisAlignedLength;
             public List<double> OpenRunLengths = new List<double>();
 
+            public int WallPairs, WallPairsUnmerged;
+            public double PairedLengthShare;
+            public bool PairsLikeWalls;
+            public string? WallsSkipped;
+
             /// <summary>Straight pieces from model space, blocks and proxy graphics, as
             /// (x1, y1, x2, y2). Hatch boundaries and dimension pieces are counted, not kept.</summary>
             public List<(double X1, double Y1, double X2, double Y2)> Pieces =
                 new List<(double X1, double Y1, double X2, double Y2)>();
+
+            /// <summary>The kept pieces as classifier segments, built only when asked for.</summary>
+            public List<Segment> Segments()
+            {
+                var segments = new List<Segment>(Pieces.Count);
+                foreach (var p in Pieces)
+                {
+                    segments.Add(new Segment(new Point(p.X1, p.Y1), new Point(p.X2, p.Y2)) { Layer = Name });
+                }
+                return segments;
+            }
         }
 
         private sealed class CensusSink : ICadSink, ICadSymbolSink
