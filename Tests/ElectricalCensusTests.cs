@@ -405,7 +405,7 @@ namespace Tests
             Assert.True(wall.WallPairs >= 8, "pairs " + wall.WallPairs);
             Assert.True(wall.PairedLengthShare >= 0.25, "share " + wall.PairedLengthShare);
             Assert.True(wall.PairsLikeWalls);
-            Assert.Null(wall.WallsSkipped);
+            Assert.Equal(1, wall.WallTiles);
 
             CensusLayer conduit = LayerOf(census, "E-CONDUIT");
             Assert.Equal(0, conduit.WallPairs);
@@ -498,14 +498,109 @@ namespace Tests
         }
 
         [Fact]
-        public void A_layer_over_the_segment_cap_is_skipped()
+        public void A_layer_over_the_segment_cap_is_tiled_not_skipped()
         {
-            CadDocument doc = TwoRooms();
-            ElectricalCensusResult census = ElectricalCensus.Build(doc, new CensusOptions { MaxWallTestSegments = 4 });
+            ElectricalCensusResult whole = ElectricalCensus.Build(TwoRooms());
+            ElectricalCensusResult tiled = ElectricalCensus.Build(TwoRooms(), new CensusOptions { MaxWallTestSegments = 4 });
 
-            CensusLayer wall = LayerOf(census, "A-WALL");
-            Assert.Equal("too_many_segments", wall.WallsSkipped);
-            Assert.False(wall.PairsLikeWalls);
+            CensusLayer one = LayerOf(whole, "A-WALL"), many = LayerOf(tiled, "A-WALL");
+            Assert.Equal(1, one.WallTiles);
+            Assert.True(many.WallTiles > 1, "tiles " + many.WallTiles);
+            Assert.True(many.PairsLikeWalls);
+            Assert.Equal(one.WallPairs, many.WallPairs);
+            Assert.Equal(one.PairedLengthShare, many.PairedLengthShare);
+            Assert.Equal(whole.Plans.Count, tiled.Plans.Count);
+            Assert.Equal(0, LayerOf(tiled, "FRAME").WallTiles);
+        }
+
+        /// <summary>The eight faces of a room drawn with 150 mm walls, as bare segments.</summary>
+        private static IEnumerable<Cad2Bim.Segment> RoomFaces(double x, double y, double w, double h, double t = 150)
+        {
+            foreach (double d in new[] { 0.0, t })
+            {
+                double ax = x + d, ay = y + d, bx = x + w - d, by = y + h - d;
+                yield return new Cad2Bim.Segment(new Cad2Bim.Point(ax, ay), new Cad2Bim.Point(bx, ay));
+                yield return new Cad2Bim.Segment(new Cad2Bim.Point(bx, ay), new Cad2Bim.Point(bx, by));
+                yield return new Cad2Bim.Segment(new Cad2Bim.Point(bx, by), new Cad2Bim.Point(ax, by));
+                yield return new Cad2Bim.Segment(new Cad2Bim.Point(ax, by), new Cad2Bim.Point(ax, ay));
+            }
+        }
+
+        private static List<string> WallKeys(IEnumerable<Cad2Bim.Wall> walls) => walls
+            .Select(wall =>
+            {
+                Cad2Bim.Point a = wall.Centerline.P1, b = wall.Centerline.P2;
+                if (a.x > b.x || (a.x == b.x && a.y > b.y)) (a, b) = (b, a);
+                return $"{a.x:F0},{a.y:F0}-{b.x:F0},{b.y:F0}/{wall.Thickness:F0}";
+            })
+            .OrderBy(key => key, StringComparer.Ordinal)
+            .ToList();
+
+        [Fact]
+        public void Tiled_pairing_finds_the_same_walls_as_pairing_whole()
+        {
+            var faces = new List<Cad2Bim.Segment>();
+            for (int col = 0; col < 4; col++)
+            {
+                for (int row = 0; row < 3; row++) faces.AddRange(RoomFaces(col * 9000, row * 8000, 6000, 5000));
+            }
+
+            List<Cad2Bim.Wall> whole = ElectricalCensus.PairInTiles(faces, 50, 400, 100000, out int wholeTiles);
+            List<Cad2Bim.Wall> tiled = ElectricalCensus.PairInTiles(faces, 50, 400, 10, out int tiles);
+
+            Assert.Equal(1, wholeTiles);
+            Assert.True(tiles > 1, "tiles " + tiles);
+            Assert.Equal(48, whole.Count);
+            Assert.Equal(WallKeys(whole), WallKeys(tiled));
+        }
+
+        [Fact]
+        public void Merging_by_direction_keeps_a_face_straight_beside_pieces_at_every_angle()
+        {
+            // A face drawn in ten pieces, and 20 m out a starburst of short spokes on lines
+            // through the face's line, one per degree: their angles chain from -90 to +90
+            // degrees and their offsets match the face's, so the plain merge put the face in one
+            // group with them and laid it along the first spoke's direction.
+            var pieces = new List<Cad2Bim.Segment>();
+            for (int i = 0; i < 10; i++) pieces.Add(new Cad2Bim.Segment(new Cad2Bim.Point(i * 300, 0), new Cad2Bim.Point((i + 1) * 300, 0)));
+            for (int deg = -89; deg <= 90; deg++)
+            {
+                double a = deg * Math.PI / 180;
+                // Near the face's own direction the spokes sit 100 mm off its line, as no face
+                // has a twin a degree askew on the same line.
+                double shift = Math.Abs(deg) <= 2 ? 100 : 0;
+                double nx = -Math.Sin(a) * shift, ny = Math.Cos(a) * shift;
+                pieces.Add(new Cad2Bim.Segment(new Cad2Bim.Point(nx - (20000 * Math.Cos(a)), ny - (20000 * Math.Sin(a))),
+                                               new Cad2Bim.Point(nx - (20100 * Math.Cos(a)), ny - (20100 * Math.Sin(a)))));
+            }
+            Assert.DoesNotContain(Cad2Bim.CadClassifier.MergeCollinearSegments(pieces),
+                                  s => Math.Abs(s.Length - 3000) < 1 && Math.Abs(s.P1.y) < 1 && Math.Abs(s.P2.y) < 1);
+
+            List<Cad2Bim.Segment> merged = ElectricalCensus.MergeByDirection(pieces);
+
+            Assert.Contains(merged, s => Math.Abs(s.Length - 3000) < 1 && Math.Abs(s.P1.y) < 1 && Math.Abs(s.P2.y) < 1);
+        }
+
+        [Fact]
+        public void A_wall_across_a_tile_edge_is_found_exactly_once()
+        {
+            // Six stubs too short to be faces at each end, the wall's two faces in the middle:
+            // the first cut falls at the faces' midpoint, x = 10500, so the wall straddles it.
+            var faces = new List<Cad2Bim.Segment>();
+            for (int i = 0; i < 6; i++)
+            {
+                faces.Add(new Cad2Bim.Segment(new Cad2Bim.Point(i * 100, 0), new Cad2Bim.Point(i * 100, 50)));
+                faces.Add(new Cad2Bim.Segment(new Cad2Bim.Point(19500 + (i * 100), 0), new Cad2Bim.Point(19500 + (i * 100), 50)));
+            }
+            faces.Add(new Cad2Bim.Segment(new Cad2Bim.Point(9000, 0), new Cad2Bim.Point(12000, 0)));
+            faces.Add(new Cad2Bim.Segment(new Cad2Bim.Point(9000, 150), new Cad2Bim.Point(12000, 150)));
+
+            List<Cad2Bim.Wall> walls = ElectricalCensus.PairInTiles(faces, 50, 400, 4, out int tiles);
+
+            Assert.True(tiles > 1, "tiles " + tiles);
+            Cad2Bim.Wall wall = Assert.Single(walls);
+            Assert.Equal(3000, wall.Centerline.Length, 6);
+            Assert.Equal(150, wall.Thickness, 6);
         }
 
         [Fact]

@@ -40,9 +40,9 @@ namespace BinaVibe.Mcp.Tools.Electrical
         public double TextReachFactor = 1.5;
         public double LongOpenPolylineMm = 1000;
 
-        /// <summary>A layer with more segments than this is not tested for wall pairs: the
-        /// pairing is near-linear but the merge is not free, and such a layer is a hatch or a
-        /// survey, not a wall layer.</summary>
+        /// <summary>The most merged segments paired in one go. A layer with more is split into
+        /// tiles of at most this many (see PairInTiles), never skipped: on a real drawing the
+        /// main wall layer was the one over the old cap.</summary>
         public int MaxWallTestSegments = 80000;
         public int MinWallTestSegments = 8;
 
@@ -131,7 +131,9 @@ namespace BinaVibe.Mcp.Tools.Electrical
         public int WallPairs;
         public double PairedLengthShare;
         public bool PairsLikeWalls;
-        public string? WallsSkipped;
+        /// <summary>Tiles the wall test split the layer into: 0 when not tested, 1 when paired
+        /// whole.</summary>
+        public int WallTiles;
     }
 
     /// <summary>One cluster of walls on the sheet - usually one floor plan. No coordinates.</summary>
@@ -287,7 +289,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     ["pairs"] = layer.WallPairs,
                     ["paired_length_share"] = layer.PairedLengthShare,
                     ["pairs_like_walls"] = layer.PairsLikeWalls,
-                    ["skipped"] = layer.WallsSkipped,
+                    ["tiles"] = layer.WallTiles,
                 },
             }).ToList();
 
@@ -494,17 +496,13 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     if (!IsInsideSymbol(tally.PieceOwners[i], o)) pieces.Add(tally.Pieces[i]);
                 }
 
-                if (pieces.Count > o.MaxWallTestSegments)
-                {
-                    tally.WallsSkipped = "too_many_segments";
-                    continue;
-                }
-
                 int faces = pieces.Count(p => PieceLength(p) >= Wall.MinFaceLength);
                 if (faces < o.MinWallTestSegments) continue;
 
                 List<Segment> segments = LayerTally.Segments(pieces, tally.Name);
-                List<Wall> merged = CadClassifier.ClassifyWalls(CadClassifier.MergeCollinearSegments(segments), sMin, sMax);
+                List<Wall> merged = PairInTiles(MergeByDirection(segments), sMin, sMax,
+                                                o.MaxWallTestSegments, out int tiles);
+                tally.WallTiles = tiles;
                 tally.WallPairs = merged.Count;
 
                 double straight = pieces.Sum(PieceLength);
@@ -518,6 +516,159 @@ namespace BinaVibe.Mcp.Tools.Electrical
             }
 
             return wallLike;
+        }
+
+        /// <summary>
+        /// MergeCollinearSegments one direction at a time, in 2 degree bins centred on the
+        /// axes. The merge groups pieces by angle by chaining neighbours 2 degrees apart; on a
+        /// dense layer, with pieces at every angle (curves, hatching, furniture), the chain
+        /// reaches from -90 to +90 degrees, every piece lands in one group and is re-laid
+        /// along the first one's angle. On a real dense wall layer that left few faces long
+        /// enough to pair out of a great many pieces, where pairing the pieces unmerged found more
+        /// walls. A bin caps the chain at its width. Straight up and straight down are the same
+        /// direction, so the two vertical half-bins are one.
+        /// </summary>
+        internal static List<Segment> MergeByDirection(List<Segment> segments)
+        {
+            const double bin = Math.PI / 90;
+            var byDirection = new Dictionary<int, List<Segment>>();
+            foreach (Segment segment in segments)
+            {
+                double dx = segment.P2.x - segment.P1.x, dy = segment.P2.y - segment.P1.y;
+                if (dx == 0 && dy == 0) continue;
+                if (dx < 0 || (dx == 0 && dy < 0)) { dx = -dx; dy = -dy; }
+
+                int key = (int)Math.Round(Math.Atan2(dy, dx) / bin);
+                if (key == -45) key = 45;
+                if (!byDirection.TryGetValue(key, out List<Segment>? list))
+                {
+                    list = new List<Segment>();
+                    byDirection[key] = list;
+                }
+                list.Add(segment);
+            }
+
+            var merged = new List<Segment>(segments.Count);
+            foreach (int key in byDirection.Keys.OrderBy(k => k))
+            {
+                merged.AddRange(CadClassifier.MergeCollinearSegments(byDirection[key]));
+            }
+            return merged;
+        }
+
+        /// <summary>How far a tile reaches past its own area, over the thickest wall: a wall
+        /// whose centre is in the tile has both faces within sMax / 2 of that centre, and the
+        /// rest buys the faces competing for them.</summary>
+        internal const double TileMarginMm = 500;
+
+        /// <summary>No tile is split below this many overlaps across, so a run of long lines
+        /// crossing everything cannot split for ever.</summary>
+        private const int MinTileOverlaps = 4;
+        private const int MaxTileDepth = 12;
+
+        /// <summary>
+        /// ClassifyWalls over segments already merged, in tiles of at most <paramref name="budget"/>
+        /// segments when there are more. A k-d split: a tile over budget is cut across its
+        /// longer side at the median of the segment midpoints in it, until each is under budget.
+        /// A grid by plan cluster is not an option (the clusters are built from these walls),
+        /// and the median follows the linework, where a fixed grid would put one plan in one
+        /// over-full cell and leave the sheet's margins empty.
+        ///
+        /// Each tile pairs every segment whose box comes within sMax + TileMarginMm of it, whole
+        /// and in the layer's order, so a wall across a tile edge is found in full in both
+        /// tiles. The tile that holds the centreline's midpoint keeps it (tile areas are
+        /// half-open, so exactly one does), and DeduplicateWalls drops a wall that two tiles
+        /// paired differently. Faces are merged before the split, over the whole layer, so a
+        /// tile edge never cuts a face.
+        /// </summary>
+        internal static List<Wall> PairInTiles(List<Segment> segments, double sMin, double sMax, int budget, out int tiles)
+        {
+            if (segments.Count <= Math.Max(budget, 1))
+            {
+                // Deduplicated here too, so a layer's pair count does not depend on whether it
+                // was tiled.
+                tiles = 1;
+                return CadClassifier.DeduplicateWalls(CadClassifier.ClassifyWalls(segments, sMin, sMax));
+            }
+
+            int n = segments.Count;
+            var minX = new double[n]; var minY = new double[n]; var maxX = new double[n]; var maxY = new double[n];
+            var midX = new double[n]; var midY = new double[n];
+            double x0 = double.MaxValue, y0 = double.MaxValue, x1 = double.MinValue, y1 = double.MinValue;
+            for (int i = 0; i < n; i++)
+            {
+                Segment s = segments[i];
+                minX[i] = Math.Min(s.P1.x, s.P2.x); maxX[i] = Math.Max(s.P1.x, s.P2.x);
+                minY[i] = Math.Min(s.P1.y, s.P2.y); maxY[i] = Math.Max(s.P1.y, s.P2.y);
+                midX[i] = (s.P1.x + s.P2.x) / 2; midY[i] = (s.P1.y + s.P2.y) / 2;
+                x0 = Math.Min(x0, minX[i]); y0 = Math.Min(y0, minY[i]);
+                x1 = Math.Max(x1, maxX[i]); y1 = Math.Max(y1, maxY[i]);
+            }
+
+            double reach = sMax + TileMarginMm;
+            var found = new List<Wall>();
+            int leaves = 0;
+
+            List<int> Within(List<int> from, double ax, double ay, double bx, double by) =>
+                from.Where(i => maxX[i] >= ax - reach && minX[i] <= bx + reach &&
+                                maxY[i] >= ay - reach && minY[i] <= by + reach).ToList();
+
+            void Leaf(List<int> members, double ax, double ay, double bx, double by)
+            {
+                leaves++;
+                // Members stay in ascending index order, so a tile pairs in the layer's order.
+                List<Segment> local = members.Select(i => segments[i]).ToList();
+                foreach (Wall wall in CadClassifier.ClassifyWalls(local, sMin, sMax))
+                {
+                    double cx = (wall.Centerline.P1.x + wall.Centerline.P2.x) / 2;
+                    double cy = (wall.Centerline.P1.y + wall.Centerline.P2.y) / 2;
+                    if (cx >= ax && cx < bx && cy >= ay && cy < by) found.Add(wall);
+                }
+            }
+
+            void Split(List<int> members, double ax, double ay, double bx, double by, int depth)
+            {
+                bool alongX = (bx - ax) >= (by - ay);
+                double side = alongX ? bx - ax : by - ay;
+                if (members.Count <= budget || depth >= MaxTileDepth || side < MinTileOverlaps * reach)
+                {
+                    Leaf(members, ax, ay, bx, by);
+                    return;
+                }
+
+                double lo = alongX ? ax : ay, hi = alongX ? bx : by;
+                double[] mid = alongX ? midX : midY;
+                List<double> inside = members.Select(i => mid[i]).Where(v => v >= lo && v < hi).OrderBy(v => v).ToList();
+                double cut = inside.Count > 0 ? inside[inside.Count / 2] : (lo + hi) / 2;
+                // Keep both halves at least one overlap wide.
+                cut = Math.Max(lo + reach, Math.Min(hi - reach, cut));
+
+                List<int> first = alongX ? Within(members, ax, ay, cut, by) : Within(members, ax, ay, bx, cut);
+                List<int> second = alongX ? Within(members, cut, ay, bx, by) : Within(members, ax, cut, bx, by);
+                if (first.Count == members.Count && second.Count == members.Count)
+                {
+                    // Every segment reaches both halves: splitting buys nothing.
+                    Leaf(members, ax, ay, bx, by);
+                    return;
+                }
+
+                if (alongX)
+                {
+                    Split(first, ax, ay, cut, by, depth + 1);
+                    Split(second, cut, ay, bx, by, depth + 1);
+                }
+                else
+                {
+                    Split(first, ax, ay, bx, cut, depth + 1);
+                    Split(second, ax, cut, bx, by, depth + 1);
+                }
+            }
+
+            // Half-open tiles: nudge the far edges so the drawing's last midpoint is inside.
+            Split(Enumerable.Range(0, n).ToList(), x0, y0, x1 + 1, y1 + 1, 0);
+
+            tiles = leaves;
+            return CadClassifier.DeduplicateWalls(found);
         }
 
         /// <summary>
@@ -868,7 +1019,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     WallPairs = tally.WallPairs,
                     PairedLengthShare = Math.Round(tally.PairedLengthShare, 3),
                     PairsLikeWalls = tally.PairsLikeWalls,
-                    WallsSkipped = tally.WallsSkipped,
+                    WallTiles = tally.WallTiles,
                 });
             }
 
@@ -1070,7 +1221,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
             public List<Segment>? WallSegments;
             public double PairedLengthShare;
             public bool PairsLikeWalls;
-            public string? WallsSkipped;
+            public int WallTiles;
 
             /// <summary>Straight pieces from model space, blocks and proxy graphics, as
             /// (x1, y1, x2, y2). Hatch boundaries and dimension pieces are counted, not kept.</summary>

@@ -59,6 +59,11 @@ folder exists and is writable (exit 2 if not); if writing still fails, the summa
 the exit code is 3. Census tests build their drawings in
 memory instead.
 
+The census wall hint pairs each layer's faces on its own. It never skips a layer for size: a
+layer with more than `MaxWallTestSegments` (80,000) merged faces is split into tiles (a k-d split
+at the median, tiles overlapping by the widest wall plus 500 mm), and each layer's JSON `walls`
+object says how many tiles it took (`tiles`: 0 not tested, 1 paired whole).
+
 ### Thresholds are millimetres
 
 `SMin` / `SMax` are the minimum and maximum wall thickness, in **millimetres** — 50 and 400 by
