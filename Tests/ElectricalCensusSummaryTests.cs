@@ -43,9 +43,17 @@ namespace Tests
         [Fact]
         public void LooksElectrical_matches_the_real_layer_names()
         {
-            foreach (string name in new[] { "E-LIGHT", "E-METER", "E-POWR", "LAMPU", "SOKET 13A" })
+            foreach (string name in new[]
+                     {
+                         "E-LIGHT", "E-METER", "E-POWR", "LAMPU", "SOKET 13A",
+                         "POWER1", "Desk Fan", "DeskFan", "ETRUNKING", "LV-RISER", "E1-LIGHTS", "SWITCHES",
+                     })
                 Assert.True(ElectricalCensusSummary.LooksElectrical(name), name);
-            foreach (string name in new[] { "A-STONE", "A-BLDG", "C-DRAIN", "A-WALL", "0" })
+            foreach (string name in new[]
+                     {
+                         "A-STONE", "A-BLDG", "C-DRAIN", "A-WALL", "0", "",
+                         "A-PERIMETER", "SATELLITE", "PORTRAYAL", "A-FANLIGHT", "A-WALL-E",
+                     })
                 Assert.False(ElectricalCensusSummary.LooksElectrical(name), name);
         }
 

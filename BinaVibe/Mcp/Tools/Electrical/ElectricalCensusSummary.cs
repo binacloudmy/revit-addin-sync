@@ -32,41 +32,98 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
     internal static class ElectricalCensusSummary
     {
-        private static readonly char[] NameSeparators = { '-', '_', ' ', '.', '$', '|' };
+        /// <summary>Discipline prefixes, matched as a whole token among the first three ("A-LV-
+        /// ..."). "E" alone is too common a tail ("A-WALL-E") so it only counts first.</summary>
+        private static readonly string[] ElectricalTokens = { "EL", "ELEC", "ELEK", "ELEKTRIK", "ELECTRICAL", "LV", "ELV" };
 
-        private static readonly string[] ElectricalTokens = { "E", "EL", "ELEC", "ELEK", "ELEKTRIK", "ELECTRICAL", "LV", "ELV" };
-
+        /// <summary>Electrical words, English and Malay. Each must be a whole token, optionally
+        /// inflected (LIGHTS, SWITCHES, LIGHTING), so PERIMETER is not a METER, SATELLITE not a
+        /// LITE, PORTRAYAL not a TRAY and a FANLIGHT (a window) not a FAN.</summary>
         private static readonly string[] ElectricalWords =
         {
-            "light", "lite", "ltg", "lampu", "power", "powr", "pwr", "kuasa", "socket", "soket",
-            "switch", "suis", "fan", "kipas", "meter", "conduit", "konduit", "trunk", "tray",
-            "kabel", "cable", "wiring",
+            "LIGHT", "LITE", "LTG", "LAMPU", "POWER", "POWR", "PWR", "KUASA", "SOCKET", "SOKET", "SSO",
+            "SWITCH", "SUIS", "FAN", "KIPAS", "METER", "CONDUIT", "KONDUIT", "TRUNK", "TRUNKING", "TRAY",
+            "KABEL", "CABLE", "WIRING", "LIGHTING",
         };
+
+        private static readonly string[] Inflections = { "", "S", "ES", "ING" };
+
+        /// <summary>A word this long is specific enough to be found inside a run-together token
+        /// (ETRUNKING, MAINCONDUIT); shorter ones are not (PERIMETER).</summary>
+        private const int CompoundableLength = 7;
 
         /// <summary>
         /// Whether a layer name looks electrical. A phase 0 measuring aid, not a mapping rule:
         /// it only lets the summary say "on electrical-looking layers". Deciding what a layer
         /// holds is the AI's job, from the census table, which never carries this guess.
+        ///
+        /// The name is split into tokens at every non-alphanumeric character, between letters
+        /// and digits (POWER1 is POWER, 1) and at a lower-to-upper case change (DeskFan), and
+        /// matched token by token, never as a substring of the whole name.
         /// </summary>
         public static bool LooksElectrical(string layer)
         {
             if (string.IsNullOrEmpty(layer)) return false;
 
-            string[] tokens = layer.Split(NameSeparators, StringSplitOptions.RemoveEmptyEntries);
-            for (int i = 0; i < tokens.Length && i < 3; i++)
+            List<string> tokens = Tokens(layer);
+            if (tokens.Count > 0 && tokens[0] == "E") return true;
+
+            for (int i = 0; i < tokens.Count && i < 3; i++)
             {
-                foreach (string token in ElectricalTokens)
+                if (ElectricalTokens.Contains(tokens[i], StringComparer.Ordinal)) return true;
+            }
+
+            foreach (string token in tokens)
+            {
+                foreach (string word in ElectricalWords)
                 {
-                    if (string.Equals(tokens[i], token, StringComparison.OrdinalIgnoreCase)) return true;
+                    if (IsWord(token, word)) return true;
+                    if (word.Length >= CompoundableLength && token.IndexOf(word, StringComparison.Ordinal) >= 0) return true;
                 }
             }
 
-            foreach (string word in ElectricalWords)
-            {
-                if (layer.IndexOf(word, StringComparison.OrdinalIgnoreCase) >= 0) return true;
-            }
-
             return false;
+        }
+
+        private static bool IsWord(string token, string word)
+        {
+            if (!token.StartsWith(word, StringComparison.Ordinal)) return false;
+            string rest = token.Substring(word.Length);
+            return Inflections.Contains(rest, StringComparer.Ordinal);
+        }
+
+        /// <summary>Upper-cased tokens of a layer name (see LooksElectrical).</summary>
+        internal static List<string> Tokens(string name)
+        {
+            var tokens = new List<string>();
+            var current = new StringBuilder();
+            char previous = '\0';
+
+            foreach (char c in name)
+            {
+                if (!char.IsLetterOrDigit(c))
+                {
+                    Flush();
+                    continue;
+                }
+
+                if (current.Length > 0 &&
+                    (char.IsDigit(c) != char.IsDigit(previous) || (char.IsUpper(c) && char.IsLower(previous))))
+                {
+                    Flush();
+                }
+
+                current.Append(c);
+                previous = c;
+            }
+            Flush();
+            return tokens;
+
+            void Flush()
+            {
+                if (current.Length > 0) tokens.Add(current.ToString().ToUpperInvariant());
+                current.Clear();
+            }
         }
 
         /// <summary>A class drawn at the size of a symbol (50 mm to 2 m), not a container.</summary>
