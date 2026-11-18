@@ -73,5 +73,14 @@ namespace RevitAddinSync.Tests
             Assert.DoesNotContain("ScopeNote.Line", Src("UI/Copilot/Controls/ResultCardView.cs"));
             Assert.Contains("NotSearched = (result?.NotSearched", Src("UI/Copilot/Model/ResultCardModel.cs"));   // still read from the result
         }
+
+        [Fact]
+        public void AHeadlineCutAtATable_EndsWhereTheTableStarts()
+        {
+            Assert.Equal("Aras 01 has 23 placed rooms, total 1109.06 m².", ProseSplit.TidyHeadline("Aras 01 has 23 placed rooms, total 1109.06 m²: | No."));
+            Assert.Equal("56 doors in 9 types.", ProseSplit.TidyHeadline("56 doors in 9 types."));
+            var text = "Aras 01 has 23 placed rooms, total 1109.06 m²:\n\n| No. | Room |\n|---|---|\n| 1 | A |";
+            Assert.Equal("| No. | Room |\n|---|---|\n| 1 | A |", ProseSplit.RestAfterHeadline(text, "Aras 01 has 23 placed rooms, total 1109.06 m²: | No."));
+        }
     }
 }

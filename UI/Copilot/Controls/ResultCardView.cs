@@ -193,6 +193,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         /// shared by a result card (Undo) and a prose answer (none).</summary>
         internal static FrameworkElement HeadlineText(string headline, bool warn, Button? undo = null)
         {
+            headline = ProseSplit.TidyHeadline(headline);
             var row = new Grid { Margin = new Thickness(0, 0, 0, 0) };
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(30) });
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });

@@ -91,6 +91,17 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return Abbreviations.Contains(word);
         }
 
+        /// <summary>A headline that was cut out of an answer opening a table ("Aras 01 has 23 rooms, total 1109 m²: | No.") ends where the table starts: the
+        /// cell bars and what follows go, the dangling colon becomes a full stop (0.0.139 pass).</summary>
+        public static string TidyHeadline(string? headline)
+        {
+            var h = (headline ?? "").Trim();
+            var bar = h.IndexOf('|');
+            if (bar < 0) return h;
+            h = h.Substring(0, bar).TrimEnd(' ', ':', ';', ',', '—', '-', '–');
+            return h.Length == 0 ? (headline ?? "").Trim() : h + ".";
+        }
+
         private static readonly string[] EmphasisMarkers = { "**", "__", "~~", "`" };
 
         private static string? MarkerAt(string s, int i)
@@ -106,7 +117,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public static string? RestAfterHeadline(string? text, string? headline)
         {
             var raw = text ?? "";
-            var h = Plain(headline ?? "").TrimEnd('.', ' ', ';', ',', ':', '…');
+            var h = Plain(TidyHeadline(headline)).TrimEnd('.', ' ', ';', ',', ':', '…');
             if (h.Length == 0) return null;
             var toggles = new Dictionary<string, int>();
             int i = 0, k = 0;
