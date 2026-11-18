@@ -78,6 +78,8 @@
     <Compile Include="..\Services\DiagnosticsPolicy.cs" Link="Services\DiagnosticsPolicy.cs" />
     <!-- Download dialog / rollback picker: viewer-state label and Revit-file rule (Revit-free; DesignFileRulesTests). -->
     <Compile Include="..\Services\DesignFileRules.cs" Link="Services\DesignFileRules.cs" />
+    <!-- Issues "Show in model": federated (shared) camera to Revit internal coordinates (Revit-free; IssueCameraMathTests). -->
+    <Compile Include="..\Services\IssueCameraMath.cs" Link="Services\IssueCameraMath.cs" />
     <!-- Discipline UI label / API value mapping (Revit-free; DisciplineTypesTests). -->
     <Compile Include="..\Services\DisciplineTypes.cs" Link="Services\DisciplineTypes.cs" />
   </ItemGroup>

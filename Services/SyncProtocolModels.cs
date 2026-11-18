@@ -467,7 +467,10 @@ namespace RevitWebAppSync.Services
         public double[] Direction { get; set; }
         public double[] UpVector { get; set; }
         public double? FieldOfView { get; set; }
+        /// <summary>Orthographic only: the visible height in metres.</summary>
         public double? ViewToWorldScale { get; set; }
+        /// <summary>Width over height of the view it was captured in.</summary>
+        public double? AspectRatio { get; set; }
         public string Units { get; set; }
     }
 
