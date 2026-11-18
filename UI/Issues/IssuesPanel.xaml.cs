@@ -40,7 +40,7 @@ namespace RevitWebAppSync.UI.Issues
             MineFilter.SelectedIndex = 0;
             ScopeFilter.ItemsSource = new[] { "This model", "Whole project" };
             ScopeFilter.SelectedIndex = 0;
-            SourceFilter.ItemsSource = new[] { "All sources", "Design", "Coordination" };
+            SourceFilter.ItemsSource = new[] { "All sources", "Design", "Federation" };
             SourceFilter.SelectedIndex = 0;
         }
 
@@ -71,7 +71,7 @@ namespace RevitWebAppSync.UI.Issues
             else
             {
                 ScopeFilter.ToolTip =
-                    "This model reads its whole version chain, plus coordination issues raised with it loaded.";
+                    "This model reads its whole version chain, plus federation issues raised with it loaded.";
             }
         }
 
