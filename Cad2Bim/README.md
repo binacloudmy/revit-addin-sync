@@ -54,7 +54,9 @@ its path.
 
 The same goes for census output. A census of a real drawing carries its layer names, block names
 and texts (project names, room names), so its JSON and summary are never committed here:
-`--census-out` refuses a path inside a git working tree. Census tests build their drawings in
+`--census-out` refuses a path inside a git working tree. It also checks before the walk that the
+folder exists and is writable (exit 2 if not); if writing still fails, the summary is printed and
+the exit code is 3. Census tests build their drawings in
 memory instead.
 
 ### Thresholds are millimetres
