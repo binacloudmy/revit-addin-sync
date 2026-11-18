@@ -361,12 +361,17 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         /// uses, for the whole result). The focus stays.</summary>
         public void ZoomToAll()
         {
-            if (_set == null || _marks.Count == 0) return;
-            var ids = _marks.Select(m => ElemIds.From(m.Id)).ToList();
-            Run("zoom-all", ids.Count, app =>
+            if (_set == null) return;
+            var set = _set;
+            // The marks may not be resolved yet (the card's "Zoom to all" on a result whose marks were never shown, or were cleared): resolve them in the
+            // job, as Select all does, so the FIRST click zooms instead of finding nothing.
+            Run("zoom-all", Math.Max(1, _marks.Count), app =>
             {
                 var uidoc = app.ActiveUIDocument;
-                if (uidoc != null) { BinaVibe.Mcp.Tools.ViewZoom.ZoomTo(uidoc, ids); _ownMove = false; }
+                if (uidoc == null) return;
+                if (_marks.Count == 0 && _resultIds.Count == 0) Resolve(app, set);
+                var ids = (_marks.Count > 0 ? _marks.Select(m => m.Id) : _resultIds).Select(ElemIds.From).ToList();
+                if (ids.Count > 0) { BinaVibe.Mcp.Tools.ViewZoom.ZoomTo(uidoc, ids); _ownMove = false; }
             }, null);   // the zoom settles in OnIdling, which draws the bar again with its new count
         }
 

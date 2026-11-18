@@ -2,6 +2,7 @@
 // A long prose answer with no server result (no card): its first sentence becomes the headline and the rest sits under a "More detail"
 // toggle. Pure (no WPF), so a test pins the threshold and the split. Numbers and wording stay as the model wrote them.
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
 
@@ -90,14 +91,38 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return Abbreviations.Contains(word);
         }
 
+        private static readonly string[] EmphasisMarkers = { "**", "__", "~~", "`" };
+
+        private static string? MarkerAt(string s, int i)
+        {
+            foreach (var m in EmphasisMarkers) if (string.CompareOrdinal(s, i, m, 0, m.Length) == 0) return m;
+            return null;
+        }
+
         /// <summary>The body without its first sentence when that sentence IS the headline: the backend streams the whole answer AND sends its first sentence
-        /// (cut at a clause boundary when long) as the reply, so the same words stood twice (UX review Q1). Null when the text does not start with the
-        /// headline; "" when it is nothing more. Emphasis markers are ignored in the comparison and the leftover is trimmed of the joining punctuation.</summary>
+        /// (cut at a clause boundary when long) as the reply, so the same words stood twice (UX review Q1). The headline is cut off the ORIGINAL markdown:
+        /// emphasis markers are skipped while matching, an emphasis span the cut ran through is reopened on the rest, and the rest keeps its own formatting
+        /// (bold, code, list markers). Null when the text does not start with the headline; "" when it is nothing more.</summary>
         public static string? RestAfterHeadline(string? text, string? headline)
         {
-            var t = Plain(text ?? ""); var h = Plain(headline ?? "").TrimEnd('.', ' ', ';', ',', ':', '…');
-            if (h.Length == 0 || t.Length < h.Length || !t.StartsWith(h, StringComparison.OrdinalIgnoreCase)) return null;
-            return t.Substring(h.Length).TrimStart('.', ' ', ';', ',', ':', '…', '\r', '\n', '-', '—').Trim();
+            var raw = text ?? "";
+            var h = Plain(headline ?? "").TrimEnd('.', ' ', ';', ',', ':', '…');
+            if (h.Length == 0) return null;
+            var toggles = new Dictionary<string, int>();
+            int i = 0, k = 0;
+            while (k < h.Length)
+            {
+                var mk = i < raw.Length ? MarkerAt(raw, i) : null;
+                if (mk != null) { toggles[mk] = (toggles.TryGetValue(mk, out var c) ? c : 0) + 1; i += mk.Length; continue; }
+                if (i >= raw.Length || char.ToUpperInvariant(raw[i]) != char.ToUpperInvariant(h[k])) return null;
+                i++; k++;
+            }
+            // Markers that close right after the headline belong to it.
+            while (i < raw.Length && MarkerAt(raw, i) is string close) { toggles[close] = (toggles.TryGetValue(close, out var c) ? c : 0) + 1; i += close.Length; }
+            var rest = raw.Substring(i).TrimStart('.', ' ', ';', ',', ':', '…', '\r', '\n', '—').TrimEnd();
+            // An emphasis span the cut ran through (an odd number of its marker seen) is opened again on the rest.
+            var reopen = string.Concat(toggles.Where(kv => kv.Value % 2 == 1 && rest.Length > 0).Select(kv => kv.Key));
+            return reopen + rest;
         }
 
         /// <summary>The headline as plain text: emphasis markers and backticks removed.</summary>

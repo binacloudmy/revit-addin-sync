@@ -40,5 +40,24 @@ namespace RevitAddinSync.Tests
             Assert.Equal("Not searched: a; b; c and 2 more", ScopeNote.Line(new[] { "a", "b", "c", "d", "e" }, ReceiptLanguage.En));
             Assert.Equal("Tidak dicari: a; b; c dan 1 lagi", ScopeNote.Line(new[] { "a", "b", "c", "d" }, ReceiptLanguage.Ms));
         }
+
+        [Fact]
+        public void TheRestKeepsItsMarkdown_BoldCodeAndAList()
+        {
+            var headline = "56 doors in 9 types.";
+            var bold = "56 doors in 9 types. The biggest is **(PTh300a) 20** and `PTt760b` has 12.";
+            Assert.Equal("The biggest is **(PTh300a) 20** and `PTt760b` has 12.", ProseSplit.RestAfterHeadline(bold, headline));
+            var list = "56 doors in 9 types.\n- (PTh300a) 20\n- (PTt760b) 12";
+            Assert.Equal("- (PTh300a) 20\n- (PTt760b) 12", ProseSplit.RestAfterHeadline(list, headline));   // the list keeps its first "- "
+        }
+
+        [Fact]
+        public void AnEmphasisSpanTheCutRunsThrough_IsReopenedOnTheRest()
+        {
+            var text = "**56 doors in 9 types, grouped by type** as follows.";
+            Assert.Equal("as follows.", ProseSplit.RestAfterHeadline(text, "56 doors in 9 types, grouped by type"));   // the span closes with the headline
+            var through = "**56 doors in 9 types, and the biggest group is (PTh300a)** with 20.";
+            Assert.Equal("**the biggest group is (PTh300a)** with 20.", ProseSplit.RestAfterHeadline(through, "56 doors in 9 types, and"));
+        }
     }
 }
