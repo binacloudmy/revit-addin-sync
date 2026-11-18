@@ -303,7 +303,6 @@ namespace RevitWebAppSync.Services
         /// <summary>Stable across retries of one attempt — this is what makes commit idempotent.</summary>
         public string SyncSessionId { get; set; }
         public string Comment { get; set; }
-        public string UrnInBase64 { get; set; }
         public object ClientInfo { get; set; }
         public object Metadata { get; set; }
 

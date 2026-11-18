@@ -214,7 +214,7 @@ namespace RevitWebAppSync.Tests
             };
 
         [Fact]
-        public async Task A_sync_runs_hash_contact_upload_save_in_order_and_never_calls_autodesk()
+        public async Task A_sync_runs_hash_contact_upload_save_in_order_and_sends_no_viewer_urn()
         {
             string path = TempFile(3 * 1048576);
             try
@@ -233,9 +233,9 @@ namespace RevitWebAppSync.Tests
                 int last = -1;
                 foreach (var p in seen.Items) { Assert.True(p.Percent >= last); last = p.Percent; }
 
-                Assert.DoesNotContain(server.Hosts, h => h.Contains("autodesk"));
                 Assert.Equal(new[] { "be.test", "store.test", "be.test" }, server.Hosts);   // init, upload, commit
-                Assert.DoesNotContain("\"urnInBase64\":\"", server.CommitBody ?? "");
+                Assert.NotNull(server.CommitBody);
+                Assert.DoesNotContain("urnInBase64", server.CommitBody, StringComparison.OrdinalIgnoreCase);
             }
             finally { File.Delete(path); }
         }
