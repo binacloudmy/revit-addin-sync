@@ -55,7 +55,7 @@ namespace RevitWebAppSync.UI
         {
             _email = null;
             _otpToken = null;
-            HeadingText.Text = "Sign in to BINA Cloud Docs";
+            HeadingText.Text = "Sign in to BINA";
             StatusText.Text = "Use the email and password of your BINA Cloud account.";
             CredentialsPanel.Visibility = Visibility.Visible;
             CodePanel.Visibility = Visibility.Collapsed;

@@ -1,7 +1,7 @@
 <Window x:Class="RevitWebAppSync.UI.CloudSignInWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="BINA Cloud Docs — Sign in"
+        Title="BINA — Sign in"
         Width="440"
         SizeToContent="Height"
         WindowStartupLocation="CenterOwner"

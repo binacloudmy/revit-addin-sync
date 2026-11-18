@@ -346,7 +346,7 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(PullFailure.SessionExpired, PullPolicy.Classify(ex, false));
             string text = PullFailureDialog.TextFor(ex, false);
             Assert.Equal(PullFailureText.For(PullFailure.SessionExpired), text);
-            Assert.Contains("Login to CDE", text);
+            Assert.Contains("Login to BINA", text);
             Assert.Equal(1, h.Calls);
         }
 

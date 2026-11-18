@@ -395,10 +395,14 @@ jobs:
   # installer\publish-unsigned-staging.ps1 for the full reasoning, the
   # installer_key naming convention (identical to sign-release.ps1's), and the
   # accepted SmartScreen-warning trade-off on the unsigned EXE.
+  # DISABLED (2026-11): staging is now published signed by the Jenkins pipeline
+  # (Jenkinsfile, netcup Windows agent), so there is exactly one publish path.
+  # Left in place, switched off with `false`, until the Jenkins path is proven.
   publish-staging-unsigned:
     needs: release
     if: >-
-      startsWith(github.ref, 'refs/tags/v')
+      false
+      && startsWith(github.ref, 'refs/tags/v')
       && endsWith(github.ref_name, '-staging')
       && vars.SELF_HOSTED_SIGNER != 'true'
     runs-on: windows-latest

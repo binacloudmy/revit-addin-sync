@@ -11,8 +11,8 @@ namespace RevitWebAppSync.Services
     ///   Architecture | Structure | Mechanical | Electrical | MainFile | Civil
     /// (src/constants/index.ts). The add-in has always sent "HVAC", which is not
     /// a member, so every discipline sync it attempted was rejected. "HVAC" is
-    /// the label Malaysian BIM teams use, so it stays on screen and maps to
-    /// Mechanical on the wire.
+    /// the old on-screen label; the UI now shows "Mechanical" and legacy "HVAC"
+    /// values still map to Mechanical on the wire.
     ///
     /// Civil is a valid backend discipline that the add-in never offered.
     /// </summary>
@@ -26,7 +26,7 @@ namespace RevitWebAppSync.Services
         public const string MainFile = "MainFile";
 
         /// <summary>Label shown to the user for a given backend value.</summary>
-        public const string MechanicalLabel = "HVAC";
+        public const string MechanicalLabel = "Mechanical";
 
         /// <summary>Order the disciplines are offered in the sync dialog.</summary>
         public static readonly IReadOnlyList<(string ApiValue, string Label, string Description)> Selectable =
@@ -36,8 +36,9 @@ namespace RevitWebAppSync.Services
                 (Structure, "Structure", "Beams, columns, foundations, framing."),
                 (Mechanical, MechanicalLabel, "Heating, ventilation and air conditioning."),
                 (Electrical, "Electrical", "Power, lighting, containment."),
-                (Civil, "Civil", "Earthworks, drainage, external works."),
-                (MainFile, "Main model", "The federated or general model for the project.")
+                (Civil, "Civil", "Earthworks, drainage, external works.")
+                // MainFile is not offered any more (ClickUp 14zefhy2nzg), but stays a valid wire value
+                // for linked files and the fallbacks below.
             };
 
         /// <summary>
@@ -48,7 +49,8 @@ namespace RevitWebAppSync.Services
         public static string ToApiValue(string uiOrLegacyValue)
         {
             if (string.IsNullOrWhiteSpace(uiOrLegacyValue)) return MainFile;
-            return uiOrLegacyValue.Trim().Equals(MechanicalLabel, StringComparison.OrdinalIgnoreCase)
+            // "HVAC" was the old label; keep accepting it.
+            return uiOrLegacyValue.Trim().Equals("HVAC", StringComparison.OrdinalIgnoreCase)
                 ? Mechanical
                 : uiOrLegacyValue.Trim();
         }
