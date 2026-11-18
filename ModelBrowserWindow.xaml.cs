@@ -64,6 +64,14 @@ namespace RevitWebAppSync
         /// <summary>Null for web uploads and promotion copies.</summary>
         public string DownloadedDocGuid { get; private set; }
 
+        // Where the model came from, recorded so a later Sync can pre-select it
+        // (ModelRecordStore). The folder is kept only for WIP: Sync always lands
+        // in WIP, and a Shared or Published folder is not one it can go into.
+        public int DownloadedProjectId => _projectId;
+        public int? DownloadedFolderId { get; private set; }
+        public string DownloadedLineageId { get; private set; }
+        public string DownloadedDiscipline { get; private set; }
+
         public ModelBrowserWindow(SyncApiClient api, int projectId, string projectName, string downloadRoot)
         {
             InitializeComponent();
@@ -637,6 +645,11 @@ namespace RevitWebAppSync
                 DownloadedVersionNumber = row.Source.VersionNumber;
                 DownloadedName = string.IsNullOrEmpty(row.Source.Name) ? design?.Name : row.Source.Name;
                 DownloadedDocGuid = design?.DocGuid;
+                DownloadedLineageId = design?.LineageId;
+                DownloadedDiscipline = design?.DisciplineType;
+                DownloadedFolderId = string.Equals(_area, BimArea.Wip, StringComparison.OrdinalIgnoreCase)
+                    ? (FoldersListBox.SelectedItem as FolderRow)?.Source?.Id
+                    : null;
                 CloseWithSuccess();
             }
             catch (OperationCanceledException)
