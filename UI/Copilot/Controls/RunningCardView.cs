@@ -43,17 +43,19 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             var rows = RunningCard.Rows(steps);
             var step = RunningText.StepLabel(steps, Language);
             var preview = RunningCard.PreviewRecords(steps);
+            // The card's title is the write step's own label ("What I will run" for code that declares no change), else the write wording.
+            var previewTitle = steps.Where(s => s.Phase == WritePreviewText.Phase && !string.IsNullOrEmpty(s.Label)).Select(s => s.Label).FirstOrDefault() ?? WritePreviewText.Title(ms);
             var helper = RunningCard.StopHelper(steps, ms);
 
             var key = string.Join("|", segments) + "#" + step + "#" + helper + "#" + ms + "#"
                 + string.Join(";", rows.Select(r => r.State + "," + r.Text + "," + r.Outcome + "," + r.Note))
-                + "#" + string.Join(";", preview.Select(p => p.Key + "=" + p.Value + p.Derived));
+                + "#" + previewTitle + "#" + string.Join(";", preview.Select(p => p.Key + "=" + p.Value + p.Derived));
             if (key == _key) return;
             _key = key;
 
             Children.Clear();
             Children.Add(Card(step, segments, rows));
-            if (preview.Count > 0) Children.Add(PreviewCard(preview, ms));
+            if (preview.Count > 0) Children.Add(PreviewCard(preview, ms, previewTitle));
             Children.Add(StopRow(helper, ms));
             OnLayoutChanged?.Invoke();
         }
@@ -245,7 +247,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
         // ── "What I will write" ──────────────────────────────────────────────
 
-        private FrameworkElement PreviewCard(IReadOnlyList<PreviewRecord> records, bool ms)
+        private FrameworkElement PreviewCard(IReadOnlyList<PreviewRecord> records, bool ms, string titleText)
         {
             var card = new Border { CornerRadius = new CornerRadius(12), BorderThickness = new Thickness(1), Margin = new Thickness(0, 16, 0, 0) };
             card.SetResourceReference(Border.BackgroundProperty, "Cp.Run.Surface");
@@ -258,7 +260,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             var hg = new Grid();
             hg.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             hg.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            var title = Text(WritePreviewText.Title(ms), 13, FontWeights.SemiBold, "Cp.Run.Text");
+            var title = Text(titleText, 13, FontWeights.SemiBold, "Cp.Run.Text");
             hg.Children.Add(title);
             var pill = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
             var eye = new Path

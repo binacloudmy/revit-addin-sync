@@ -287,9 +287,9 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 // "What I will write", before the preview: the same row the router makes (#252).
                 var willWrite = WritePreviewText.Lines(request.Calls, ms);
                 if (willWrite.Length > 0)
-                    turn.Step("write:" + request.RequestId, WritePreviewText.Phase, WritePreviewText.Title(ms), StepState.Running,
+                    turn.Step("write:" + request.RequestId, WritePreviewText.Phase, WritePreviewText.Title(request.Calls, ms), StepState.Running,
                         detail: willWrite + "\n" + WritePreviewText.NothingWritten(ms));
-                turn.Step("preview:" + request.RequestId, "preview", Labels.Preview(ms), StepState.Running);
+                turn.Step("preview:" + request.RequestId, "preview", WritePreviewText.PreviewStepLabel(request.Calls, ms), StepState.Running);
             }
         }
 
