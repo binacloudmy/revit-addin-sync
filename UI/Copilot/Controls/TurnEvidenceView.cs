@@ -40,6 +40,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         public Action? HideMarks;
         /// <summary>What the model shows of this turn's result now.</summary>
         public Func<Highlights.MarksState>? MarksState;
+        /// <summary>Something of the shown result is drawn in the view; false: Hide marks has nothing to hide (the button says so).</summary>
+        public Func<bool>? MarksDrawn;
         /// <summary>The turn has something to mark in the model.</summary>
         public Func<bool>? HasMarks;
         /// <summary>Run the callback whenever the model's marks change (the card's button relabels); it answers false once its

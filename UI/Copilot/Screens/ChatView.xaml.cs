@@ -1509,6 +1509,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             ShowMarks = () => Vm?.ShowResultInModel(m),
             HideMarks = () => Vm?.HideResultInModel(m),
             MarksState = () => Vm?.MarksStateOf(m) ?? Highlights.MarksState.None,
+            MarksDrawn = () => Vm?.MarksDrawn(m) ?? true,
             HasMarks = () => Vm != null && Vm.HasMarks(m),
             WatchMarks = w => Vm?.WatchMarks(w),
             // One way in (the "Gabung" view, G6): a row click selects its elements in Revit and zooms to them.

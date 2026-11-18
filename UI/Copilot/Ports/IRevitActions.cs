@@ -37,6 +37,8 @@ namespace RevitWebAppSync.UI.Copilot.Ports
         void ShowMarksAgain();
         /// <summary>What the model shows of this turn's result.</summary>
         Highlights.MarksState MarksStateOf(string turnId);
+        /// <summary>Something of the shown result is drawn in the view (false: its elements are hidden there or off the view).</summary>
+        bool MarksDrawn(string turnId);
         /// <summary>Reset the active view's Temporary Hide/Isolate. Returns null when it was reset, "none" when the view was not isolated, else why not.</summary>
         Task<string> ResetIsolateAsync();
         /// <summary>Revit's own selection right now (element ids of the open model); empty when none or Revit cannot say.</summary>

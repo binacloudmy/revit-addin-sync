@@ -630,7 +630,7 @@ namespace RevitWebAppSync.UI.Copilot
                     var willWriteId = "write:" + request.RequestId;
                     if (willWrite.Length > 0)
                     {
-                        _turn.Step(willWriteId, WritePreviewText.Phase, WritePreviewText.Title(ms), StepState.Running,
+                        _turn.Step(willWriteId, WritePreviewText.Phase, WritePreviewText.Title(request.Calls, ms), StepState.Running,
                             detail: willWrite + "\n" + WritePreviewText.NothingWritten(ms));
                         _turn.Annotate(willWriteId, preview: WritePreviewText.Records(request.Calls, ms));
                         _router.Publish(_turn);
@@ -647,7 +647,7 @@ namespace RevitWebAppSync.UI.Copilot
                     // WPF shares Revit's thread: say "previewing" BEFORE the preview
                     // callback freezes the pane (spec §7.10).
                     _turn.Step("preview:" + request.RequestId, "preview",
-                        ms ? "Pratonton perubahan dalam Revit…" : "Previewing the change in Revit…", StepState.Running);
+                        WritePreviewText.PreviewStepLabel(request.Calls, ms), StepState.Running);
                     _router.Publish(_turn);
                     envelopes = await _router._tools.RunWritesAsync(turnId, request.RequestId, request.Calls, request.Description, _turn.Snapshot, ct).ConfigureAwait(false);
                     _turn.Step("preview:" + request.RequestId, "preview", "", StepState.Done);

@@ -24,6 +24,29 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
         public static string Title(bool ms) => ms ? "Apa yang akan saya tulis" : "What I will write";
 
+        /// <summary>Run Revit code that declares no change (expected absent or all zero): the model may only read. The turn then speaks neutrally ("What I will run",
+        /// "Checking the code in Revit") instead of write wording (0.0.139 pass: a long read turn said "Previewing the change"). Wording only: the preview, the Stop
+        /// window and the gate are the same. A call with a declared change, or any other tool, keeps the write wording.</summary>
+        public static bool DeclaresNoChange(IReadOnlyList<ToolCallDto>? calls)
+        {
+            if (calls == null || calls.Count == 0) return false;
+            foreach (var c in calls)
+            {
+                if (c == null || c.Tool != ToolNames.RunRevitCode) return false;
+                if (!BinaVibe.Copilot.Code.RunRevitCodeArgs.TryParse(c.Args, out var parsed, out _) || parsed == null) return false;
+                if (parsed.Expected != null && parsed.Expected.AnyChange) return false;
+            }
+            return true;
+        }
+
+        public static string Title(IReadOnlyList<ToolCallDto>? calls, bool ms) => DeclaresNoChange(calls)
+            ? (ms ? "Apa yang akan saya jalankan" : "What I will run")
+            : Title(ms);
+
+        public static string PreviewStepLabel(IReadOnlyList<ToolCallDto>? calls, bool ms) => DeclaresNoChange(calls)
+            ? (ms ? "Menyemak kod dalam Revit…" : "Checking the code in Revit…")
+            : (ms ? "Pratonton perubahan dalam Revit…" : "Previewing the change in Revit…");
+
         public static string NothingWritten(bool ms) => ms
             ? "Belum ada yang ditulis. Berhenti sekarang tidak mengubah apa-apa."
             : "Nothing written yet. Stopping now changes nothing.";
@@ -77,7 +100,9 @@ namespace RevitWebAppSync.UI.Copilot.Model
             if (c == null) return null;
             if (c.Tool == ToolNames.RunRevitCode)
                 return new PreviewRecord(ms ? "Kod Revit" : "Revit code",
-                    ms ? "Perubahan dipratonton dalam Revit" : "Changes previewed in Revit", false);
+                    DeclaresNoChange(new[] { c })
+                        ? (ms ? "Disemak dalam Revit dahulu" : "Checked in Revit first")
+                        : (ms ? "Perubahan dipratonton dalam Revit" : "Changes previewed in Revit"), false);
             if (c.Tool != ToolNames.SetParameters || c.Args.ValueKind != JsonValueKind.Object) return null;
             var args = c.Args;
             if (!args.TryGetProperty("param", out var p) || p.ValueKind != JsonValueKind.String) return null;
@@ -97,7 +122,9 @@ namespace RevitWebAppSync.UI.Copilot.Model
         {
             if (c == null) return "";
             if (c.Tool == ToolNames.RunRevitCode)
-                return ms ? "Perubahan daripada kod Revit (dipratonton dalam Revit)" : "Changes from Revit code (previewed in Revit)";
+                return DeclaresNoChange(new[] { c })
+                    ? (ms ? "Kod Revit (disemak dalam Revit dahulu)" : "Revit code (checked in Revit first)")
+                    : ms ? "Perubahan daripada kod Revit (dipratonton dalam Revit)" : "Changes from Revit code (previewed in Revit)";
             if (c.Tool != ToolNames.SetParameters || c.Args.ValueKind != JsonValueKind.Object) return "";
             var args = c.Args;
             if (!args.TryGetProperty("param", out var p) || p.ValueKind != JsonValueKind.String) return "";

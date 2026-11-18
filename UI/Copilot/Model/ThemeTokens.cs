@@ -151,9 +151,9 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 ["Cp.Run.Text2"]     = ("#3a3d48", "#D3D7DF"),
                 ["Cp.Run.Muted"]     = ("#5d6170", "#A6ADBA"),
                 ["Cp.Run.Faint"]     = ("#7a7f90", "#8A91A0"),
-                ["Cp.Run.Accent"]    = ("#7fa800", "#D2F65A"),
-                ["Cp.Run.AccentHalo"] = ("#247fa800", "#24D2F65A"),
-                ["Cp.Run.AccentRing"] = ("#387fa800", "#38D2F65A"),
+                ["Cp.Run.Accent"]    = ("#2a69c6", "#5EA2FF"),    // the brand blue of the Z mark (was lime: the Working card read as another product)
+                ["Cp.Run.AccentHalo"] = ("#242a69c6", "#245EA2FF"),
+                ["Cp.Run.AccentRing"] = ("#382a69c6", "#385EA2FF"),
                 ["Cp.Run.AccentInk"] = ("#ffffff", "#0E1014"),
                 ["Cp.Run.Success"]   = ("#2f9a72", "#5BD69A"),
                 ["Cp.Run.SuccessBg"] = ("#242f9a72", "#245BD69A"),

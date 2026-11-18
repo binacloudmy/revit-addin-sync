@@ -123,6 +123,9 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             _model?.Key?.OpenViewId is long id ? (id, _model.Key.OpenViewName ?? "") : ((long, string)?)null;
 
         /// <summary>Where the shown result is, in the bar's words ("in Level 1, this view"); "" when nothing is shown.</summary>
+        /// <summary>Something of this result is drawn in the view right now (a dot, a badge or a frame). False when its elements are hidden in the view
+        /// or off it: "Hide marks" would then change nothing the drafter can see.</summary>
+        public bool AnyDrawn => _marks.Count > 0 || _controls.Count > 0;
         public string WhereLine => _set == null || !IsShowing ? "" : _model?.Key?.Where ?? "";
 
         /// <summary>Raised on the UI thread whenever the shown result, or whether it is hidden, changed (the card relabels

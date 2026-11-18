@@ -1531,6 +1531,12 @@ namespace RevitWebAppSync.UI.Copilot
             try { return Revit.MarksStateOf(m.TurnId); } catch (Exception) { return HL.MarksState.None; }
         }
 
+        public bool MarksDrawn(ChatMessage m)
+        {
+            if (string.IsNullOrEmpty(m?.TurnId) || InModel == null) return true;
+            try { return Revit.MarksDrawn(m.TurnId); } catch (Exception) { return true; }
+        }
+
         /// <summary>The reply has something to mark in the model (the card then offers Hide marks / Show in model).</summary>
         public bool HasMarks(ChatMessage m)
         {

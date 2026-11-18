@@ -203,9 +203,9 @@
     <SolidColorBrush x:Key="Cp.Run.Text2"              Color="#3a3d48"/>
     <SolidColorBrush x:Key="Cp.Run.Muted"              Color="#5d6170"/>
     <SolidColorBrush x:Key="Cp.Run.Faint"              Color="#7a7f90"/>
-    <SolidColorBrush x:Key="Cp.Run.Accent"             Color="#7fa800"/>
-    <SolidColorBrush x:Key="Cp.Run.AccentHalo"         Color="#247fa800"/>
-    <SolidColorBrush x:Key="Cp.Run.AccentRing"         Color="#387fa800"/>
+    <SolidColorBrush x:Key="Cp.Run.Accent"             Color="#2a69c6"/>
+    <SolidColorBrush x:Key="Cp.Run.AccentHalo"         Color="#242a69c6"/>
+    <SolidColorBrush x:Key="Cp.Run.AccentRing"         Color="#382a69c6"/>
     <SolidColorBrush x:Key="Cp.Run.AccentInk"          Color="#ffffff"/>
     <SolidColorBrush x:Key="Cp.Run.Success"            Color="#2f9a72"/>
     <SolidColorBrush x:Key="Cp.Run.SuccessBg"          Color="#242f9a72"/>

@@ -28,14 +28,26 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             }
             var label = LabelFor(State());
             button = ghost ? CardKit.Ghost(label, Click, CardKit.Icons.Eye, compact: true) : CardKit.Secondary(label, Click, CardKit.Icons.Eye);
+            Refresh(button, State(), actions);
             var weak = new WeakReference<Button>(button);
             actions.WatchMarks?.Invoke(() =>
             {
                 if (!weak.TryGetTarget(out var b)) return false;
                 ItemsCard.SetLabel(b, LabelFor(State()));
+                Refresh(b, State(), actions);
                 return true;
             });
             return button;
+        }
+
+        public const string NothingToHide = "Nothing is drawn in this view: the element is hidden here or off the view, so there is nothing to hide.";
+
+        /// <summary>"Hide marks" on a result with nothing drawn would change nothing the drafter can see (UX, 0.0.139 pass): the button is off and says why.</summary>
+        internal static void Refresh(Button b, MarksState state, TurnEvidenceActions actions)
+        {
+            var nothing = state == MarksState.Shown && !Safe(actions.MarksDrawn, true);
+            b.IsEnabled = !nothing;
+            b.ToolTip = nothing ? NothingToHide : null;
         }
 
         private static bool Safe(Func<bool>? f, bool fallback)

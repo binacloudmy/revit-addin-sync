@@ -38,6 +38,7 @@ namespace RevitWebAppSync.UI.Copilot.Ports
         public void ClearMarks() => _inModel()?.Clear();
         public void HideMarks() => _inModel()?.Hide();
         public void ShowMarksAgain() => _inModel()?.ShowAgain();
+        public bool MarksDrawn(string turnId) { var m = _inModel(); return m == null || m.StateOf(turnId) != MarksState.Shown || m.AnyDrawn; }
         public MarksState MarksStateOf(string turnId) => _inModel()?.StateOf(turnId) ?? MarksState.None;
         public Task<string> ResetIsolateAsync()
         {
