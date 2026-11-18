@@ -9,6 +9,9 @@
         Background="#F7F8FA">
 
     <Window.Resources>
+        <!-- Line-art cube (24x24 box) shared by the model tiles and the version preview. -->
+        <Geometry x:Key="CubeIconGeometry">M12,2 L21,7 L21,17 L12,22 L3,17 L3,7 Z M3,7 L12,12 L21,7 M12,12 L12,22</Geometry>
+
         <!-- One row style for all three columns: the whole row is the hit
              target, and selection reads the same left to right. -->
         <Style x:Key="BrowseItemStyle" TargetType="ListBoxItem">
@@ -164,17 +167,63 @@
                                      BorderThickness="0" Background="Transparent"
                                      ItemContainerStyle="{StaticResource BrowseItemStyle}"
                                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                     ScrollViewer.VerticalScrollBarVisibility="Visible"
                                      SelectionMode="Single"
                                      SelectionChanged="ModelsListBox_SelectionChanged">
                                 <ListBox.ItemTemplate>
                                     <DataTemplate>
                                         <Grid>
                                             <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
                                                 <ColumnDefinition Width="*"/>
                                                 <ColumnDefinition Width="Auto"/>
                                             </Grid.ColumnDefinitions>
 
-                                            <StackPanel Grid.Column="0">
+                                            <!-- 64x48 thumbnail tile; fixed size so Border.Clip can round the corners. -->
+                                            <Border Grid.Column="0" Width="64" Height="48"
+                                                    Margin="0,0,10,0" VerticalAlignment="Top"
+                                                    Background="#F3F5F8" BorderBrush="#E3E7EE"
+                                                    BorderThickness="1" CornerRadius="3">
+                                                <Border.Clip>
+                                                    <RectangleGeometry Rect="0,0,64,48" RadiusX="3" RadiusY="3"/>
+                                                </Border.Clip>
+                                                <Grid>
+                                                    <Image Source="{Binding Thumbnail}" Stretch="UniformToFill"
+                                                           RenderOptions.BitmapScalingMode="HighQuality">
+                                                        <Image.Style>
+                                                            <Style TargetType="Image">
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding Thumbnail}" Value="{x:Null}">
+                                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </Image.Style>
+                                                    </Image>
+                                                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                                                        <StackPanel.Style>
+                                                            <Style TargetType="StackPanel">
+                                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding Thumbnail}" Value="{x:Null}">
+                                                                        <Setter Property="Visibility" Value="Visible"/>
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </StackPanel.Style>
+                                                        <Path Data="{StaticResource CubeIconGeometry}"
+                                                              Stroke="#9AA3B2" StrokeThickness="1.2"
+                                                              StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                                              Stretch="Uniform" Width="18" Height="18"
+                                                              HorizontalAlignment="Center"/>
+                                                        <TextBlock Text="{Binding PlaceholderLabel}" FontSize="9"
+                                                                   Foreground="#9AA3B2" TextAlignment="Center"
+                                                                   TextWrapping="Wrap" MaxWidth="60"/>
+                                                    </StackPanel>
+                                                </Grid>
+                                            </Border>
+
+                                            <StackPanel Grid.Column="1">
                                                 <TextBlock Text="{Binding Name}" FontSize="13"
                                                            Foreground="{Binding NameBrush}"
                                                            TextWrapping="Wrap"/>
@@ -191,7 +240,7 @@
                                                            Visibility="{Binding LockedVisibility}"/>
                                             </StackPanel>
 
-                                            <TextBlock Grid.Column="1" Text="{Binding SizeText}" FontSize="11"
+                                            <TextBlock Grid.Column="2" Text="{Binding SizeText}" FontSize="11"
                                                        Foreground="#9AA3B2" Margin="10,0,0,0"
                                                        VerticalAlignment="Top"/>
                                         </Grid>
@@ -213,70 +262,94 @@
             <DockPanel Grid.Column="4">
                 <TextBlock DockPanel.Dock="Top" Text="VERSION" Style="{StaticResource ColumnHeader}"/>
                 <Border BorderBrush="#D8DEE9" BorderThickness="1" CornerRadius="4" Background="White">
-                    <Grid>
-                        <ListBox x:Name="VersionsListBox"
-                                 BorderThickness="0" Background="Transparent"
-                                 ItemContainerStyle="{StaticResource BrowseItemStyle}"
-                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                                 SelectionMode="Single"
-                                 SelectionChanged="VersionsListBox_SelectionChanged">
-                            <ListBox.ItemTemplate>
-                                <DataTemplate>
-                                    <Grid>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="Auto"/>
-                                            <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="Auto"/>
-                                        </Grid.ColumnDefinitions>
+                    <DockPanel>
+                        <!-- Preview of the selected version; code-behind drives visibility and content. -->
+                        <Border x:Name="VersionPreview" DockPanel.Dock="Top"
+                                Height="150" Margin="8"
+                                Background="#F3F5F8" BorderBrush="#E3E7EE" BorderThickness="1"
+                                CornerRadius="4" Visibility="Collapsed">
+                            <Grid>
+                                <Image x:Name="VersionPreviewImage" Stretch="Uniform"
+                                       RenderOptions.BitmapScalingMode="HighQuality"/>
+                                <StackPanel x:Name="VersionPreviewPlaceholder"
+                                            VerticalAlignment="Center" HorizontalAlignment="Center">
+                                    <Path Data="{StaticResource CubeIconGeometry}"
+                                          Stroke="#9AA3B2" StrokeThickness="1.2"
+                                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                          Stretch="Uniform" Width="28" Height="28"
+                                          HorizontalAlignment="Center"/>
+                                    <TextBlock x:Name="VersionPreviewPlaceholderText"
+                                               FontSize="11" Foreground="#9AA3B2"
+                                               Margin="0,6,0,0" TextAlignment="Center"
+                                               TextWrapping="Wrap" MaxWidth="180"/>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+                        <Grid>
+                            <ListBox x:Name="VersionsListBox"
+                                     BorderThickness="0" Background="Transparent"
+                                     ItemContainerStyle="{StaticResource BrowseItemStyle}"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                     SelectionMode="Single"
+                                     SelectionChanged="VersionsListBox_SelectionChanged">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
 
-                                        <StackPanel Grid.Column="0" Orientation="Horizontal"
-                                                    VerticalAlignment="Top" Margin="0,0,10,0">
-                                            <TextBlock Text="{Binding VersionLabel}" FontSize="14"
-                                                       FontWeight="SemiBold" Foreground="#1F2937"
-                                                       VerticalAlignment="Center"/>
-                                            <Border Background="#DCFCE7" CornerRadius="3"
-                                                    Padding="5,1" Margin="6,0,0,0"
-                                                    VerticalAlignment="Center"
-                                                    Visibility="{Binding CurrentBadgeVisibility}">
-                                                <TextBlock Text="Latest" FontSize="10"
-                                                           FontWeight="SemiBold" Foreground="#166534"/>
-                                            </Border>
-                                        </StackPanel>
+                                            <StackPanel Grid.Column="0" Orientation="Horizontal"
+                                                        VerticalAlignment="Top" Margin="0,0,10,0">
+                                                <TextBlock Text="{Binding VersionLabel}" FontSize="14"
+                                                           FontWeight="SemiBold" Foreground="#1F2937"
+                                                           VerticalAlignment="Center"/>
+                                                <Border Background="#DCFCE7" CornerRadius="3"
+                                                        Padding="5,1" Margin="6,0,0,0"
+                                                        VerticalAlignment="Center"
+                                                        Visibility="{Binding CurrentBadgeVisibility}">
+                                                    <TextBlock Text="Latest" FontSize="10"
+                                                               FontWeight="SemiBold" Foreground="#166534"/>
+                                                </Border>
+                                            </StackPanel>
 
-                                        <StackPanel Grid.Column="1">
-                                            <TextBlock Text="{Binding SyncedByLine}" FontSize="12"
-                                                       Foreground="#1F2937" TextWrapping="Wrap"/>
-                                            <TextBlock Text="{Binding CommentLine}" FontSize="11"
-                                                       Foreground="#6B7280" Margin="0,2,0,0"
-                                                       TextWrapping="Wrap"
-                                                       Visibility="{Binding CommentVisibility}"/>
-                                            <TextBlock Text="{Binding RestoredFromLine}" FontSize="11"
-                                                       Foreground="#B45309" Margin="0,2,0,0"
-                                                       Visibility="{Binding RestoredFromVisibility}"/>
-                                            <TextBlock Text="{Binding PromotedLine}" FontSize="11"
-                                                       Foreground="#6B7280" Margin="0,2,0,0"
-                                                       TextWrapping="Wrap"
-                                                       Visibility="{Binding PromotedVisibility}"/>
-                                        </StackPanel>
+                                            <StackPanel Grid.Column="1">
+                                                <TextBlock Text="{Binding SyncedByLine}" FontSize="12"
+                                                           Foreground="#1F2937" TextWrapping="Wrap"/>
+                                                <TextBlock Text="{Binding CommentLine}" FontSize="11"
+                                                           Foreground="#6B7280" Margin="0,2,0,0"
+                                                           TextWrapping="Wrap"
+                                                           Visibility="{Binding CommentVisibility}"/>
+                                                <TextBlock Text="{Binding RestoredFromLine}" FontSize="11"
+                                                           Foreground="#B45309" Margin="0,2,0,0"
+                                                           Visibility="{Binding RestoredFromVisibility}"/>
+                                                <TextBlock Text="{Binding PromotedLine}" FontSize="11"
+                                                           Foreground="#6B7280" Margin="0,2,0,0"
+                                                           TextWrapping="Wrap"
+                                                           Visibility="{Binding PromotedVisibility}"/>
+                                            </StackPanel>
 
-                                        <StackPanel Grid.Column="2" HorizontalAlignment="Right">
-                                            <TextBlock Text="{Binding SizeText}" FontSize="11"
-                                                       Foreground="#6B7280" HorizontalAlignment="Right"/>
-                                            <TextBlock Text="{Binding TranslationText}" FontSize="10"
-                                                       Foreground="#9AA3B2" Margin="0,2,0,0"
-                                                       HorizontalAlignment="Right"/>
-                                        </StackPanel>
-                                    </Grid>
-                                </DataTemplate>
-                            </ListBox.ItemTemplate>
-                        </ListBox>
+                                            <StackPanel Grid.Column="2" HorizontalAlignment="Right">
+                                                <TextBlock Text="{Binding SizeText}" FontSize="11"
+                                                           Foreground="#6B7280" HorizontalAlignment="Right"/>
+                                                <TextBlock Text="{Binding TranslationText}" FontSize="10"
+                                                           Foreground="#9AA3B2" Margin="0,2,0,0"
+                                                           HorizontalAlignment="Right"/>
+                                            </StackPanel>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
 
-                        <TextBlock x:Name="VersionsMessage"
-                                   Text="Pick a model to see its versions."
-                                   VerticalAlignment="Center" HorizontalAlignment="Center"
-                                   Foreground="#9AA3B2" FontSize="12" TextWrapping="Wrap"
-                                   MaxWidth="260" TextAlignment="Center"/>
-                    </Grid>
+                            <TextBlock x:Name="VersionsMessage"
+                                       Text="Pick a model to see its versions."
+                                       VerticalAlignment="Center" HorizontalAlignment="Center"
+                                       Foreground="#9AA3B2" FontSize="12" TextWrapping="Wrap"
+                                       MaxWidth="260" TextAlignment="Center"/>
+                        </Grid>
+                    </DockPanel>
                 </Border>
             </DockPanel>
         </Grid>

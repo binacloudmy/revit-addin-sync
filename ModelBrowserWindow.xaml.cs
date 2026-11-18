@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -35,6 +36,14 @@ namespace RevitWebAppSync
 
         private CancellationTokenSource _cancellation;
         private bool _downloading;
+
+        // Preview pictures, fetched as rows come into view and kept for the life
+        // of the dialog. Disposed on close so no download outlives the window.
+        private readonly ThumbnailLoader _thumbnails = new ThumbnailLoader();
+
+        // Bumped on every version selection: a slow preview for V3 must not land
+        // on top of V5 after the user has moved on.
+        private int _previewTicket;
 
         /// <summary>Which area the folder column is showing. WIP until switched.</summary>
         private string _area = BimArea.Wip;
@@ -79,7 +88,7 @@ namespace RevitWebAppSync
             public Visibility DisciplineVisibility { get; set; }
         }
 
-        private sealed class ModelRow
+        private sealed class ModelRow : INotifyPropertyChanged
         {
             public BimDesign Source { get; set; }
             public string Name { get; set; }
@@ -89,6 +98,43 @@ namespace RevitWebAppSync
             public Brush NameBrush { get; set; }
             public string PromotedLine { get; set; }
             public Visibility PromotedVisibility { get; set; }
+
+            /// <summary>Called once, the first time the row's tile is bound.</summary>
+            public Action<ModelRow> ThumbnailRequested { get; set; }
+
+            private bool _thumbnailRequested;
+            private ImageSource _thumbnail;
+            private string _placeholderLabel;
+
+            /// <summary>
+            /// The picture, or null while loading or when there is none. The
+            /// first read starts the download: the list virtualizes its rows, so
+            /// only rows that actually scroll into view cost a fetch.
+            /// </summary>
+            public ImageSource Thumbnail
+            {
+                get
+                {
+                    if (!_thumbnailRequested)
+                    {
+                        _thumbnailRequested = true;
+                        ThumbnailRequested?.Invoke(this);
+                    }
+                    return _thumbnail;
+                }
+                set { _thumbnail = value; OnChanged(nameof(Thumbnail)); }
+            }
+
+            public string PlaceholderLabel
+            {
+                get { return _placeholderLabel; }
+                set { _placeholderLabel = value; OnChanged(nameof(PlaceholderLabel)); }
+            }
+
+            public event PropertyChangedEventHandler PropertyChanged;
+
+            private void OnChanged(string name) =>
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
         }
 
         private sealed class VersionRow
@@ -212,7 +258,12 @@ namespace RevitWebAppSync
                 // folder is not in the area the toggle claims.
                 var page = await _api.GetDesignsAsync(_projectId, folderId, _area);
 
-                _allModels = (page.Designs ?? new List<BimDesign>()).Select(ToModelRow).ToList();
+                _allModels = (page.Designs ?? new List<BimDesign>()).Select(d =>
+                {
+                    var row = ToModelRow(d);
+                    row.ThumbnailRequested = RequestModelThumbnail;
+                    return row;
+                }).ToList();
                 // hasMore, not "the cursor is set": bina-be always sends it, and a
                 // full last page with no cursor is still the whole folder.
                 _modelsTruncated = page.IsPartial;
@@ -267,8 +318,37 @@ namespace RevitWebAppSync
                 PromotedVisibility = d.HasPromotionMismatch ? Visibility.Visible : Visibility.Collapsed,
                 NameBrush = d.IsDownloadable
                     ? new SolidColorBrush(Color.FromRgb(0x1F, 0x29, 0x37))
-                    : new SolidColorBrush(Color.FromRgb(0x9A, 0xA3, 0xB2))
+                    : new SolidColorBrush(Color.FromRgb(0x9A, 0xA3, 0xB2)),
+                PlaceholderLabel = string.IsNullOrWhiteSpace(d.ThumbnailUrl)
+                    ? DesignFileRules.DescribeMissingThumbnail(d.OdaViewerState)
+                    : "Loading…"
             };
+        }
+
+        /// <summary>
+        /// Fetches one row's tile. Runs from the Thumbnail getter, so it yields
+        /// first: setting the property while the binding is still reading it
+        /// would re-enter the binding engine.
+        /// </summary>
+        private async void RequestModelThumbnail(ModelRow row)
+        {
+            var d = row.Source;
+            if (string.IsNullOrWhiteSpace(d.ThumbnailUrl)) return;
+
+            try
+            {
+                await System.Windows.Threading.Dispatcher.Yield();
+                // 128 px for a 64 px tile: sharp on a 200% display, small in memory.
+                var image = await _thumbnails.LoadAsync(d.DesignId, d.ThumbnailUrl, 128);
+                if (image != null)
+                    row.Thumbnail = image;
+                else
+                    row.PlaceholderLabel = DesignFileRules.DescribeMissingThumbnail(d.OdaViewerState);
+            }
+            catch (Exception)
+            {
+                row.PlaceholderLabel = DesignFileRules.DescribeMissingThumbnail(d.OdaViewerState);
+            }
         }
 
         private void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
@@ -420,6 +500,8 @@ namespace RevitWebAppSync
 
             var version = VersionsListBox.SelectedItem as VersionRow;
             var model = ModelsListBox.SelectedItem as ModelRow;
+
+            ShowVersionPreview(version);
 
             if (version == null || model == null)
             {
@@ -703,9 +785,68 @@ namespace RevitWebAppSync
 
         private void ClearVersions(string message)
         {
+            HideVersionPreview();
             VersionsListBox.ItemsSource = null;
             VersionsMessage.Text = message;
             VersionsMessage.Visibility = Visibility.Visible;
+        }
+
+        /// <summary>
+        /// The larger picture above the version list, for the selected version:
+        /// each version keeps its own snapshot, so V3 can look different from V5.
+        /// </summary>
+        private async void ShowVersionPreview(VersionRow row)
+        {
+            int ticket = ++_previewTicket;
+
+            if (row == null)
+            {
+                HideVersionPreview();
+                return;
+            }
+
+            var v = row.Source;
+            VersionPreview.Visibility = Visibility.Visible;
+            VersionPreviewImage.Source = null;
+            VersionPreviewImage.Visibility = Visibility.Collapsed;
+            VersionPreviewPlaceholder.Visibility = Visibility.Visible;
+
+            if (string.IsNullOrWhiteSpace(v.ThumbnailUrl))
+            {
+                VersionPreviewPlaceholderText.Text = DesignFileRules.DescribeMissingThumbnail(v.OdaViewerState);
+                return;
+            }
+
+            VersionPreviewPlaceholderText.Text = "Loading preview…";
+
+            ImageSource image;
+            try
+            {
+                image = await _thumbnails.LoadAsync(v.DesignId, v.ThumbnailUrl, 640);
+            }
+            catch (Exception)
+            {
+                image = null;
+            }
+
+            if (ticket != _previewTicket) return;
+
+            if (image == null)
+            {
+                VersionPreviewPlaceholderText.Text = DesignFileRules.DescribeMissingThumbnail(v.OdaViewerState);
+                return;
+            }
+
+            VersionPreviewImage.Source = image;
+            VersionPreviewImage.Visibility = Visibility.Visible;
+            VersionPreviewPlaceholder.Visibility = Visibility.Collapsed;
+        }
+
+        private void HideVersionPreview()
+        {
+            _previewTicket++;
+            VersionPreview.Visibility = Visibility.Collapsed;
+            VersionPreviewImage.Source = null;
         }
 
         /// <summary>
@@ -762,6 +903,8 @@ namespace RevitWebAppSync
         /// </summary>
         protected override void OnClosed(EventArgs e)
         {
+            _thumbnails.Dispose();
+
             if (_cancellation != null)
             {
                 try { _cancellation.Cancel(); } catch { }
