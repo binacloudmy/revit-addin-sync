@@ -239,19 +239,18 @@
                                         <Border x:Name="Rule" Height="2" CornerRadius="1" VerticalAlignment="Top" Margin="0,-7,0,0"
                                                 Background="{StaticResource Bz.Brand}" Visibility="Collapsed"/>
                                         <StackPanel>
+                                            <!-- key and the "need a person" count; the % below it (one line clips at 380 px) -->
                                             <Grid>
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="*"/>
                                                     <ColumnDefinition Width="Auto"/>
                                                 </Grid.ColumnDefinitions>
-                                                <StackPanel Orientation="Horizontal" ClipToBounds="True">
-                                                    <TextBlock x:Name="K" Text="{Binding Key}" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource Bz.Text2}" VerticalAlignment="Center"/>
-                                                    <TextBlock x:Name="Pct" Text="{Binding PctLabel}" FontSize="12.5" FontWeight="SemiBold" Foreground="{StaticResource Bz.Text}"
-                                                               Typography.NumeralAlignment="Tabular" Margin="5,0,0,0" VerticalAlignment="Center"/>
-                                                </StackPanel>
+                                                <TextBlock x:Name="K" Text="{Binding Key}" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource Bz.Text2}" VerticalAlignment="Center"/>
                                                 <TextBlock x:Name="P" Grid.Column="1" Text="{Binding PendLabel}" FontSize="10.5" FontWeight="SemiBold" Foreground="{StaticResource Bz.Tone.Person}"
                                                            VerticalAlignment="Center" Margin="4,0,0,0"/>
                                             </Grid>
+                                            <TextBlock x:Name="Pct" Text="{Binding PctLabel}" FontSize="13" FontWeight="SemiBold" Foreground="{StaticResource Bz.Text}"
+                                                       Typography.NumeralAlignment="Tabular" Margin="0,1,0,0" TextTrimming="CharacterEllipsis"/>
                                             <!-- share that passes -->
                                             <Grid x:Name="BarG" Height="2" Margin="0,5,0,0">
                                                 <Border x:Name="Track" Background="{StaticResource Bz.Track}" CornerRadius="1"/>
@@ -455,20 +454,22 @@
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
-                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <!-- "n shown", then the section pill, which trims rather than run under the buttons -->
+                    <DockPanel VerticalAlignment="Center" Margin="0,0,8,0" LastChildFill="True">
+                        <TextBlock DockPanel.Dock="Left" Text="{Binding ShownLabel}" FontSize="11" Foreground="{StaticResource Bz.Text2}" VerticalAlignment="Center" Margin="0,0,8,0"
+                                   Visibility="{Binding ShowList, Converter={StaticResource B2V}}"/>
                         <!-- .pill: active section filter -->
-                        <Button Style="{StaticResource Bare}" Click="ClearCat_Click" Margin="0,0,8,0"
+                        <Button Style="{StaticResource Bare}" Click="ClearCat_Click" HorizontalAlignment="Left"
                                 Visibility="{Binding HasCat, Converter={StaticResource B2V}}" AutomationProperties.Name="{Binding ClearCatLabel}">
                             <Border Background="{StaticResource Bz.BrandSoft}" CornerRadius="4" Height="28" Padding="9,0,8,0">
-                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                    <TextBlock Text="{Binding CatLabel}" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource Bz.Brand}" MaxWidth="130" TextTrimming="CharacterEllipsis"/>
-                                    <Path Style="{StaticResource Icon}" Width="9" Height="9" Margin="6,0,0,0" Stroke="{StaticResource Bz.Brand}" Data="M18,6 L6,18 M6,6 L18,18"/>
-                                </StackPanel>
+                                <DockPanel VerticalAlignment="Center" LastChildFill="True">
+                                    <Path DockPanel.Dock="Right" Style="{StaticResource Icon}" Width="9" Height="9" Margin="6,0,0,0" Stroke="{StaticResource Bz.Brand}" Data="M18,6 L6,18 M6,6 L18,18"/>
+                                    <TextBlock Text="{Binding CatLabel}" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource Bz.Brand}" TextTrimming="CharacterEllipsis"
+                                               VerticalAlignment="Center" ToolTip="{Binding CatLabel}"/>
+                                </DockPanel>
                             </Border>
                         </Button>
-                        <TextBlock Text="{Binding ShownLabel}" FontSize="11" Foreground="{StaticResource Bz.Text2}" VerticalAlignment="Center"
-                                   Visibility="{Binding ShowList, Converter={StaticResource B2V}}"/>
-                    </StackPanel>
+                    </DockPanel>
                     <StackPanel Grid.Column="1" Orientation="Horizontal">
                         <Button Content="{Binding IgnoreAllLabel}" Style="{StaticResource Bz.Btn.Ghost}" Click="IgnoreAll_Click" Padding="10,0,10,0" MinHeight="32"
                                 IsEnabled="{Binding CanAct}" Margin="0,0,6,0"/>
@@ -824,16 +825,20 @@
             </StackPanel>
         </ScrollViewer>
 
-        <!-- .foot: key hints in caps; Reset (ghost), Export (light) -->
+        <!-- .foot: key hints in caps on their own line (beside the buttons they clipped mid-word); Reset (ghost), Export (light) -->
         <Border Grid.Row="7" Background="{StaticResource Bz.Sunken}" BorderBrush="{StaticResource Bz.Line}" BorderThickness="0,1,0,0" Padding="14,8,14,8">
             <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <!-- key hints: caps + labels; the column clips them when the pane is narrow -->
-                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" ClipToBounds="True">
+                <!-- key hints: caps + labels; wrap rather than clip when the pane is narrow -->
+                <WrapPanel Grid.ColumnSpan="3" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,0,8">
                     <Border Style="{StaticResource Bz.Kbd}"><TextBlock Text="⏎" Style="{StaticResource KeyCap}"/></Border>
                     <TextBlock Text="{Binding KeyOpen, Mode=OneWay, StringFormat=' {0}  '}" Style="{StaticResource KeyLabel}" Margin="0,0,2,0"/>
                     <Border Style="{StaticResource Bz.Kbd}"><TextBlock Text="J/K" Style="{StaticResource KeyCap}"/></Border>
@@ -842,15 +847,15 @@
                     <TextBlock Text="{Binding KeyFix, Mode=OneWay, StringFormat=' {0}  '}" Style="{StaticResource KeyLabel}" Margin="0,0,2,0"/>
                     <Border Style="{StaticResource Bz.Kbd}"><TextBlock Text="A" Style="{StaticResource KeyCap}"/></Border>
                     <TextBlock Text="{Binding KeyIgnore, Mode=OneWay, StringFormat=' {0}'}" Style="{StaticResource KeyLabel}" Margin="0"/>
-                </StackPanel>
-                <Button Grid.Column="1" Style="{StaticResource Bz.Btn.Ghost}" Click="Reset_Click" IsEnabled="{Binding CanAct}" Margin="8,0,6,0" MinHeight="32">
+                </WrapPanel>
+                <Button Grid.Row="1" Grid.Column="1" Style="{StaticResource Bz.Btn.Ghost}" Click="Reset_Click" IsEnabled="{Binding CanAct}" Margin="8,0,6,0" MinHeight="32">
                     <StackPanel Orientation="Horizontal">
                         <Path Style="{StaticResource Icon}" Width="12" Height="12" Stroke="{StaticResource Bz.Text2}"
                               Data="M3,12 A9,9 0 1 0 12,3 A9.75,9.75 0 0 0 5.26,5.74 L3,8 M3,3 L3,8 L8,8"/>
                         <TextBlock Text="{Binding ResetLabel}" Margin="6,0,0,0"/>
                     </StackPanel>
                 </Button>
-                <Button Grid.Column="2" Style="{StaticResource Bz.Btn.Ink}" Click="Export_Click" IsEnabled="{Binding CanAct}" MinHeight="32">
+                <Button Grid.Row="1" Grid.Column="2" Style="{StaticResource Bz.Btn.Ink}" Click="Export_Click" IsEnabled="{Binding CanAct}" MinHeight="32">
                     <StackPanel Orientation="Horizontal">
                         <Path Style="{StaticResource Icon}" Width="12" Height="12" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
                               Data="M12,3 L12,15 M7,10 L12,15 L17,10 M5,21 L19,21"/>
