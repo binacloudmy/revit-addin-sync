@@ -83,29 +83,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 left.Children.Add(CardKit.Text(m.Detail, 12, "Cp.Muted", margin: new Thickness(0, 2, 0, 0)));
             grid.Children.Add(left);
 
-            var chip = Eyebrow(m.Eyebrow);
-            chip.VerticalAlignment = VerticalAlignment.Top;
-            grid.Children.Add(chip);
-
-            void Place(bool beside)
-            {
-                Grid.SetRow(chip, 0);
-                Grid.SetColumn(chip, beside ? 1 : 0);
-                Grid.SetColumnSpan(chip, beside ? 1 : 2);
-                chip.Margin = beside ? new Thickness(12, 0, 0, 0) : new Thickness(0, 0, 0, 8);
-                Grid.SetRow(left, beside ? 0 : 1);
-                Grid.SetColumnSpan(left, beside ? 1 : 2);
-            }
-            Place(beside: false);
-            var placed = false;
-            grid.SizeChanged += (_, e) =>
-            {
-                if (!e.WidthChanged || e.NewSize.Width <= 0) return;
-                var beside = e.NewSize.Width >= ChipBesideTitleFrom;
-                if (placed && beside == (Grid.GetColumn(chip) == 1)) return;
-                placed = true;
-                Place(beside);
-            };
+            // No chip here: "Needs your OK" is the turn's status chip above (once, as the ask card says "Needs your answer").
+            Grid.SetColumnSpan(left, 2);
             return grid;
         }
 

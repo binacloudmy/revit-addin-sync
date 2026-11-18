@@ -746,7 +746,8 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             bool cardShown = showEvidence && m.ResultCard != null && m.ResultCard.Kind != ResultKind.None;
             // No server reply for this card: the model's first sentence is the headline, not a count beside the model's text.
             if (cardShown && m.Kind == CpMsgKind.AiReply) m.ResultCard.AdoptProseHeadline(m.Text);
-            if (m.Kind == CpMsgKind.AiReply) aiRow.Children.Add(Controls.RunningCardView.CopilotLabel());
+            // Every Copilot row wears the mark, an ask card and the delete gate too (0.0.139 pass: they had none).
+            if (m.Kind == CpMsgKind.AiReply || m.Kind == CpMsgKind.Clarify) aiRow.Children.Add(Controls.RunningCardView.CopilotLabel());
             // A result card is full width, like the running card (the boards), not the 85% reply column. So is the
             // question card: without a width it shrank to its content (213-342 px in a 530 px pane, live R4).
             // A long prose answer is laid out like a card (headline + detail), so it gets the same width.
