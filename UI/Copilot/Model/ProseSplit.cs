@@ -90,6 +90,16 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return Abbreviations.Contains(word);
         }
 
+        /// <summary>The body without its first sentence when that sentence IS the headline: the backend streams the whole answer AND sends its first sentence
+        /// (cut at a clause boundary when long) as the reply, so the same words stood twice (UX review Q1). Null when the text does not start with the
+        /// headline; "" when it is nothing more. Emphasis markers are ignored in the comparison and the leftover is trimmed of the joining punctuation.</summary>
+        public static string? RestAfterHeadline(string? text, string? headline)
+        {
+            var t = Plain(text ?? ""); var h = Plain(headline ?? "").TrimEnd('.', ' ', ';', ',', ':', '…');
+            if (h.Length == 0 || t.Length < h.Length || !t.StartsWith(h, StringComparison.OrdinalIgnoreCase)) return null;
+            return t.Substring(h.Length).TrimStart('.', ' ', ';', ',', ':', '…', '\r', '\n', '-', '—').Trim();
+        }
+
         /// <summary>The headline as plain text: emphasis markers and backticks removed.</summary>
         public static string Plain(string s) => Regex.Replace(s ?? "", @"(\*\*|__|~~|`)", "").Trim();
     }

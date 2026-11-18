@@ -33,6 +33,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         {
             var t = (text ?? "").Trim();
             if (t.Length == 0 || ProseSplit.Plain(t) == ProseSplit.Plain(headline.Trim())) return null;
+            // The answer starts with its own headline: only what follows is "more detail", never the first sentence again.
+            var rest = ProseSplit.RestAfterHeadline(t, headline);
+            if (rest != null) { if (rest.Length == 0) return null; t = rest; }
             return AddRest(new StackPanel(), t, true, lang, maxWidth, tableDownloads);
         }
 
