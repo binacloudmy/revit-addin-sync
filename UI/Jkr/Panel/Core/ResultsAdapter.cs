@@ -28,7 +28,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             // The backend sends one language; the same text shows in BM and EN. A spec
             // evaluator's issue takes its title from the catalog and its text from the
             // run's BM / EN remarks, so it follows the BM / EN switch.
-            var desc = spec ? Bilingual(i.Description ?? "", notes) : Text.Same(i.Description ?? "");
+            // The BIM010 checker writes BM; the remarks the pane knows get their English (F15).
+            var desc = spec ? Bilingual(i.Description ?? "", notes) : PaneText.AuditRemark(i.Description ?? "");
             return new PanelItem
             {
                 Id = i.Id,
@@ -69,6 +70,16 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             var id = SpecReport.ResolveCheckId(raw.Substring(SpecModelIssues.CheckIdPrefix.Length));
             var c = id == null ? null : SpecCatalog.Find(id);
             return c == null ? null : new Text(c.Id + " · " + c.Title.Ms, c.Id + " · " + c.Title.En);
+        }
+
+        /// <summary>The issue's title in <paramref name="lang"/> (null = the pane's): a spec
+        /// evaluator's issue from the catalog ("A1.1 · Ceiling height (NS §4.1.9)"), any
+        /// other as it came. For toasts, which name the issue in the pane's language.</summary>
+        public static string TitleIn(IssueVm i, string lang = null)
+        {
+            if (i == null) return "";
+            var t = IsSpecIssue(i) ? SpecTitle(i.CheckId) : null;
+            return t != null ? t.In(lang ?? PaneLanguage.Current) : i.Title ?? "";
         }
 
         /// <summary>Every remark of a run that has an English text, by its BM and by its

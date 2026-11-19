@@ -187,6 +187,84 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             L(lang, "PDF tidak dapat disimpan: ", "PDF could not be saved: ") + message;
         public static string ExportFailed(string message, string lang = null) =>
             L(lang, "Borang tidak dapat dijana: ", "The Borang could not be generated: ") + message;
+        // ── the BIM010 checker's remarks (fill_audit writes them in BM) ──
+
+        private const string NoCheckBm = "Tiada semakan automatik untuk baris ini";
+        private const string NoCheckEn = "No automatic check for this row";
+        private const string ContextBm = "Konteks model: ";
+
+        // fill_audit's context labels (AuditCheckers.ContextProviders), longest first.
+        private static readonly (string Ms, string En)[] ContextLabels =
+        {
+            ("amaran (warning) dalam model", "warnings in the model"),
+            ("parameter terikat pada projek", "parameters bound to the project"),
+            ("family dimuatkan", "loaded families"),
+            ("design option", "design options"),
+            ("fasa (phase)", "phases"),
+            ("view Legend", "Legend views"),
+            ("view grafik", "graphical views"),
+            ("Revit link", "Revit links"),
+            ("scope box", "scope boxes"),
+            ("Area Plan", "Area Plans"),
+            ("workset", "worksets"),
+            ("jadual", "schedules"),
+            ("sheet", "sheets"),
+            ("grid", "grids"),
+            ("aras", "levels"),
+        };
+
+        /// <summary>
+        /// A remark of the BIM010 checker in BM and EN. It writes its remarks in BM; the
+        /// ones the pane knows ("Tiada semakan automatik untuk baris ini — semak manual.",
+        /// with or without "Konteks model: …") get their English text, so a semak manual
+        /// row follows the BM / EN switch. Any other remark shows as written in both.
+        /// </summary>
+        public static Text AuditRemark(string remark)
+        {
+            var bm = remark ?? "";
+            return new Text(bm, AuditRemarkEn(bm) ?? bm);
+        }
+
+        /// <summary>The English of a known checker remark; null when there is none.</summary>
+        public static string AuditRemarkEn(string remark)
+        {
+            var s = (remark ?? "").Trim();
+            if (s == NoCheckBm + " — semak manual.") return NoCheckEn + " — semak manual.";
+            const string tail = " Semak manual.";
+            if (s.StartsWith(NoCheckBm + ". ", StringComparison.Ordinal) && s.EndsWith(tail, StringComparison.Ordinal))
+            {
+                var note = s.Substring(NoCheckBm.Length + 2, s.Length - NoCheckBm.Length - 2 - tail.Length);
+                var noteEn = ContextEn(note);
+                return noteEn == null ? null : NoCheckEn + ". " + noteEn + tail;
+            }
+            return null;
+        }
+
+        /// <summary>"Konteks model: 0 workset; 3 aras (Aras 01, …)." in English; null when a
+        /// label is not known (better all BM than half translated).</summary>
+        private static string ContextEn(string note)
+        {
+            if (!note.StartsWith(ContextBm, StringComparison.Ordinal) || !note.EndsWith(".", StringComparison.Ordinal)) return null;
+            var parts = note.Substring(ContextBm.Length, note.Length - ContextBm.Length - 1).Split(new[] { "; " }, StringSplitOptions.None);
+            var en = new List<string>();
+            foreach (var part in parts)
+            {
+                var sp = part.IndexOf(' ');
+                if (sp <= 0 || !int.TryParse(part.Substring(0, sp), out _)) return null;
+                var rest = part.Substring(sp + 1);
+                string done = null;
+                foreach (var (ms, e) in ContextLabels)
+                    if (rest == ms || rest.StartsWith(ms + " (", StringComparison.Ordinal))
+                    {
+                        done = part.Substring(0, sp + 1) + e + rest.Substring(ms.Length);
+                        break;
+                    }
+                if (done == null) return null;
+                en.Add(done);
+            }
+            return "Model context: " + string.Join("; ", en) + ".";
+        }
+
         public static string ExportNeedsScan(string lang = null) =>
             L(lang, "Jalankan audit dahulu untuk mengeksport Borang.", "Run the audit first to export the Borang.");
 

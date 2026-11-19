@@ -338,7 +338,9 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             issue.Status = newStatus;
 
             // Toast
-            var titleShort = issue.Title.Length > 40 ? issue.Title.Substring(0, 40) + "…" : issue.Title;
+            // In the pane's language (a spec issue's title is BM in the IssueVm).
+            var title = RevitWebAppSync.UI.Jkr.Panel.Core.ResultsAdapter.TitleIn(issue);
+            var titleShort = title.Length > 40 ? title.Substring(0, 40) + "…" : title;
             // prototype: a fix says "1 change(s) written to model".
             var message = newStatus == IssueStatus.Fixed
                 ? RevitWebAppSync.UI.Jkr.Panel.Core.PaneText.ChangesWritten(1)

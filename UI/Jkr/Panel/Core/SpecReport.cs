@@ -710,6 +710,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                     RowKey = row.Key,
                     RowLabel = row.Description ?? "",
                     Note = r.Remark ?? "",
+                    NoteEn = PaneText.AuditRemarkEn(r.Remark) ?? "",
                     NotApplicable = na,
                 });
             }

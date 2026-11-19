@@ -187,7 +187,7 @@ namespace RevitWebAppSync.UI
             var issue = FindIssue(id);
             if (issue == null || !issue.IsAiOpen || !issue.CanMarkManual) return;
             _vm.ApplyDecisions(new[] { issue }, IssueStatus.ManualFixNeeded,
-                Jkr.Panel.Core.PaneText.Decision("ManualFixNeeded", issue.Title));
+                Jkr.Panel.Core.PaneText.Decision("ManualFixNeeded", Jkr.Panel.Core.ResultsAdapter.TitleIn(issue)));
             SaveAudit(issue);
             RenderAll();
         }
@@ -199,7 +199,7 @@ namespace RevitWebAppSync.UI
             var issue = FindIssue(id);
             if (issue == null || issue.NeedsPerson || issue.Status == IssueStatus.Open || issue.Status == IssueStatus.Fixed) return;
             _vm.ApplyDecisions(new[] { issue }, IssueStatus.Open,
-                Jkr.Panel.Core.PaneText.Decision("Open", issue.Title));
+                Jkr.Panel.Core.PaneText.Decision("Open", Jkr.Panel.Core.ResultsAdapter.TitleIn(issue)));
             SaveAudit(issue);
             RenderAll();
         }
