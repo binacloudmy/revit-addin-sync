@@ -27,7 +27,7 @@ namespace RevitWebAppSync.UI.Jkr.Export
         private readonly string _fileName;
         private readonly string _modelFile;
         private readonly int _issueCount;
-        private readonly Action<IssueExportFormat> _issuesExport;
+        private readonly Func<IssueExportFormat, string> _issuesExport;
         private readonly Action<string> _setLanguage;
         private readonly IReadOnlyList<BitmapImage> _pages;
         private int _index;
@@ -35,7 +35,7 @@ namespace RevitWebAppSync.UI.Jkr.Export
         private const double MinZoom = 1.0, MaxZoom = 3.0, ZoomStep = 0.25;
 
         private BorangPreviewWindow(byte[] pdf, IReadOnlyList<byte[]> pages, string folder, string fileName, string modelFile,
-                                    int issueCount, Action<IssueExportFormat> issuesExport, Action<string> setLanguage)
+                                    int issueCount, Func<IssueExportFormat, string> issuesExport, Action<string> setLanguage)
         {
             _pdf = pdf;
             _folder = folder;
@@ -152,12 +152,12 @@ namespace RevitWebAppSync.UI.Jkr.Export
         /// <summary>Render the form and show the preview over Revit. The PDF and the
         /// page images are made off the UI thread (same engine, same pages).
         /// <paramref name="issueCount"/> is how many issues the Excel / CSV export would
-        /// write with its default options; <paramref name="issuesExport"/> opens that
+        /// write with its default options; <paramref name="issuesExport"/> opens that (and returns what it wrote, null if cancelled)
         /// export with the chosen format; <paramref name="setLanguage"/> switches the pane's
         /// language ("ms" / "en").</summary>
         public static async Task<BorangPreviewWindow> OpenAsync(BorangDoc doc, FrameworkElement anchor, string folder,
                                                                  string fileName, int issueCount,
-                                                                 Action<IssueExportFormat> issuesExport, Action<string> setLanguage)
+                                                                 Func<IssueExportFormat, string> issuesExport, Action<string> setLanguage)
         {
             var (pdf, pages) = await Task.Run(() => (BorangPdf.Pdf(doc), (IReadOnlyList<byte[]>)BorangPdf.Pages(doc, dpi: 200)));
             var w = new BorangPreviewWindow(pdf, pages, folder, fileName, doc.Header?.File, issueCount, issuesExport, setLanguage);
@@ -242,9 +242,11 @@ namespace RevitWebAppSync.UI.Jkr.Export
 
         private void OpenIssueExport(IssueExportFormat format)
         {
-            var export = _issuesExport;
-            Close();
-            export?.Invoke(format);
+            // The preview stays open behind the export dialog, which it owns (live F13);
+            // what the export wrote shows here, as Save PDF's line does (live F14).
+            CloseMenu();
+            var outcome = _issuesExport?.Invoke(format);
+            if (!string.IsNullOrEmpty(outcome)) ShowStatus(outcome);
         }
 
         private void Close_Click(object sender, RoutedEventArgs e) => Close();

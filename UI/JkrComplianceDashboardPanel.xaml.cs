@@ -229,13 +229,22 @@ namespace RevitWebAppSync.UI
 
         /// <summary>"Export issues (Excel/CSV)": the issue-list export window (the
         /// secondary export next to the Borang PDF).</summary>
-        public void OpenExport(Jkr.Export.IssueExportFormat format = Jkr.Export.IssueExportFormat.Excel)
+        /// <param name="owner">The window it opens from (the Borang preview): the dialog is
+        /// owned by it, so closing the dialog returns there (live F13).</param>
+        /// <returns>What happened ("Issues exported: …", or why not); null when cancelled.</returns>
+        public string OpenExport(Jkr.Export.IssueExportFormat format = Jkr.Export.IssueExportFormat.Excel, Window owner = null)
         {
             _exportFormat = format;
+            _exportOwner = owner;
+            _exportOutcome = null;
             _vm.ExportOpen = true;
+            OpenExportWindow();          // modal: returns once the dialog is closed
+            return _exportOutcome;
         }
 
         private Jkr.Export.IssueExportFormat _exportFormat;
+        private Window _exportOwner;
+        private string _exportOutcome;
 
         /// <summary>How many issues the export writes with the dialog's default options
         /// (what the Borang preview's footer shows).</summary>
@@ -1627,6 +1636,7 @@ namespace RevitWebAppSync.UI
             }
             var elementId = issue.RevitElementId;
             var locateCount = issue.LocateCount;
+            var label = Jkr.Panel.Core.ResultsAdapter.ElementLabel(issue);
             try
             {
                 var result = await Revit.InvokeAsync(app =>
@@ -1679,6 +1689,15 @@ namespace RevitWebAppSync.UI
                         targets = new List<ElementId> { id };
                     }
 
+                    // No open view shows it: ShowElements would raise Revit's own modal boxes
+                    // ("There is no open view that shows…", then "No good view could be
+                    // found"). Select it only, and say so in the pane (live F12).
+                    if (!AnyOpenViewShows(uiDoc, targets))
+                    {
+                        try { uiDoc.Selection.SetElementIds(targets); } catch { }
+                        return new JkrLocateResult(JkrLocateKind.NotVisible, targets.Count, label);
+                    }
+
                     try
                     {
                         uiDoc.ShowElements(targets);
@@ -1713,6 +1732,31 @@ namespace RevitWebAppSync.UI
                 System.Diagnostics.Debug.WriteLine($"[BINA] locate failed: {ex.Message}");
                 _vm.ShowToast(Jkr.Panel.Core.PaneText.LocateFailed(ex.Message));
             }
+        }
+
+        /// <summary>Whether a view open in Revit shows any of <paramref name="targets"/>
+        /// (visible in it: not hidden, category on). Sheets and schedules are skipped. When
+        /// Revit cannot tell (no open views listed), true: Locate keeps ShowElements.</summary>
+        private static bool AnyOpenViewShows(UIDocument uiDoc, ICollection<ElementId> targets)
+        {
+            var doc = uiDoc.Document;
+            IList<UIView> open;
+            try { open = uiDoc.GetOpenUIViews(); }
+            catch { return true; }
+            if (open == null || open.Count == 0) return true;
+            foreach (var uv in open)
+            {
+                try
+                {
+                    if (!(doc.GetElement(uv.ViewId) is View v) || v.IsTemplate || v is ViewSheet || v is ViewSchedule) continue;
+                    var n = new FilteredElementCollector(doc, v.Id)
+                        .WherePasses(new ElementIdSetFilter(targets))
+                        .GetElementCount();
+                    if (n > 0) return true;
+                }
+                catch { /* a view that cannot be searched (e.g. a legend): next */ }
+            }
+            return false;
         }
 
         /// <summary>
@@ -1981,11 +2025,23 @@ namespace RevitWebAppSync.UI
             // Export button then opens the dialog with the Excel default.
             var format = _exportFormat;
             _exportFormat = Jkr.Export.IssueExportFormat.Excel;
-            _exportWindow = new Jkr.Modals.ExportWindow(_vm, format);
-            _exportWindow.Closed += (_, __) => { _vm.ExportOpen = false; _exportWindow = null; };
-            if (!Jkr.Modals.RevitWindowCover.Cover(_exportWindow, this))
-                Jkr.Modals.RevitWindowCover.CenterOnRevit(_exportWindow, this);
-            _exportWindow.ShowDialog();
+            var owner = _exportOwner;
+            _exportOwner = null;
+            var w = new Jkr.Modals.ExportWindow(_vm, format);
+            _exportWindow = w;
+            w.Closed += (_, __) => { _vm.ExportOpen = false; if (ReferenceEquals(_exportWindow, w)) _exportWindow = null; };
+            if (!Jkr.Modals.RevitWindowCover.Cover(w, this))
+                Jkr.Modals.RevitWindowCover.CenterOnRevit(w, this);
+            // From the Borang preview: owned by it (over it, and back to it on close).
+            if (owner != null && owner.IsLoaded)
+            {
+                try { new System.Windows.Interop.WindowInteropHelper(w).Owner = new System.Windows.Interop.WindowInteropHelper(owner).Handle; }
+                catch { /* stays owned by Revit's window */ }
+            }
+            w.ShowDialog();
+            // The file it wrote, or why not (live F14).
+            _exportOutcome = w.Outcome;
+            if (w.Outcome != null) _vm.ShowToast(w.Outcome);
         }
 
         private void CloseExportWindow()

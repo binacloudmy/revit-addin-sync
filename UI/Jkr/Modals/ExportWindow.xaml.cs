@@ -17,6 +17,10 @@ namespace RevitWebAppSync.UI.Jkr.Modals
         private readonly PanelVm _vm;
         private IssueExportFormat _format;
 
+        /// <summary>After it closes: "Issues exported: file.xlsx", or why the file could not
+        /// be written; null when nothing was exported (cancelled).</summary>
+        public string Outcome { get; private set; }
+
         /// <param name="format">Which format starts selected (the Borang preview's
         /// Excel / CSV entries open this with theirs).</param>
         public ExportWindow(PanelVm vm, IssueExportFormat format = IssueExportFormat.Excel)
@@ -82,8 +86,21 @@ namespace RevitWebAppSync.UI.Jkr.Modals
                 DefaultExt = ".csv",
                 Filter = PaneLanguage.Pick("Fail CSV (*.csv)|*.csv", "CSV files (*.csv)|*.csv"),
             };
-            if (dlg.ShowDialog() != true) return;
+            if (dlg.ShowDialog(this) != true) return;
+            try
+            {
+                WriteCsvTo(dlg.FileName);
+                Outcome = PaneText.IssuesExported(dlg.FileName);
+            }
+            catch (System.Exception ex)
+            {
+                Outcome = PaneText.IssuesExportFailed(ex.Message);
+            }
+            Close();
+        }
 
+        private void WriteCsvTo(string path)
+        {
             var rows = FilteredRows();
             var header = BuildHeader();
             var sb = new StringBuilder();
@@ -92,8 +109,7 @@ namespace RevitWebAppSync.UI.Jkr.Modals
             foreach (var i in rows)
                 sb.AppendLine(string.Join(",", RowCells(i).Select(CsvCell)));
 
-            File.WriteAllText(dlg.FileName, sb.ToString(), Encoding.UTF8);
-            Close();
+            File.WriteAllText(path, sb.ToString(), Encoding.UTF8);
         }
 
         // ── Excel (ClosedXML) ────────────────────────────
@@ -107,8 +123,21 @@ namespace RevitWebAppSync.UI.Jkr.Modals
                 DefaultExt = ".xlsx",
                 Filter = PaneLanguage.Pick("Fail Excel (*.xlsx)|*.xlsx", "Excel files (*.xlsx)|*.xlsx"),
             };
-            if (dlg.ShowDialog() != true) return;
+            if (dlg.ShowDialog(this) != true) return;
+            try
+            {
+                WriteXlsxTo(dlg.FileName);
+                Outcome = PaneText.IssuesExported(dlg.FileName);
+            }
+            catch (System.Exception ex)
+            {
+                Outcome = PaneText.IssuesExportFailed(ex.Message);
+            }
+            Close();
+        }
 
+        private void WriteXlsxTo(string path)
+        {
             var rows = FilteredRows();
             var header = BuildHeader();
 
@@ -135,10 +164,8 @@ namespace RevitWebAppSync.UI.Jkr.Modals
                 }
 
                 ws.Columns().AdjustToContents();
-                wb.SaveAs(dlg.FileName);
+                wb.SaveAs(path);
             }
-
-            Close();
         }
 
         // ── Helpers ──────────────────────────────────────

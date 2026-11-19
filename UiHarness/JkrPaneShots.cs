@@ -189,7 +189,7 @@ namespace UiHarness
                 var pdf = BorangPdf.Pdf(doc);
                 var pages = (IReadOnlyList<byte[]>)BorangPdf.Pages(doc, dpi: 150);
                 var w = (Window)Activator.CreateInstance(typeof(BorangPreviewWindow), BindingFlags.Instance | BindingFlags.NonPublic, null,
-                    new object[] { pdf, pages, null, "BIM010_model.pdf", doc.Header.File, 99, (Action<IssueExportFormat>)(_ => { }), (Action<string>)null }, null);
+                    new object[] { pdf, pages, null, "BIM010_model.pdf", doc.Header.File, 99, (Func<IssueExportFormat, string>)(_ => null), (Action<string>)null }, null);
                 w.WindowStartupLocation = WindowStartupLocation.Manual;
                 w.ShowInTaskbar = false; w.Left = -4000; w.Top = -4000;
                 w.Show();

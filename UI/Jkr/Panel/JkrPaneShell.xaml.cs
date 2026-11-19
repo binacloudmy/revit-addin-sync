@@ -131,8 +131,12 @@ namespace RevitWebAppSync.UI.Jkr.Panel
                     // ⏎ reopens the last issue, J/K move the list: the list takes the keys.
                     if (ContentHost.Content is UIElement screen) screen.Focus();
                 };
+                // One toast at a time, where the user is looking: the detail's (live F9).
                 if (ToastBox.Visibility == Visibility.Visible)
+                {
                     w.ShowToast(ToastText.Text);
+                    ToastBox.Visibility = Visibility.Collapsed;
+                }
             }
             catch (Exception ex)
             {
@@ -222,7 +226,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel
 
         private void Retry_Click(object sender, RoutedEventArgs e) => RetryRequested?.Invoke();
 
-        /// <summary>Show a toast (message null hides it).</summary>
+        /// <summary>Show a toast (message null hides it). While the detail window is open the
+        /// toast shows there only, over its scrim, not also in the pane (live F9).</summary>
         public void ShowToast(string message)
         {
             if (string.IsNullOrEmpty(message))
@@ -232,8 +237,13 @@ namespace RevitWebAppSync.UI.Jkr.Panel
                 return;
             }
             ToastText.Text = message;
+            if (_detailWindow != null)
+            {
+                ToastBox.Visibility = Visibility.Collapsed;
+                _detailWindow.ShowToast(message);
+                return;
+            }
             ToastBox.Visibility = Visibility.Visible;
-            _detailWindow?.ShowToast(message);
         }
     }
 }

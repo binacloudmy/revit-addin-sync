@@ -187,6 +187,12 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             L(lang, "PDF tidak dapat disimpan: ", "PDF could not be saved: ") + message;
         public static string ExportFailed(string message, string lang = null) =>
             L(lang, "Borang tidak dapat dijana: ", "The Borang could not be generated: ") + message;
+        /// <summary>The Excel / CSV issue export wrote its file (the name, not the folder).</summary>
+        public static string IssuesExported(string path, string lang = null) =>
+            L(lang, "Isu dieksport: ", "Issues exported: ") + System.IO.Path.GetFileName(path ?? "");
+        public static string IssuesExportFailed(string message, string lang = null) =>
+            L(lang, "Isu tidak dapat dieksport: ", "Issues could not be exported: ") + message;
+
         // ── the BIM010 checker's remarks (fill_audit writes them in BM) ──
 
         private const string NoCheckBm = "Tiada semakan automatik untuk baris ini";

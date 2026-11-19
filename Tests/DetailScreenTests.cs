@@ -215,10 +215,41 @@ namespace RevitWebAppSync.Tests
             r.Load(new[] { Issue("1", "A1", st: IssueStatus.Ignored), Issue("2", "A4") },
                    AuditSummary.Build(Enumerable.Empty<Bim010Cell>()));
             Assert.True(d.IsOpen);
-            Assert.Equal("Issue 1 of 2 open", d.IdxLabel);
+            Assert.Equal("Issue 1 of 2 ignored", d.IdxLabel);     // live F11: the shown issue's state
             Assert.Equal("Ignored", d.Card.SvLabel);
             d.Next();
             Assert.Equal("2", d.Card.Id);
+        }
+
+        [Fact]
+        public void The_header_says_the_state_of_the_issue_shown_not_of_the_tab()
+        {
+            var (d, r, core) = New(Issue("1", "A1", fixable: true), Issue("2", "A4"));
+            var none = AuditSummary.Build(Enumerable.Empty<Bim010Cell>());
+            d.Open("1");
+            Assert.Equal("Issue 1 of 2 open", d.IdxLabel);
+            r.Load(new[] { Issue("1", "A1", st: IssueStatus.ManualFixNeeded, fixable: true), Issue("2", "A4") }, none);
+            Assert.Equal("Issue 1 of 2 marked manual", d.IdxLabel);
+            core.SetLang(PanelStrings.Ms);
+            Assert.Equal("Isu 1 daripada 2 ditanda manual", d.IdxLabel);
+            core.SetLang(PanelStrings.En);
+            r.Load(new[] { Issue("1", "A1", fixable: true), Issue("2", "A4") }, none);
+            Assert.Equal("Issue 1 of 2 open", d.IdxLabel);                    // reopened
+            r.Load(new[] { Issue("1", "A1", st: IssueStatus.Fixed, fixable: true), Issue("2", "A4") }, none);
+            Assert.Equal("Issue 1 of 2 resolved", d.IdxLabel);
+        }
+
+        [Fact]
+        public void A_reviewed_semak_manual_item_says_reviewed()
+        {
+            var reviewed = Issue("1", "A2", human: true);
+            reviewed.Reviewed = true;
+            var (d, _, core) = New(reviewed, Issue("2", "A3", human: true));
+            core.SetTab(PanelTab.Manual);
+            d.Open("1");
+            Assert.Equal("Issue 1 of 2 reviewed", d.IdxLabel);
+            d.Next();
+            Assert.Equal("Issue 2 of 2 in Manual", d.IdxLabel);
         }
 
         [Fact]

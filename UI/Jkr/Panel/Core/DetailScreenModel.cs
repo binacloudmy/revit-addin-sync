@@ -108,6 +108,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             ["idxIgnore"] = ("Isu {0} daripada {1} diabaikan", "Issue {0} of {1} ignored"),
             ["idxResolved"] = ("Isu {0} daripada {1} selesai", "Issue {0} of {1} resolved"),
             ["idxManual"] = ("Isu {0} daripada {1} dalam Manual", "Issue {0} of {1} in Manual"),
+            // The shown issue changed state while the detail is open (live F11).
+            ["idxMarked"] = ("Isu {0} daripada {1} ditanda manual", "Issue {0} of {1} marked manual"),
+            ["idxReviewed"] = ("Isu {0} daripada {1} disemak", "Issue {0} of {1} reviewed"),
             ["manualNote"] = ("Item ini tidak dikira dalam peratus patuh dan tidak dikira gagal. Ia dicetak sebagai “semak manual” dalam Borang.",
                               "This item is not counted in the compliance % and not counted as a failure. It prints as “semak manual” on the Borang."),
             ["applyFix"] = ("Guna pembaikan", "Apply fix"),
@@ -181,8 +184,18 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
 
         public int Index => Math.Max(0, Ids.IndexOf(_core.DetailId ?? ""));
         public int Count => Ids.Count;
-        /// <summary>"Issue 1 of 99 open": the list it opened with is the current tab's.</summary>
-        public string IdxLabel => string.Format(T(IdxKey(_core.Tab)), Index + 1, Count);
+        /// <summary>"Issue 1 of 99 open": the list it opened with is the current tab's; the
+        /// state word is the shown issue's own (it follows Ignore, Mark as Manual, Reopen).</summary>
+        public string IdxLabel => string.Format(T(IdxKey(Current, _core.Tab)), Index + 1, Count);
+
+        private static string IdxKey(PanelItem c, PanelTab tab)
+        {
+            if (c == null) return IdxKey(tab);
+            if (c.IsHuman) return c.Status == ItemStatus.Reviewed ? "idxReviewed" : "idxManual";
+            if (c.Status == ItemStatus.Ignored) return "idxIgnore";
+            if (c.Status == ItemStatus.Resolved) return "idxResolved";
+            return c.MarkedManual ? "idxMarked" : "idxOpen";
+        }
 
         private static string IdxKey(PanelTab tab) =>
             tab == PanelTab.Ignore ? "idxIgnore" : tab == PanelTab.Resolved ? "idxResolved" : tab == PanelTab.Manual ? "idxManual" : "idxOpen";

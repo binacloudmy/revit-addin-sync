@@ -713,20 +713,31 @@
                 </Grid>
 
                 <!-- .pill: the section filter (item 9), on its own line so a 320 px pane never
-                     squeezes it out; click clears it ("Clear section filter") -->
-                <Button Style="{StaticResource Bare}" Click="ClearCat_Click" HorizontalAlignment="Left" Margin="0,10,0,0"
-                        Visibility="{Binding HasCat, Converter={StaticResource B2V}}" AutomationProperties.Name="{Binding ClearCatLabel}" ToolTip="{Binding ClearCatLabel}">
-                    <Border Background="{StaticResource Bz.Sunken2}" CornerRadius="14" MinHeight="28" Padding="10,4,10,4">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
+                     squeezes it out. The whole pill clears it ("Clear section filter"), and so does
+                     its × on its own: a 24 px target with a grey disc on hover (live F7). -->
+                <Grid HorizontalAlignment="Left" Margin="0,10,0,0" Visibility="{Binding HasCat, Converter={StaticResource B2V}}">
+                    <Button Style="{StaticResource Bare}" Click="ClearCat_Click" AutomationProperties.Name="{Binding ClearCatLabel}" ToolTip="{Binding ClearCatLabel}">
+                        <Border Background="{StaticResource Bz.Sunken2}" CornerRadius="14" MinHeight="28" Padding="10,4,32,4">
                             <TextBlock Text="{Binding CatLabel}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource Bz.Text}" TextWrapping="Wrap" VerticalAlignment="Center"/>
-                            <Path Grid.Column="1" Style="{StaticResource Icon}" Width="9" Height="9" Margin="8,0,0,0" Stroke="{StaticResource Bz.Text}" StrokeThickness="2" Data="M18,6 L6,18 M6,6 L18,18"/>
-                        </Grid>
-                    </Border>
-                </Button>
+                        </Border>
+                    </Button>
+                    <Button x:Name="ClearCatX" Click="ClearCat_Click" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,3,0"
+                            Width="24" Height="24" Cursor="Hand" FocusVisualStyle="{StaticResource Bz.FocusRing}"
+                            AutomationProperties.Name="{Binding ClearCatLabel}" ToolTip="{Binding ClearCatLabel}">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border x:Name="Bd" Background="Transparent" CornerRadius="12">
+                                    <Path Width="9" Height="9" Stretch="Uniform" Stroke="{StaticResource Bz.Text}" StrokeThickness="2"
+                                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" Data="M18,6 L6,18 M6,6 L18,18"
+                                          HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Bd" Property="Background" Value="{StaticResource Bz.Line}"/></Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
+                </Grid>
             </StackPanel>
 
             <!-- "99 shown" · Ignore all · Fix all n (the buttons drop under it when the pane is narrow) -->

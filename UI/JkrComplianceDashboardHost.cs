@@ -102,7 +102,7 @@ namespace RevitWebAppSync.UI
                 var model = System.IO.Path.GetFileNameWithoutExtension(doc.Header.File ?? "");
                 var name = "BIM010_" + (string.IsNullOrEmpty(model) ? "model" : model) + "_" + DateTime.Now.ToString("yyyyMMdd") + ".pdf";
                 var w = await Jkr.Export.BorangPreviewWindow.OpenAsync(doc, _shell, _panel.ModelFolder, name,
-                    _panel.IssueExportCount, f => _panel.OpenExport(f),
+                    _panel.IssueExportCount, f => _panel.OpenExport(f, _preview),
                     lang => _shell.Model.SetLang(lang));
                 _preview = w;
                 w.Closed += (_, __) => { if (ReferenceEquals(_preview, w)) _preview = null; };

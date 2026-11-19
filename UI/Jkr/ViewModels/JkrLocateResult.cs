@@ -14,6 +14,10 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         HiddenInView,
         /// <summary>Revit could not show it (no view shows it); it is still selected.</summary>
         NotShown,
+        /// <summary>No open view shows it: selected only, without ShowElements (which
+        /// raises Revit's own "There is no open view that shows…" / "No good view" boxes).
+        /// <see cref="JkrLocateResult.Detail"/> is the element's label.</summary>
+        NotVisible,
         /// <summary>The issue is about a view (sheet, schedule, plan…): it was opened.</summary>
         OpenedView,
         /// <summary>The issue is about a view template, which cannot be opened.</summary>
@@ -69,6 +73,9 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                             "Selected, but Revit could not find a view that shows it.")
                         : L($"Dipilih, tetapi Revit tidak dapat menunjukkannya: {Detail}",
                             $"Selected, but Revit could not show it: {Detail}");
+                case JkrLocateKind.NotVisible:
+                    return RevitWebAppSync.UI.Jkr.Panel.Core.PanelStrings.Get(en ? "en" : "ms", "toastLoc") + ": " + Detail
+                           + L(" — tidak kelihatan dalam paparan semasa.", " — not visible in the current view.");
                 case JkrLocateKind.OpenedView:
                     return Count > 1
                         ? L($"Isu ini menyenaraikan {Count} paparan. Paparan pertama dibuka: '{Detail}'.",
