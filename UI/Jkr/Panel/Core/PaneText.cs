@@ -167,6 +167,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             L(lang, $"Halaman {page} daripada {pages}", $"Page {page} of {pages}");
         public static string PreviousPage(string lang = null) => L(lang, "Halaman sebelumnya", "Previous page");
         public static string NextPage(string lang = null) => L(lang, "Halaman seterusnya", "Next page");
+        public static string ZoomHint(string lang = null) => L(lang, "Ctrl + skrol untuk zum", "Ctrl + scroll to zoom");
         public static string SavePdf(string lang = null) => L(lang, "Simpan PDF", "Save PDF");
         public static string FormatExcel(string lang = null) => "Excel (.xlsx)";
         public static string FormatCsv(string lang = null) => "CSV (.csv)";

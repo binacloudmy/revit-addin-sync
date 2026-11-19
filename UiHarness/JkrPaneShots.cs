@@ -160,13 +160,14 @@ namespace UiHarness
             BorangPreviewShot(dir, "jkr-borang-preview-menu-en.png", en: true, menu: true);
             BorangPreviewShot(dir, "jkr-borang-preview.png", en: false, menu: false);
             BorangPreviewShot(dir, "jkr-borang-preview-menu.png", en: false, menu: true);
+            BorangPreviewShot(dir, "jkr-borang-preview-zoom-en.png", en: true, menu: false, zoom: true);
             ExportShot(dir, "jkr-export-en.png", en: true, IssueExportFormat.Excel);
             ExportShot(dir, "jkr-export-csv.png", en: false, IssueExportFormat.Csv);
         }
 
         /// <summary>The Borang BIM010 preview: the PDF's own pages for a sample run, with the
         /// Export issues menu open or closed.</summary>
-        private static void BorangPreviewShot(string dir, string file, bool en, bool menu)
+        private static void BorangPreviewShot(string dir, string file, bool en, bool menu, bool zoom = false)
         {
             try
             {
@@ -193,6 +194,12 @@ namespace UiHarness
                 w.ShowInTaskbar = false; w.Left = -4000; w.Top = -4000;
                 w.Show();
                 Settle(500);
+                if (zoom)
+                {
+                    var m = typeof(BorangPreviewWindow).GetMethod("SetZoom", BindingFlags.Instance | BindingFlags.NonPublic);
+                    m.Invoke(w, new object[] { 2.0 });
+                    Settle(300);
+                }
                 if (menu) { ((Button)w.FindName("IssuesBtn")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Settle(300); }
                 Save((FrameworkElement)w.Content, Path.Combine(dir, file), (int)Math.Ceiling(w.ActualHeight));
                 w.Close();

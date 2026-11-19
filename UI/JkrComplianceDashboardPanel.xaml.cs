@@ -1977,7 +1977,11 @@ namespace RevitWebAppSync.UI
         private void OpenExportWindow()
         {
             if (_exportWindow != null && _exportWindow.IsLoaded) { _exportWindow.Activate(); return; }
-            _exportWindow = new Jkr.Modals.ExportWindow(_vm, _exportFormat);
+            // The preview's Excel / CSV choice applies to this opening only: the pane's own
+            // Export button then opens the dialog with the Excel default.
+            var format = _exportFormat;
+            _exportFormat = Jkr.Export.IssueExportFormat.Excel;
+            _exportWindow = new Jkr.Modals.ExportWindow(_vm, format);
             _exportWindow.Closed += (_, __) => { _vm.ExportOpen = false; _exportWindow = null; };
             if (!Jkr.Modals.RevitWindowCover.Cover(_exportWindow, this))
                 Jkr.Modals.RevitWindowCover.CenterOnRevit(_exportWindow, this);

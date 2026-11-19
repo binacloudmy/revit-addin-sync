@@ -31,6 +31,8 @@ namespace RevitWebAppSync.UI.Jkr.Export
         private readonly Action<string> _setLanguage;
         private readonly IReadOnlyList<BitmapImage> _pages;
         private int _index;
+        private double _zoom = 1.0;
+        private const double MinZoom = 1.0, MaxZoom = 3.0, ZoomStep = 0.25;
 
         private BorangPreviewWindow(byte[] pdf, IReadOnlyList<byte[]> pages, string folder, string fileName, string modelFile,
                                     int issueCount, Action<IssueExportFormat> issuesExport, Action<string> setLanguage)
@@ -67,6 +69,7 @@ namespace RevitWebAppSync.UI.Jkr.Export
             FileText.Text = _modelFile;
             FileText.ToolTip = _modelFile;
             NoteText.Text = PaneText.BorangPreviewNote();
+            PageBox.ToolTip = PaneText.ZoomHint();
             PdfLabel.Text = PaneText.SavePdf();
             IssuesLabel.Text = PaneText.ExportIssues();
             ExcelLabel.Text = PaneText.FormatExcel();
@@ -88,9 +91,38 @@ namespace RevitWebAppSync.UI.Jkr.Export
             if (_pages.Count == 0) return;
             _index = Math.Max(0, Math.Min(_pages.Count - 1, index));
             PageImage.Source = _pages[_index];
+            FitPage();
             PageText.Text = PaneText.PageOf(_index + 1, _pages.Count);
             PrevBtn.IsEnabled = _index > 0;
             NextBtn.IsEnabled = _index < _pages.Count - 1;
+        }
+
+        /// <summary>Size the page to fit the area at 100 %, times the zoom (scrollbars appear when it is larger).</summary>
+        private void FitPage()
+        {
+            if (_pages.Count == 0 || _pages[_index].PixelWidth == 0) return;
+            var aspect = (double)_pages[_index].PixelWidth / _pages[_index].PixelHeight;
+            var availW = Math.Max(50, PageScroll.ViewportWidth > 0 ? PageScroll.ViewportWidth : PageScroll.ActualWidth) - 48;
+            var availH = Math.Max(50, PageScroll.ViewportHeight > 0 ? PageScroll.ViewportHeight : PageScroll.ActualHeight) - 30;
+            var w = Math.Min(availW, availH * aspect);
+            if (w <= 0) return;
+            PageImage.Width = w * _zoom;
+            PageImage.Height = w * _zoom / aspect;
+        }
+
+        private void SetZoom(double z)
+        {
+            _zoom = Math.Max(MinZoom, Math.Min(MaxZoom, z));
+            FitPage();
+        }
+
+        private void PageScroll_SizeChanged(object sender, SizeChangedEventArgs e) => FitPage();
+
+        private void PageScroll_Wheel(object sender, MouseWheelEventArgs e)
+        {
+            if ((Keyboard.Modifiers & ModifierKeys.Control) == 0) return;
+            SetZoom(_zoom + (e.Delta > 0 ? ZoomStep : -ZoomStep));
+            e.Handled = true;
         }
 
         /// <summary>The card is 480 x 820 where the screen allows, else it shrinks to fit.</summary>
@@ -107,6 +139,9 @@ namespace RevitWebAppSync.UI.Jkr.Export
                 case Key.Escape:
                     if (IssuesMenu.Visibility == Visibility.Visible) CloseMenu(); else Close();
                     e.Handled = true; break;
+                case Key.D0: case Key.NumPad0:
+                    if ((Keyboard.Modifiers & ModifierKeys.Control) != 0) { SetZoom(1.0); e.Handled = true; }
+                    break;
                 case Key.Left: case Key.PageUp:
                     ShowPage(_index - 1); e.Handled = true; break;
                 case Key.Right: case Key.PageDown:
@@ -124,7 +159,7 @@ namespace RevitWebAppSync.UI.Jkr.Export
                                                                  string fileName, int issueCount,
                                                                  Action<IssueExportFormat> issuesExport, Action<string> setLanguage)
         {
-            var (pdf, pages) = await Task.Run(() => (BorangPdf.Pdf(doc), (IReadOnlyList<byte[]>)BorangPdf.Pages(doc, dpi: 150)));
+            var (pdf, pages) = await Task.Run(() => (BorangPdf.Pdf(doc), (IReadOnlyList<byte[]>)BorangPdf.Pages(doc, dpi: 200)));
             var w = new BorangPreviewWindow(pdf, pages, folder, fileName, doc.Header?.File, issueCount, issuesExport, setLanguage);
             if (!RevitWindowCover.Cover(w, anchor)) RevitWindowCover.CenterOnRevit(w, anchor);
             w.Show();

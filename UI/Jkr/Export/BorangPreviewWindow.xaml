@@ -108,13 +108,16 @@
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
-                    <Border Grid.Row="0" Margin="24,20,24,10" HorizontalAlignment="Center" VerticalAlignment="Center"
-                            Background="{StaticResource Bz.Surface}" CornerRadius="3">
-                        <Border.Effect>
-                            <DropShadowEffect Color="#15181D" BlurRadius="24" ShadowDepth="8" Direction="270" Opacity="0.22"/>
-                        </Border.Effect>
-                        <Image x:Name="PageImage" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"/>
-                    </Border>
+                    <ScrollViewer x:Name="PageScroll" Grid.Row="0" Focusable="False" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                                  PreviewMouseWheel="PageScroll_Wheel" SizeChanged="PageScroll_SizeChanged">
+                        <Border x:Name="PageBox" Margin="24,20,24,10" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                Background="{StaticResource Bz.Surface}" CornerRadius="3">
+                            <Border.Effect>
+                                <DropShadowEffect Color="#15181D" BlurRadius="24" ShadowDepth="8" Direction="270" Opacity="0.22"/>
+                            </Border.Effect>
+                            <Image x:Name="PageImage" Stretch="Fill" RenderOptions.BitmapScalingMode="HighQuality"/>
+                        </Border>
+                    </ScrollViewer>
                     <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,2">
                         <Button x:Name="PrevBtn" Style="{StaticResource Bp.Arrow}" Click="Prev_Click">
                             <Path Data="M9.5,4.5 L6,8 L9.5,11.5" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
