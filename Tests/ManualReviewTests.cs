@@ -59,12 +59,26 @@ namespace RevitWebAppSync.Tests
             item.Status = IssueStatus.ManualFixNeeded;
             JkrAuditStore.Save(Rvt, item);
             Assert.Equal(IssueStatus.ManualFixNeeded, JkrAuditStore.LoadFor(Rvt)["m1"]);
-            Assert.Contains(JkrAuditStore.LoadManualFor(Rvt), x => x.Id == "m1");
-
+            
             item.Status = IssueStatus.Open;                 // Reopen
             JkrAuditStore.Save(Rvt, item);
             Assert.False(JkrAuditStore.LoadFor(Rvt).ContainsKey("m1"));      // a fresh scan reads it as Open
-            Assert.DoesNotContain(JkrAuditStore.LoadManualFor(Rvt), x => x.Id == "m1");
+        }
+
+        [Fact]
+        public void A_marked_item_the_rescan_no_longer_returns_is_dropped_and_a_present_one_stays_marked()
+        {
+            var gone = Ai("gone"); gone.Status = IssueStatus.ManualFixNeeded;
+            var kept = Ai("kept"); kept.Status = IssueStatus.ManualFixNeeded;
+            var ign = Ai("ign"); ign.Status = IssueStatus.Ignored;
+            JkrAuditStore.Save(Rvt, gone); JkrAuditStore.Save(Rvt, kept); JkrAuditStore.Save(Rvt, ign);
+
+            JkrAuditStore.PruneMissing(Rvt, new[] { "kept" });        // the fresh scan returned only "kept"
+
+            var audit = JkrAuditStore.LoadFor(Rvt);
+            Assert.False(audit.ContainsKey("gone"));
+            Assert.Equal(IssueStatus.ManualFixNeeded, audit["kept"]);
+            Assert.Equal(IssueStatus.Ignored, audit["ign"]);          // other statuses are not touched
         }
 
         [Fact]

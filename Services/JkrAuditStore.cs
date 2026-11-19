@@ -112,13 +112,15 @@ namespace RevitWebAppSync.Services
             return _LoadSnapshottedAs(rvtPath, IssueStatus.Fixed);
         }
 
-        /// <summary>Reconstruct previously-Manual IssueVms from their persisted snapshots.
-        /// Used as a fallback when the fresh check no longer returns the issue under the
-        /// same Id (e.g. after an LOD change shifts the rule string and breaks the
-        /// status-overlay path through LoadFor).</summary>
-        public static List<IssueVm> LoadManualFor(string rvtPath)
+        /// <summary>After a scan: drop every ManualFixNeeded entry whose Id the fresh scan
+        /// no longer returns (the user fixed it, so it passes as normal). Ids still present
+        /// keep their overlay (<see cref="LoadFor"/>). An LOD reword that changes an Id loses the tag.</summary>
+        public static void PruneMissing(string rvtPath, IEnumerable<string> freshIds)
         {
-            return _LoadSnapshottedAs(rvtPath, IssueStatus.ManualFixNeeded);
+            var fresh = new HashSet<string>(freshIds ?? System.Linq.Enumerable.Empty<string>());
+            foreach (var kv in System.Linq.Enumerable.ToList(_ReadFor(rvtPath)))
+                if (TryParseStatus(kv.Value?.Status, out var st) && st == IssueStatus.ManualFixNeeded && !fresh.Contains(kv.Key))
+                    Remove(rvtPath, kv.Key);
         }
 
         private static List<IssueVm> _LoadSnapshottedAs(string rvtPath, IssueStatus wanted)

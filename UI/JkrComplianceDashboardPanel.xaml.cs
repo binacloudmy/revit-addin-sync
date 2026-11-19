@@ -1390,9 +1390,6 @@ namespace RevitWebAppSync.UI
                 // Re-inject snapshot-backed entries from the audit. The fresh check
                 // can fail to return them under their original Id for two reasons:
                 //   - Fixed: the rule passes now (success — keep in Resolved tab).
-                //   - Manual: the rule string shifted (e.g. LOD-level rewording) so
-                //     the audit Id no longer matches the fresh row, even though the
-                //     underlying problem still exists in the model.
                 // If a Fixed Id IS in the fresh check it's a regression — drop the
                 // audit entry and let the fresh Open row stand. Manual entries that
                 // reappear under the same Id are already overlaid by LoadFor above,
@@ -1410,12 +1407,9 @@ namespace RevitWebAppSync.UI
                         issues.Add(fixedVm);
                     }
                 }
-                foreach (var manualVm in JkrAuditStore.LoadManualFor(_scannedDocPath))
-                {
-                    if (string.IsNullOrEmpty(manualVm.Id)) continue;
-                    if (!freshIds.Contains(manualVm.Id))
-                        issues.Add(manualVm);
-                }
+                // A marked item the fresh scan no longer returns was fixed in Revit: it
+                // passes as normal, so its entry is dropped (still-present ids keep the overlay).
+                JkrAuditStore.PruneMissing(_scannedDocPath, freshIds);
             }
 
             // Carry attempted-fix issues through the rescan boundary. Dedup by Id so when
