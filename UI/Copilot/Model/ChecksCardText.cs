@@ -22,6 +22,16 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// Error and warning (and a severity the pane does not know) keep the amber card.</summary>
         public static bool IsNote(string? severity) => string.Equals((severity ?? "").Trim(), "info", System.StringComparison.OrdinalIgnoreCase);
 
+        /// <summary>r13 (0.0.148), live fdda8df4 (hide tags) and fb713fc2 (section box) on 0.0.147: the server's read-back after a write
+        /// ("Checked: section box on, name ..., box bottom -300 mm ...") is proof the write landed, not a note; inside the Notes box it read as
+        /// one more remark. An info check whose text starts with "Checked:" and that has no answers is drawn as its own compact row (a small
+        /// green tick and the line) above Notes. A warning or error that starts with "Checked:" stays amber; a check with answers keeps them.</summary>
+        public static bool IsVerified(string? severity, string? text, int actionCount) =>
+            IsNote(severity) && actionCount == 0 && (text ?? "").TrimStart().StartsWith(VerifiedPrefix, System.StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>What the server's read-back line starts with.</summary>
+        public const string VerifiedPrefix = "Checked:";
+
         /// <summary>The calm card's title: "Notes" (BM: "Nota").</summary>
         public static string NotesTitle(bool ms) => ms ? "Nota" : "Notes";
 

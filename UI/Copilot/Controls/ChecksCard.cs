@@ -28,6 +28,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         {
             var ms = lang == ReceiptLanguage.Ms;
             AddChecks(root, card, ms, actions, notes: false);   // doubts: amber, "Check N things"
+            AddVerified(root, card, actions);                    // r13: the write's read-back ("Checked: ..."): a green tick row, above Notes
             AddChecks(root, card, ms, actions, notes: true);    // severity info: calm, "Notes"
             AddNext(root, card, ms, actions);
         }
@@ -46,7 +47,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         {
             // A check that only restates a rule the Rules block lists (its text names the rule id, and it has no button) adds nothing.
             var checks = card.Checks.Where(c => !RulesBlockText.RestatesRule(c.Text, c.Actions.Count > 0, actions.RuleIds))
-                .Where(c => ChecksCardText.IsNote(c.Severity) == notes).ToList();
+                .Where(c => ChecksCardText.IsNote(c.Severity) == notes)
+                .Where(c => !ChecksCardText.IsVerified(c.Severity, c.Text, c.Actions.Count)).ToList();   // drawn by AddVerified
             if (checks.Count == 0) return;
 
             // Nested in the result card with an inset; if it should sit outside the main card, Build moves this one line.
@@ -94,6 +96,29 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             }
             Changed();
             root.Children.Add(frame);
+        }
+
+        // ─── The read-back row ────────────────────────────────────────────────
+
+        /// <summary>r13 (0.0.148): the server's "Checked: ..." line after a write (ChecksCardText.IsVerified), one compact row per line:
+        /// a small green tick and the text, whole and wrapped, muted, no card and no header. Above Notes, under the amber doubts.</summary>
+        private static void AddVerified(StackPanel root, ResultCardModel card, TurnEvidenceActions actions)
+        {
+            var lines = card.Checks.Where(c => !RulesBlockText.RestatesRule(c.Text, c.Actions.Count > 0, actions.RuleIds))
+                .Where(c => ChecksCardText.IsVerified(c.Severity, c.Text, c.Actions.Count)).ToList();
+            foreach (var c in lines)
+            {
+                var row = new Grid { Margin = new Thickness(4, 10, 4, 0) };
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                var tick = Icon(TickIcon, "Cp.Green", 2, 12);
+                tick.Margin = new Thickness(0, 2, 8, 0);
+                tick.VerticalAlignment = VerticalAlignment.Top;
+                var text = CardKit.Text(c.Text.Trim(), 12, "Cp.Muted");
+                Grid.SetColumn(tick, 0); Grid.SetColumn(text, 1);
+                row.Children.Add(tick); row.Children.Add(text);
+                root.Children.Add(row);
+            }
         }
 
         private static RowView BuildRow(CheckItem c, bool ms, TurnEvidenceActions actions, Action changed)
