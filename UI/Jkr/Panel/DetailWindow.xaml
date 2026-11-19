@@ -366,12 +366,6 @@
                             </StackPanel>
                         </Border>
 
-                        <!-- Done: fixed / ignored -->
-                        <Border Style="{StaticResource Blk}" Background="{StaticResource Bz.Sunken2}"
-                                Visibility="{Binding Card.IsDone, Converter={StaticResource B2V}}">
-                            <TextBlock Text="{Binding Card.DoneLabel}" FontSize="12.5" LineHeight="19" Foreground="{StaticResource Bz.TextBody}" TextWrapping="Wrap"/>
-                        </Border>
-
                         <!-- Source: clause (opens the spec PDF when there is one) -->
                         <StackPanel Orientation="Horizontal" Margin="0,16,0,0"
                                     Visibility="{Binding Card.HasCite, Converter={StaticResource B2V}}">

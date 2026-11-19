@@ -73,7 +73,6 @@ namespace RevitWebAppSync.Tests
             Assert.True(c.CanFix);
             Assert.Equal("jkrAR_x", c.Prop);
             Assert.True(c.CanIgnore);
-            Assert.False(c.IsDone);
             Assert.False(c.HasSteps);                            // the fix block, not the steps
             Assert.False(c.IsManual);
 
@@ -104,15 +103,13 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void A_fixed_issue_says_re_scan_pending_and_offers_no_actions()
+        public void A_fixed_issue_shows_as_resolved_and_offers_no_actions()
         {
             var (d, _, core) = New(Issue("1", "A5", st: IssueStatus.Fixed, fixable: true));
             core.SetTab(PanelTab.Resolved);
             d.Open("1");
             var c = d.Card;
-            Assert.Equal(("Fixed · re-scan pending", "ok"), (c.SvLabel, c.SvKind));
-            Assert.True(c.IsDone);
-            Assert.Equal("✓ Fixed. Re-scan to confirm on the Borang.", c.DoneLabel);
+            Assert.Equal(("Resolved", "ok"), (c.SvLabel, c.SvKind));
             Assert.False(c.CanFix);
             Assert.False(c.CanIgnore);
         }
@@ -124,7 +121,6 @@ namespace RevitWebAppSync.Tests
             core.SetTab(PanelTab.Ignore);
             d.Open("1");
             Assert.Equal(("Ignored", "ign"), (d.Card.SvLabel, d.Card.SvKind));
-            Assert.Equal("Ignored. Still prints as not comply on the Borang.", d.Card.DoneLabel);
             Assert.False(d.Card.CanIgnore);
         }
 
@@ -139,7 +135,7 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(("Manual review", "man", "man"), (c.SvLabel, c.SvKind, c.ActKind));
             Assert.Equal("why 1", c.Reason);
             Assert.Equal("", c.Desc);                            // the reason is not shown twice
-            Assert.False(c.CanFix || c.CanIgnore || c.IsDone);
+            Assert.False(c.CanFix || c.CanIgnore);
             Assert.Equal("Mark as reviewed", c.ReviewLabel);
 
             var asked = 0;

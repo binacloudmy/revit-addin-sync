@@ -43,8 +43,6 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public IReadOnlyList<string> Steps { get; set; } = Array.Empty<string>();
         public bool HasSteps => Steps.Count > 0;
 
-        public bool IsDone { get; set; }
-        public string DoneLabel { get; set; } = "";
 
         public bool CanLocate { get; set; }
         public bool CanIgnore { get; set; }
@@ -208,7 +206,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             var lang = _core.Lang;
             string sv, kind;
             if (man) { sv = T("manualRow"); kind = "man"; }
-            else if (c.Status == ItemStatus.Resolved) { sv = T("fixedRow"); kind = "ok"; }
+            else if (c.Status == ItemStatus.Resolved) { sv = T("resolvedRow"); kind = "ok"; }
             else if (c.Status == ItemStatus.Ignored) { sv = T("ignoredRow"); kind = "ign"; }
             else { sv = PanelStrings.Severity[c.Sev].In(lang); kind = c.Sev; }
             var open = !man && c.Status == ItemStatus.Open;
@@ -238,8 +236,6 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 Prop = c.Prop ?? "",
                 FixError = open ? c.FixError ?? "" : "",
                 Steps = steps,
-                IsDone = !man && c.Status != ItemStatus.Open,
-                DoneLabel = c.Status == ItemStatus.Resolved ? T("doneFix") : T("doneIgn"),
                 CanLocate = IsLocatable(c.Id),
                 CanIgnore = open,
                 Cite = c.Cite ?? "",

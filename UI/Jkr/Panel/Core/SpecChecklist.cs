@@ -757,7 +757,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             else detail = x.Title.In(lang);
             string tag;
             if (x.IsHuman) tag = x.Status == ItemStatus.Reviewed ? PanelStrings.Get(lang, "reviewed") : "";
-            else if (x.Status == ItemStatus.Resolved) tag = PanelStrings.Get(lang, "fixedRow");
+            else if (x.Status == ItemStatus.Resolved) tag = PanelStrings.Get(lang, "resolvedRow");
             else if (x.Status == ItemStatus.Ignored) tag = PanelStrings.Get(lang, "ignoredRow");
             else tag = "";
             return new ChecklistElement { Id = x.Id, Label = label, Detail = detail, Tag = tag };

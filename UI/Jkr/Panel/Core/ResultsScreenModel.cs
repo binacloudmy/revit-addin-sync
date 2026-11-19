@@ -310,7 +310,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             var a = x.Act.In(_core.Lang);
             string sv, kind;
             if (man) { sv = T("manualRow"); kind = "man"; }
-            else if (x.Status == ItemStatus.Resolved) { sv = T("fixedRow"); kind = "ok"; }
+            else if (x.Status == ItemStatus.Resolved) { sv = T("resolvedRow"); kind = "ok"; }
             else if (x.Status == ItemStatus.Ignored) { sv = T("ignoredRow"); kind = "ign"; }
             else { sv = PanelStrings.Severity[x.Sev].In(_core.Lang); kind = x.Sev; }
             var meta = new List<string>();
