@@ -346,5 +346,147 @@ namespace Tests
             Assert.Equal("Office", p.RoomName);
             Assert.DoesNotContain("side_ambiguous", p.Flags);
         }
+
+        // ─── ceiling and unhosted fittings ─────────────────────────────
+        // "Level 1" at 3000 mm; a ceiling (id 501) with its underside at level + 2700 over
+        // 0 <= x <= 4000, 100 <= y <= 3000, and none elsewhere.
+
+        private static CeilingHit? CeilingOver(double x, double y) =>
+            x >= 0 && x <= 4000 && y >= 100 && y <= 3000 ? new CeilingHit { Id = 501, UndersideZMm = 5700 } : null;
+
+        private static PlannedPoint Fitting(double x, double y, string host, double? mount,
+                                            List<(double X, double Y, double Z)>? existing = null, string role = "light")
+        {
+            return CadSymbolResolve.Resolve(
+                new ResolveInput { XMm = x, YMm = y, Role = role, Host = host, MountHeightMm = mount },
+                Wall(), CadSymbolResolve.Index(Wall()), OfficeAbove, 3000,
+                existing ?? new List<(double X, double Y, double Z)>(), new ResolveOptions(), CeilingOver);
+        }
+
+        [Fact]
+        public void Ceiling_host_takes_the_ceiling_underside()
+        {
+            PlannedPoint p = Fitting(2000, 1200, "ceiling", 2400);
+
+            Assert.Equal(501, p.HostCeilingId);
+            Assert.Equal("ceiling", p.Host);
+            Assert.Equal(5700, p.ZMm, 6);
+            Assert.Equal(2700, p.MountHeightMm, 6);
+            Assert.Equal(2000, p.XMm, 6);
+            Assert.Equal(1200, p.YMm, 6);
+            Assert.Null(p.HostWallId);
+            Assert.Equal(0, p.FacingDx, 6);
+            Assert.Equal(0, p.FacingDy, 6);
+            Assert.Equal("Office", p.RoomName);
+            Assert.Empty(p.Flags);
+            Assert.False(p.Excluded);
+            // A mount height override does not take it off its ceiling.
+            Assert.Equal(5700, CadSymbolResolve.TargetZMm(p, 300), 6);
+            Assert.False(CadSymbolResolve.NoCeiling(p, "ceiling", "ceiling"));
+        }
+
+        [Fact]
+        public void Ceiling_host_without_a_mount_height_still_takes_the_underside()
+        {
+            PlannedPoint p = Fitting(2000, 1200, "ceiling", null);
+
+            Assert.Equal(5700, p.ZMm, 6);
+            Assert.DoesNotContain("no_height", p.Flags);
+            Assert.False(p.Excluded);
+        }
+
+        [Fact]
+        public void No_ceiling_with_mount_height_uses_level_plus_height()
+        {
+            PlannedPoint p = Fitting(6000, 1200, "ceiling", 2600);
+
+            Assert.Null(p.HostCeilingId);
+            Assert.Equal("unhosted", p.Host);
+            Assert.Equal(5600, p.ZMm, 6);
+            Assert.Equal(2600, p.MountHeightMm, 6);
+            Assert.DoesNotContain("no_height", p.Flags);
+            Assert.False(p.Excluded);
+            Assert.Equal(5900, CadSymbolResolve.TargetZMm(p, 2900), 6);
+
+            // Only a family that cannot stand without its ceiling makes that no_ceiling.
+            Assert.True(CadSymbolResolve.NoCeiling(p, "ceiling", "ceiling"));
+            Assert.True(CadSymbolResolve.NoCeiling(p, "ceiling", "hosted"));
+            Assert.False(CadSymbolResolve.NoCeiling(p, "ceiling", "face"));
+            Assert.False(CadSymbolResolve.NoCeiling(p, "ceiling", "work_plane"));
+            Assert.False(CadSymbolResolve.NoCeiling(p, "ceiling", "none"));
+            Assert.False(CadSymbolResolve.NoCeiling(p, "ceiling", null));
+            Assert.False(CadSymbolResolve.NoCeiling(p, "none", "ceiling"));
+
+            CadSymbolResolve.AddFlag(p, "no_ceiling");
+            Assert.True(p.Excluded);
+        }
+
+        [Fact]
+        public void No_ceiling_and_no_height_is_no_height_excluded()
+        {
+            PlannedPoint p = Fitting(6000, 1200, "ceiling", null);
+
+            Assert.Null(p.HostCeilingId);
+            Assert.Equal(3000, p.ZMm, 6);
+            Assert.Contains("no_height", p.Flags);
+            Assert.True(p.Excluded);
+        }
+
+        [Fact]
+        public void Unhosted_uses_level_plus_height()
+        {
+            // Under the ceiling, but host "none" never looks for it.
+            PlannedPoint p = Fitting(2000, 1200, "none", 2500, role: "fan");
+
+            Assert.Null(p.HostCeilingId);
+            Assert.Equal("unhosted", p.Host);
+            Assert.Equal(5500, p.ZMm, 6);
+            Assert.Equal(2000, p.XMm, 6);
+            Assert.Equal(1200, p.YMm, 6);
+            Assert.Empty(p.Flags);
+
+            PlannedPoint none = Fitting(2000, 1200, "none", null, role: "fan");
+            Assert.Contains("no_height", none.Flags);
+            Assert.True(none.Excluded);
+        }
+
+        [Fact]
+        public void Ceiling_item_already_present_in_3d()
+        {
+            // A light already on the ceiling at the point: present.
+            PlannedPoint on = Fitting(2000, 1200, "ceiling", null,
+                new List<(double X, double Y, double Z)> { (2050, 1230, 5700) });
+            Assert.Contains("already_present", on.Flags);
+            Assert.True(on.Excluded);
+
+            // A socket on the wall straight under it is another device.
+            PlannedPoint under = Fitting(2000, 1200, "ceiling", null,
+                new List<(double X, double Y, double Z)> { (2000, 1200, 3300) });
+            Assert.DoesNotContain("already_present", under.Flags);
+
+            // The placement-time check reads the same Z.
+            Assert.True(CadSymbolResolve.IsPresent(2000, 1200, CadSymbolResolve.TargetZMm(on, 300),
+                new List<(double X, double Y, double Z)> { (2000, 1200, 5650) }, new ResolveOptions().ExistingMm));
+        }
+
+        [Fact]
+        public void Light_role_defaults_to_ceiling_host()
+        {
+            Assert.Equal("ceiling", CadElectricalMapping.DefaultHost("light"));
+            Assert.Equal("ceiling", CadElectricalMapping.DefaultHost("fan"));
+            Assert.Equal("wall", CadElectricalMapping.DefaultHost("socket"));
+        }
+
+        [Fact]
+        public void A_ceiling_family_on_a_wall_and_a_wall_family_on_a_ceiling_mismatch()
+        {
+            Assert.True(CadSymbolResolve.HostMismatch("wall", "ceiling"));
+            Assert.True(CadSymbolResolve.HostMismatch("none", "ceiling"));
+            Assert.True(CadSymbolResolve.HostMismatch("ceiling", "wall"));
+            Assert.False(CadSymbolResolve.HostMismatch("ceiling", "ceiling"));
+            Assert.False(CadSymbolResolve.HostMismatch("ceiling", "face"));
+            Assert.False(CadSymbolResolve.HostMismatch("ceiling", "work_plane"));
+            Assert.False(CadSymbolResolve.HostMismatch("ceiling", "none"));
+        }
     }
 }

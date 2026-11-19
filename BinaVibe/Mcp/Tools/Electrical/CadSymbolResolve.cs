@@ -5,8 +5,13 @@
 // point: snapped to the face of the wall it is drawn against, facing into the room, at the
 // mapping's height above the level (a drawing's legend heights are from finished floor level,
 // which is the level, not a room's lower offset), with the review flags that apply. The pure core:
-// walls, rooms and existing devices come in as plain data and a "room at this point"
-// delegate, so the Revit side (CadElectricalResolver) only reads the model.
+// walls, rooms and existing devices come in as plain data, with "room at this point" and
+// "ceiling at this point" delegates, so the Revit side (CadElectricalResolver) only reads the
+// model.
+//
+// A ceiling device (a light, a fan) goes on the underside of the ceiling over its drawn centre
+// when the level has one there; with none, at the level plus its mount height; with neither,
+// it is flagged no_height. A host "none" device stands at the level plus its mount height.
 //
 // Departs from spec §5.5 step 2 on purpose: the room probe goes along the wall's normal,
 // not the symbol's facing. A drawn symbol's rotation says little about which way it faces.
@@ -38,6 +43,13 @@ namespace BinaVibe.Mcp.Tools.Electrical
         /// height comes from the target level.</summary>
         public double FloorZMm;
         public bool Linked;
+    }
+
+    /// <summary>The local ceiling over a plan point, and its underside there, mm.</summary>
+    internal sealed class CeilingHit
+    {
+        public long Id;
+        public double UndersideZMm;
     }
 
     internal sealed class ResolveOptions
@@ -127,7 +139,8 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
         public static PlannedPoint Resolve(ResolveInput s, IReadOnlyList<ModelWall> walls, SegmentIndex wallIndex,
                                            Func<double, double, RoomHit?> roomAt, double levelZMm,
-                                           IReadOnlyList<(double X, double Y, double Z)> existing, ResolveOptions o)
+                                           IReadOnlyList<(double X, double Y, double Z)> existing, ResolveOptions o,
+                                           Func<double, double, CeilingHit?>? ceilingAt = null)
         {
             var p = new PlannedPoint
             {
@@ -138,17 +151,10 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 Host = "unhosted",
             };
 
-            RoomHit? room;
-            if (s.Host == "wall")
-            {
-                room = OnWall(s, walls, wallIndex, roomAt, o, p);
-            }
-            else
-            {
-                // At the drawn centre. A ceiling host is looked for on the Revit side (commit
-                // 11); until then a ceiling device stands where a host "none" one does.
-                room = roomAt(s.XMm, s.YMm);
-            }
+            // Ceiling and host "none" devices stay at the drawn centre.
+            RoomHit? room = s.Host == "wall"
+                ? OnWall(s, walls, wallIndex, roomAt, o, p)
+                : roomAt(s.XMm, s.YMm);
 
             if (room == null) AddFlag(p, "no_room");
             else
@@ -158,10 +164,21 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 if (IsWet(room.Name, o.WetKeywords)) AddFlag(p, "wet_room");
             }
 
-            // 6. Height from the target level, never the room's floor: the legend measures from
-            // finished floor level, and a room's lower offset (or its being on a link's level)
-            // would move every socket by that much. The room is for naming and the wet check.
-            if (s.MountHeightMm.HasValue)
+            // 6. Height. A ceiling device under a ceiling of this level takes the ceiling's
+            // underside, whatever the mapping's height, and its mount height is read back as the
+            // underside above the level. Anything else is measured from the target level, never
+            // the room's floor: the legend measures from finished floor level, and a room's lower
+            // offset (or its being on a link's level) would move every device by that much. The
+            // room is for naming and the wet check.
+            CeilingHit? ceiling = s.Host == "ceiling" && ceilingAt != null ? ceilingAt(s.XMm, s.YMm) : null;
+            if (ceiling != null)
+            {
+                p.HostCeilingId = ceiling.Id;
+                p.Host = "ceiling";
+                p.ZMm = ceiling.UndersideZMm;
+                p.MountHeightMm = ceiling.UndersideZMm - levelZMm;
+            }
+            else if (s.MountHeightMm.HasValue)
             {
                 p.MountHeightMm = s.MountHeightMm.Value;
                 p.ZMm = levelZMm + s.MountHeightMm.Value;
@@ -172,17 +189,40 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 AddFlag(p, "no_height");
             }
 
-            double limit = o.ExistingMm * o.ExistingMm;
-            foreach ((double x, double y, double z) in existing)
-            {
-                double dx = x - p.XMm, dy = y - p.YMm, dz = z - p.ZMm;
-                if ((dx * dx) + (dy * dy) + (dz * dz) > limit) continue;
-                AddFlag(p, "already_present");
-                break;
-            }
-
+            if (IsPresent(p.XMm, p.YMm, p.ZMm, existing, o.ExistingMm)) AddFlag(p, "already_present");
             return p;
         }
+
+        /// <summary>True when an existing device stands within <paramref name="withinMm"/> of the
+        /// point in 3D, so a light on the ceiling and a socket under it are not one device.</summary>
+        public static bool IsPresent(double xMm, double yMm, double zMm,
+                                     IReadOnlyList<(double X, double Y, double Z)> existing, double withinMm)
+        {
+            double limit = withinMm * withinMm;
+            foreach ((double x, double y, double z) in existing)
+            {
+                double dx = x - xMm, dy = y - yMm, dz = z - zMm;
+                if ((dx * dx) + (dy * dy) + (dz * dz) <= limit) return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// The Z a placement aims at: on a ceiling, the ceiling's underside (a mount height
+        /// override does not take a device off its ceiling); otherwise the plan's Z with its
+        /// mount height swapped for the override.
+        /// </summary>
+        public static double TargetZMm(PlannedPoint p, double? mountOverrideMm)
+        {
+            if (p.HostCeilingId.HasValue) return p.ZMm;
+            return p.ZMm - p.MountHeightMm + (mountOverrideMm ?? p.MountHeightMm);
+        }
+
+        /// <summary>True when a ceiling device found no ceiling and its family cannot stand
+        /// without one (ceiling-hosted, or another host-based kind): no_ceiling. Face, work plane
+        /// and unhosted families still stand at the level plus the mount height.</summary>
+        public static bool NoCeiling(PlannedPoint p, string host, string? hosting) =>
+            host == "ceiling" && !p.HostCeilingId.HasValue && (hosting == "ceiling" || hosting == "hosted");
 
         /// <summary>The wall-host path: picks the wall, the side and the face, and returns the
         /// room the point faces into (null when none).</summary>

@@ -2,8 +2,9 @@
 // CadElectricalResolver - phase 1 of the CAD electrical to BIM work (spec 2026-11-17 §5.5).
 //
 // The Revit reads behind plan_cad_electrical, and nothing else: the model's walls per level
-// as plain centrelines, the devices already in it, its family types, and a "room at this
-// point" lookup. CadModelFit and CadSymbolResolve do the deciding on that plain data (D6).
+// as plain centrelines, the devices already in it, its family types, and "room at this
+// point" and "ceiling at this point" lookups. CadModelFit and CadSymbolResolve do the
+// deciding on that plain data (D6).
 //
 // THIS FILE IS THE ft<->mm BOUNDARY for the plan: what it hands out is millimetres in
 // project-internal coordinates; what it reads from the API is feet. Read-only: no
@@ -141,6 +142,85 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 }
                 return null;
             };
+        }
+
+        /// <summary>
+        /// The local ceiling over a plan point on this level, mm in and out, with its underside
+        /// there. A ceiling is on the level when its LevelId is the level's. Each ceiling's box is
+        /// tried first; then a vertical line through the point must cross one of its bottom faces
+        /// (HostObjectUtils.GetBottomFaces), which is the point-in-polygon test, holes and slopes
+        /// included, and gives the underside's Z at that point. Two ceilings over one point give
+        /// the lower underside. Ceilings in a link are not looked at: there is nothing local to host
+        /// on. A ceiling whose faces cannot be read is skipped.
+        /// </summary>
+        public static Func<double, double, CeilingHit?> CeilingLookup(Document doc, Level level)
+        {
+            var ceilings = new List<(long Id, BoundingBoxXYZ Box, List<Face> Bottom)>();
+            foreach (Ceiling ceiling in new FilteredElementCollector(doc).OfClass(typeof(Ceiling)).Cast<Ceiling>())
+            {
+                if (ceiling.LevelId != level.Id) continue;
+                BoundingBoxXYZ? bb;
+                try { bb = ceiling.get_BoundingBox(null); } catch { bb = null; }
+                if (bb == null) continue;
+                List<Face> bottom = BottomFaces(ceiling);
+                if (bottom.Count > 0) ceilings.Add((ceiling.Id.Value, bb, bottom));
+            }
+
+            return (xMm, yMm) =>
+            {
+                double x = xMm / MmPerFoot, y = yMm / MmPerFoot;
+                CeilingHit? best = null;
+                foreach (var c in ceilings)
+                {
+                    if (x < c.Box.Min.X || x > c.Box.Max.X || y < c.Box.Min.Y || y > c.Box.Max.Y) continue;
+                    double? z = UndersideAt(c.Bottom, x, y, c.Box.Min.Z - 1, c.Box.Max.Z + 1);
+                    if (!z.HasValue) continue;
+                    double zMm = z.Value * MmPerFoot;
+                    if (best == null || zMm < best.UndersideZMm) best = new CeilingHit { Id = c.Id, UndersideZMm = zMm };
+                }
+                return best;
+            };
+        }
+
+        /// <summary>The ceiling's bottom faces, read once.</summary>
+        internal static List<Face> BottomFaces(Ceiling ceiling)
+        {
+            var faces = new List<Face>();
+            IList<Reference> refs;
+            try { refs = HostObjectUtils.GetBottomFaces(ceiling); } catch { return faces; }
+            foreach (Reference r in refs)
+            {
+                try
+                {
+                    if (ceiling.GetGeometryObjectFromReference(r) is Face face) faces.Add(face);
+                }
+                catch { /* a face that cannot be read is left out */ }
+            }
+            return faces;
+        }
+
+        /// <summary>Where a vertical line through (x, y), feet, crosses the lowest of these faces;
+        /// null when it misses them all (the point is outside the ceiling's outline, or in a hole).</summary>
+        internal static double? UndersideAt(IReadOnlyList<Face> faces, double x, double y, double zLowFt, double zHighFt)
+        {
+            Line line;
+            try { line = Line.CreateBound(new XYZ(x, y, zLowFt), new XYZ(x, y, zHighFt)); } catch { return null; }
+            double? lowest = null;
+            foreach (Face face in faces)
+            {
+                try
+                {
+                    if (face.Intersect(line, out IntersectionResultArray? hits) != SetComparisonResult.Overlap || hits == null)
+                        continue;
+                    for (int i = 0; i < hits.Size; i++)
+                    {
+                        double z = hits.get_Item(i).XYZPoint.Z;
+                        if (!lowest.HasValue || z < lowest.Value) lowest = z;
+                    }
+                }
+                catch { /* a face that cannot be intersected is not a hit */ }
+            }
+            return lowest;
         }
 
         private static List<RevitLinkInstance> Links(Document doc) =>

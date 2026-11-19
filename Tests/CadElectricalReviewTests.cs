@@ -84,6 +84,25 @@ namespace Tests
         }
 
         [Fact]
+        public void Lights_and_fans_appear_by_role_with_their_ceiling_flags()
+        {
+            SocketPlan plan = Plan();
+            plan.Points.Add(Point(5, "Office", "light"));
+            plan.Points.Add(Point(6, "Office", "light", "no_ceiling"));
+            plan.Points.Add(Point(7, "Office", "fan", "no_height"));
+            Dictionary<string, object?> review = CadElectricalReview.PlanReview(plan, Unmapped, 0);
+
+            var rooms = ((List<object?>)review["rooms"]!).Select(Row)
+                .ToDictionary(r => r["room"] + "/" + r["role"], r => r["drawn"] + "/" + r["will_place"]);
+            Assert.Equal("2/1", rooms["Office/light"]);
+            Assert.Equal("1/0", rooms["Office/fan"]);
+
+            var flagged = ((List<object?>)review["flagged"]!).Select(Row).ToDictionary(r => (string)r["flag"]!);
+            Assert.Equal("excluded", flagged["no_ceiling"]["default"]);
+            Assert.Equal("excluded", flagged["no_height"]["default"]);
+        }
+
+        [Fact]
         public void Flags_are_grouped_with_their_default()
         {
             var flagged = ((List<object?>)CadElectricalReview.PlanReview(Plan(), Unmapped, 0)["flagged"]!).Select(Row)

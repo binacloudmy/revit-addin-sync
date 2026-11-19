@@ -320,6 +320,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
             var options = new ResolveOptions();
             var wallIndex = CadSymbolResolve.Index(walls);
             Func<double, double, RoomHit?> roomAt = CadElectricalResolver.RoomLookup(doc, level);
+            Func<double, double, CeilingHit?> ceilingAt = CadElectricalResolver.CeilingLookup(doc, level);
             double levelZMm = level.Elevation * MmPerFoot;
             bool provisional = fit.Outcome == "provisional";
 
@@ -392,15 +393,18 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 string host = row!.Host ?? CadElectricalMapping.DefaultHost(row.Role);
                 PlannedPoint p = CadSymbolResolve.Resolve(
                     new ResolveInput { XMm = mx, YMm = my, Role = row.Role, Host = host, MountHeightMm = row.MountHeightMm },
-                    walls, wallIndex, roomAt, levelZMm, model.ExistingDevices, options);
+                    walls, wallIndex, roomAt, levelZMm, model.ExistingDevices, options, ceilingAt);
                 p.Index = points.Count;
                 p.LevelName = level.Name;
                 p.SymbolKey = symbol.Key;
                 p.FamilyType = row.FamilyType;
                 if (provisional) CadSymbolResolve.AddFlag(p, "provisional_alignment");
-                if (row.FamilyType != null && model.HostingByType.TryGetValue(row.FamilyType, out string? hosting) &&
-                    CadSymbolResolve.HostMismatch(host, hosting))
+                string? hosting = null;
+                if (row.FamilyType != null) model.HostingByType.TryGetValue(row.FamilyType, out hosting);
+                if (hosting != null && CadSymbolResolve.HostMismatch(host, hosting))
                     CadSymbolResolve.AddFlag(p, "family_host_mismatch");
+                if (CadSymbolResolve.NoCeiling(p, host, hosting))
+                    CadSymbolResolve.AddFlag(p, "no_ceiling");
                 points.Add(p);
             }
             McpProgress.Report(total, total);
@@ -438,6 +442,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     ["min_wall_mm"] = CadSymbolResolve.MinStructuralWallMm,
                     ["thin_walls_ignored"] = thinIgnored,
                     ["height_basis"] = "level",
+                    ["ceiling_height_basis"] = "ceiling_underside, else level",
                     ["reach_mm"] = options.ReachMm,
                     ["axial_tolerance_mm"] = options.AxialTolMm,
                     ["existing_mm"] = options.ExistingMm,

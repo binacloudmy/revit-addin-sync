@@ -214,7 +214,18 @@ One sheet can hold copies of the same floor. They fit equally well, and geometry
 5. **Height.** Z = **level elevation + mount height**. The room's lower offset is not used, because legend heights are from finished floor level. `params_used.height_basis` is `"level"`.
 6. **Linked wall.** A wall in a linked model flags `linked_wall` and gives an unhosted point.
 
-**Ceiling and `none` hosts** stand at the drawn centre for now.
+### Resolving a symbol (ceiling and `none` hosts)
+
+Both stay at the drawn centre, with no facing. The room is looked up there.
+
+**Ceiling host:**
+1. **Ceiling.** Local `Ceiling` elements whose level is the target level are tried. A ceiling's bounding box must contain the point. Then a vertical line through the point must cross one of the ceiling's bottom faces (`HostObjectUtils.GetBottomFaces`). That is the point-in-outline test, and it handles holes and slopes. Where two ceilings cover the point, the lower underside wins. Ceilings in a linked model are not used.
+2. **Height.** With a ceiling, the point takes its `HostCeilingId`, its host becomes `ceiling`, and Z is the ceiling's underside at the point. The mapping's mount height is not used, and the point reports the underside's height above the level as its mount height.
+3. **No ceiling.** Z = level elevation + mount height, and the point is unhosted. With no mount height either, the point is flagged `no_height`. If the row's family must sit on a ceiling (hosting `ceiling` or `hosted`), the point is flagged `no_ceiling`. A face, work plane or unhosted family is not flagged, because it can stand at the level plus the mount height.
+
+**`none` host:** Z = level elevation + mount height, unhosted. With no mount height, the point is flagged `no_height`.
+
+`params_used.ceiling_height_basis` is `"ceiling_underside, else level"`.
 
 ### Flags and defaults
 
@@ -228,8 +239,9 @@ One sheet can hold copies of the same floor. They fit equally well, and geometry
 | `provisional_alignment` | kept |
 | `side_ambiguous` | kept |
 | `duplicate_in_drawing` (same role within 20 mm in plan) | excluded |
-| `family_host_mismatch` (the family's hosting cannot take the row's host) | excluded |
-| `no_ceiling`, `no_height` | excluded |
+| `family_host_mismatch` (the family's hosting cannot take the row's host: a ceiling family on a `wall` or `none` row, a wall family on a `ceiling` or `none` row, a floor or roof family on any row) | excluded |
+| `no_ceiling` (a ceiling row found no ceiling, and its family is ceiling-hosted or host-based) | excluded |
+| `no_height` (no ceiling was found and the row has no mount height) | excluded |
 
 **Dropped symbols:** a symbol nested inside another mapped placeable symbol is dropped as `nested_in_mapped`.
 
@@ -292,14 +304,14 @@ The review carries no coordinates.
 | `indices` | int[] | Explicit points. These win even over excluded points. |
 | `roles` | string[] | Filter, e.g. `["socket"]` |
 | `level` | string | Level override |
-| `mount_height_mm` | number | Replaces the plan's mount height (Z moves by the difference) |
+| `mount_height_mm` | number | Replaces the plan's mount height (Z moves by the difference). A point on a ceiling keeps the ceiling's underside. |
 | `facing_offset_deg` | number | Corrects a family whose front axis is authored off |
 
 **Selection:** without `indices`, every non-excluded point is placed, filtered by `roles`. If no selected point has a family type, the call returns `ok:false` before any transaction.
 
 **Transactions:** one `TransactionGroup` with one transaction per point, then `Assimilate`. The whole run is a single undo, and a refused point fails alone.
 
-**No doubling:** before each point, devices that exist *now* within 150 mm (3D) skip the point under `skipped_already_present`. A point picked by index keeps its place.
+**No doubling:** before each point, devices that exist *now* within 150 mm (3D) skip the point under `skipped_already_present`. A point picked by index keeps its place. A ceiling point is compared at the ceiling's underside, so a socket on the wall under a light is a different device.
 
 **Placement by family:**
 
@@ -309,6 +321,17 @@ The review carries no coordinates.
 | Wall-hosted | Wall overload. A point with no local wall (`linked_wall`) fails with advice to use a face-based or unhosted family. |
 | Unhosted | Level overload |
 
+**Points not on a wall** (ceiling and `none` hosts) are placed by the family's `FAMILY_HOSTING_BEHAVIOR`:
+
+| Family | How it is placed |
+|---|---|
+| Ceiling-hosted (or another host-based kind) | `NewFamilyInstance(point, symbol, ceiling, level, NonStructural)` on the plan's ceiling. With no ceiling, the point fails alone with `no_ceiling` and is never placed free-standing. |
+| Face-based or work-plane-based | On the ceiling's bottom face over the point, through the face-reference overload, with the reference direction along X. With no ceiling, or if Revit refuses the face, the level overload is used. |
+| Wall-hosted | Fails alone, because there is no wall. |
+| Unhosted | Level overload, then the elevation is set from the level. |
+
+These points have no facing, so `facing_method` is `not_applicable`. On a ceiling the host sets the height. It is read back, and `elevation_set_via` is `insertion_point` when it matches the plan, else `host`. Each item also carries `z_mm` (as placed), `target_z_mm` and `host_ceiling_id`.
+
 **Facing readback:**
 - **Wall-hosted and unhosted:** `FacingOrientation`, corrected by flip, then by rotation. A correction that fails is reported as `uncorrectable`.
 - **Face-hosted:** the host face's outward normal at the point. If the face cannot be read, the instance's work-plane normal (`GetTotalTransform().BasisZ`) is used. `FacingOrientation` lies in the face, so it is not used. These instances are measured and never flipped or rotated, so they report `as_placed` or `uncorrectable`.
@@ -317,7 +340,7 @@ The review carries no coordinates.
 
 **Result:**
 - Every existing key is kept: `ok`, `plan_id`, `count`, `created[]`, `failed[]`, `facing_uncorrected(_indices)`.
-- Each `created` item has `index`, `created_id`, `host` (`wall_face`, `wall` or `unhosted`), `facing`, `facing_target`, `facing_error_deg`, `facing_method` and `family_type`.
+- Each `created` item has `index`, `created_id`, `host` (`wall_face`, `wall`, `ceiling`, `ceiling_face` or `unhosted`), `facing`, `facing_target`, `facing_error_deg`, `facing_method` and `family_type`.
 - New keys: `by_role`, `by_family_type`, `skipped_excluded`, `skipped_already_present` and `review`.
 - `review` is `PlaceReview`: a headline and `needs_review` counts of `facing_uncorrected`, `elevation_unset`, `no_room`, `wet_room` and `provisional_alignment`.
 
