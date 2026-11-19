@@ -662,6 +662,20 @@ namespace UiHarness
                 Click(RowButton(RowIndexAtTop(shell, body) + 1), "a row while focus is restored to the Checklist tab");
                 Check("the row opens on the first click while the pane gets focus back", opened.Count == n + 1);
                 CloseDetail();
+                // 6c. a real click on the scrim (well after the window was activated) still closes the detail
+                n = opened.Count;
+                Click(RowButton(RowIndexAtTop(shell, body)), "a row, then the scrim");
+                Settle(700);
+                var dw = Application.Current.Windows.OfType<DetailWindow>().FirstOrDefault(w => w.IsVisible);
+                if (dw != null)
+                {
+                    var corner = dw.PointToScreen(new Point(8, 8));
+                    SetCursorPos((int)corner.X, (int)corner.Y); Settle(80);
+                    mouse_event(0x0002, 0, 0, 0, UIntPtr.Zero); Settle(80);
+                    mouse_event(0x0004, 0, 0, 0, UIntPtr.Zero); Settle(400);
+                }
+                Check("a real click on the scrim closes the detail", dw != null && !shell.Detail.IsOpen && !Application.Current.Windows.OfType<DetailWindow>().Any(w => w.IsVisible));
+                CloseDetail();
                 // 7. the list keys still bring the selection into view
                 var rv = FindAll<ResultsView>(shell).First();
                 body.ScrollToVerticalOffset(0); Settle(200);

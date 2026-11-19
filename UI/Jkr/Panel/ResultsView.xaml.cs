@@ -20,7 +20,21 @@ namespace RevitWebAppSync.UI.Jkr.Panel
             model.PropertyChanged += (_, __) => { UpdateSearchHint(); QueueFitTools(); FollowView(); };
             PreviewKeyDown += OnPreviewKeyDown;
             SizeChanged += (_, __) => QueueFitTools();
-            Loaded += (_, __) => { UpdateSearchHint(); Focus(); };
+            // Take keyboard focus only when the pane already has it (live R2). Focus() from a
+            // pane that does not have it (the Results screen appearing when a scan ends, while
+            // Revit's view has focus) pulls Win32 focus into the dock; the next click then went
+            // to the dock's activation and never reached WPF.
+            Loaded += (_, __) =>
+            {
+                UpdateSearchHint();
+                var mine = Keyboard.FocusedElement is DependencyObject d && PresentationSource.FromDependencyObject(d) is PresentationSource ps
+                           && ReferenceEquals(ps, PresentationSource.FromVisual(this));
+                JkrPaneLog.Write("ResultsView loaded; keyboard focus " + (mine ? "taken (the pane had it)" : "left where it is (" + (Keyboard.FocusedElement?.GetType().Name ?? "none") + ")"));
+                if (mine) Focus();
+            };
+            // Whether a press reaches WPF at all (live R2: the first click after a scan did not).
+            PreviewMouseDown += (_, e) => JkrPaneLog.Write("ResultsView press " + e.ChangedButton + " on " + (e.OriginalSource as FrameworkElement)?.GetType().Name
+                                                           + " (window active=" + (Window.GetWindow(this)?.IsActive.ToString() ?? "no window") + ", keyboard focus within=" + IsKeyboardFocusWithin + ")");
             BodyContent.RequestBringIntoView += OnBodyBringIntoView;
         }
 

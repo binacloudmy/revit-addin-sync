@@ -37,6 +37,15 @@ namespace RevitWebAppSync.UI.Jkr.Panel
         /// <summary>The scrim closes on a press AND release on it, not on a press alone: a press
         /// that began before the window existed (the row click that opened it) never closes it.</summary>
         private bool _scrimPressed;
+        /// <summary>Environment.TickCount at the window's last activation.</summary>
+        private int _activatedAt = Environment.TickCount;
+        /// <summary>A scrim press closer than this to the window's activation is not trusted:
+        /// in Revit a press nobody made reached the scrim about 0.8 s after Show (live R1).</summary>
+        internal const int ScrimQuietMs = 400;
+        private const int VkLButton = 0x01;
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern short GetAsyncKeyState(int vKey);
 
         private DetailWindow(DetailScreenModel model)
         {
@@ -50,7 +59,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel
             PreviewMouseWheel += OnPreviewMouseWheel;
             SourceInitialized += (_, __) => (PresentationSource.FromVisual(this) as HwndSource)?.AddHook(WndProc);
             Loaded += (_, __) => { JkrPaneLog.Write("DetailWindow loaded"); Activate(); CloseBtn.Focus(); };
-            Activated += (_, __) => JkrPaneLog.Write("DetailWindow activated");
+            Activated += (_, __) => { _activatedAt = Environment.TickCount; JkrPaneLog.Write("DetailWindow activated"); };
             Deactivated += (_, __) => JkrPaneLog.Write("DetailWindow deactivated");
             Closing += (_, e) => JkrPaneLog.Write("DetailWindow closing: " + (_closeReason ?? "not by the pane (owner closed, system, or Close() elsewhere)")
                                                    + (_closeReason == null ? " <- " + JkrPaneLog.Callers(1, 8) : "") + (e.Cancel ? " (cancelled)" : ""));
@@ -134,10 +143,31 @@ namespace RevitWebAppSync.UI.Jkr.Panel
         }
 
         // ── clicks ──
+        /// <summary>
+        /// The scrim closes the detail only on a click it saw start for real (controller ruling,
+        /// live R1): (a) a left press at least <see cref="ScrimQuietMs"/> after the window's last
+        /// activation (the press's own timestamp), (b) with the left button physically down when
+        /// the press is handled, and (c) the release on the scrim too (<see cref="Scrim_MouseUp"/>).
+        /// Esc and × close as before.
+        /// </summary>
         private void Scrim_MouseDown(object sender, MouseButtonEventArgs e)
         {
+            _scrimPressed = false;
+            if (e.ChangedButton != MouseButton.Left) { JkrPaneLog.Write("DetailWindow scrim press ignored: " + e.ChangedButton + " button"); return; }
+            var sinceActivated = unchecked(e.Timestamp - _activatedAt);
+            if (sinceActivated < ScrimQuietMs)
+            {
+                JkrPaneLog.Write($"DetailWindow scrim press ignored: {sinceActivated} ms after the window was activated (< {ScrimQuietMs})");
+                return;
+            }
+            var down = (GetAsyncKeyState(VkLButton) & 0x8000) != 0;
+            if (!down)
+            {
+                JkrPaneLog.Write("DetailWindow scrim press ignored: the left button is not physically down");
+                return;
+            }
             _scrimPressed = true;
-            JkrPaneLog.Write("DetailWindow scrim pressed (" + e.ChangedButton + ")");
+            JkrPaneLog.Write($"DetailWindow scrim pressed ({sinceActivated} ms after activation, button down)");
         }
         private void Scrim_MouseUp(object sender, MouseButtonEventArgs e)
         {
