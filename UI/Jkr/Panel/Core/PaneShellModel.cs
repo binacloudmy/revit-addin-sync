@@ -85,8 +85,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
     /// </summary>
     public sealed class PaneShellModel : INotifyPropertyChanged
     {
-        /// <summary>Shell strings the prototype does not have: the proposed "No model
-        /// open" state (flow s-nomodel) and the kept login-required state.</summary>
+        /// <summary>Shell strings the prototype does not have: the "Waiting for a model"
+        /// state (flow s-nomodel) and the kept login-required state.</summary>
         private static readonly Dictionary<string, (string Ms, string En)> Extra = new Dictionary<string, (string, string)>
         {
             ["waiting"] = ("Menunggu model", "Waiting for a model"),

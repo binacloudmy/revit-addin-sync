@@ -47,7 +47,7 @@
     <SolidColorBrush x:Key="Bz.BrandTintText"     Color="#15181D"/>
     <!-- Clear Sheet: BINA amber, the top step of the JKR Compliance mark only -->
     <SolidColorBrush x:Key="Bz.Logo.Amber"        Color="#F2A91F"/>
-    <SolidColorBrush x:Key="Bz.BrandSoft"        Color="#1415181D"/>
+    <SolidColorBrush x:Key="Bz.BrandSoft"         Color="#1415181D"/>
 
     <!-- ── Chrome (title and context bars): light, like the Copilot pane ── -->
     <SolidColorBrush x:Key="Bz.Chrome"            Color="#FFFFFF"/>

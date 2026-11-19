@@ -45,6 +45,7 @@ namespace UiHarness
         public static void Capture(string dir)
         {
             Directory.CreateDirectory(dir);
+            FontCheck();
             ActiveModelSource.Set(new ActiveModelInfo(Title, @"C:\Projects\Dewan\" + Title + ".rvt", false));
 
             Shot(dir, "jkr-start.png", s => { });
@@ -244,6 +245,27 @@ namespace UiHarness
                 ElementIds = Enumerable.Range(1, n).Select(i => 900000L + i).ToList(),
                 Evidence = reason == null ? null : new Dictionary<string, object> { ["not_verifiable_reason"] = reason },
             };
+        }
+
+        /// <summary>Prints which embedded font file WPF resolves for each weight of Bz.Font.Sans / Bz.Font.Mono.</summary>
+        private static void FontCheck()
+        {
+            var tokens = new System.Windows.ResourceDictionary
+            {
+                Source = new Uri("pack://application:,,,/RevitWebAppSync;component/UI/Jkr/Panel/PanelTokens.xaml")
+            };
+            foreach (var key in new[] { "Bz.Font.Sans", "Bz.Font.Mono" })
+            {
+                var ff = (System.Windows.Media.FontFamily)tokens[key];
+                foreach (var w in new[] { 400, 500, 600, 700 })
+                {
+                    var tf = new System.Windows.Media.Typeface(ff, System.Windows.FontStyles.Normal,
+                        System.Windows.FontWeight.FromOpenTypeWeight(w), System.Windows.FontStretches.Normal);
+                    if (tf.TryGetGlyphTypeface(out var gt))
+                        Console.WriteLine($"fontcheck {key} {w}: {gt.FontUri} (face weight {gt.Weight.ToOpenTypeWeight()}, simulated bold {gt.Weight != System.Windows.FontWeight.FromOpenTypeWeight(w) || tf.IsBoldSimulated})");
+                    else Console.WriteLine($"fontcheck {key} {w}: NO glyph typeface (fallback)");
+                }
+            }
         }
 
         private static void Shot(string dir, string file, Action<JkrPaneShell> configure, int height = 1100)
