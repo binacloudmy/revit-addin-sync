@@ -35,6 +35,7 @@ namespace Tests
             "PlacementCompare.cs",
             "OverheadPlacement.cs",
             "CadRunChain.cs",
+            "CadRunPlan.cs",
         };
 
         /// <summary>The phase 1 files on the Revit side: not linked into the tests, but held to

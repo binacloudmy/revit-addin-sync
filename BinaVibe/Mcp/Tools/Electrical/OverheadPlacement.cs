@@ -23,6 +23,8 @@ namespace BinaVibe.Mcp.Tools.Electrical
     {
         public double X, Y, Z;
         public long? CeilingId;
+        /// <summary>The device's element id; 0 when not read.</summary>
+        public long Id;
     }
 
     internal static class OverheadPlacement
