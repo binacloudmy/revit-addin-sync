@@ -13,6 +13,10 @@
 //    sets' dominant directions (a skewed building).
 // 3. Votes: every pair of long walls running the same way with about the same length votes
 //    for the translation that lays one on the other, weighted by the shorter length.
+//    Axis votes: a drawing splits walls at doors and windows where the model runs them through,
+//    so few pieces match a model wall's length. Walls along the model's dominant direction also
+//    vote alone for the shift across them, walls across it for the shift along it, any lengths.
+//    The best three of each axis make nine more candidates, after all the length-matched ones.
 // 4. Refine: the best few vote bins (a bin next to one already taken is the same peak), each
 //    the median of its voters, then polished on the perpendicular residuals to the nearest
 //    parallel model wall.
@@ -60,6 +64,9 @@ namespace BinaVibe.Mcp.Tools.Electrical
         public double RivalShare = 0.97;
         /// <summary>Two placements whose shifts differ by less than this are one place.</summary>
         public double RivalSeparationMm = 2000;
+        /// <summary>Also vote each axis on its own, with no length test (walls the drawing splits
+        /// at doors and the model runs through).</summary>
+        public bool AxisVotes = true;
     }
 
     /// <summary>
@@ -266,6 +273,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
         private const int MinWalls = 4;
         private const int TopBins = 8;
         private const int BinSkip = 2;
+        private const int AxisPeakCount = 3;
         private const int MaxRivals = 8;
         private const double SamePlaceDeg = 1;
         private const int PolishPasses = 2;
@@ -307,6 +315,23 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     FitResult measured = Measure(cad, index, footprint, modelLength, transform, o);
                     measured.Voters = voters;
                     found.Add(measured);
+                }
+            }
+
+            // After every length-matched candidate, so on equal covered length those win.
+            if (o.AxisVotes)
+            {
+                foreach (double degrees in rotations)
+                {
+                    double rotation = degrees * Math.PI / 180;
+                    foreach ((double tx, double ty, int voters) in AxisCandidates(cad, model, rotation, modelDominant, o))
+                    {
+                        var transform = new FitTransform { RotationRad = rotation, TxMm = tx, TyMm = ty };
+                        Polish(cad, index, transform, modelDominant, o);
+                        FitResult measured = Measure(cad, index, footprint, modelLength, transform, o);
+                        measured.Voters = voters;
+                        found.Add(measured);
+                    }
                 }
             }
 
@@ -523,6 +548,98 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 candidates.Add((Median(near.Select(v => v.Dx)), Median(near.Select(v => v.Dy)), near.Count));
             }
             return candidates;
+        }
+
+        /// <summary>
+        /// Votes each axis on its own, for one rotation. A wall along the model's dominant
+        /// direction (u) votes for the shift across it (v) with every model wall running that way,
+        /// whatever their lengths; a wall across it votes for the shift along u. Each vote weighs
+        /// the shorter length: the overlap along the shared axis depends on the shift along that
+        /// axis, which this vote does not know, and the shorter length is that overlap's most.
+        /// The three heaviest peaks of each axis (a bin within two of one taken is the same peak),
+        /// each the median of the votes in its bin and the two beside it, make nine shifts.
+        /// Pairs are drawing walls times model walls of one direction, as the length-matched vote
+        /// at its worst.
+        /// </summary>
+        internal static List<(double Tx, double Ty, int Voters)> AxisCandidates(
+            IReadOnlyList<FitSegment> cad, IReadOnlyList<FitSegment> model, double rotation, double dominantDeg,
+            FitOptions o)
+        {
+            double phi = dominantDeg * Math.PI / 180;
+            double ux = Math.Cos(phi), uy = Math.Sin(phi), vx = -uy, vy = ux;
+            var turn = new FitTransform { RotationRad = rotation };
+
+            // Per direction: each long wall's offset across its run and its length.
+            var modelU = new List<(double At, double Length)>();
+            var modelV = new List<(double At, double Length)>();
+            foreach (FitSegment m in model) FileWall(m, modelU, modelV);
+            var cadU = new List<(double At, double Length)>();
+            var cadV = new List<(double At, double Length)>();
+            foreach (FitSegment c in cad) FileWall(turn.Apply(c), cadU, cadV);
+
+            List<(double Shift, int Voters)> acrossU = AxisPeaks(cadU, modelU, o);   // shifts along v
+            List<(double Shift, int Voters)> acrossV = AxisPeaks(cadV, modelV, o);   // shifts along u
+
+            var candidates = new List<(double Tx, double Ty, int Voters)>();
+            foreach ((double su, int nu) in acrossV)
+            {
+                foreach ((double sv, int nv) in acrossU)
+                {
+                    candidates.Add(((su * ux) + (sv * vx), (su * uy) + (sv * vy), nu + nv));
+                }
+            }
+            return candidates;
+
+            void FileWall(FitSegment s, List<(double At, double Length)> alongU, List<(double At, double Length)> alongV)
+            {
+                double length = s.Length;
+                if (length < o.MinVoteLengthMm || !ElectricalCensus.IsFinite(length)) return;
+                double angle = Angle180(s);
+                double mx = (s.X1 + s.X2) / 2, my = (s.Y1 + s.Y2) / 2;
+                if (AngleDiff180(angle, dominantDeg) <= o.AngleTolDeg)
+                    alongU.Add(((mx * vx) + (my * vy), length));
+                else if (AngleDiff180(angle, dominantDeg + 90) <= o.AngleTolDeg)
+                    alongV.Add(((mx * ux) + (my * uy), length));
+            }
+        }
+
+        /// <summary>The heaviest one-axis shifts that lay drawing walls on model walls running the
+        /// same way, at most three; see <see cref="AxisCandidates"/>.</summary>
+        private static List<(double Shift, int Voters)> AxisPeaks(
+            List<(double At, double Length)> cad, List<(double At, double Length)> model, FitOptions o)
+        {
+            var bins = new Dictionary<long, List<double>>();
+            var weights = new Dictionary<long, double>();
+            foreach ((double atC, double lc) in cad)
+            {
+                foreach ((double atM, double lm) in model)
+                {
+                    double shift = atM - atC;
+                    long key = (long)Math.Floor(shift / o.BinMm);
+                    if (!bins.TryGetValue(key, out List<double>? votes))
+                    {
+                        votes = new List<double>();
+                        bins[key] = votes;
+                        weights[key] = 0;
+                    }
+                    votes.Add(shift);
+                    weights[key] += Math.Min(lc, lm);
+                }
+            }
+
+            var peaks = new List<(double Shift, int Voters)>();
+            IEnumerable<KeyValuePair<(long, long), double>> keyed =
+                weights.Select(pair => new KeyValuePair<(long, long), double>((pair.Key, 0L), pair.Value));
+            foreach ((long, long) key in PickBins(keyed, AxisPeakCount, BinSkip))
+            {
+                var near = new List<double>();
+                for (long i = -1; i <= 1; i++)
+                {
+                    if (bins.TryGetValue(key.Item1 + i, out List<double>? votes)) near.AddRange(votes);
+                }
+                peaks.Add((Median(near), near.Count));
+            }
+            return peaks;
         }
 
         /// <summary>The heaviest bins, at most <paramref name="max"/>, skipping any within

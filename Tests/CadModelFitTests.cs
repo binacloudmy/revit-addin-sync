@@ -205,6 +205,143 @@ namespace Tests
             AssertRecovers(fit, 90, 7000, -2000);
         }
 
+        // ---------------------------------------------------------------- axis votes
+
+        /// <summary>Every wall cut into two, three or four pieces with a 900 mm door between,
+        /// the pieces of one wall unequal, so hardly a piece matches a whole wall's length.</summary>
+        private static List<FitSegment> SplitAtDoors(IEnumerable<FitSegment> plan)
+        {
+            const double Door = 900;
+            var pieces = new List<FitSegment>();
+            int w = 0;
+            foreach (FitSegment s in plan)
+            {
+                int n = 2 + (w++ % 3);
+                double length = s.Length, ux = (s.X2 - s.X1) / length, uy = (s.Y2 - s.Y1) / length;
+                double solid = length - ((n - 1) * Door);
+                double[] shares = Enumerable.Range(0, n).Select(k => 1.0 + (0.3 * k)).ToArray();
+                double sum = shares.Sum(), at = 0;
+                foreach (double share in shares)
+                {
+                    double piece = solid * share / sum;
+                    pieces.Add(new FitSegment(s.X1 + (ux * at), s.Y1 + (uy * at),
+                                              s.X1 + (ux * (at + piece)), s.Y1 + (uy * (at + piece))));
+                    at += piece + Door;
+                }
+            }
+            return pieces;
+        }
+
+        /// <summary>A bigger floor than the L: a 3 by 4 grid of rooms with a corridor, outside
+        /// walls and cross walls of unequal spans.</summary>
+        private static List<FitSegment> Block()
+        {
+            double[] xs = { 0, 6200, 13900, 19300, 27000 };
+            double[] ys = { 0, 7100, 9600, 16400, 23900 };
+            var walls = new List<FitSegment>();
+            foreach (double y in ys) walls.Add(new FitSegment(0, y, xs[xs.Length - 1], y));
+            foreach (double x in xs)
+            {
+                walls.Add(new FitSegment(x, 0, x, ys[1]));
+                walls.Add(new FitSegment(x, ys[2], x, ys[4]));
+            }
+            return walls;
+        }
+
+        [Fact]
+        public void Walls_split_at_doors_on_both_axes_still_fit_above_080()
+        {
+            List<FitSegment> cad = SplitAtDoors(LPlan());
+            List<FitSegment> model = Move(LPlan(), 0, 8150, -3420);
+
+            FitResult fit = CadModelFit.Fit(cad, model);
+            FitResult lengthsOnly = CadModelFit.Fit(cad, model, new FitOptions { AxisVotes = false });
+
+            Assert.True(fit.Score >= 0.80, "score " + fit.Score);
+            Assert.Equal("accepted", fit.Outcome);
+            Assert.Equal(8150, fit.Transform.TxMm, 0);
+            Assert.Equal(-3420, fit.Transform.TyMm, 0);
+            Assert.True(lengthsOnly.Score < 0.80, "lengths alone already fit: " + lengthsOnly.Score);
+
+            // A quarter turn, and a bigger floor.
+            FitResult turned = CadModelFit.Fit(SplitAtDoors(Block()), Move(Block(), 90, -40000, 125000));
+            Assert.True(turned.Score >= 0.80, "turned " + turned.Score);
+            var truth = new FitTransform { RotationRad = Math.PI / 2, TxMm = -40000, TyMm = 125000 };
+            truth.Apply(1000, 2000, out double ex, out double ey);
+            turned.Transform.Apply(1000, 2000, out double ax, out double ay);
+            Assert.True(Math.Abs(ax - ex) <= 5 && Math.Abs(ay - ey) <= 5, ax + "," + ay + " vs " + ex + "," + ey);
+        }
+
+        [Fact]
+        public void Axis_votes_never_beat_a_better_length_matched_candidate()
+        {
+            // Whole walls: the length-matched vote finds the place, and the axis votes add a one-bay
+            // shift that covers less. The pick and its scores stay as without axis votes.
+            List<FitSegment> model = Move(Bays(), 0, 3000, 3000);
+            List<(double Tx, double Ty, int Voters)> axis = CadModelFit.AxisCandidates(Bays(), model, 0, 0, new FitOptions());
+            Assert.Contains(axis, a => Math.Abs(a.Tx - 10000) < 50 || Math.Abs(a.Tx + 4000) < 50);
+
+            foreach ((List<FitSegment> cad, List<FitSegment> m) in new[]
+                     {
+                         (Bays(), model),
+                         (LPlan(), Move(LPlan(), 0, 12345, -6780)),
+                         (Stack(LPlan(), LPlan(), LPlan()), Move(LPlan(), 0, 4000, -9000)),
+                     })
+            {
+                FitResult with = CadModelFit.Fit(cad, m);
+                FitResult without = CadModelFit.Fit(cad, m, new FitOptions { AxisVotes = false });
+
+                Assert.Equal(without.Transform.TxMm, with.Transform.TxMm, 0);
+                Assert.Equal(without.Transform.TyMm, with.Transform.TyMm, 0);
+                Assert.Equal(without.CoveredMm, with.CoveredMm, 0);
+                Assert.Equal(without.Score, with.Score, 6);
+                Assert.Equal(without.Rivals.Count, with.Rivals.Count);
+            }
+        }
+
+        [Fact]
+        public void Axis_votes_respect_the_footprint_crop()
+        {
+            // Three copies, split at doors, one above the other; a block of bays drawn beside them.
+            List<FitSegment> cad = Stack(SplitAtDoors(LPlan()), SplitAtDoors(LPlan()), SplitAtDoors(LPlan()))
+                .Concat(Move(Bays(), 0, 40000, 0)).ToList();
+
+            FitResult fit = CadModelFit.Fit(cad, Move(LPlan(), 0, 4000, -9000));
+
+            Assert.Equal("accepted", fit.Outcome);
+            Assert.True(fit.Score >= 0.95, "cropped " + fit.Score);
+            Assert.True(fit.ScoreUncropped < 0.25, "uncropped " + fit.ScoreUncropped);
+            Assert.True(fit.InsideShare < 0.25, "inside " + fit.InsideShare);
+            Assert.Equal(4000, fit.Transform.TxMm, 0);
+            Assert.Equal(2, fit.Rivals.Count);
+            var shifts = new[] { fit }.Concat(fit.Rivals).Select(r => Math.Round(r.Transform.TyMm)).OrderBy(y => y);
+            Assert.Equal(new[] { -9000 - (2 * Pitch), -9000 - Pitch, -9000.0 }, shifts);
+        }
+
+        [Fact]
+        public void Axis_votes_stay_quick_on_a_sheet_sized_cluster()
+        {
+            // More than a real cluster (300 to 450 drawing walls, about 250 model walls): five by
+            // three blocks of rooms, split at doors, and a background of other linework.
+            var model = new List<FitSegment>();
+            for (int i = 0; i < 5; i++)
+            {
+                for (int j = 0; j < 3; j++) model.AddRange(Move(Block(), 0, i * 27000, j * 23900));
+            }
+            List<FitSegment> cad = SplitAtDoors(model).Concat(Move(Bays(), 0, 0, 60000)).ToList();
+            model = Move(model, 0, 17250, 4410);
+
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            FitResult fit = CadModelFit.Fit(cad, model);
+            watch.Stop();
+
+            Assert.InRange(cad.Count, 450, 900);
+            Assert.InRange(model.Count, 200, 300);
+            Assert.True(fit.Score >= 0.80, "score " + fit.Score);
+            Assert.True(watch.ElapsedMilliseconds < 10000, watch.ElapsedMilliseconds + " ms");
+            Console.WriteLine("axis votes: " + cad.Count + " x " + model.Count + " walls in " + watch.ElapsedMilliseconds + " ms");
+        }
+
         // ---------------------------------------------------------------- the crop
 
         private const double Pitch = 23000;
