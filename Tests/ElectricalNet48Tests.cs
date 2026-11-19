@@ -27,6 +27,7 @@ namespace Tests
         {
             "ElectricalCensus.cs",
             "CadElectricalMapping.cs",
+            "CadModelFit.cs",
         };
 
         private static string Src(string file) =>
