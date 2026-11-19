@@ -77,8 +77,8 @@ namespace RevitWebAppSync.Tests
             Assert.Equal("91%", m.Rows[0].PctLabel);
             Assert.Equal("+2 manual", m.Rows[0].PendLabel);
             Assert.Equal("Auditing model…", m.Title);
-            Assert.Equal("Manual review collected · Human decides · not in %", m.LiveText);
-            Assert.Equal("Overall % is shown once every section completes.", m.NoOverall);
+            Assert.Equal("Semak manual collected · Human decides · not in %", m.LiveText);
+            Assert.Equal("The overall result appears when all five sections finish.", m.NoOverall);
         }
 
         [Fact]
@@ -147,6 +147,117 @@ namespace RevitWebAppSync.Tests
             clock.AdvanceMs(10000);
             Assert.Equal(0, finished);
             Assert.Equal("C,C,C,C,C", States(m));
+        }
+
+        // ── Clear Sheet copy: counts come from the spec catalog ──
+
+        [Fact]
+        public void Each_section_carries_its_check_count_from_the_spec_catalog()
+        {
+            var m = new RunScreenModel(new ManualClock());
+            foreach (var r in m.Rows)
+            {
+                Assert.Equal(SpecCatalog.Checks.Count(c => c.Section == r.Key), r.Checks);
+                Assert.Equal(r.Checks, r.Ticks.Count);
+            }
+            Assert.Equal(SpecCatalog.Checks.Count, m.ChecksTotal);
+            Assert.Equal(m.ChecksTotal, m.Rows.Sum(r => r.Checks));
+        }
+
+        [Fact]
+        public void Checks_done_is_the_checks_of_the_finished_sections()
+        {
+            var clock = new ManualClock();
+            var m = new RunScreenModel(clock);
+            m.SetLang("en");
+            m.Begin("300", "AR");
+            Assert.Equal(0, m.ChecksDone);
+            m.Complete(Numbers());
+            clock.AdvanceMs(1500);
+            Assert.Equal(m.Rows[0].Checks + m.Rows[1].Checks, m.ChecksDone);
+            Assert.Equal(m.ChecksDone + " of " + SpecCatalog.Checks.Count + " checks done", m.ChecksDoneLabel);
+            m.SetLang("ms");
+            Assert.Equal(m.ChecksDone + " daripada " + SpecCatalog.Checks.Count + " semakan selesai", m.ChecksDoneLabel);
+        }
+
+        [Fact]
+        public void Heading_and_sub_follow_the_run()
+        {
+            var clock = new ManualClock();
+            var m = new RunScreenModel(clock);
+            m.SetLang("en");
+            m.Begin("300", "AR");
+            Assert.Equal("Auditing model…", m.Heading);
+            Assert.Equal("Checking the five sections against LOD 300 for Architect.", m.Sub);
+            Assert.True(m.IsRunning);
+            m.Complete(Numbers());
+            clock.AdvanceMs(750);
+            Assert.Equal("Checking section B", m.Heading);
+            Assert.Equal("Section B of 5, against LOD 300 for Architect.", m.Sub);
+            clock.AdvanceMs(4 * 750);
+            Assert.Equal("Audit finished", m.Heading);
+            Assert.Equal("All five sections are done.", m.Sub);
+            Assert.False(m.IsRunning);
+            Assert.Equal("AR · Architect", m.DiscName);
+            Assert.Equal("300", m.LodValue);
+            Assert.Equal("BINA backend rule checks run alongside the five sections.", m.BackendNote);
+        }
+
+        [Fact]
+        public void A_scan_error_without_a_section_says_the_audit_could_not_finish()
+        {
+            var m = new RunScreenModel(new ManualClock());
+            m.SetLang("en");
+            m.Begin("300", "AR");                               // the production path: no Complete() before Fail()
+            m.Fail("Scan failed: 502 Bad Gateway");
+            Assert.Equal("F,F,F,F,F", States(m));
+            Assert.Equal("", m.StoppedLetter);
+            Assert.Equal("The audit couldn’t finish.", m.FailHeading);
+            Assert.Equal("", m.StoppedIn);
+            Assert.Equal("Revit returned: Scan failed: 502 Bad Gateway", m.FailDetail);
+            Assert.All(m.Rows, r => { Assert.False(r.IsStopped); Assert.True(r.IsNotRun); });
+            Assert.Equal(0, m.ChecksDone);
+            Assert.Equal("0 of " + SpecCatalog.Checks.Count + " checks done", m.ChecksDoneLabel);
+            Assert.False(m.IsRunning);
+            m.SetLang("ms");
+            Assert.Equal("Audit tidak dapat diselesaikan.", m.FailHeading);
+        }
+
+        [Fact]
+        public void A_known_section_is_named_when_the_scan_reports_one()
+        {
+            var clock = new ManualClock();
+            var m = new RunScreenModel(clock);
+            m.SetLang("en");
+            m.Begin("300", "AR");
+            m.Complete(Numbers());
+            clock.AdvanceMs(1500);                              // A, B done, C checking
+            m.Fail("the model is synchronising with central.", "C");
+            Assert.Equal("D,D,F,F,F", States(m));
+            Assert.Equal("C", m.StoppedLetter);
+            Assert.Equal("The audit stopped in section C", m.FailHeading);
+            Assert.Equal("Revit returned: the model is synchronising with central.", m.FailDetail);
+            Assert.Equal("Stopped in C", m.StoppedIn);
+            Assert.Equal(new[] { false, false, true, false, false }, m.Rows.Select(r => r.IsStopped));
+            Assert.Equal(new[] { false, false, false, true, true }, m.Rows.Select(r => r.IsNotRun));
+            Assert.Equal(m.Rows[0].Checks + m.Rows[1].Checks, m.ChecksDone);
+            Assert.Equal(("Stopped", "Not run"), (m.RowStoppedLabel, m.RowNotRunLabel));
+            m.SetLang("ms");
+            Assert.Equal("Audit terhenti di seksyen C", m.FailHeading);
+            Assert.Equal("Terhenti di C", m.StoppedIn);
+            Assert.Equal(("Terhenti", "Tidak dijalankan"), (m.RowStoppedLabel, m.RowNotRunLabel));
+        }
+
+        [Fact]
+        public void A_new_run_clears_the_stopped_section()
+        {
+            var m = new RunScreenModel(new ManualClock());
+            m.Begin("300", "AR");
+            m.Fail("x", "A");
+            Assert.Equal("A", m.StoppedLetter);
+            m.Begin("300", "AR");
+            Assert.Equal("", m.StoppedLetter);
+            Assert.All(m.Rows, r => Assert.False(r.IsStopped));
         }
 
         // ── the core side of a real run ──

@@ -4,62 +4,107 @@
         Width="380" SizeToContent="Height"
         WindowStyle="None" AllowsTransparency="True"
         Background="Transparent" WindowStartupLocation="CenterOwner"
-        ShowInTaskbar="False" FontFamily="Segoe UI">
+        ShowInTaskbar="False" FontFamily="{DynamicResource Bz.Font.Sans}" FontSize="12" Foreground="{DynamicResource Bz.Text}"
+        TextOptions.TextFormattingMode="Display" UseLayoutRounding="True" SnapsToDevicePixels="True">
+    <!-- Export issues (Clear Sheet): format Excel / CSV, include Open / Resolved,
+         a count of what will be written, Cancel and the ink Export button. -->
     <Window.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
-                <ResourceDictionary Source="pack://application:,,,/RevitWebAppSync;component/UI/Jkr/Tokens.xaml"/>
-                <ResourceDictionary Source="pack://application:,,,/RevitWebAppSync;component/UI/Jkr/Styles.xaml"/>
+                <ResourceDictionary Source="pack://application:,,,/RevitWebAppSync;component/UI/Jkr/Panel/PanelTokens.xaml"/>
             </ResourceDictionary.MergedDictionaries>
+
+            <!-- A 16 px box: hairline, ink fill with a white tick when on -->
+            <Style x:Key="Ex.Check" TargetType="CheckBox">
+                <Setter Property="Foreground" Value="{StaticResource Bz.Text}"/>
+                <Setter Property="FontSize" Value="13"/>
+                <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="FocusVisualStyle" Value="{StaticResource Bz.FocusRing}"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="CheckBox">
+                            <StackPanel Orientation="Horizontal" Background="Transparent">
+                                <Border x:Name="Box" Width="16" Height="16" CornerRadius="4" BorderThickness="1"
+                                        BorderBrush="{StaticResource Bz.Line2}" Background="{StaticResource Bz.Surface}" VerticalAlignment="Center">
+                                    <Path x:Name="Tick" Data="M3.5,8.5 L6.5,11.5 L12.5,4.5" Stroke="{StaticResource Bz.OnBrand}" StrokeThickness="1.8"
+                                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Stretch="Uniform"
+                                          Margin="2" Visibility="Collapsed"/>
+                                </Border>
+                                <ContentPresenter Margin="9,0,0,0" VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsChecked" Value="True">
+                                    <Setter TargetName="Box" Property="Background" Value="{StaticResource Bz.Ink}"/>
+                                    <Setter TargetName="Box" Property="BorderBrush" Value="{StaticResource Bz.Ink}"/>
+                                    <Setter TargetName="Tick" Property="Visibility" Value="Visible"/>
+                                </Trigger>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Box" Property="BorderBrush" Value="{StaticResource Bz.Ink}"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <Style x:Key="Ex.Label" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="11"/>
+                <Setter Property="FontWeight" Value="SemiBold"/>
+                <Setter Property="Foreground" Value="{StaticResource Bz.Text2}"/>
+                <Setter Property="Margin" Value="0,0,0,6"/>
+            </Style>
         </ResourceDictionary>
     </Window.Resources>
 
-    <Grid Background="#6B0A141E" MouseLeftButtonDown="Scrim_Click">
-        <Border Width="380" Background="White" CornerRadius="10" MouseLeftButtonDown="Card_Click"
+    <Grid Background="{StaticResource Bz.Scrim}" MouseLeftButtonDown="Scrim_Click">
+        <Border Width="380" Background="{StaticResource Bz.Surface}" CornerRadius="12" MouseLeftButtonDown="Card_Click"
+                BorderBrush="{StaticResource Bz.Line}" BorderThickness="1"
                 HorizontalAlignment="Center" VerticalAlignment="Center" Margin="24">
             <Border.Effect>
-                <DropShadowEffect Color="Black" BlurRadius="60" ShadowDepth="20" Opacity="0.3"/>
+                <DropShadowEffect Color="#15181D" BlurRadius="40" ShadowDepth="12" Opacity="0.22"/>
             </Border.Effect>
             <StackPanel>
-                <Border Padding="16,12,10,12" BorderBrush="{StaticResource Surface.Line}" BorderThickness="0,0,0,1">
+                <Border Padding="16,0,8,0" Height="52" BorderBrush="{StaticResource Bz.Line}" BorderThickness="0,0,0,1">
                     <Grid>
-                        <TextBlock x:Name="TitleText" Text="Export Report" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource Ink}"
-                                   VerticalAlignment="Center"/>
-                        <Button x:Name="CloseBtn" HorizontalAlignment="Right" VerticalAlignment="Center" Width="26" Height="26"
-                                Cursor="Hand" Click="Close_Click" Background="Transparent" BorderThickness="0">
-                            <Button.Template>
-                                <ControlTemplate TargetType="Button">
-                                    <Border x:Name="Bd" Background="Transparent" CornerRadius="5">
-                                        <Path Data="M18,6 L6,18 M6,6 L18,18" Stroke="#4B4F57" StrokeThickness="1.75" StrokeStartLineCap="Round"
-                                              StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform"
-                                              HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    </Border>
-                                    <ControlTemplate.Triggers>
-                                        <Trigger Property="IsMouseOver" Value="True">
-                                            <Setter TargetName="Bd" Property="Background" Value="#F5F5F3"/>
-                                        </Trigger>
-                                    </ControlTemplate.Triggers>
-                                </ControlTemplate>
-                            </Button.Template>
+                        <TextBlock x:Name="TitleText" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource Bz.Text}"
+                                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="0,0,36,0"/>
+                        <Button x:Name="CloseBtn" Style="{StaticResource Bz.ChromeIconButton}" HorizontalAlignment="Right" VerticalAlignment="Center"
+                                Click="Close_Click">
+                            <Path Data="M4.5,4.5 L11.5,11.5 M11.5,4.5 L4.5,11.5" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                  StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="14" Height="14" Stretch="Uniform"/>
                         </Button>
                     </Grid>
                 </Border>
-                <StackPanel Margin="16">
-                    <TextBlock x:Name="SubText" Text="Download compliance results as CSV or Excel."
-                               FontSize="12" Foreground="{StaticResource Ink2}" Margin="0,0,0,10"
-                               TextWrapping="Wrap"/>
-                    <CheckBox x:Name="CbOpen" Style="{StaticResource Cb.Flat}" IsChecked="True" Margin="0,0,0,6"/>
-                    <CheckBox x:Name="CbResolved" Style="{StaticResource Cb.Flat}" IsChecked="True" Margin="0,0,0,6"/>
-                    <CheckBox x:Name="CbSpec" Content="Include spec references" Style="{StaticResource Cb.Flat}" IsChecked="True" Margin="0,0,0,6"/>
-                    <CheckBox x:Name="CbJson" Content="Include request/response JSON" Style="{StaticResource Cb.Flat}" IsChecked="False"/>
-                    <Grid Margin="0,16,0,0">
+                <StackPanel Margin="16,14,16,16">
+                    <TextBlock x:Name="SubText" FontSize="12" Foreground="{StaticResource Bz.TextBody}" TextWrapping="Wrap" Margin="0,0,0,14"/>
+
+                    <TextBlock x:Name="FormatLabel" Style="{StaticResource Ex.Label}"/>
+                    <Border Background="{StaticResource Bz.Sunken2}" CornerRadius="8" Padding="2" Margin="0,0,0,16">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <ToggleButton x:Name="ExcelOpt" Grid.Column="0" Style="{StaticResource Bz.SegButton}" FontSize="12" Padding="0,5,0,5" Click="Excel_Select"/>
+                            <ToggleButton x:Name="CsvOpt" Grid.Column="1" Style="{StaticResource Bz.SegButton}" FontSize="12" Padding="0,5,0,5" Click="Csv_Select"/>
+                        </Grid>
+                    </Border>
+
+                    <TextBlock x:Name="IncludeLabel" Style="{StaticResource Ex.Label}"/>
+                    <CheckBox x:Name="CbOpen" Style="{StaticResource Ex.Check}" IsChecked="True" Margin="0,0,0,8" Click="Options_Changed"/>
+                    <CheckBox x:Name="CbResolved" Style="{StaticResource Ex.Check}" IsChecked="True" Click="Options_Changed"/>
+
+                    <TextBlock x:Name="CountText" FontFamily="{StaticResource Bz.Font.Mono}" FontSize="11.5" Foreground="{StaticResource Bz.Text2}"
+                               Margin="0,16,0,0"/>
+
+                    <Grid Margin="0,14,0,0">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="8"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
-                        <Button Grid.Column="0" Style="{StaticResource Btn.Primary}" Click="Csv_Click" x:Name="CsvBtn" Content="Download CSV"/>
-                        <Button Grid.Column="2" Style="{StaticResource Btn.Sec}" Click="Excel_Click" x:Name="ExcelBtn" Content="Excel"/>
+                        <Button Grid.Column="0" x:Name="CancelBtn" Style="{StaticResource Bz.Btn.Ghost}" Height="36" FontSize="13" Click="Close_Click"/>
+                        <Button Grid.Column="2" x:Name="ExportBtn" Style="{StaticResource Bz.Btn.Ink}" Height="36" FontSize="13" Click="Export_Click"/>
                     </Grid>
                 </StackPanel>
             </StackPanel>

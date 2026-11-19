@@ -29,7 +29,6 @@ namespace RevitWebAppSync.UI
         private readonly PanelVm _vm = new PanelVm();
         private readonly JkrComplianceService _jkrService = new JkrComplianceService();
         private Storyboard _rescanSpin;
-        private Jkr.Modals.IssueFocusWindow _focusWindow;
         private Jkr.Modals.ExportWindow _exportWindow;
 
         // Guards against rapid double-click between Fix All and per-issue Apply Fix.
@@ -97,8 +96,8 @@ namespace RevitWebAppSync.UI
         /// <summary>"Applying n changes…" while a batch is written; null when done.</summary>
         public event Action<string> BusyChanged;
 
-        /// <summary>A toast appeared (message, Undo offered) or went (null).</summary>
-        public event Action<string, bool> ToastChanged;
+        /// <summary>A toast appeared (message) or went (null).</summary>
+        public event Action<string> ToastChanged;
 
         public IReadOnlyList<IssueVm> CurrentIssues => _vm.Issues.ToList();
         public BinaVibe.Mcp.Tools.Audit.Bim010Summary CurrentSummary => _vm.Summary;
@@ -128,15 +127,6 @@ namespace RevitWebAppSync.UI
         {
             var doc = FindIssue(id)?.Spec?.Doc;
             if (!string.IsNullOrEmpty(doc)) RevitWebAppSync.Services.JkrSpecPdfBootstrap.Open(doc);
-        }
-
-        /// <summary>Open the issue's detail (the existing focus window until step 11).</summary>
-        public void OpenIssue(string id)
-        {
-            var issue = FindIssue(id);
-            if (issue == null) return;
-            _vm.ActiveIssue = issue;
-            _vm.FocusOpen = true;
         }
 
         /// <summary>Fix these issues: one goes through the single auto-fix, several
@@ -172,7 +162,7 @@ namespace RevitWebAppSync.UI
             }
         }
 
-        /// <summary>Ignore these issues: one toast, one Undo for all, saved to the audit file.</summary>
+        /// <summary>Ignore these issues: one plain toast, saved to the audit file.</summary>
         public void IgnoreIssues(IReadOnlyList<string> ids)
         {
             var issues = (ids ?? Array.Empty<string>()).Select(FindIssue)
@@ -188,6 +178,38 @@ namespace RevitWebAppSync.UI
             RenderAll();
         }
 
+        /// <summary>"Mark as Manual" (option b) on an open AI issue, or back to Open with
+        /// <paramref name="manual"/> false. The issue stays open and still counts as a fail;
+        /// it is left out of Fix all and the AI fixer. Saved to the audit file.</summary>
+        public void SetManual(string id, bool manual)
+        {
+            if (!manual) { Reopen(id); return; }
+            var issue = FindIssue(id);
+            if (issue == null || !issue.IsAiOpen || !issue.CanMarkManual) return;
+            _vm.ApplyDecisions(new[] { issue }, IssueStatus.ManualFixNeeded,
+                Jkr.Panel.Core.PaneText.Decision("ManualFixNeeded", Jkr.Panel.Core.ResultsAdapter.TitleIn(issue)));
+            SaveAudit(issue);
+            RenderAll();
+        }
+
+        /// <summary>Reopen an ignored, approved or manually marked issue (status Open; the
+        /// audit store drops its entry).</summary>
+        public void Reopen(string id)
+        {
+            var issue = FindIssue(id);
+            if (issue == null || issue.NeedsPerson || issue.Status == IssueStatus.Open || issue.Status == IssueStatus.Fixed) return;
+            _vm.ApplyDecisions(new[] { issue }, IssueStatus.Open,
+                Jkr.Panel.Core.PaneText.Decision("Open", Jkr.Panel.Core.ResultsAdapter.TitleIn(issue)));
+            SaveAudit(issue);
+            RenderAll();
+        }
+
+        private void SaveAudit(IssueVm issue)
+        {
+            try { JkrAuditStore.Save(_scannedDocPath, issue); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[BINA] audit save failed: {ex.Message}"); }
+        }
+
         /// <summary>"Mark as reviewed" on an item that needs a person (or back to not
         /// reviewed). Saved to the audit file so it survives a re-scan and Revit
         /// restarts. Not a verdict: the item stays in Manual and out of the %.</summary>
@@ -201,15 +223,32 @@ namespace RevitWebAppSync.UI
             RenderAll();
         }
 
-        /// <summary>The toast's Undo (restores and saves the last decision).</summary>
-        public void UndoLastDecision() => Undo_Click(this, new RoutedEventArgs());
 
         /// <summary>Reset from the Results screen (back to Start; writes nothing).</summary>
         public void ResetToStart() => Reset_Click(this, new RoutedEventArgs());
 
         /// <summary>"Export issues (Excel/CSV)": the issue-list export window (the
         /// secondary export next to the Borang PDF).</summary>
-        public void OpenExport() => _vm.ExportOpen = true;
+        /// <param name="owner">The window it opens from (the Borang preview): the dialog is
+        /// owned by it, so closing the dialog returns there (live F13).</param>
+        /// <returns>What happened ("Issues exported: …", or why not); null when cancelled.</returns>
+        public string OpenExport(Jkr.Export.IssueExportFormat format = Jkr.Export.IssueExportFormat.Excel, Window owner = null)
+        {
+            _exportFormat = format;
+            _exportOwner = owner;
+            _exportOutcome = null;
+            _vm.ExportOpen = true;
+            OpenExportWindow();          // modal: returns once the dialog is closed
+            return _exportOutcome;
+        }
+
+        private Jkr.Export.IssueExportFormat _exportFormat;
+        private Window _exportOwner;
+        private string _exportOutcome;
+
+        /// <summary>How many issues the export writes with the dialog's default options
+        /// (what the Borang preview's footer shows).</summary>
+        public int IssueExportCount => Jkr.Export.IssueExportRows.DefaultCount(_vm.Issues);
 
         /// <summary>The Borang BIM010 for the last run: every row marked from the run's
         /// BIM010 summary, remarks from the issues, header from the model. Null before
@@ -367,7 +406,7 @@ namespace RevitWebAppSync.UI
         private void Vm_PropertyChanged(object sender, PropertyChangedEventArgs e)
         {
             if (e.PropertyName == nameof(PanelVm.Toast))
-                ToastChanged?.Invoke(_vm.Toast?.Message, _vm.Toast?.CanUndo == true);
+                ToastChanged?.Invoke(_vm.Toast?.Message);
 
             // Batch multiple rapid-fire PropertyChanged events into a single RenderAll().
             // Without this, switching tabs fires 4x Raise() → 4x full visual tree walks.
@@ -513,7 +552,6 @@ namespace RevitWebAppSync.UI
             if (_vm.Toast != null)
             {
                 ToastMsg.Text = _vm.Toast.Message;
-                UndoBtn.Visibility = _vm.Toast.CanUndo ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
                 Toast.Visibility = System.Windows.Visibility.Visible;
                 var fade = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(250)) { EasingFunction = new CubicEase() };
                 Toast.BeginAnimation(OpacityProperty, fade);
@@ -524,16 +562,6 @@ namespace RevitWebAppSync.UI
             else
             {
                 Toast.Visibility = System.Windows.Visibility.Collapsed;
-            }
-
-            // Focus modal
-            if (_vm.FocusOpen && _vm.ActiveIssue != null)
-            {
-                OpenFocusWindow();
-            }
-            else
-            {
-                CloseFocusWindow();
             }
 
             // Export modal
@@ -758,6 +786,7 @@ namespace RevitWebAppSync.UI
                 issue.FixReference = fix.Reference ?? "";
                 issue.Example = fix.Value ?? "";
                 issue.AutoFixable = true;
+                issue.FixProposedByAi = true;
                 aiFixed.Add(issue);
             }
 
@@ -996,8 +1025,9 @@ namespace RevitWebAppSync.UI
             Target = string.IsNullOrEmpty(i.FixTarget) ? "instance" : i.FixTarget,
         };
 
-        /// <summary>Ask before writing these fixes: "Modify the model?" with one row
-        /// per change, and the "Revit may pause" line from 500 affected elements.
+        /// <summary>Ask before writing these fixes: "Write these changes to the model?"
+        /// with one row per change (ready-made fixes, then AI fixer proposals), and the
+        /// "Revit may pause" line from 500 affected elements.
         /// True only when the user confirmed.</summary>
         private Task<bool> ConfirmFixesAsync(List<IssueVm> issues)
         {
@@ -1143,7 +1173,7 @@ namespace RevitWebAppSync.UI
                 return;
             }
 
-            // One toast with one Undo that puts every one of them back.
+            // One plain toast for all of them.
             _vm.ApplyDecisions(ignorable, IssueStatus.Ignored,
                 Jkr.Panel.Core.PaneText.IgnoredMedLow(ignorable.Count));
 
@@ -1361,9 +1391,6 @@ namespace RevitWebAppSync.UI
                 // Re-inject snapshot-backed entries from the audit. The fresh check
                 // can fail to return them under their original Id for two reasons:
                 //   - Fixed: the rule passes now (success — keep in Resolved tab).
-                //   - Manual: the rule string shifted (e.g. LOD-level rewording) so
-                //     the audit Id no longer matches the fresh row, even though the
-                //     underlying problem still exists in the model.
                 // If a Fixed Id IS in the fresh check it's a regression — drop the
                 // audit entry and let the fresh Open row stand. Manual entries that
                 // reappear under the same Id are already overlaid by LoadFor above,
@@ -1377,16 +1404,15 @@ namespace RevitWebAppSync.UI
                         JkrAuditStore.Remove(_scannedDocPath, fixedVm.Id);
                     else
                     {
-                        fixedVm.FixVerified = true;   // absent from this scan: it passes now
+                        fixedVm.FixVerified = backendError == null;   // absent from a full scan: it passes now; a partial scan proves nothing
                         issues.Add(fixedVm);
                     }
                 }
-                foreach (var manualVm in JkrAuditStore.LoadManualFor(_scannedDocPath))
-                {
-                    if (string.IsNullOrEmpty(manualVm.Id)) continue;
-                    if (!freshIds.Contains(manualVm.Id))
-                        issues.Add(manualVm);
-                }
+                // A marked item the fresh scan no longer returns was fixed in Revit: it
+                // passes as normal, so its entry is dropped (still-present ids keep the overlay).
+                // Only when the backend answered: after an error the scan is partial and a
+                // backend-only check's marked item was never re-checked.
+                if (backendError == null) JkrAuditStore.PruneMissing(_scannedDocPath, freshIds);
             }
 
             // Carry attempted-fix issues through the rescan boundary. Dedup by Id so when
@@ -1400,7 +1426,7 @@ namespace RevitWebAppSync.UI
                 {
                     if (string.IsNullOrEmpty(pf.Id) || !existingIds.Contains(pf.Id))
                     {
-                        if (pf.Status == IssueStatus.Fixed) pf.FixVerified = true;   // the re-check passed it
+                        if (pf.Status == IssueStatus.Fixed) pf.FixVerified = backendError == null;   // the re-check passed it (only if the scan was complete)
                         issues.Add(pf);
                     }
                 }
@@ -1579,7 +1605,6 @@ namespace RevitWebAppSync.UI
             if (sender is IssueRow r && r.DataContext is IssueVm v)
             {
                 _vm.ActiveIssue = v;
-                _vm.FocusOpen = true;
             }
         }
         private void Row_Action(object sender, IssueRowActionArgs e)
@@ -1611,6 +1636,7 @@ namespace RevitWebAppSync.UI
             }
             var elementId = issue.RevitElementId;
             var locateCount = issue.LocateCount;
+            var label = Jkr.Panel.Core.ResultsAdapter.ElementLabel(issue);
             try
             {
                 var result = await Revit.InvokeAsync(app =>
@@ -1663,6 +1689,15 @@ namespace RevitWebAppSync.UI
                         targets = new List<ElementId> { id };
                     }
 
+                    // No open view shows it: ShowElements would raise Revit's own modal boxes
+                    // ("There is no open view that shows…", then "No good view could be
+                    // found"). Select it only, and say so in the pane (live F12).
+                    if (!AnyOpenViewShows(uiDoc, targets))
+                    {
+                        try { uiDoc.Selection.SetElementIds(targets); } catch { }
+                        return new JkrLocateResult(JkrLocateKind.NotVisible, targets.Count, label);
+                    }
+
                     try
                     {
                         uiDoc.ShowElements(targets);
@@ -1697,6 +1732,31 @@ namespace RevitWebAppSync.UI
                 System.Diagnostics.Debug.WriteLine($"[BINA] locate failed: {ex.Message}");
                 _vm.ShowToast(Jkr.Panel.Core.PaneText.LocateFailed(ex.Message));
             }
+        }
+
+        /// <summary>Whether a view open in Revit shows any of <paramref name="targets"/>
+        /// (visible in it: not hidden, category on). Sheets and schedules are skipped. When
+        /// Revit cannot tell (no open views listed), true: Locate keeps ShowElements.</summary>
+        private static bool AnyOpenViewShows(UIDocument uiDoc, ICollection<ElementId> targets)
+        {
+            var doc = uiDoc.Document;
+            IList<UIView> open;
+            try { open = uiDoc.GetOpenUIViews(); }
+            catch { return true; }
+            if (open == null || open.Count == 0) return true;
+            foreach (var uv in open)
+            {
+                try
+                {
+                    if (!(doc.GetElement(uv.ViewId) is View v) || v.IsTemplate || v is ViewSheet || v is ViewSchedule) continue;
+                    var n = new FilteredElementCollector(doc, v.Id)
+                        .WherePasses(new ElementIdSetFilter(targets))
+                        .GetElementCount();
+                    if (n > 0) return true;
+                }
+                catch { /* a view that cannot be searched (e.g. a legend): next */ }
+            }
+            return false;
         }
 
         /// <summary>
@@ -1881,18 +1941,6 @@ namespace RevitWebAppSync.UI
             _vm.ShowToast(Jkr.Panel.Core.PaneText.ResetDone());
         }
 
-        /// <summary>Toast Undo: puts back every issue the last decision changed and
-        /// saves the restored statuses, so a re-scan doesn't bring the decision back.</summary>
-        private void Undo_Click(object s, RoutedEventArgs e)
-        {
-            foreach (var issue in _vm.Undo())
-            {
-                try { JkrAuditStore.Save(_scannedDocPath, issue); }
-                catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[BINA] audit save failed: {ex.Message}"); }
-            }
-            RenderAll();
-        }
-
         private async void CloseBtn_Click(object s, RoutedEventArgs e)
         {
             try
@@ -1925,33 +1973,27 @@ namespace RevitWebAppSync.UI
             switch (e.Key)
             {
                 case Key.Escape:
-                    if (_vm.FocusOpen) { _vm.FocusOpen = false; e.Handled = true; }
-                    else if (_vm.ExportOpen) { _vm.ExportOpen = false; e.Handled = true; }
-                    break;
-                case Key.Enter:
-                    if (!_vm.FocusOpen && active != null) { _vm.FocusOpen = true; e.Handled = true; }
+                    if (_vm.ExportOpen) { _vm.ExportOpen = false; e.Handled = true; }
                     break;
                 case Key.J:
                 case Key.Down:
-                case Key.Right when _vm.FocusOpen:
                     if (idx + 1 < _vm.Filtered.Count) { _vm.ActiveIssue = _vm.Filtered[idx + 1]; e.Handled = true; }
                     break;
                 case Key.K:
                 case Key.Up:
-                case Key.Left when _vm.FocusOpen:
                     if (idx > 0) { _vm.ActiveIssue = _vm.Filtered[idx - 1]; e.Handled = true; }
                     break;
                 case Key.F:
                     if (active != null && active.IsActionable && active.AutoFixable)
                     {
-                        DispatchAction(active, IssueStatus.Fixed, _vm.FocusOpen);
+                        DispatchAction(active, IssueStatus.Fixed, false);
                         e.Handled = true;
                     }
                     break;
                 case Key.A:
                     if (active != null && active.IsOpen && active.CanIgnore)
                     {
-                        DispatchAction(active, IssueStatus.Ignored, _vm.FocusOpen);
+                        DispatchAction(active, IssueStatus.Ignored, false);
                         e.Handled = true;
                     }
                     break;
@@ -1973,56 +2015,41 @@ namespace RevitWebAppSync.UI
         }
 
         // ────────────────────────────────────────────────
-        // Focus / Export windows
+        // Export window
         // ────────────────────────────────────────────────
-
-        private void OpenFocusWindow()
-        {
-            if (_focusWindow != null && _focusWindow.IsLoaded)
-            {
-                try { _focusWindow.SetContext(_vm); _focusWindow.Activate(); } catch { }
-                return;
-            }
-            try
-            {
-                _focusWindow = new Jkr.Modals.IssueFocusWindow();
-                _focusWindow.HostPanel = this;
-                _focusWindow.SetContext(_vm);
-                _focusWindow.Closed += (_, __) => { _vm.FocusOpen = false; _focusWindow = null; };
-                try
-                {
-                    var owner = Window.GetWindow(this);
-                    if (owner != null) _focusWindow.Owner = owner;
-                }
-                catch { }
-                _focusWindow.Show();
-            }
-            catch (Exception ex)
-            {
-                _focusWindow = null;
-                _vm.FocusOpen = false;
-                TaskDialog.Show(Jkr.Panel.Core.PaneText.DialogTitle,
-                    Jkr.Panel.Core.PaneText.DetailFailed($"{ex.GetType().Name}: {ex.Message}"));
-            }
-        }
-
-        private void CloseFocusWindow()
-        {
-            if (_focusWindow != null)
-            {
-                var w = _focusWindow; _focusWindow = null;
-                try { w.Close(); } catch { }
-            }
-        }
 
         private void OpenExportWindow()
         {
-            if (_exportWindow != null && _exportWindow.IsLoaded) { _exportWindow.Activate(); return; }
-            _exportWindow = new Jkr.Modals.ExportWindow(_vm, _jkrService);
-            _exportWindow.Closed += (_, __) => { _vm.ExportOpen = false; _exportWindow = null; };
-            if (!Jkr.Modals.RevitWindowCover.Cover(_exportWindow, this))
-                Jkr.Modals.RevitWindowCover.CenterOnRevit(_exportWindow, this);
-            _exportWindow.ShowDialog();
+            // One dialog at a time: OpenExport opens it directly, and the RenderAll that
+            // ExportOpen queues runs inside its ShowDialog, before it is loaded (live R4).
+            if (_exportWindow != null) { try { _exportWindow.Activate(); } catch { } return; }
+            // The preview's Excel / CSV choice applies to this opening only: the pane's own
+            // Export button then opens the dialog with the Excel default.
+            var format = _exportFormat;
+            _exportFormat = Jkr.Export.IssueExportFormat.Excel;
+            var owner = _exportOwner;
+            _exportOwner = null;
+            var w = new Jkr.Modals.ExportWindow(_vm, format);
+            _exportWindow = w;
+            w.Closed += (_, __) => { _vm.ExportOpen = false; if (ReferenceEquals(_exportWindow, w)) _exportWindow = null; };
+            if (!Jkr.Modals.RevitWindowCover.Cover(w, this))
+                Jkr.Modals.RevitWindowCover.CenterOnRevit(w, this);
+            // From the Borang preview: owned by it (over it, and back to it on close).
+            if (owner != null && owner.IsLoaded)
+            {
+                try { new System.Windows.Interop.WindowInteropHelper(w).Owner = new System.Windows.Interop.WindowInteropHelper(owner).Handle; }
+                catch { /* stays owned by Revit's window */ }
+            }
+            Jkr.Modals.RevitWindowCover.ReturnToOwnerOnClose(w);
+            try { w.ShowDialog(); }
+            finally
+            {
+                // never left set by a dialog that did not open (the guard above would block every later one)
+                if (ReferenceEquals(_exportWindow, w)) { _exportWindow = null; _vm.ExportOpen = false; }
+            }
+            // The file it wrote, or why not (live F14).
+            _exportOutcome = w.Outcome;
+            if (w.Outcome != null) _vm.ShowToast(w.Outcome);
         }
 
         private void CloseExportWindow()

@@ -114,7 +114,7 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(new[] { "AR · Arkitek", "CD", "EL", "ME", "ST" }, s.DiscOptions.Select(o => o.Label));
             core.SetLang("en");
             Assert.Equal("— Select LOD level —", s.LodOptions[0].Label);
-            Assert.Equal("AR · Architecture", s.DiscOptions[0].Label);
+            Assert.Equal("AR · Architect", s.DiscOptions[0].Label);
         }
 
         [Fact]
@@ -143,7 +143,7 @@ namespace RevitWebAppSync.Tests
             core.SetLang("en");
             Assert.Same(lods, s.LodOptions);
             Assert.Same(discs, s.DiscOptions);
-            Assert.Equal("AR · Architecture", ar.Label);
+            Assert.Equal("AR · Architect", ar.Label);
             Assert.Equal("Label", renamed);
             Assert.Equal("300", s.LodValue);               // both choices survive the switch
             Assert.Equal("AR", s.DiscValue);
@@ -183,5 +183,55 @@ namespace RevitWebAppSync.Tests
             s.FileLabel = "other.rvt";
             Assert.True(raised >= 2);
         }
-    }
+    
+        [Fact]
+        public void Clear_sheet_copy_is_in_both_languages()
+        {
+            var (s, core) = New();
+            core.SetLang("en");
+            Assert.Equal("Set up the audit", s.Title);
+            Assert.StartsWith("61 checks from the JKR Model Audit spec", s.Lead);
+            Assert.Equal("Required", s.LodRequiredTag);
+            Assert.Equal("Sets which parameters each family must carry. There is no default.", s.LodHint);
+            Assert.Equal("Preset from the file name (AR).", s.DiscHint);
+            Assert.Equal("Borang sections", s.SectionsLabel);
+            Assert.Equal("61 checks", s.SectionsCount);
+            Assert.Equal(SpecCatalog.Checks.Count + " checks", s.SectionsCount);
+            Assert.Contains(SpecCatalog.Checks.Count + " checks from", s.Lead);
+            Assert.Equal("Choose a level of development to run the audit.", s.ReadyHint);
+            Assert.Equal("AR · Architect", s.DiscOptions[0].Label);
+            core.SetLang("ms");
+            Assert.Equal("Sediakan audit", s.Title);
+            Assert.Equal("Wajib", s.LodRequiredTag);
+            Assert.Equal("61 semakan", s.SectionsCount);
+        }
+
+        [Fact]
+        public void Hint_follows_the_detected_discipline_and_shows_only_without_a_lod()
+        {
+            var (s, core) = New();
+            core.SetLang("en");
+            s.FileLabel = "jkrST22_2b.rvt";
+            Assert.Equal("Preset from the file name (ST).", s.DiscHint);
+            Assert.True(s.ReadyHintVisible);
+            s.LodValue = "200";
+            Assert.False(s.ReadyHintVisible);
+        }
+
+        [Fact]
+        public void Borang_sections_list_the_five_sections_totalling_61_checks()
+        {
+            var (s, core) = New();
+            core.SetLang("en");
+            Assert.Equal(new[] { "A", "B", "C", "D", "E" }, s.Sections.Select(x => x.Letter));
+            Assert.Equal(new[] { "24 checks", "3 checks", "24 checks", "9 checks", "1 check" }, s.Sections.Select(x => x.CountLabel));
+            Assert.Equal(61, s.Sections.Sum(x => x.Checks));
+            Assert.Equal(SpecCatalog.Checks.Count, s.Sections.Sum(x => x.Checks));   // counted, not typed
+            Assert.Equal(new[] { 24, 3, 24, 9, 1 }, s.Sections.Select(x => x.Checks));   // guard: the spec still has these
+            Assert.Equal("Model integrity & quality", s.Sections[0].Name);
+            core.SetLang("ms");
+            Assert.Equal("Integriti & kualiti model", s.Sections[0].Name);
+            Assert.Equal("1 semakan", s.Sections[4].CountLabel);
+        }
+}
 }

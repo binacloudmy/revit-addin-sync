@@ -13,7 +13,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel
 {
     /// <summary>
     /// The issue detail over Revit's window (prototype detail dialog). Shows the
-    /// current card of <see cref="DetailScreenModel"/>; ‹ ›, the dots, ← → / J K
+    /// current card of <see cref="DetailScreenModel"/>; ‹ ›, ← → / J K
     /// and sideways scrolling (tilt wheel, touchpad, Shift + wheel) move between
     /// issues. Esc, × or a click on the scrim close it. Modeless, so the confirm
     /// dialog and Revit's own work keep running while it is open.
@@ -32,9 +32,20 @@ namespace RevitWebAppSync.UI.Jkr.Panel
         private double _swipe;
         private DateTime _lastSwipe = DateTime.MinValue;
         private bool _closing;
+        /// <summary>Why it closes, for the pane log (scrim click, ×, model closed, Esc…).</summary>
+        private string _closeReason;
+        /// <summary>The scrim closes on a press AND release on it, not on a press alone: a press
+        /// that began before the window existed (the row click that opened it) never closes it.</summary>
+        private bool _scrimPressed;
+        /// <summary>Environment.TickCount at the window's last activation.</summary>
+        private int _activatedAt = Environment.TickCount;
+        /// <summary>A scrim press closer than this to the window's activation is not trusted:
+        /// in Revit a press nobody made reached the scrim about 0.8 s after Show (live R1).</summary>
+        internal const int ScrimQuietMs = 400;
+        private const int VkLButton = 0x01;
 
-        /// <summary>The toast's Undo was clicked.</summary>
-        public event Action UndoRequested;
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern short GetAsyncKeyState(int vKey);
 
         private DetailWindow(DetailScreenModel model)
         {
@@ -47,9 +58,14 @@ namespace RevitWebAppSync.UI.Jkr.Panel
             PreviewKeyDown += OnPreviewKeyDown;
             PreviewMouseWheel += OnPreviewMouseWheel;
             SourceInitialized += (_, __) => (PresentationSource.FromVisual(this) as HwndSource)?.AddHook(WndProc);
-            Loaded += (_, __) => { Activate(); CloseBtn.Focus(); };
+            Loaded += (_, __) => { JkrPaneLog.Write("DetailWindow loaded"); Activate(); CloseBtn.Focus(); };
+            Activated += (_, __) => { _activatedAt = Environment.TickCount; JkrPaneLog.Write("DetailWindow activated"); };
+            Deactivated += (_, __) => JkrPaneLog.Write("DetailWindow deactivated");
+            Closing += (_, e) => JkrPaneLog.Write("DetailWindow closing: " + (_closeReason ?? "not by the pane (owner closed, system, or Close() elsewhere)")
+                                                   + (_closeReason == null ? " <- " + JkrPaneLog.Callers(1, 8) : "") + (e.Cancel ? " (cancelled)" : ""));
             Closed += (_, __) =>
             {
+                JkrPaneLog.Write("DetailWindow closed (model open=" + model.IsOpen + ")");
                 model.PropertyChanged -= OnModelChanged;
                 _closing = true;
                 if (model.IsOpen) model.Close();
@@ -65,8 +81,10 @@ namespace RevitWebAppSync.UI.Jkr.Panel
             {
                 return Place(w, anchor);
             }
-            catch
+            catch (Exception ex)
             {
+                JkrPaneLog.Write("DetailWindow.Open failed in Place: " + ex);
+                w._closeReason = "Place failed";
                 model.PropertyChanged -= w.OnModelChanged;
                 try { w.Close(); } catch { }
                 throw;
@@ -82,6 +100,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel
                 // A steady height while moving between short and long issues.
                 w.Card.MinHeight = Math.Min(room, 560);
             });
+            JkrPaneLog.Write("DetailWindow.Place: covered Revit's screen=" + covered);
             if (!covered)
             {
                 Window owner = null;
@@ -92,13 +111,20 @@ namespace RevitWebAppSync.UI.Jkr.Panel
                 w.Card.MaxHeight = w.Height - 48;
             }
             w.Show();
+            JkrPaneLog.Write($"DetailWindow.Place: Show called, IsVisible={w.IsVisible}");
             return w;
         }
 
         private void OnModelChanged(object sender, PropertyChangedEventArgs e)
         {
             if (_closing) return;
-            if (!_model.IsOpen) { _closing = true; Close(); return; }
+            if (!_model.IsOpen)
+            {
+                _closing = true;
+                _closeReason = "the model closed (DetailId gone) on " + (e.PropertyName ?? "all properties");
+                Close();
+                return;
+            }
             var id = _model.Card?.Id;
             if (id == _shownId) return;
             // No slide / fade: in this layered window owned by Revit, an animation's
@@ -109,32 +135,58 @@ namespace RevitWebAppSync.UI.Jkr.Panel
         }
 
         /// <summary>Show a toast over the scrim (the pane's toast is behind it); null hides it.</summary>
-        public void ShowToast(string message, bool canUndo, string undoLabel)
+        public void ShowToast(string message)
         {
             if (string.IsNullOrEmpty(message)) { ToastBox.Visibility = Visibility.Collapsed; return; }
             ToastText.Text = message;
-            ToastUndo.Tag = undoLabel;
-            ToastUndo.Visibility = canUndo ? Visibility.Visible : Visibility.Collapsed;
             ToastBox.Visibility = Visibility.Visible;
         }
 
         // ── clicks ──
-        private void Scrim_MouseDown(object sender, MouseButtonEventArgs e) => Close();
+        /// <summary>
+        /// The scrim closes the detail only on a click it saw start for real (controller ruling,
+        /// live R1): (a) a left press at least <see cref="ScrimQuietMs"/> after the window's last
+        /// activation (the press's own timestamp), (b) with the left button physically down when
+        /// the press is handled, and (c) the release on the scrim too (<see cref="Scrim_MouseUp"/>).
+        /// Esc and × close as before.
+        /// </summary>
+        private void Scrim_MouseDown(object sender, MouseButtonEventArgs e)
+        {
+            _scrimPressed = false;
+            if (e.ChangedButton != MouseButton.Left) { JkrPaneLog.Write("DetailWindow scrim press ignored: " + e.ChangedButton + " button"); return; }
+            var sinceActivated = unchecked(e.Timestamp - _activatedAt);
+            if (sinceActivated < ScrimQuietMs)
+            {
+                JkrPaneLog.Write($"DetailWindow scrim press ignored: {sinceActivated} ms after the window was activated (< {ScrimQuietMs})");
+                return;
+            }
+            var down = (GetAsyncKeyState(VkLButton) & 0x8000) != 0;
+            if (!down)
+            {
+                JkrPaneLog.Write("DetailWindow scrim press ignored: the left button is not physically down");
+                return;
+            }
+            _scrimPressed = true;
+            JkrPaneLog.Write($"DetailWindow scrim pressed ({sinceActivated} ms after activation, button down)");
+        }
+        private void Scrim_MouseUp(object sender, MouseButtonEventArgs e)
+        {
+            if (!_scrimPressed) { JkrPaneLog.Write("DetailWindow scrim released without a press on it: ignored"); return; }
+            _scrimPressed = false;
+            _closeReason = "scrim click";
+            Close();
+        }
         private void Card_MouseDown(object sender, MouseButtonEventArgs e) => e.Handled = true;
-        private void Close_Click(object sender, RoutedEventArgs e) => Close();
+        private void Close_Click(object sender, RoutedEventArgs e) { _closeReason = "× button"; Close(); }
         private void Prev_Click(object sender, RoutedEventArgs e) => _model.Prev();
         private void Next_Click(object sender, RoutedEventArgs e) => _model.Next();
         private void Fix_Click(object sender, RoutedEventArgs e) => _model.Fix();
         private void Ignore_Click(object sender, RoutedEventArgs e) => _model.Ignore();
         private void Review_Click(object sender, RoutedEventArgs e) => _model.ToggleReviewed();
+        private void MarkManual_Click(object sender, RoutedEventArgs e) => _model.MarkManual();
+        private void Reopen_Click(object sender, RoutedEventArgs e) => _model.Reopen();
         private void Locate_Click(object sender, RoutedEventArgs e) => _model.Locate();
         private void Source_Click(object sender, MouseButtonEventArgs e) => _model.OpenSource();
-        private void ToastUndo_Click(object sender, RoutedEventArgs e) => UndoRequested?.Invoke();
-
-        private void Dot_Click(object sender, RoutedEventArgs e)
-        {
-            if (sender is FrameworkElement fe && fe.Tag is int j) _model.GoTo(j);
-        }
 
         /// <summary>A letter shortcut caught by the pane's key hook (J / K / F / A).</summary>
         internal bool HandleHookKey(PanelKey key) => _model.HandleKey(key) == KeyOutcome.Handled;

@@ -38,8 +38,7 @@ namespace RevitWebAppSync.UI
                 // BM / EN: re-read the issues so fix errors and element words switch too.
                 Jkr.Panel.Core.PaneLanguage.Changed += () => results.Load(_panel.CurrentIssues, _panel.CurrentSummary, _panel.CurrentSpecReport);
                 _panel.BusyChanged += label => results.BusyText = label;
-                _panel.ToastChanged += (message, canUndo) => _shell.ShowToast(message, canUndo);
-                _shell.UndoRequested += () => _panel.UndoLastDecision();
+                _panel.ToastChanged += message => _shell.ShowToast(message);
                 // Issue detail (step 11): the shell opens it from a row; Locate and
                 // the source PDF go to the panel, Fix / Ignore through the results.
                 var detail = _shell.Detail;
@@ -54,6 +53,8 @@ namespace RevitWebAppSync.UI
                 // (same confirm, same AI fixer reusing the last scan request).
                 results.FixCheckRequested += ids => _ = _panel.FixAllAsync(null, openOnly: true, onlyIds: ids);
                 results.IgnoreRequested += ids => _panel.IgnoreIssues(ids);
+                results.MarkManualRequested += id => _panel.SetManual(id, true);
+                results.ReopenRequested += id => _panel.Reopen(id);
                 results.RescanRequested += (lod, disc) => _panel.RunFromStart(lod, disc);
                 results.ResetRequested += () => _panel.ResetToStart();
                 // Export (step 14): the Borang BIM010 preview + PDF; the issue list
@@ -100,7 +101,9 @@ namespace RevitWebAppSync.UI
                 if (doc == null) { _panel.Notify(Jkr.Panel.Core.PaneText.ExportNeedsScan()); return; }
                 var model = System.IO.Path.GetFileNameWithoutExtension(doc.Header.File ?? "");
                 var name = "BIM010_" + (string.IsNullOrEmpty(model) ? "model" : model) + "_" + DateTime.Now.ToString("yyyyMMdd") + ".pdf";
-                var w = await Jkr.Export.BorangPreviewWindow.OpenAsync(doc, _shell, _panel.ModelFolder, name, () => _panel.OpenExport());
+                var w = await Jkr.Export.BorangPreviewWindow.OpenAsync(doc, _shell, _panel.ModelFolder, name,
+                    _panel.IssueExportCount, f => _panel.OpenExport(f, _preview),
+                    lang => _shell.Model.SetLang(lang));
                 _preview = w;
                 w.Closed += (_, __) => { if (ReferenceEquals(_preview, w)) _preview = null; };
             }
@@ -126,7 +129,7 @@ namespace RevitWebAppSync.UI
             data.InitialState = new DockablePaneState
             {
                 DockPosition = DockPosition.Right,
-                MinimumWidth = (int)Jkr.Panel.JkrPaneShell.PaneWidth,
+                MinimumWidth = (int)Jkr.Panel.JkrPaneShell.MinimumWidth,
             };
             data.VisibleByDefault = false;
         }

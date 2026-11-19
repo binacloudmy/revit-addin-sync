@@ -79,11 +79,10 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public static string SelectedInModel(string element, string lang = null) =>
             PanelStrings.Get(lang ?? PaneLanguage.Current, "toastLoc") + ": " + element;
 
-        /// <summary>prototype toast times: 6 s with Undo, else 2.6 s — longer for a long
-        /// notice so it can be read (about 60 ms a character, at most 8 s).</summary>
-        public static TimeSpan ToastTime(string message, bool canUndo)
+        /// <summary>Toast time: 2.6 s, longer for a long notice so it can be read
+        /// (about 60 ms a character, at most 8 s).</summary>
+        public static TimeSpan ToastTime(string message)
         {
-            if (canUndo) return TimeSpan.FromMilliseconds(6000);
             var reading = (message ?? "").Length * 60;
             return TimeSpan.FromMilliseconds(Math.Max(2600, Math.Min(8000, reading)));
         }
@@ -128,7 +127,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 case "Fixed": label = L(lang, "Dibaiki", "Fixed"); break;
                 case "Ignored": label = L(lang, "Diabaikan", "Ignored"); break;
                 case "Approved": label = L(lang, "Diluluskan", "Approved"); break;
-                case "ManualFixNeeded": label = L(lang, "Baiki secara manual", "Manual fix"); break;
+                case "ManualFixNeeded": label = L(lang, "Ditanda manual", "Marked manual"); break;
                 default: label = L(lang, "Dibuka semula", "Reopened"); break;
             }
             return label + " · " + title;
@@ -158,13 +157,120 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
 
         // ── export ──
         public static string ExportIssues(string lang = null) =>
-            L(lang, "Eksport isu (Excel/CSV)", "Export issues (Excel/CSV)");
+            L(lang, "Eksport isu", "Export issues");
+        public static string BorangPreviewTitle(string lang = null) =>
+            L(lang, "Pratonton Borang BIM010", "Borang BIM010 preview");
+        public static string BorangPreviewNote(string lang = null) =>
+            L(lang, "Diisi daripada templat BIM010 HOD, bahagian A hingga E, tidak diubah",
+                    "Filled from the HOD’s BIM010 template, sections A to E, unchanged");
+        public static string PageOf(int page, int pages, string lang = null) =>
+            L(lang, $"Halaman {page} daripada {pages}", $"Page {page} of {pages}");
+        public static string PreviousPage(string lang = null) => L(lang, "Halaman sebelumnya", "Previous page");
+        public static string NextPage(string lang = null) => L(lang, "Halaman seterusnya", "Next page");
+        public static string ZoomHint(string lang = null) => L(lang, "Ctrl + skrol untuk zum", "Ctrl + scroll to zoom");
+        public static string SavePdf(string lang = null) => L(lang, "Simpan PDF", "Save PDF");
+        public static string FormatExcel(string lang = null) => "Excel (.xlsx)";
+        public static string FormatCsv(string lang = null) => "CSV (.csv)";
+        public static string IssueCount(int n, string lang = null) =>
+            L(lang, $"{n} isu", $"{n} issue{S(n)}");
+        public static string ExportDialogHint(string lang = null) =>
+            L(lang, "Pilih format dan isu yang dimasukkan dalam fail.", "Choose the format and which issues go in the file.");
+        public static string ExportFormat(string lang = null) => L(lang, "Format", "Format");
+        public static string ExportInclude(string lang = null) => L(lang, "Sertakan", "Include");
+        public static string ExportWillWrite(int n, string lang = null) =>
+            L(lang, $"{n} isu akan ditulis", $"{n} issue{S(n)} will be written");
+        public static string ExportAction(string lang = null) => L(lang, "Eksport", "Export");
+        public static string Cancel(string lang = null) => L(lang, "Batal", "Cancel");
         public static string PdfSaved(string path, string lang = null) =>
             L(lang, "PDF disimpan: ", "PDF saved: ") + path;
         public static string PdfSaveFailed(string message, string lang = null) =>
             L(lang, "PDF tidak dapat disimpan: ", "PDF could not be saved: ") + message;
         public static string ExportFailed(string message, string lang = null) =>
             L(lang, "Borang tidak dapat dijana: ", "The Borang could not be generated: ") + message;
+        /// <summary>The Excel / CSV issue export wrote its file (the name, not the folder).</summary>
+        public static string IssuesExported(string path, string lang = null) =>
+            L(lang, "Isu dieksport: ", "Issues exported: ") + System.IO.Path.GetFileName(path ?? "");
+        public static string IssuesExportFailed(string message, string lang = null) =>
+            L(lang, "Isu tidak dapat dieksport: ", "Issues could not be exported: ") + message;
+
+        // ── the BIM010 checker's remarks (fill_audit writes them in BM) ──
+
+        private const string NoCheckBm = "Tiada semakan automatik untuk baris ini";
+        private const string NoCheckEn = "No automatic check for this row";
+        private const string ContextBm = "Konteks model: ";
+
+        // fill_audit's context labels (AuditCheckers.ContextProviders), longest first.
+        private static readonly (string Ms, string En)[] ContextLabels =
+        {
+            ("amaran (warning) dalam model", "warnings in the model"),
+            ("parameter terikat pada projek", "parameters bound to the project"),
+            ("family dimuatkan", "loaded families"),
+            ("design option", "design options"),
+            ("fasa (phase)", "phases"),
+            ("view Legend", "Legend views"),
+            ("view grafik", "graphical views"),
+            ("Revit link", "Revit links"),
+            ("scope box", "scope boxes"),
+            ("Area Plan", "Area Plans"),
+            ("workset", "worksets"),
+            ("jadual", "schedules"),
+            ("sheet", "sheets"),
+            ("grid", "grids"),
+            ("aras", "levels"),
+        };
+
+        /// <summary>
+        /// A remark of the BIM010 checker in BM and EN. It writes its remarks in BM; the
+        /// ones the pane knows ("Tiada semakan automatik untuk baris ini — semak manual.",
+        /// with or without "Konteks model: …") get their English text, so a semak manual
+        /// row follows the BM / EN switch. Any other remark shows as written in both.
+        /// </summary>
+        public static Text AuditRemark(string remark)
+        {
+            var bm = remark ?? "";
+            return new Text(bm, AuditRemarkEn(bm) ?? bm);
+        }
+
+        /// <summary>The English of a known checker remark; null when there is none.</summary>
+        public static string AuditRemarkEn(string remark)
+        {
+            var s = (remark ?? "").Trim();
+            if (s == NoCheckBm + " — semak manual.") return NoCheckEn + " — semak manual.";
+            const string tail = " Semak manual.";
+            if (s.StartsWith(NoCheckBm + ". ", StringComparison.Ordinal) && s.EndsWith(tail, StringComparison.Ordinal))
+            {
+                var note = s.Substring(NoCheckBm.Length + 2, s.Length - NoCheckBm.Length - 2 - tail.Length);
+                var noteEn = ContextEn(note);
+                return noteEn == null ? null : NoCheckEn + ". " + noteEn + tail;
+            }
+            return null;
+        }
+
+        /// <summary>"Konteks model: 0 workset; 3 aras (Aras 01, …)." in English; null when a
+        /// label is not known (better all BM than half translated).</summary>
+        private static string ContextEn(string note)
+        {
+            if (!note.StartsWith(ContextBm, StringComparison.Ordinal) || !note.EndsWith(".", StringComparison.Ordinal)) return null;
+            var parts = note.Substring(ContextBm.Length, note.Length - ContextBm.Length - 1).Split(new[] { "; " }, StringSplitOptions.None);
+            var en = new List<string>();
+            foreach (var part in parts)
+            {
+                var sp = part.IndexOf(' ');
+                if (sp <= 0 || !int.TryParse(part.Substring(0, sp), out _)) return null;
+                var rest = part.Substring(sp + 1);
+                string done = null;
+                foreach (var (ms, e) in ContextLabels)
+                    if (rest == ms || rest.StartsWith(ms + " (", StringComparison.Ordinal))
+                    {
+                        done = part.Substring(0, sp + 1) + e + rest.Substring(ms.Length);
+                        break;
+                    }
+                if (done == null) return null;
+                en.Add(done);
+            }
+            return "Model context: " + string.Join("; ", en) + ".";
+        }
+
         public static string ExportNeedsScan(string lang = null) =>
             L(lang, "Jalankan audit dahulu untuk mengeksport Borang.", "Run the audit first to export the Borang.");
 

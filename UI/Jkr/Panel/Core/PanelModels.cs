@@ -21,8 +21,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
     /// <summary>prototype status. Reviewed is only used on items that need a person.</summary>
     public enum ItemStatus { Open, Ignored, Resolved, Reviewed }
 
-    /// <summary>prototype fix: null | 'fix' | 'generate'.</summary>
-    public enum FixKind { None, Fix, Generate }
+    /// <summary>prototype fix: null | 'fix'.</summary>
+    public enum FixKind { None, Fix }
 
     public enum PanelStage { Start, Running, Results }
 
@@ -57,10 +57,21 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// <summary>No ready-made fix, but Fix all can ask the backend AI fixer for one.</summary>
         public bool AiFix;
 
+        /// <summary>Why the AI fixer proposed <see cref="Prop"/> ("Closest match in the JKR material
+        /// list…"). Only with a proposal; today the fixer proposes during Fix all, so it stays null.</summary>
+        public Text AiReason;
+
         public ItemStatus Status = ItemStatus.Open;
         /// <summary>Confirmed compliant by a re-scan: drops out of every list and
         /// counts as a passing cell.</summary>
         public bool Passed;
+
+        /// <summary>The user marked it "Mark as Manual" (option b): it stays Open and still
+        /// counts as a fail, is left out of every fix request, and prints "handled manually".</summary>
+        public bool MarkedManual;
+
+        /// <summary>"Mark as Manual" may be offered (an open AI item below the High tier).</summary>
+        public bool CanMarkManual;
 
         public bool IsHuman => V == Verify.Human;
 
@@ -79,7 +90,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
 
     public sealed class ConfirmRequest
     {
-        /// <summary>"fix" or "generate" (prototype confirm.kind).</summary>
+        /// <summary>"fix" (prototype confirm.kind).</summary>
         public FixKind Kind;
         public List<string> Ids = new List<string>();
     }

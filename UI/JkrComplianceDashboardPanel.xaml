@@ -440,16 +440,12 @@
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <jkr:IconGlyph Grid.Column="0" Glyph="check" Size="13" StrokeThickness="2"
                                Foreground="{StaticResource Ok}" VerticalAlignment="Center" Margin="0,0,10,0"/>
                 <TextBlock Grid.Column="1" x:Name="ToastMsg" Foreground="White" FontSize="11.5"
                            VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
                            FontFamily="{StaticResource Font.Sans}"/>
-                <Button Grid.Column="2" x:Name="UndoBtn" Style="{StaticResource Btn.Link}" Click="Undo_Click">
-                    <TextBlock Text="Undo" Foreground="{StaticResource Peach}" FontSize="11" FontWeight="SemiBold"/>
-                </Button>
             </Grid>
         </Border>
     </Grid>

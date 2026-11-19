@@ -1157,5 +1157,58 @@ namespace RevitWebAppSync.Tests
             r.ActualEn = "given";
             Assert.Equal("given", SpecModelIssues.ActualIn(r, PanelStrings.En));
         }
+    
+        // ── live test F3: "· n elements" is every element behind the failing results ──
+
+        [Fact]
+        public void Elements_counts_every_element_behind_a_result_not_one_per_result()
+        {
+            // Da.1 on TEST-B: three failing types, 1 + 294 + 2 placed instances.
+            var stair = Model(SpecChecks.Fail("Da.1", "Stairs: type 'Monolithic Stair' (1 elemen)", elementIds: new long[] { 501 }));
+            var panels = Model(SpecChecks.Fail("Da.1", "Curtain Panels: type 'Wall' (294 elemen)",
+                elementIds: Enumerable.Range(1000, 294).Select(x => (long)x)));
+            var walls = Model(SpecChecks.Fail("Da.1", "Walls: type 'Generic' (2 elemen)", elementIds: new long[] { 7001, 7002 }));
+            var r = SpecReport.Build(new[] { stair, panels, walls });
+            var c = r.For("Da.1");
+            Assert.Equal(SpecState.Fail, c.State);
+            Assert.Equal(3, c.Failed);
+            Assert.Equal(297, c.Elements);
+            Assert.Equal("Failed: 3 of 3 results · 297 elements.", Row(r, "Da.1", PanelStrings.En).Detail);
+            Assert.Equal("Gagal: 3 daripada 3 keputusan · 297 elemen.", Row(r, "Da.1", PanelStrings.Ms).Detail);
+        }
+
+        // ── live test F4: meeting-transcript times are not shown ──
+
+        [Theory]
+        [InlineData("T 22:27–22:28", "")]
+        [InlineData("F A.2, T 21:16", "F A.2")]
+        [InlineData("T 21:26, 21:34", "")]
+        [InlineData("T 21:19, 21:22, 21:23", "")]
+        [InlineData("PB p.30–34, T 21:51–21:54", "PB p.30–34")]
+        [InlineData("T 22:18–22:19, N3", "N3")]
+        [InlineData("T 21:41, 21:46, PB p.35", "PB p.35")]
+        [InlineData("T 21:55, PB p.120/161/209", "PB p.120/161/209")]
+        [InlineData("N2, T 22:06–22:08", "N2")]
+        [InlineData("NS §5.8.1, §5.8.3", "NS §5.8.1, §5.8.3")]
+        [InlineData("C 3.1", "C 3.1")]
+        [InlineData("", "")]
+        [InlineData(null, "")]
+        public void A_reference_is_shown_without_its_transcript_times(string reference, string shown)
+        {
+            Assert.Equal(shown, SpecCatalog.ShownReference(reference));
+        }
+
+        [Fact]
+        public void No_check_shows_a_transcript_time_in_its_meta_line()
+        {
+            var r = SpecReport.Build(Enumerable.Empty<SpecResult>());
+            var transcript = new System.Text.RegularExpressions.Regex(@"\bT \d{1,2}:\d{2}");
+            foreach (var c in SpecCatalog.Checks)
+                foreach (var lang in new[] { PanelStrings.Ms, PanelStrings.En })
+                    Assert.DoesNotMatch(transcript, Row(r, c.Id, lang).Meta);
+            Assert.Equal("", Row(r, "Da.1", PanelStrings.En).Meta);
+            // the data keeps it
+            Assert.Equal("T 22:27–22:28", SpecCatalog.Find("Da.1").Reference);
+        }
     }
 }

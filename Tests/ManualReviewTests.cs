@@ -53,6 +53,35 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
+        public void Mark_manual_is_saved_and_reopen_drops_it_again()
+        {
+            var item = Ai("m1");
+            item.Status = IssueStatus.ManualFixNeeded;
+            JkrAuditStore.Save(Rvt, item);
+            Assert.Equal(IssueStatus.ManualFixNeeded, JkrAuditStore.LoadFor(Rvt)["m1"]);
+
+            item.Status = IssueStatus.Open;                 // Reopen
+            JkrAuditStore.Save(Rvt, item);
+            Assert.False(JkrAuditStore.LoadFor(Rvt).ContainsKey("m1"));      // a fresh scan reads it as Open
+        }
+
+        [Fact]
+        public void A_marked_item_the_rescan_no_longer_returns_is_dropped_and_a_present_one_stays_marked()
+        {
+            var gone = Ai("gone"); gone.Status = IssueStatus.ManualFixNeeded;
+            var kept = Ai("kept"); kept.Status = IssueStatus.ManualFixNeeded;
+            var ign = Ai("ign"); ign.Status = IssueStatus.Ignored;
+            JkrAuditStore.Save(Rvt, gone); JkrAuditStore.Save(Rvt, kept); JkrAuditStore.Save(Rvt, ign);
+
+            JkrAuditStore.PruneMissing(Rvt, new[] { "kept" });        // the fresh scan returned only "kept"
+
+            var audit = JkrAuditStore.LoadFor(Rvt);
+            Assert.False(audit.ContainsKey("gone"));
+            Assert.Equal(IssueStatus.ManualFixNeeded, audit["kept"]);
+            Assert.Equal(IssueStatus.Ignored, audit["ign"]);          // other statuses are not touched
+        }
+
+        [Fact]
         public void Back_to_not_reviewed_removes_the_record()
         {
             var item = Human("h1");
@@ -116,7 +145,7 @@ namespace RevitWebAppSync.Tests
             results.SelectTab(PanelTab.Manual);
             var row = results.Rows.Single();
             Assert.True(row.IsManual);
-            Assert.Equal("Manual review", row.SvLabel);                    // never ✓ / ✗
+            Assert.Equal("Semak manual", row.SvLabel);                    // never ✓ / ✗
             Assert.StartsWith("✓ Reviewed · ", row.Meta);
             Assert.Equal(pctBefore, results.HeadPctLabel);                 // the % does not move
             Assert.Equal(pendBefore, results.PendTotal);                   // still needs a person on the Borang

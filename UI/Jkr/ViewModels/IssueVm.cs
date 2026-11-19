@@ -172,6 +172,10 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public string FixParameterName { get; set; } = "";
         public string FixValue { get; set; } = "";
         public string FixOldValue { get; set; } = "";
+
+        /// <summary>The fix (FixAction / FixValue) came from the backend AI fixer during
+        /// Fix all, not from the scan: the confirm lists it under "Proposed by the AI fixer".</summary>
+        public bool FixProposedByAi { get; set; }
         public int FixPriority { get; set; } = 10;
 
         /// <summary>"instance" or "type" — passed through to JkrFixApplicator.

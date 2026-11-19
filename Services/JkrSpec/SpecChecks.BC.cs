@@ -750,7 +750,7 @@ namespace RevitWebAppSync.Services.JkrSpec
 
         /// <summary>
         /// C1.6.1 — a room schedule / schedule of accommodation exists (a schedule of category
-        /// Rooms). None → fail, offering "Jana jadual ruang" (paid).
+        /// Rooms). None → fail.
         /// </summary>
         internal static IEnumerable<SpecResult> C1_6_1(SpecModel m)
         {
@@ -760,9 +760,9 @@ namespace RevitWebAppSync.Services.JkrSpec
             var rs = RoomSchedules(m);
             if (rs.Count == 0)
             {
-                yield return SpecChecks.Fail(id, "Tiada jadual ruang (room schedule) — 'Jana jadual ruang' (berbayar) ditawarkan",
+                yield return SpecChecks.Fail(id, "Tiada jadual ruang (room schedule)",
                         actual: "tiada schedule kategori Rooms", required: "room schedule / schedule of accommodation", key: "none")
-                    .En("No room schedule — 'Generate room schedule' (paid) is offered");
+                    .En("No room schedule");
                 yield break;
             }
             yield return SpecChecks.Pass(id, "Jadual ruang wujud: " + string.Join(", ", rs.Select(s => s.Name)), rs.Count)

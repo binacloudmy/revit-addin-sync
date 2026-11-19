@@ -7,10 +7,10 @@ using RevitWebAppSync.UI.Jkr.ViewModels;
 namespace RevitWebAppSync.UI.Jkr.Modals
 {
     /// <summary>
-    /// Confirm dialog before every model write (prototype .cf, frames f-confirm and
-    /// f-paid). Lists each change as "item · title / actual → proposed". The paid
-    /// Generate action also needs the consent box, which starts unticked. From 500
-    /// affected elements it says Revit may pause.
+    /// Confirm dialog before every model write (Clear Sheet "confirm changes").
+    /// Lists each change as "title · scope / old → new", ready-made fixes and AI
+    /// fixer proposals in their own groups. From 500 affected elements it says
+    /// Revit may pause.
     ///
     /// Esc, Cancel and a click on the scrim cancel; Enter confirms when the confirm
     /// button is enabled. The scrim covers the window that owns the pane.
@@ -24,25 +24,14 @@ namespace RevitWebAppSync.UI.Jkr.Modals
             _model = model ?? throw new ArgumentNullException(nameof(model));
             InitializeComponent();
 
-            TitleText.Text = model.Title;
-            SubText.Text = model.Sub;
-            RowsList.ItemsSource = model.Rows;
-            PauseBox.Visibility = model.ShowPauseWarning ? Visibility.Visible : Visibility.Collapsed;
-            PauseText.Text = model.PauseWarning;
-            ConsentBox.Visibility = model.NeedsConsent ? Visibility.Visible : Visibility.Collapsed;
-            ConsentText.Text = model.ConsentText;
-            ConsentCheck.IsChecked = model.Consent;
-            CancelBtn.Content = model.CancelLabel;
-            ConfirmBtn.Content = model.ConfirmLabel;
+            DataContext = model;
             AutomationPropertiesHelper(model.Title);
             Refresh();
 
             PreviewKeyDown += OnPreviewKeyDown;
             Loaded += (_, __) =>
             {
-                // Paid action: focus the consent box first, so Enter can't skip it.
-                if (model.NeedsConsent) ConsentCheck.Focus();
-                else ConfirmBtn.Focus();
+                ConfirmBtn.Focus();
             };
         }
 
@@ -80,12 +69,6 @@ namespace RevitWebAppSync.UI.Jkr.Modals
         }
 
         private void Refresh() => ConfirmBtn.IsEnabled = _model.CanConfirm;
-
-        private void Consent_Changed(object sender, RoutedEventArgs e)
-        {
-            _model.Consent = ConsentCheck.IsChecked == true;
-            Refresh();
-        }
 
         private void Confirm_Click(object sender, RoutedEventArgs e)
         {

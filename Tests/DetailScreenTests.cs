@@ -26,6 +26,14 @@ namespace RevitWebAppSync.Tests
                 Spec = new SpecRef { Doc = "" },
             };
 
+        private static IssueVm AiCandidate(string id, string key)
+        {
+            var i = Issue(id, key);
+            i.CheckId = "element.material.02";
+            i.RevitElementId = 412907;
+            return i;
+        }
+
         private static (DetailScreenModel detail, ResultsScreenModel results, PanelCore core) New(params IssueVm[] issues)
         {
             var core = new PanelCore(new List<PanelItem>(), null, new ManualClock());
@@ -48,7 +56,7 @@ namespace RevitWebAppSync.Tests
             d.Open("2");
             Assert.Equal(1, opened);
             Assert.True(d.IsOpen);
-            Assert.Equal("Issue 2 of 3", d.IdxLabel);
+            Assert.Equal("Issue 2 of 3 open", d.IdxLabel);
             Assert.Equal(2 / 3.0, d.ProgFraction, 3);
             Assert.True(d.CanPrev);
             Assert.True(d.CanNext);
@@ -73,7 +81,6 @@ namespace RevitWebAppSync.Tests
             Assert.True(c.CanFix);
             Assert.Equal("jkrAR_x", c.Prop);
             Assert.True(c.CanIgnore);
-            Assert.False(c.IsDone);
             Assert.False(c.HasSteps);                            // the fix block, not the steps
             Assert.False(c.IsManual);
 
@@ -104,15 +111,13 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void A_fixed_issue_says_re_scan_pending_and_offers_no_actions()
+        public void A_fixed_issue_shows_as_resolved_and_offers_no_actions()
         {
             var (d, _, core) = New(Issue("1", "A5", st: IssueStatus.Fixed, fixable: true));
             core.SetTab(PanelTab.Resolved);
             d.Open("1");
             var c = d.Card;
-            Assert.Equal(("Fixed · re-scan pending", "ok"), (c.SvLabel, c.SvKind));
-            Assert.True(c.IsDone);
-            Assert.Equal("✓ Fixed. Re-scan to confirm on the Borang.", c.DoneLabel);
+            Assert.Equal(("Resolved", "ok"), (c.SvLabel, c.SvKind));
             Assert.False(c.CanFix);
             Assert.False(c.CanIgnore);
         }
@@ -124,7 +129,6 @@ namespace RevitWebAppSync.Tests
             core.SetTab(PanelTab.Ignore);
             d.Open("1");
             Assert.Equal(("Ignored", "ign"), (d.Card.SvLabel, d.Card.SvKind));
-            Assert.Equal("Ignored. Still prints as not comply on the Borang.", d.Card.DoneLabel);
             Assert.False(d.Card.CanIgnore);
         }
 
@@ -136,10 +140,12 @@ namespace RevitWebAppSync.Tests
             d.Open("1");
             var c = d.Card;
             Assert.True(c.IsManual);
-            Assert.Equal(("Manual review", "man", "man"), (c.SvLabel, c.SvKind, c.ActKind));
+            Assert.Equal(("Semak manual", "man", "man"), (c.SvLabel, c.SvKind, c.ActKind));
+            Assert.Equal("Issue 1 of 1 in Manual", d.IdxLabel);
+            Assert.False(c.CanMarkManual || c.CanReopen || c.HasApply);
             Assert.Equal("why 1", c.Reason);
             Assert.Equal("", c.Desc);                            // the reason is not shown twice
-            Assert.False(c.CanFix || c.CanIgnore || c.IsDone);
+            Assert.False(c.CanFix || c.CanIgnore);
             Assert.Equal("Mark as reviewed", c.ReviewLabel);
 
             var asked = 0;
@@ -209,10 +215,41 @@ namespace RevitWebAppSync.Tests
             r.Load(new[] { Issue("1", "A1", st: IssueStatus.Ignored), Issue("2", "A4") },
                    AuditSummary.Build(Enumerable.Empty<Bim010Cell>()));
             Assert.True(d.IsOpen);
-            Assert.Equal("Issue 1 of 2", d.IdxLabel);
+            Assert.Equal("Issue 1 of 2 ignored", d.IdxLabel);     // live F11: the shown issue's state
             Assert.Equal("Ignored", d.Card.SvLabel);
             d.Next();
             Assert.Equal("2", d.Card.Id);
+        }
+
+        [Fact]
+        public void The_header_says_the_state_of_the_issue_shown_not_of_the_tab()
+        {
+            var (d, r, core) = New(Issue("1", "A1", fixable: true), Issue("2", "A4"));
+            var none = AuditSummary.Build(Enumerable.Empty<Bim010Cell>());
+            d.Open("1");
+            Assert.Equal("Issue 1 of 2 open", d.IdxLabel);
+            r.Load(new[] { Issue("1", "A1", st: IssueStatus.ManualFixNeeded, fixable: true), Issue("2", "A4") }, none);
+            Assert.Equal("Issue 1 of 2 marked manual", d.IdxLabel);
+            core.SetLang(PanelStrings.Ms);
+            Assert.Equal("Isu 1 daripada 2 ditanda manual", d.IdxLabel);
+            core.SetLang(PanelStrings.En);
+            r.Load(new[] { Issue("1", "A1", fixable: true), Issue("2", "A4") }, none);
+            Assert.Equal("Issue 1 of 2 open", d.IdxLabel);                    // reopened
+            r.Load(new[] { Issue("1", "A1", st: IssueStatus.Fixed, fixable: true), Issue("2", "A4") }, none);
+            Assert.Equal("Issue 1 of 2 resolved", d.IdxLabel);
+        }
+
+        [Fact]
+        public void A_reviewed_semak_manual_item_says_reviewed()
+        {
+            var reviewed = Issue("1", "A2", human: true);
+            reviewed.Reviewed = true;
+            var (d, _, core) = New(reviewed, Issue("2", "A3", human: true));
+            core.SetTab(PanelTab.Manual);
+            d.Open("1");
+            Assert.Equal("Issue 1 of 2 reviewed", d.IdxLabel);
+            d.Next();
+            Assert.Equal("Issue 2 of 2 in Manual", d.IdxLabel);
         }
 
         [Fact]
@@ -262,7 +299,7 @@ namespace RevitWebAppSync.Tests
             d.GoTo(39);
             Assert.Equal(39, d.Dots.Last().Index);
             Assert.True(d.Dots.Last().IsOn);
-            Assert.Equal("Issue 40 of 40", d.IdxLabel);
+            Assert.Equal("Issue 40 of 40 open", d.IdxLabel);
         }
 
         [Fact]
@@ -286,8 +323,148 @@ namespace RevitWebAppSync.Tests
             d.Open("1");
             Assert.Equal(("Element", "Required", "In model"), (d.ElementLabel, d.RequiredLabel, d.ActualLabel));
             core.SetLang(PanelStrings.Ms);
-            Assert.Equal(PanelStrings.Get(PanelStrings.Ms, "idx") + " 1 " + PanelStrings.Get(PanelStrings.Ms, "of") + " 2", d.IdxLabel);
+            Assert.Equal("Isu 1 daripada 2 terbuka", d.IdxLabel);
             Assert.Equal("Cara membaiki secara manual", d.HowToFixLabel);
+        }
+
+        // ── Task 14: Clear Sheet detail (Mark as Manual / Reopen, AI fixer proposal, copy) ──
+
+        [Fact]
+        public void An_open_issue_that_may_be_marked_offers_mark_as_manual()
+        {
+            var (d, r, _) = New(Issue("1", "A4", fixable: true), Issue("2", "A4", IssuePriority.High));
+            d.Open("1");
+            var c = d.Card;
+            Assert.True(c.CanMarkManual);
+            Assert.False(c.CanReopen);
+            Assert.False(c.IsMarkedManual);
+            Assert.True(c.HasApply);
+            Assert.Equal("Apply fix", c.ApplyLabel);
+            Assert.Equal("Mark as Manual", d.MarkManualLabel);
+
+            string marked = null;
+            r.MarkManualRequested += id => marked = id;
+            d.MarkManual();
+            Assert.Equal("1", marked);
+
+            d.Next();                                            // High: Mark as Manual is not offered
+            Assert.False(d.Card.CanMarkManual);
+            marked = null;
+            d.MarkManual();
+            Assert.Null(marked);
+        }
+
+        [Fact]
+        public void A_marked_manual_issue_shows_the_tag_and_reopen_instead_of_ignore_and_apply()
+        {
+            var (d, r, _) = New(Issue("1", "A4", fixable: true, st: IssueStatus.ManualFixNeeded));
+            d.Open("1");
+            var c = d.Card;
+            Assert.True(c.IsMarkedManual);
+            Assert.Equal("Manual · you'll fix it in Revit", c.ManualTag);
+            Assert.Equal(("Medium", "Med"), (c.SvLabel, c.SvKind));   // still an open fail
+            Assert.True(c.CanReopen);
+            Assert.False(c.CanMarkManual || c.CanIgnore || c.CanFix || c.HasApply);
+            Assert.Equal("Reopen", d.ReopenLabel);
+
+            List<string> fix = null, ign = null;
+            string reopened = null;
+            r.FixRequested += ids => fix = ids;
+            r.IgnoreRequested += ids => ign = ids;
+            r.ReopenRequested += id => reopened = id;
+            d.HandleKey(PanelKey.F);
+            d.HandleKey(PanelKey.A);
+            Assert.Null(fix);
+            Assert.Null(ign);
+            d.Reopen();
+            Assert.Equal("1", reopened);
+        }
+
+        [Fact]
+        public void An_ignored_issue_offers_reopen_only()
+        {
+            var (d, r, core) = New(Issue("1", "A6", st: IssueStatus.Ignored, fixable: true));
+            core.SetTab(PanelTab.Ignore);
+            d.Open("1");
+            Assert.Equal("Issue 1 of 1 ignored", d.IdxLabel);
+            var c = d.Card;
+            Assert.True(c.CanReopen);
+            Assert.False(c.CanMarkManual || c.CanIgnore || c.HasApply);
+            string reopened = null;
+            r.ReopenRequested += id => reopened = id;
+            d.Reopen();
+            Assert.Equal("1", reopened);
+        }
+
+        [Fact]
+        public void A_resolved_issue_offers_no_reopen()
+        {
+            var (d, r, core) = New(Issue("1", "A5", st: IssueStatus.Fixed, fixable: true));
+            core.SetTab(PanelTab.Resolved);
+            d.Open("1");
+            Assert.Equal("Issue 1 of 1 resolved", d.IdxLabel);
+            Assert.False(d.Card.CanReopen || d.Card.CanMarkManual || d.Card.HasApply);
+            string reopened = null;
+            r.ReopenRequested += id => reopened = id;
+            d.Reopen();
+            Assert.Null(reopened);
+        }
+
+        [Fact]
+        public void An_ai_fixer_candidate_without_a_value_claims_no_proposal()
+        {
+            var (d, _, _) = New(AiCandidate("1", "D"));
+            d.Open("1");
+            var c = d.Card;
+            Assert.True(c.IsAiCanPropose);
+            Assert.False(c.IsAiProposal);
+            Assert.False(c.HasApply);                            // nothing to apply yet
+            Assert.False(c.CanFix);
+            Assert.Equal("AI fixer can propose", d.AiCanTitle);
+            Assert.Equal("No ready-made fix yet. Fix all asks the AI fixer for one; you see its proposal before anything is written.", d.AiCanText);
+        }
+
+        [Fact]
+        public void An_ai_fixer_proposal_shows_its_value_reason_and_apply_ai_fix()
+        {
+            var (d, r, core) = New(AiCandidate("1", "D"));
+            var item = core.Issues.Single();
+            item.Prop = "jkrMT_ST_Putih";
+            item.AiReason = new Text("Padanan terdekat dalam senarai bahan JKR.", "Closest match in the JKR material list.");
+            d.Open("1");
+            var c = d.Card;
+            Assert.True(c.IsAiProposal);
+            Assert.False(c.IsAiCanPropose);
+            Assert.False(c.CanFix);                              // not the ready-made fix block
+            Assert.Equal("jkrMT_ST_Putih", c.Prop);
+            Assert.Equal("Closest match in the JKR material list.", c.AiReason);
+            Assert.True(c.HasAiReason);
+            Assert.True(c.HasApply);
+            Assert.Equal("Apply AI fix", c.ApplyLabel);
+            Assert.False(c.HasSteps);
+            Assert.Equal("Proposed by the AI fixer", d.AiProposedLabel);
+            Assert.StartsWith("This is the AI fixer's best match, not a ready-made rule.", d.AiCaution);
+
+            List<string> fix = null;
+            r.FixRequested += ids => fix = ids;
+            d.HandleKey(PanelKey.F);
+            Assert.Equal(new[] { "1" }, fix);
+        }
+
+        [Fact]
+        public void Detail_copy_follows_clear_sheet_in_both_languages()
+        {
+            var (d, _, core) = New(Issue("1", "A5", fixable: true));
+            d.Open("1");
+            Assert.Equal("You see every change again before anything is written.", d.SeeAgainNote);
+            Assert.Equal("Source: Borang A5, x", d.SourceLine("Borang A5 · x"));
+            Assert.Equal("This item is not counted in the compliance % and not counted as a failure. It prints as “semak manual” on the Borang.", d.ManualNote);
+            core.SetLang(PanelStrings.Ms);
+            Assert.Equal("Guna pembaikan", d.Card.ApplyLabel);
+            Assert.Equal("Anda melihat setiap perubahan sekali lagi sebelum apa-apa ditulis.", d.SeeAgainNote);
+            Assert.Equal("Dicadangkan oleh pembaiki AI", d.AiProposedLabel);
+            Assert.Equal("Tanda manual", d.MarkManualLabel);
+            Assert.Equal("Sumber: Borang A5, x", d.SourceLine("Borang A5 · x"));
         }
     }
 }

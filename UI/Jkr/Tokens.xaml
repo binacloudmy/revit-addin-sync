@@ -3,68 +3,68 @@
                     xmlns:sys="clr-namespace:System;assembly=mscorlib">
 
     <!-- ═══════════ SURFACE ═══════════ -->
-    <SolidColorBrush x:Key="Surface.Bg"    Color="#F7F6F3"/>
+    <SolidColorBrush x:Key="Surface.Bg"    Color="#F8F9FA"/>
     <SolidColorBrush x:Key="Surface.Panel" Color="#FFFFFF"/>
-    <SolidColorBrush x:Key="Surface.Line"  Color="#E7E5DE"/>
-    <SolidColorBrush x:Key="Surface.Line2" Color="#F0EEE8"/>
+    <SolidColorBrush x:Key="Surface.Line"  Color="#E5E7EB"/>
+    <SolidColorBrush x:Key="Surface.Line2" Color="#EEF0F3"/>
 
     <!-- ═══════════ TEXT ═══════════ -->
-    <SolidColorBrush x:Key="Ink"   Color="#16181C"/>
-    <SolidColorBrush x:Key="Ink2"  Color="#44484F"/>
-    <SolidColorBrush x:Key="Ink3"  Color="#6B7078"/>
-    <SolidColorBrush x:Key="Ink4"  Color="#9AA0A6"/>
+    <SolidColorBrush x:Key="Ink"   Color="#15181D"/>
+    <SolidColorBrush x:Key="Ink2"  Color="#4B5361"/>
+    <SolidColorBrush x:Key="Ink3"  Color="#646B78"/>
+    <SolidColorBrush x:Key="Ink4"  Color="#8A919C"/>
 
     <!-- ═══════════ BRAND ═══════════ -->
-    <SolidColorBrush x:Key="Brand"     Color="#E27449"/>
-    <SolidColorBrush x:Key="BrandDark" Color="#C85A30"/>
-    <SolidColorBrush x:Key="BrandTint" Color="#FFF1E9"/>
-    <SolidColorBrush x:Key="Peach"     Color="#FFB089"/>
-    <SolidColorBrush x:Key="Navy"      Color="#0E2238"/>
-    <SolidColorBrush x:Key="NavyAlt"   Color="#1A3355"/>
-    <SolidColorBrush x:Key="NavySubtle" Color="#97A9BE"/>
+    <SolidColorBrush x:Key="Brand"     Color="#15181D"/>
+    <SolidColorBrush x:Key="BrandDark" Color="#2C313A"/>
+    <SolidColorBrush x:Key="BrandTint" Color="#F1F3F6"/>
+    <SolidColorBrush x:Key="Peach"     Color="#C9CED6"/>
+    <SolidColorBrush x:Key="Navy"      Color="#15181D"/>
+    <SolidColorBrush x:Key="NavyAlt"   Color="#2C313A"/>
+    <SolidColorBrush x:Key="NavySubtle" Color="#8A919C"/>
 
     <LinearGradientBrush x:Key="Jkr.LogoGradient" StartPoint="0,0" EndPoint="0,1">
-        <GradientStop Offset="0" Color="#FFB089"/>
-        <GradientStop Offset="1" Color="#E27449"/>
+        <GradientStop Offset="0" Color="#2C313A"/>
+        <GradientStop Offset="1" Color="#15181D"/>
     </LinearGradientBrush>
 
     <!-- ═══════════ PRIORITY ═══════════ -->
-    <SolidColorBrush x:Key="Hi"    Color="#C73E3E"/>
-    <SolidColorBrush x:Key="HiBg"  Color="#FDECEC"/>
-    <SolidColorBrush x:Key="HiBg2" Color="#FCE0DF"/>
-    <SolidColorBrush x:Key="Md"    Color="#B8721A"/>
-    <SolidColorBrush x:Key="MdBg"  Color="#FDF3E2"/>
-    <SolidColorBrush x:Key="MdBg2" Color="#F8E4BF"/>
-    <SolidColorBrush x:Key="Lo"    Color="#5B6470"/>
-    <SolidColorBrush x:Key="LoBg"  Color="#ECEDEF"/>
-    <SolidColorBrush x:Key="LoBg2" Color="#DFE2E6"/>
+    <SolidColorBrush x:Key="Hi"    Color="#C2331F"/>
+    <SolidColorBrush x:Key="HiBg"  Color="#FCEEEC"/>
+    <SolidColorBrush x:Key="HiBg2" Color="#F9D9D5"/>
+    <SolidColorBrush x:Key="Md"    Color="#B26B00"/>
+    <SolidColorBrush x:Key="MdBg"  Color="#FFF5E0"/>
+    <SolidColorBrush x:Key="MdBg2" Color="#F2D9A6"/>
+    <SolidColorBrush x:Key="Lo"    Color="#646B78"/>
+    <SolidColorBrush x:Key="LoBg"  Color="#F1F3F6"/>
+    <SolidColorBrush x:Key="LoBg2" Color="#EEF0F3"/>
 
     <!-- Pill stat (semi-transparent on navy) -->
-    <SolidColorBrush x:Key="PillHi"   Color="#FF7A7A"/>
-    <SolidColorBrush x:Key="PillHiBg" Color="#26FF7A7A"/>
-    <SolidColorBrush x:Key="PillMd"   Color="#FFBD5C"/>
-    <SolidColorBrush x:Key="PillMdBg" Color="#26FFBD5C"/>
-    <SolidColorBrush x:Key="PillLo"   Color="#B8C1CD"/>
-    <SolidColorBrush x:Key="PillLoBg" Color="#26B8C1CD"/>
+    <SolidColorBrush x:Key="PillHi"   Color="#F08A7C"/>
+    <SolidColorBrush x:Key="PillHiBg" Color="#26F08A7C"/>
+    <SolidColorBrush x:Key="PillMd"   Color="#F2B24D"/>
+    <SolidColorBrush x:Key="PillMdBg" Color="#26F2B24D"/>
+    <SolidColorBrush x:Key="PillLo"   Color="#C9CED6"/>
+    <SolidColorBrush x:Key="PillLoBg" Color="#26C9CED6"/>
 
     <!-- ═══════════ STATUS ═══════════ -->
-    <SolidColorBrush x:Key="Ok"    Color="#2C8148"/>
-    <SolidColorBrush x:Key="OkBg"  Color="#E6F3EA"/>
-    <SolidColorBrush x:Key="OkBg2" Color="#D2E9D8"/>
-    <SolidColorBrush x:Key="Info"    Color="#2B63A8"/>
-    <SolidColorBrush x:Key="InfoBg"  Color="#E6EEF9"/>
+    <SolidColorBrush x:Key="Ok"    Color="#3DA570"/>
+    <SolidColorBrush x:Key="OkBg"  Color="#EAF5EF"/>
+    <SolidColorBrush x:Key="OkBg2" Color="#D4EBDF"/>
+    <SolidColorBrush x:Key="Info"    Color="#5B3FD0"/>
+    <SolidColorBrush x:Key="InfoBg"  Color="#EEEAFB"/>
 
     <!-- Diff row subtle backgrounds -->
-    <SolidColorBrush x:Key="DiffOkSubtle"  Color="#FAFDFB"/>
-    <SolidColorBrush x:Key="DiffBadSubtle" Color="#FDF9F9"/>
+    <SolidColorBrush x:Key="DiffOkSubtle"  Color="#F7FBF9"/>
+    <SolidColorBrush x:Key="DiffBadSubtle" Color="#FEF8F7"/>
 
     <!-- Scrim -->
-    <SolidColorBrush x:Key="Scrim" Color="#6B0A141E"/>
+    <SolidColorBrush x:Key="Scrim" Color="#5915181D"/>
 
     <!-- ═══════════ TYPOGRAPHY ═══════════ -->
-    <!-- Inter + JetBrains Mono not shipped; Segoe UI + Consolas cover fidelity close enough. -->
-    <FontFamily x:Key="Font.Sans">Segoe UI, system-ui, sans-serif</FontFamily>
-    <FontFamily x:Key="Font.Mono">Cascadia Mono, Consolas, Courier New, monospace</FontFamily>
+    <!-- Clear Sheet: Public Sans and IBM Plex Mono (bundled in Fonts/), Segoe UI and Consolas as fallback. -->
+    <FontFamily x:Key="Font.Sans">pack://application:,,,/RevitWebAppSync;component/Fonts/#Public Sans, Segoe UI, system-ui, sans-serif</FontFamily>
+    <FontFamily x:Key="Font.Mono">pack://application:,,,/RevitWebAppSync;component/Fonts/#IBM Plex Mono, Consolas, Cascadia Mono, Courier New, monospace</FontFamily>
 
     <!-- ═══════════ DIMENSIONS ═══════════ -->
     <sys:Double x:Key="Dim.PanelWidth">460</sys:Double>

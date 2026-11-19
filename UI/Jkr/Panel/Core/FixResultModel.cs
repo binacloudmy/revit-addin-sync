@@ -8,10 +8,12 @@ using RevitWebAppSync.Handlers;
 namespace RevitWebAppSync.UI.Jkr.Panel.Core
 {
     /// <summary>
-    /// The Fix all result window (design "JKR Fix all result"): how many changes
-    /// were written as one undo step, and every fix that was not, grouped by
-    /// reason with a how-to-fix tip and a Locate button per element. WPF-free; the
-    /// window is UI\Jkr\Modals\FixResultWindow.xaml.
+    /// The fix outcome window (Clear Sheet "fix outcome"): "n changes written, m not
+    /// written", the one-undo-step line, every fix that was not written grouped by
+    /// reason with a how-to-fix tip and a Locate button per element, and "The m
+    /// changes not written stay in Open." The counts are the batch's own result:
+    /// <c>applied</c> from the handler, not written from its failure records.
+    /// WPF-free; the window is UI\Jkr\Modals\FixResultWindow.xaml.
     /// </summary>
     public sealed class FixResultModel
     {
@@ -28,73 +30,57 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             _lang = lang ?? PaneLanguage.Current;
             Applied = Math.Max(0, applied);
             Failed = result.Failures.Count > 0 ? result.Failures.Count : result.Failed + result.Skipped;
-
-            Kicker = (fixAll ? T("Baiki semua", "Fix all") : T("Baiki", "Fix")).ToUpperInvariant();
-            Title = AnyWritten ? T("Sebahagian perubahan tidak ditulis", "Some changes weren't written")
-                               : T("Tiada apa-apa ditulis", "Nothing was written");
+            FixAll = fixAll;
 
             Groups = result.Failures
                 .GroupBy(f => KindOf(f.Why))
-                .Select(g => new FixResultGroup(g.Key, g.ToList(), elementLabel, _lang, this))
+                .Select(g => new FixResultGroup(g.Key, g.ToList(), elementLabel, _lang))
                 .OrderByDescending(g => g.Count)
                 .ThenBy(g => (int)g.Kind)
                 .ToList();
-            if (Groups.Count > 0) Groups[0].IsOpen = true;
         }
 
-        private string T(string ms, string en) => PaneText.IsEn(_lang) ? en : ms;
+        private bool En => PaneText.IsEn(_lang);
+        private string T(string ms, string en) => En ? en : ms;
+        private string Changes(int n) => En ? $"{n} change{(n == 1 ? "" : "s")}" : $"{n} perubahan";
 
         public int Applied { get; }
         public int Failed { get; }
+        /// <summary>Fix all (several fixes) rather than one fix.</summary>
+        public bool FixAll { get; }
         public bool AnyWritten => Applied > 0;
         public bool NothingWritten => !AnyWritten;
 
-        public string Kicker { get; }
-        public string Title { get; }
+        /// <summary>"5 changes written, 2 not written"; "5 changes written" when all were;
+        /// "2 changes not written" when none were.</summary>
+        public string Title =>
+            NothingWritten ? (En ? $"{Changes(Failed)} not written" : $"{Changes(Failed)} tidak ditulis")
+            : Failed == 0 ? (En ? $"{Changes(Applied)} written" : $"{Changes(Applied)} ditulis")
+            : En ? $"{Changes(Applied)} written, {Failed} not written" : $"{Changes(Applied)} ditulis, {Failed} tidak ditulis";
 
-        // ── summary cards ──
-        public string WrittenLabel => T("ditulis", "written");
-        public string WrittenSub => T("Satu langkah undo · ", "One undo step · ");
-        public string UndoKey => "Ctrl+Z";
-        public string WrittenSubEnd => T(" batalkan semua", " undoes them all");
-        public string FailedLabel => T("tidak ditulis", "not written");
-        public string FailedSub => T("Kekal Terbuka · sebab dipapar pada setiap isu", "Stay Open · the reason is on each issue");
+        /// <summary>The one-undo-step line, or "The model is unchanged." when nothing was written.</summary>
+        public string UndoLine => AnyWritten
+            ? T("Perubahan yang ditulis ialah satu langkah undo. Ctrl+Z dalam Revit membatalkan kesemuanya sekali gus.",
+                "The written changes are one undo step. Ctrl+Z in Revit undoes them together.")
+            : T("Model tidak berubah.", "The model is unchanged.");
 
-        /// <summary>The single card when nothing was written.</summary>
-        public string NothingTitle => PaneText.IsEn(_lang)
-            ? $"{Failed} fix{(Failed == 1 ? " was" : "es were")} not written"
-            : $"{Failed} pembaikan tidak ditulis";
-        public string NothingSub => T("Model tidak berubah. Isu ini kekal Terbuka, dengan sebab pada setiap baris.",
-                                      "The model is unchanged. These issues stay Open, with the reason on each row.");
+        /// <summary>"The 2 changes not written stay in Open." (failed fixes stay Open
+        /// with their reason on the row).</summary>
+        public string StayOpenLine => !HasStayOpen ? ""
+            : En ? $"The {Changes(Failed)} not written {(Failed == 1 ? "stays" : "stay")} in Open."
+                 : $"{Changes(Failed)} yang tidak ditulis kekal dalam Terbuka.";
+        public bool HasStayOpen => Failed > 0;
 
-        /// <summary>Share of the batch that was written (0..1), for the bar.</summary>
-        public double WrittenShare => Applied + Failed == 0 ? 0 : (double)Applied / (Applied + Failed);
-
-        // ── reasons ──
-        public string ReasonsHeader => T("Sebab tidak ditulis", "Why they weren't written");
-        public string ReasonsCount => PaneText.IsEn(_lang)
-            ? $"{Groups.Count} reason{(Groups.Count == 1 ? "" : "s")} · {Failed} issue{(Failed == 1 ? "" : "s")}"
-            : $"{Groups.Count} sebab · {Failed} isu";
         public IReadOnlyList<FixResultGroup> Groups { get; }
 
-        public string HowToLabel => T("Cara baiki: ", "How to fix: ");
         public string LocateLabel => T("Cari", "Locate");
         public string LocateHint => T("Cari elemen dalam model", "Locate the element in the model");
 
         // ── footer ──
-        public string CopyLabel => T("Salin senarai", "Copy list");
+        public string CopyLabel => T("Salin senarai untuk pengurus BIM", "Copy list for BIM manager");
         public string CopiedLabel => T("Disalin", "Copied");
-        public string CopyHint => T("Senarai penuh untuk pemodel atau pengurus BIM", "The full list, for the modeller or BIM manager");
-        public string CloseLabel => T("Tutup", "Close");
-
-        /// <summary>Only one group is open at a time; opening one closes the others.</summary>
-        public void Toggle(FixResultGroup group)
-        {
-            if (group == null) return;
-            var open = !group.IsOpen;
-            foreach (var g in Groups) g.IsOpen = false;
-            group.IsOpen = open;
-        }
+        public string DoneLabel => T("Selesai", "Done");
+        public bool CanCopy => Failed > 0;
 
         /// <summary>The whole list as text, every failure (no "…and n more").</summary>
         public string CopyText() =>
@@ -121,39 +107,26 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         }
     }
 
-    /// <summary>One reason and the fixes that failed for it.</summary>
+    /// <summary>One reason and the fixes that failed for it (a Clear Sheet .rs card).</summary>
     public sealed class FixResultGroup : INotifyPropertyChanged
     {
         private readonly string _lang;
-        private readonly FixResultModel _owner;
-        private bool _open;
         private bool _all;
 
         internal FixResultGroup(FixResultModel.ReasonKind kind, List<FixFailure> failures,
-                                Func<long, string> elementLabel, string lang, FixResultModel owner)
+                                Func<long, string> elementLabel, string lang)
         {
             Kind = kind;
             _lang = lang;
-            _owner = owner;
-            var en = PaneText.IsEn(lang);
             Items = failures.Select(f => new FixResultItem(f, elementLabel, lang, kind == FixResultModel.ReasonKind.Other)).ToList();
-            var elements = failures.Select(f => f.ElementId).Distinct().Count();
-            Scope = en ? $"{elements} element{(elements == 1 ? "" : "s")}" : $"{elements} elemen";
-            (Title, HowTo) = Text(kind, en);
+            (Title, HowTo) = Text(kind, PaneText.IsEn(lang));
         }
 
         public FixResultModel.ReasonKind Kind { get; }
         public string Title { get; }
         public string HowTo { get; }
-        public string Scope { get; }
         public int Count => Items.Count;
         public IReadOnlyList<FixResultItem> Items { get; }
-
-        public bool IsOpen
-        {
-            get => _open;
-            set { if (_open == value) return; _open = value; Changed(nameof(IsOpen)); }
-        }
 
         public bool ShowingAll
         {
@@ -170,8 +143,6 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public int Hidden => Count - Visible.Count;
         public bool HasMore => Hidden > 0;
         public string MoreText => PaneText.IsEn(_lang) ? $"Show {Hidden} more" : $"Tunjuk {Hidden} lagi";
-
-        public void Toggle() => _owner.Toggle(this);
 
         public event PropertyChangedEventHandler PropertyChanged;
         private void Changed(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
@@ -238,7 +209,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 : (f.Parameter ?? "");
             string label = null;
             try { label = elementLabel?.Invoke(f.ElementId); } catch { }
-            Where = (en ? "Element " : "Elemen ") + f.ElementId + (string.IsNullOrWhiteSpace(label) ? "" : " · " + label);
+            Where = "[" + f.ElementId + "]" + (string.IsNullOrWhiteSpace(label) ? "" : " " + label);
             Reason = withReason ? PaneText.FixReason(f.Why, lang) : "";
         }
 

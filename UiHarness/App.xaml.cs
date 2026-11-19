@@ -79,11 +79,20 @@ namespace UiHarness
 
             // JKR Compliance pane: `UiHarness --shot-jkr <dir>` renders Start, login
             // required and Results + Checklist from data/jkr_run_*.json, then exits.
+            // `UiHarness --click-jkr`: real mouse clicks on the pane (rows, tabs, pill ×) on screen.
+            if (e.Args.Length >= 1 && e.Args[0] == "--click-jkr")
+            {
+                ShutdownMode = ShutdownMode.OnExplicitShutdown;
+                var ok = JkrPaneShots.ClickCheck();
+                Shutdown(ok ? 0 : 1);
+                return;
+            }
+
             if (e.Args.Length >= 1 && e.Args[0] == "--shot-jkr")
             {
                 ShutdownMode = ShutdownMode.OnExplicitShutdown;
                 var jkrDir = e.Args.Length >= 2 ? e.Args[1] : System.AppContext.BaseDirectory;
-                JkrPaneShots.Capture(jkrDir);
+                JkrPaneShots.Capture(jkrDir, e.Args.Length >= 3 ? e.Args[2] : null);
                 Shutdown();
                 return;
             }

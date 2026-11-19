@@ -562,9 +562,11 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 else if (IsFail(r.Status)) res.Failed++;
                 else res.Unjudged++;
                 if (!string.IsNullOrEmpty(r.IssueId)) res.IssueIds.Add(r.IssueId);
-                if (r.ElementId > 0) elements[id].Add(source + ":" + r.ElementId);
-                else if (r.ElementIds != null && r.ElementIds.Any(x => x > 0))
-                    foreach (var x in r.ElementIds.Where(x => x > 0)) elements[id].Add(source + ":" + x);
+                // Every element behind the result (a type's placed instances), not only the
+                // first one Locate goes to: "· n elements" is the real total.
+                var ids = SpecModelIssues.ElementIdsOf(r);
+                if (ids.Count > 0)
+                    foreach (var x in ids) elements[id].Add(source + ":" + x);
                 else if (r.ElementCount > 0) elements[id].Add(source + ":" + r.RowKey + ":" + r.CheckId + ":" + r.ElementCount);
                 if (note.Length > 0) (IsFail(r.Status) ? failNotes : otherNotes)[id].Add(note);
             }
@@ -708,6 +710,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                     RowKey = row.Key,
                     RowLabel = row.Description ?? "",
                     Note = r.Remark ?? "",
+                    NoteEn = PaneText.AuditRemarkEn(r.Remark) ?? "",
                     NotApplicable = na,
                 });
             }

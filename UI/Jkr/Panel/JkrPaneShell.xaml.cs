@@ -13,8 +13,11 @@ namespace RevitWebAppSync.UI.Jkr.Panel
     /// </summary>
     public partial class JkrPaneShell : UserControl
     {
-        /// <summary>Design width and the pane's minimum width; the shell fills any wider pane.</summary>
-        public const double PaneWidth = 380;
+        /// <summary>The width Clear Sheet draws the pane at; the shell fills any wider pane.</summary>
+        public const double DesignWidth = 380;
+
+        /// <summary>The narrowest the pane may be (Clear Sheet also draws the result at 320 px, BM).</summary>
+        public const double MinimumWidth = 320;
 
         public PaneShellModel Model { get; } = new PaneShellModel();
 
@@ -31,8 +34,6 @@ namespace RevitWebAppSync.UI.Jkr.Panel
         /// <summary>The issue detail over Revit's window (step 11).</summary>
         public DetailScreenModel Detail { get; }
 
-        /// <summary>The toast's Undo was clicked.</summary>
-        public event Action UndoRequested;
 
         /// <summary>The login view's "Try again" was clicked.</summary>
         public event Action RetryRequested;
@@ -48,6 +49,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel
         public JkrPaneShell(UIElement auditScreens)
         {
             InitializeComponent();
+            JkrPaneLog.Enabled = true;
+            JkrPaneLog.Write("JkrPaneShell created");
             DataContext = Model;
             _audit = auditScreens;
             EngineHost.Content = auditScreens;
@@ -119,24 +122,31 @@ namespace RevitWebAppSync.UI.Jkr.Panel
         /// <summary>The detail opened: show its window over Revit (one at a time).</summary>
         private void ShowDetail()
         {
+            JkrPaneLog.Write($"JkrPaneShell.ShowDetail entered id={Core.DetailId} window={(_detailWindow == null ? "none" : "already open (IsLoaded=" + _detailWindow.IsLoaded + ", IsVisible=" + _detailWindow.IsVisible + ")")}");
             if (_detailWindow != null) { _detailWindow.Activate(); return; }
             try
             {
                 var w = DetailWindow.Open(Detail, this);
                 _detailWindow = w;
-                w.UndoRequested += () => UndoRequested?.Invoke();
+                JkrPaneLog.Write($"JkrPaneShell.ShowDetail window shown: IsVisible={w.IsVisible} IsLoaded={w.IsLoaded} at {w.Left:0},{w.Top:0} size {w.ActualWidth:0}x{w.ActualHeight:0} model open={Detail.IsOpen}");
                 w.Closed += (_, __) =>
                 {
+                    JkrPaneLog.Write("JkrPaneShell: detail window closed");
                     if (ReferenceEquals(_detailWindow, w)) _detailWindow = null;
                     // ⏎ reopens the last issue, J/K move the list: the list takes the keys.
                     if (ContentHost.Content is UIElement screen) screen.Focus();
                 };
+                // One toast at a time, where the user is looking: the detail's (live F9).
                 if (ToastBox.Visibility == Visibility.Visible)
-                    w.ShowToast(ToastText.Text, ToastUndo.Visibility == Visibility.Visible, Model.UndoLabel);
+                {
+                    w.ShowToast(ToastText.Text);
+                    ToastBox.Visibility = Visibility.Collapsed;
+                }
             }
             catch (Exception ex)
             {
                 _detailWindow = null;
+                JkrPaneLog.Write("JkrPaneShell.ShowDetail FAILED: " + ex);
                 Detail.Close();
                 System.Diagnostics.Debug.WriteLine($"[BINA] detail window failed: {ex}");
             }
@@ -222,21 +232,24 @@ namespace RevitWebAppSync.UI.Jkr.Panel
 
         private void Retry_Click(object sender, RoutedEventArgs e) => RetryRequested?.Invoke();
 
-        /// <summary>Show a toast (message null hides it); Undo only when offered.</summary>
-        public void ShowToast(string message, bool canUndo)
+        /// <summary>Show a toast (message null hides it). While the detail window is open the
+        /// toast shows there only, over its scrim, not also in the pane (live F9).</summary>
+        public void ShowToast(string message)
         {
             if (string.IsNullOrEmpty(message))
             {
                 ToastBox.Visibility = Visibility.Collapsed;
-                _detailWindow?.ShowToast(null, false, null);
+                _detailWindow?.ShowToast(null);
                 return;
             }
             ToastText.Text = message;
-            ToastUndo.Visibility = canUndo ? Visibility.Visible : Visibility.Collapsed;
+            if (_detailWindow != null)
+            {
+                ToastBox.Visibility = Visibility.Collapsed;
+                _detailWindow.ShowToast(message);
+                return;
+            }
             ToastBox.Visibility = Visibility.Visible;
-            _detailWindow?.ShowToast(message, canUndo, Model.UndoLabel);
         }
-
-        private void ToastUndo_Click(object sender, RoutedEventArgs e) => UndoRequested?.Invoke();
     }
 }

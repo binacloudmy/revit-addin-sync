@@ -102,13 +102,18 @@ const ICONS = {
     16: `<path d="M6.6 2.2l1.4 3.5 3.5 1.4-3.5 1.4-1.4 3.5-1.4-3.5-3.5-1.4 3.5-1.4z" fill="#D93B94"/>
          <path d="M11.7 9.8l.6 1.6 1.6.6-1.6.6-.6 1.6-.6-1.6-1.6-.6 1.6-.6z" fill="#D93B94"/>`
   },
+  // JKR Compliance: the Clear Sheet stepped-tick mark (design "JKR Compliance
+  // mark"). Drawn on the design's 24-unit grid and scaled to the icon grid;
+  // the 16 uses the design's heavier 2.6 stroke. Ink #15181D, amber top step.
   JkrCompliance: {
-    32: `<path d="M12.6 6H9.8a2.2 2.2 0 00-2.2 2.2v15.6a2.2 2.2 0 002.2 2.2h12.4a2.2 2.2 0 002.2-2.2V8.2A2.2 2.2 0 0022.2 6h-2.8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
-         <rect x="12.6" y="4.2" width="6.8" height="3.6" rx="0.9" fill="none" stroke="currentColor" stroke-width="1.8"/>
-         <path d="M11.8 16.6l3.2 3.2 5.6-6.4" fill="none" stroke="#3F9E52" stroke-width="2.4" stroke-linejoin="round"/>`,
-    16: `<path d="M6.2 2.9H4.6a1.2 1.2 0 00-1.2 1.2v8.4a1.2 1.2 0 001.2 1.2h6.8a1.2 1.2 0 001.2-1.2V4.1a1.2 1.2 0 00-1.2-1.2H9.8" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
-         <rect x="6.2" y="2" width="3.6" height="1.9" rx="0.5" fill="none" stroke="currentColor" stroke-width="1.3"/>
-         <path d="M5.8 8.3l1.7 1.7 3-3.4" fill="none" stroke="#3F9E52" stroke-width="1.7" stroke-linejoin="round"/>`
+    32: `<g transform="scale(1.333333)">
+           <path d="M3 12L9 18V14H13V10H17V6" fill="none" stroke="#15181D" stroke-width="2.4" stroke-linecap="square" stroke-linejoin="miter" stroke-miterlimit="2"/>
+           <rect x="18.2" y="4.8" width="4" height="2.4" fill="#F2A91F"/>
+         </g>`,
+    16: `<g transform="scale(0.666667)">
+           <path d="M3 12L9 18V14H13V10H17V6" fill="none" stroke="#15181D" stroke-width="2.6" stroke-linecap="square" stroke-linejoin="miter" stroke-miterlimit="2"/>
+           <rect x="18.1" y="4.7" width="4.2" height="2.6" fill="#F2A91F"/>
+         </g>`
   },
   BombaCompliance: {
     32: `<path d="M12.6 6H9.8a2.2 2.2 0 00-2.2 2.2v15.6a2.2 2.2 0 002.2 2.2h12.4a2.2 2.2 0 002.2-2.2V8.2A2.2 2.2 0 0022.2 6h-2.8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>

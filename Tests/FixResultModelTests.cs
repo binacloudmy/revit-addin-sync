@@ -6,7 +6,7 @@ using Xunit;
 namespace RevitWebAppSync.Tests
 {
     /// <summary>The Fix all result window's model: counts, grouping by reason,
-    /// one open group, "show more", element labels, copy text and BM/EN.</summary>
+    /// "show more", element labels, copy text and BM/EN.</summary>
     public class FixResultModelTests
     {
         private const string Ms = PanelStrings.Ms;
@@ -31,7 +31,7 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void Failures_are_grouped_by_reason_largest_first_with_the_first_open()
+        public void Failures_are_grouped_by_reason_largest_first_with_counts()
         {
             var m = new FixResultModel(RealRun(), 466, fixAll: true, lang: Ms);
 
@@ -43,23 +43,59 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(FixResultModel.ReasonKind.ModelGroup, m.Groups[1].Kind);
             Assert.Equal(FixResultModel.ReasonKind.ReadOnly, m.Groups[2].Kind);
             Assert.Equal(FixResultModel.ReasonKind.ValueType, m.Groups[3].Kind);
-            Assert.Equal("1 elemen", m.Groups[0].Scope);
-            Assert.Equal("4 elemen", m.Groups[1].Scope);
-            Assert.True(m.Groups[0].IsOpen);
-            Assert.All(m.Groups.Skip(1), g => Assert.False(g.IsOpen));
-            Assert.Equal("4 sebab · 22 isu", m.ReasonsCount);
-            Assert.Equal("BAIKI SEMUA", m.Kicker);
-            Assert.Equal("Sebahagian perubahan tidak ditulis", m.Title);
+            Assert.Equal("466 perubahan ditulis, 22 tidak ditulis", m.Title);
         }
 
         [Fact]
-        public void Only_one_group_is_open_and_toggling_the_open_one_closes_it()
+        public void The_headline_counts_written_and_not_written_from_the_batch()
+        {
+            var m = new FixResultModel(RealRun(), 466, true, lang: En);
+            Assert.Equal("466 changes written, 22 not written", m.Title);
+            Assert.Equal("The written changes are one undo step. Ctrl+Z in Revit undoes them together.", m.UndoLine);
+            Assert.Equal("The 22 changes not written stay in Open.", m.StayOpenLine);
+            Assert.True(m.HasStayOpen);
+        }
+
+        [Fact]
+        public void The_headline_reads_singular_for_one()
+        {
+            var r = new RenameResult();
+            Param(r, 1, "A", "Parameter 'A' is read-only");
+            var m = new FixResultModel(r, 1, true, lang: En);
+            Assert.Equal("1 change written, 1 not written", m.Title);
+            Assert.Equal("The 1 change not written stays in Open.", m.StayOpenLine);
+        }
+
+        [Fact]
+        public void All_written_says_only_what_was_written()
+        {
+            var m = new FixResultModel(new RenameResult { ParamFixed = 5 }, 5, true, lang: En);
+            Assert.Equal(0, m.Failed);
+            Assert.Equal("5 changes written", m.Title);
+            Assert.False(m.HasStayOpen);
+            Assert.Empty(m.Groups);
+            Assert.Equal("5 perubahan ditulis", new FixResultModel(new RenameResult { ParamFixed = 5 }, 5, true, lang: Ms).Title);
+        }
+
+        [Fact]
+        public void Bm_lines()
         {
             var m = new FixResultModel(RealRun(), 466, true, lang: Ms);
-            m.Groups[2].Toggle();
-            Assert.Equal(new[] { false, false, true, false }, m.Groups.Select(g => g.IsOpen));
-            m.Groups[2].Toggle();
-            Assert.All(m.Groups, g => Assert.False(g.IsOpen));
+            Assert.Equal("Perubahan yang ditulis ialah satu langkah undo. Ctrl+Z dalam Revit membatalkan kesemuanya sekali gus.", m.UndoLine);
+            Assert.Equal("22 perubahan yang tidak ditulis kekal dalam Terbuka.", m.StayOpenLine);
+            Assert.Equal("Salin senarai untuk pengurus BIM", m.CopyLabel);
+            Assert.Equal("Selesai", m.DoneLabel);
+            Assert.Equal("Cari", m.LocateLabel);
+        }
+
+        [Fact]
+        public void Footer_in_english()
+        {
+            var m = new FixResultModel(RealRun(), 466, true, lang: En);
+            Assert.Equal("Copy list for BIM manager", m.CopyLabel);
+            Assert.Equal("Copied", m.CopiedLabel);
+            Assert.Equal("Done", m.DoneLabel);
+            Assert.Equal("Locate", m.LocateLabel);
         }
 
         [Fact]
@@ -80,11 +116,11 @@ namespace RevitWebAppSync.Tests
             var m = new FixResultModel(RealRun(), 466, true, id => id == 578862 ? "Generic Models" : null, Ms);
             var first = m.Groups[0].Items[0];
             Assert.Equal("P0_jkr_stt", first.Param);
-            Assert.Equal("Elemen 578862 · Generic Models", first.Where);
+            Assert.Equal("[578862] Generic Models", first.Where);
             Assert.Equal(578862, first.ElementId);
             Assert.True(first.CanLocate);
             Assert.False(first.HasReason);
-            Assert.Equal("Elemen 1201804", m.Groups[2].Items[0].Where);
+            Assert.Equal("[1201804]", m.Groups[2].Items[0].Where);
         }
 
         [Fact]
@@ -106,9 +142,12 @@ namespace RevitWebAppSync.Tests
             Param(r, 1, "A", "Parameter 'A' is read-only");
             var m = new FixResultModel(r, 0, true, lang: En);
             Assert.True(m.NothingWritten);
-            Assert.Equal("Nothing was written", m.Title);
-            Assert.Equal("1 fix was not written", m.NothingTitle);
-            Assert.Equal(0, m.WrittenShare);
+            Assert.False(m.AnyWritten);
+            Assert.Equal("1 change not written", m.Title);
+            Assert.Equal("The model is unchanged.", m.UndoLine);
+            var ms = new FixResultModel(r, 0, true, lang: Ms);
+            Assert.Equal("1 perubahan tidak ditulis", ms.Title);
+            Assert.Equal("Model tidak berubah.", ms.UndoLine);
         }
 
         [Fact]
@@ -119,7 +158,6 @@ namespace RevitWebAppSync.Tests
             var m = new FixResultModel(r, 3, false, lang: Ms);
             Assert.Equal(FixResultModel.ReasonKind.Other, m.Groups[0].Kind);
             Assert.Equal("Revit tidak menerima perubahan ini: Can't set Area.", m.Groups[0].Items[0].Reason);
-            Assert.Equal("BAIKI", m.Kicker);
         }
 
         [Fact]

@@ -48,13 +48,12 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void Toasts_last_6_s_with_undo_2_6_s_otherwise_longer_when_long()
+        public void Toasts_last_2_6_s_and_longer_when_long()
         {
-            Assert.Equal(6000, PaneText.ToastTime("2 issue(s) ignored", canUndo: true).TotalMilliseconds);
-            Assert.Equal(2600, PaneText.ToastTime("1 change(s) written to model", canUndo: false).TotalMilliseconds);
+            Assert.Equal(2600, PaneText.ToastTime("1 change(s) written to model").TotalMilliseconds);
             var reset = PaneText.ResetDone(En);                     // a long notice gets time to be read
-            Assert.InRange(PaneText.ToastTime(reset, false).TotalMilliseconds, 5000, 8000);
-            Assert.Equal(8000, PaneText.ToastTime(new string('x', 500), false).TotalMilliseconds);
+            Assert.InRange(PaneText.ToastTime(reset).TotalMilliseconds, 5000, 8000);
+            Assert.Equal(8000, PaneText.ToastTime(new string('x', 500)).TotalMilliseconds);
         }
 
         [Theory]

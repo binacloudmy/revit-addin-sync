@@ -8,7 +8,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
     /// The prototype's panel logic ("Model Audit Prototype.dc.html", class
     /// Component), ported method for method with no WPF and no Revit so every
     /// rule is unit-tested: stats(), filtered(), tab counts, Fix all / Ignore all
-    /// scope, ignore with a 6 s undo, re-scan (fixed → passed), reset (back to
+    /// scope, ignore with a plain toast, re-scan (fixed → passed), reset (back to
     /// Start), reviewed state, the run animation and handleKey. Timers go
     /// through <see cref="IPanelClock"/>. The XAML views (steps 7–13) bind to it.
     ///
@@ -22,7 +22,6 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public const string AllSections = "all";
 
         public static readonly TimeSpan ToastTime = TimeSpan.FromMilliseconds(2600);
-        public static readonly TimeSpan UndoToastTime = TimeSpan.FromMilliseconds(6000);
         public static readonly TimeSpan SectionTime = TimeSpan.FromMilliseconds(750);
         public static readonly TimeSpan ResultsDelay = TimeSpan.FromMilliseconds(800);
 
@@ -64,10 +63,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public string DetailId { get; private set; }
         public List<string> DetailIds { get; private set; } = new List<string>();
         public ConfirmRequest Confirm { get; private set; }
-        public bool Consent { get; private set; }
         public bool ExportOpen { get; private set; }
         public string Toast { get; private set; }
-        public List<string> UndoIds { get; private set; }
         public string Located { get; private set; }
 
         /// <summary>prototype t()</summary>
@@ -92,7 +89,11 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             _basePass = Secs.ToDictionary(s => s, s => basePass != null && basePass.TryGetValue(s, out var n) ? n : 0);
             var count = Filtered().Count;
             if (Sel >= count) Sel = Math.Max(0, count - 1);
-            if (DetailId != null && Issues.All(x => x.Id != DetailId)) DetailId = null;
+            if (DetailId != null && Issues.All(x => x.Id != DetailId))
+            {
+                JkrPaneLog.Write("PanelCore.Replace: detail " + DetailId + " no longer among the issues, closed <- " + JkrPaneLog.Callers());
+                DetailId = null;
+            }
             Notify();
         }
 
@@ -266,9 +267,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         }
 
         /// <summary>Fix all scope: open AI items with a plain fix in the current
-        /// section (Generate is never part of Fix all).</summary>
+        /// section .</summary>
         public List<PanelItem> FixableOpen() =>
-            InCat.Where(x => !x.IsHuman && x.Status == ItemStatus.Open && x.Fix == FixKind.Fix).ToList();
+            InCat.Where(x => !x.IsHuman && x.Status == ItemStatus.Open && !x.MarkedManual && x.Fix == FixKind.Fix).ToList();
 
         /// <summary>Tab counts over the current section.</summary>
         public Dictionary<PanelTab, int> TabCounts()
@@ -304,7 +305,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         }
 
         /// <summary>prototype askFix: confirm dialog for the items that have a fix;
-        /// kind from the first ("generate" needs consent). Consent starts unticked.</summary>
+        /// </summary>
         public void AskFix(IEnumerable<string> ids)
         {
             var set = new HashSet<string>(ids ?? Enumerable.Empty<string>());
@@ -312,23 +313,19 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             if (its.Count == 0) return;
             Confirm = new ConfirmRequest
             {
-                Kind = its[0].Fix == FixKind.Generate ? FixKind.Generate : FixKind.Fix,
+                Kind = FixKind.Fix,
                 Ids = its.Select(x => x.Id).ToList(),
             };
-            Consent = false;
             Notify();
         }
 
-        public void ToggleConsent() { Consent = !Consent; Notify(); }
         public void CancelConfirm() { Confirm = null; Notify(); }
-        public bool ConfirmDisabled => Confirm != null && Confirm.Kind == FixKind.Generate && !Consent;
 
-        /// <summary>prototype doConfirm. Generate without consent does nothing.</summary>
+        /// <summary>prototype doConfirm.</summary>
         public void DoConfirm()
         {
             var c = Confirm;
             if (c == null) return;
-            if (c.Kind == FixKind.Generate && !Consent) return;
             Confirm = null;
             if (DeferWrites)
             {
@@ -337,7 +334,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 return;
             }
             SetStatus(c.Ids, ItemStatus.Resolved);
-            ShowToast(c.Kind == FixKind.Generate ? T("toastGen") : c.Ids.Count + " " + T("toastFix"));
+            ShowToast(c.Ids.Count + " " + T("toastFix"));
         }
 
         /// <summary>Host side of DeferWrites: the fixes that were written.</summary>
@@ -349,33 +346,22 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             ShowToast(list.Count + " " + T("toastFix"));
         }
 
-        /// <summary>prototype ignore: toast with Undo for 6 s.</summary>
+        /// <summary>prototype ignore: a plain toast (no Undo).</summary>
         public void Ignore(IEnumerable<string> ids)
         {
             var list = (ids ?? Enumerable.Empty<string>()).ToList();
             SetStatus(list, ItemStatus.Ignored);
-            ShowToast(list.Count + " " + T("toastIgn"), list);
+            ShowToast(list.Count + " " + T("toastIgn"));
         }
 
         /// <summary>Ignore all: open AI items in the current section.</summary>
         public void IgnoreAll()
         {
-            var ids = InCat.Where(x => !x.IsHuman && x.Status == ItemStatus.Open).Select(x => x.Id).ToList();
+            var ids = InCat.Where(x => !x.IsHuman && x.Status == ItemStatus.Open && !x.MarkedManual).Select(x => x.Id).ToList();
             if (ids.Count > 0) Ignore(ids);
         }
 
         public void FixAll() => AskFix(FixableOpen().Select(x => x.Id));
-
-        /// <summary>prototype undo: the ignored items go back to open.</summary>
-        public void Undo()
-        {
-            var ids = UndoIds ?? new List<string>();
-            SetStatus(ids, ItemStatus.Open);
-            _toastTimer?.Dispose();
-            Toast = null;
-            UndoIds = null;
-            Notify();
-        }
 
         /// <summary>prototype onReview: open ↔ reviewed.</summary>
         public void ToggleReviewed(string id)
@@ -392,22 +378,20 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             ShowToast(T("toastLoc") + ": " + it.El);
         }
 
-        public void ShowToast(string msg, List<string> undoIds = null)
+        public void ShowToast(string msg)
         {
             _toastTimer?.Dispose();
             Toast = msg;
-            UndoIds = undoIds;
-            _toastTimer = _clock.Schedule(undoIds != null ? UndoToastTime : ToastTime, () =>
+            _toastTimer = _clock.Schedule(ToastTime, () =>
             {
                 Toast = null;
-                UndoIds = null;
                 Notify();
             });
             Notify();
         }
 
         // ── export ──
-        public void OpenExport() { ExportOpen = true; DetailId = null; Notify(); }
+        public void OpenExport() { if (DetailId != null) JkrPaneLog.Write("PanelCore.OpenExport closes detail " + DetailId); ExportOpen = true; DetailId = null; Notify(); }
         public void CloseExport() { ExportOpen = false; Notify(); }
 
         // ── detail ──
@@ -426,7 +410,12 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             OpenDetail(id, Math.Max(0, l.FindIndex(x => x.Id == id)));
         }
 
-        public void CloseDetail() { DetailId = null; Notify(); }
+        public void CloseDetail()
+        {
+            JkrPaneLog.Write("PanelCore.CloseDetail id=" + DetailId + " <- " + JkrPaneLog.Callers());
+            DetailId = null;
+            Notify();
+        }
 
         public PanelItem Current => DetailId == null ? null : Issues.FirstOrDefault(x => x.Id == DetailId);
 
@@ -448,7 +437,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             if (key == PanelKey.Escape)
             {
                 if (Confirm != null) { Confirm = null; Notify(); }
-                else if (DetailId != null) { DetailId = null; Notify(); }
+                else if (DetailId != null) { JkrPaneLog.Write("PanelCore.HandleKey Esc closes detail " + DetailId); DetailId = null; Notify(); }
                 else if (ExportOpen) { ExportOpen = false; Notify(); }
                 else if (typing) return KeyOutcome.Blur;
                 return KeyOutcome.None;
@@ -471,7 +460,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                     if (ids.Count > 0) { DetailId = ids[Math.Max(0, idx - 1)]; Notify(); }
                     return KeyOutcome.Handled;
                 }
-                if (key == PanelKey.F && cur != null && cur.Fix != FixKind.None && cur.Status == ItemStatus.Open) AskFix(new[] { cur.Id });
+                if (key == PanelKey.F && cur != null && cur.Fix != FixKind.None && cur.Status == ItemStatus.Open && !cur.MarkedManual) AskFix(new[] { cur.Id });
                 else if (key == PanelKey.A && cur != null && !cur.IsHuman && cur.Status == ItemStatus.Open) Ignore(new[] { cur.Id });
                 return KeyOutcome.None;
             }
@@ -493,7 +482,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                     Open(list[sel].Id);
                     return KeyOutcome.None;
                 case PanelKey.F:
-                    if (list[sel].Fix != FixKind.None && list[sel].Status == ItemStatus.Open) AskFix(new[] { list[sel].Id });
+                    if (list[sel].Fix != FixKind.None && list[sel].Status == ItemStatus.Open && !list[sel].MarkedManual) AskFix(new[] { list[sel].Id });
                     return KeyOutcome.None;
                 case PanelKey.A:
                     if (!list[sel].IsHuman && list[sel].Status == ItemStatus.Open) Ignore(new[] { list[sel].Id });

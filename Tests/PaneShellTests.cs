@@ -35,6 +35,8 @@ namespace RevitWebAppSync.Tests
             var m = new PaneShellModel { Model = Project };
             Assert.Equal(ShellState.Content, m.State);
             Assert.Equal("Copy of jkrAR24_5a.rvt", m.FileLabel);
+            Assert.Equal("Copy of jkrAR24_5a.rvt", m.HeaderSubtitle);
+            Assert.True(m.HeaderIsFile);
         }
 
         [Theory]
@@ -74,16 +76,23 @@ namespace RevitWebAppSync.Tests
             var m = new PaneShellModel { Model = Project };
             Assert.True(m.IsBm);
             Assert.Equal("Projek", m.ProjectLabel);
-            Assert.Equal("Tiada model dibuka", m.NoModelTitle);
+            Assert.Equal("Buka model Revit untuk mengauditnya", m.NoModelTitle);
+            Assert.Equal("Menunggu model", new PaneShellModel().HeaderSubtitle);
+            Assert.Equal("Cuba semula", m.LoginRetry);
             Assert.Equal("JKR Compliance", m.PanelTitle);
 
             m.IsEn = true;
             Assert.True(m.IsEn);
             Assert.False(m.IsBm);
             Assert.Equal("Project", m.ProjectLabel);
-            Assert.Equal("No model open", m.NoModelTitle);
-            Assert.Equal("Open an AR model in Revit to audit it. Family files and templates can’t be audited.", m.NoModelText);
-            Assert.Equal("Sign-in required", m.LoginTitle);
+            Assert.Equal("Open a Revit model to audit it", m.NoModelTitle);
+            Assert.Equal("The pane picks up the active model as soon as one is open.", m.NoModelText);
+            var empty = new PaneShellModel { IsEn = true };
+            Assert.Equal("Waiting for a model", empty.HeaderSubtitle);
+            Assert.False(empty.HeaderIsFile);
+            Assert.Equal("Log in to BINA to run the audit", m.LoginTitle);
+            Assert.Equal("Some checks run on the BINA backend. Log in from the Bina tab on the Revit ribbon, then retry.", m.LoginText);
+            Assert.Equal("Retry", m.LoginRetry);
             Assert.Equal("Close", m.CloseLabel);
         }
 
@@ -157,56 +166,6 @@ namespace RevitWebAppSync.Tests
                 .ToDictionary(e => (string)e.Attribute(x + "Key"), e => ((string)e.Attribute("Color")).ToUpperInvariant());
         }
 
-        /// <summary>Bz key → the Cp key it mirrors, read from the comment after each brush.</summary>
-        private static Dictionary<string, string> TokenMirrors()
-        {
-            var text = File.ReadAllText(Path.Combine(RepoRoot(), "UI", "Jkr", "Panel", "PanelTokens.xaml"));
-            var rx = new System.Text.RegularExpressions.Regex("x:Key=\"(Bz\\.[A-Za-z0-9.]+)\"[^\n]*?<!--\\s*(Cp\\.[A-Za-z0-9.]+)\\s*-->");
-            return rx.Matches(text).Cast<System.Text.RegularExpressions.Match>()
-                .ToDictionary(m => m.Groups[1].Value, m => m.Groups[2].Value);
-        }
-
-        [Theory]
-        [InlineData("Bz.Brand", "Cp.Jkr.Dark.Action")]
-        [InlineData("Bz.OnBrand", "Cp.Jkr.Dark.OnAction")]
-        [InlineData("Bz.Ink", "Cp.Dark.Ink2")]
-        [InlineData("Bz.Chrome", "Cp.Dark.Bg")]
-        [InlineData("Bz.Chrome2", "Cp.Dark.Sunken")]
-        [InlineData("Bz.Surface", "Cp.Dark.Bg")]
-        [InlineData("Bz.Text", "Cp.Dark.Ink")]
-        [InlineData("Bz.Text2", "Cp.Dark.Muted")]
-        [InlineData("Bz.Text3", "Cp.Jkr.Dark.Faint")]
-        [InlineData("Bz.Line", "Cp.Dark.Line")]
-        [InlineData("Bz.Line2", "Cp.Dark.Hair2")]
-        [InlineData("Bz.Sunken", "Cp.Dark.Sunken")]
-        [InlineData("Bz.BrandTint", "Cp.Dark.BlueSoft")]
-        [InlineData("Bz.High", "Cp.Jkr.Dark.FailDot")]
-        [InlineData("Bz.HighText", "Cp.Jkr.Dark.Fail")]
-        [InlineData("Bz.Med", "Cp.Jkr.Dark.WarnDot")]
-        [InlineData("Bz.MedText", "Cp.Jkr.Dark.Warn")]
-        [InlineData("Bz.Low", "Cp.Jkr.Dark.Listed")]
-        [InlineData("Bz.Manual", "Cp.Jkr.Dark.Person")]
-        [InlineData("Bz.ManualBg", "Cp.Jkr.Dark.PersonBg")]
-        [InlineData("Bz.Ok", "Cp.Jkr.Dark.Pass")]
-        public void Tokens_are_the_Copilot_design_tokens(string key, string cpKey)
-        {
-            Assert.Equal(CopilotBrushes()[cpKey], Brushes()[key]);
-        }
-
-        [Fact]
-        public void Every_mirrored_token_matches_its_Copilot_source()
-        {
-            var bz = Brushes();
-            var cp = CopilotBrushes();
-            var mirrors = TokenMirrors();
-            Assert.True(mirrors.Count >= 60, "mirror comments not found: " + mirrors.Count);
-            foreach (var m in mirrors)
-            {
-                Assert.True(cp.ContainsKey(m.Value), m.Key + " mirrors unknown " + m.Value);
-                Assert.True(bz[m.Key] == cp[m.Value], m.Key + " = " + bz[m.Key] + " but " + m.Value + " = " + cp[m.Value]);
-            }
-        }
-
         [Fact]
         public void The_fixed_Slate_keys_are_the_Copilot_dark_palette()
         {
@@ -235,13 +194,18 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void The_shell_fills_the_pane_and_the_pane_minimum_is_380()
+        public void The_shell_fills_the_pane_and_the_pane_minimum_is_320()
         {
+            // Clear Sheet draws the pane at 380 px and the result at 320 px (BM): 380 is the
+            // design width, 320 the narrowest the dockable pane may be dragged.
             var shell = File.ReadAllText(Path.Combine(RepoRoot(), "UI", "Jkr", "Panel", "JkrPaneShell.xaml"));
-            Assert.Contains("x:Name=\"Frame\" MinWidth=\"380\" HorizontalAlignment=\"Stretch\"", shell);
+            Assert.Contains("x:Name=\"Frame\" MinWidth=\"320\" HorizontalAlignment=\"Stretch\"", shell);
             Assert.DoesNotContain("Width=\"380\" HorizontalAlignment=\"Left\"", shell);   // no blank strip in a wider pane
+            var code = File.ReadAllText(Path.Combine(RepoRoot(), "UI", "Jkr", "Panel", "JkrPaneShell.xaml.cs"));
+            Assert.Contains("public const double DesignWidth = 380;", code);
+            Assert.Contains("public const double MinimumWidth = 320;", code);
             var host = File.ReadAllText(Path.Combine(RepoRoot(), "UI", "JkrComplianceDashboardHost.cs"));
-            Assert.Contains("MinimumWidth = (int)Jkr.Panel.JkrPaneShell.PaneWidth", host);
+            Assert.Contains("MinimumWidth = (int)Jkr.Panel.JkrPaneShell.MinimumWidth", host);
         }
     }
 }

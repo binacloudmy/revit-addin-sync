@@ -85,17 +85,18 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
     /// </summary>
     public sealed class PaneShellModel : INotifyPropertyChanged
     {
-        /// <summary>Shell strings the prototype does not have: the proposed "No model
-        /// open" state (flow s-nomodel) and the kept login-required state.</summary>
+        /// <summary>Shell strings the prototype does not have: the "Waiting for a model"
+        /// state (flow s-nomodel) and the kept login-required state.</summary>
         private static readonly Dictionary<string, (string Ms, string En)> Extra = new Dictionary<string, (string, string)>
         {
-            ["noModelT"] = ("Tiada model dibuka", "No model open"),
-            ["noModelS"] = ("Buka model AR dalam Revit untuk mengauditnya. Fail family dan template tidak boleh diaudit.",
-                            "Open an AR model in Revit to audit it. Family files and templates can’t be audited."),
-            ["loginT"] = ("Log masuk diperlukan", "Sign-in required"),
-            ["loginS"] = ("Sila log masuk untuk guna JKR Compliance. Klik Login to AI pada tab Bina, kemudian cuba semula.",
-                          "Sign in to use JKR Compliance. Click Login to AI on the Bina tab, then try again."),
-            ["loginRetry"] = ("Cuba semula", "Try again"),
+            ["waiting"] = ("Menunggu model", "Waiting for a model"),
+            ["noModelT"] = ("Buka model Revit untuk mengauditnya", "Open a Revit model to audit it"),
+            ["noModelS"] = ("Pane ini mengambil model aktif sebaik sahaja ada yang dibuka.",
+                            "The pane picks up the active model as soon as one is open."),
+            ["loginT"] = ("Log masuk ke BINA untuk menjalankan audit", "Log in to BINA to run the audit"),
+            ["loginS"] = ("Sesetengah semakan dijalankan pada backend BINA. Log masuk daripada tab Bina pada riben Revit, kemudian cuba semula.",
+                          "Some checks run on the BINA backend. Log in from the Bina tab on the Revit ribbon, then retry."),
+            ["loginRetry"] = ("Cuba semula", "Retry"),
         };
 
         private string _lang = PanelStrings.Ms;
@@ -146,13 +147,15 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public string PanelTitle => T("panelTitle");
         public string ProjectLabel => T("project");
         public string FileLabel => _model.CanAudit ? _model.FileLabel : "—";
+        /// <summary>Header second line: the file (mono) when a model is open, else "Waiting for a model".</summary>
+        public string HeaderSubtitle => _model.CanAudit ? _model.FileLabel : T("waiting");
+        public bool HeaderIsFile => _model.CanAudit;
         public string NoModelTitle => T("noModelT");
         public string NoModelText => T("noModelS");
         public string LoginTitle => T("loginT");
         public string LoginText => T("loginS");
         public string LoginRetry => T("loginRetry");
         public string CloseLabel => T("close");
-        public string UndoLabel => T("undo");
 
         private void RaiseAll() => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(null));
     }

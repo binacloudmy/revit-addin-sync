@@ -3,10 +3,10 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              Background="{DynamicResource Bz.Surface}" FontFamily="{DynamicResource Bz.Font.Sans}" FontSize="13" Foreground="{DynamicResource Bz.Text}"
              TextOptions.TextFormattingMode="Display" TextOptions.TextRenderingMode="ClearType" UseLayoutRounding="True" SnapsToDevicePixels="True">
-    <!-- Pane shell: top bar, context bar, body. The body shows the audit screens,
-         or "No model open", or the login-required state. Designed at 380 px, the
-         pane's minimum width; the shell fills whatever width the pane has.
-         Look: Direction C of the JKR design canvas (the Setup / Cockpit top bar), always dark. -->
+    <!-- Pane shell: header (mark, title, file, BM / EN, close) and body. The body shows
+         the audit screens, or "Waiting for a model", or the login-required state.
+         Designed at 380 px, the pane's minimum width; the shell fills whatever width the pane has.
+         Look: Clear Sheet (light): screens "JKR Compliance mark" and "edge states, refined". -->
     <UserControl.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
@@ -14,20 +14,20 @@
             </ResourceDictionary.MergedDictionaries>
             <BooleanToVisibilityConverter x:Key="B2V"/>
 
-            <!-- BM / EN half: 28 px; the active half light with dark text (Setup's language group) -->
+            <!-- BM / EN half: 24 px; the active half white with ink text and a hairline shadow (Clear Sheet .lang) -->
             <Style x:Key="LangSeg" TargetType="ToggleButton">
                 <Setter Property="Foreground" Value="{StaticResource Bz.Text2}"/>
                 <Setter Property="Background" Value="Transparent"/>
                 <Setter Property="FontSize" Value="11"/>
                 <Setter Property="FontWeight" Value="SemiBold"/>
-                <Setter Property="Height" Value="28"/>
-                <Setter Property="MinWidth" Value="34"/>
+                <Setter Property="Height" Value="24"/>
+                <Setter Property="MinWidth" Value="30"/>
                 <Setter Property="Cursor" Value="Hand"/>
                 <Setter Property="FocusVisualStyle" Value="{StaticResource Bz.FocusRing}"/>
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="ToggleButton">
-                            <Border x:Name="Bd" Background="{TemplateBinding Background}" CornerRadius="5" Padding="8,0,8,0" SnapsToDevicePixels="True">
+                            <Border x:Name="Bd" Background="{TemplateBinding Background}" CornerRadius="6" Padding="8,0,8,0" SnapsToDevicePixels="True">
                                 <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
                             <ControlTemplate.Triggers>
@@ -35,149 +35,165 @@
                                     <Setter Property="Foreground" Value="{StaticResource Bz.Text}"/>
                                 </Trigger>
                                 <Trigger Property="IsChecked" Value="True">
-                                    <Setter TargetName="Bd" Property="Background" Value="{StaticResource Bz.Text}"/>
-                                    <Setter Property="Foreground" Value="{StaticResource Bz.Sunken}"/>
+                                    <Setter TargetName="Bd" Property="Background" Value="{StaticResource Bz.Surface}"/>
+                                    <Setter TargetName="Bd" Property="Effect">
+                                        <Setter.Value>
+                                            <DropShadowEffect Color="#15181D" BlurRadius="2" ShadowDepth="1" Direction="270" Opacity="0.14"/>
+                                        </Setter.Value>
+                                    </Setter>
+                                    <Setter Property="Foreground" Value="{StaticResource Bz.Text}"/>
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
                     </Setter.Value>
                 </Setter>
             </Style>
+
+            <!-- Edge-state icon tile: 52 px, 14 radius -->
+            <Style x:Key="EdgeTile" TargetType="Border">
+                <Setter Property="Width" Value="52"/>
+                <Setter Property="Height" Value="52"/>
+                <Setter Property="CornerRadius" Value="14"/>
+                <Setter Property="Background" Value="{StaticResource Bz.Sunken}"/>
+                <Setter Property="BorderBrush" Value="{StaticResource Bz.Line}"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="HorizontalAlignment" Value="Center"/>
+            </Style>
         </ResourceDictionary>
     </UserControl.Resources>
 
-    <Grid x:Name="Frame" MinWidth="380" HorizontalAlignment="Stretch">
+    <Grid x:Name="Frame" MinWidth="320" HorizontalAlignment="Stretch">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <!-- Top bar, 44 px: brand diamond, product name, close -->
-        <Border Grid.Row="0" Background="{StaticResource Bz.Chrome}" BorderBrush="{StaticResource Bz.Line}" BorderThickness="0,0,0,1" Padding="14,0,8,0" Height="44">
+        <!-- Header, 60 px: the mark (20 px), title + file (mono) or "Waiting for a model", BM / EN, close -->
+        <Border Grid.Row="0" Background="{StaticResource Bz.Chrome}" BorderBrush="{StaticResource Bz.LineSoft}" BorderThickness="0,0,0,1"
+                Padding="14,0,8,0" Height="60">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <Border Width="12" Height="12" CornerRadius="3" Background="{StaticResource Bz.Brand}" RenderTransformOrigin="0.5,0.5"
-                        VerticalAlignment="Center" Margin="2,0,12,0">
-                    <Border.RenderTransform><RotateTransform Angle="45"/></Border.RenderTransform>
+                <!-- The mark on a 30 px ink tile (Clear Sheet "edge states, refined" .tile): 18 px, white stroke, amber top step.
+                     24-unit grid, stroke 2.4, square ends. WPF miter limit is relative to half the stroke width (SVG: full width), so 4 here = SVG 2. -->
+                <Border Grid.Column="0" Width="30" Height="30" CornerRadius="8" Background="{StaticResource Bz.Ink}"
+                        VerticalAlignment="Center" Margin="0,0,12,0" AutomationProperties.Name="{Binding PanelTitle}">
+                    <Viewbox Width="18" Height="18">
+                        <Canvas Width="24" Height="24">
+                            <Path Data="M3,12 L9,18 L9,14 L13,14 L13,10 L17,10 L17,6" Stroke="{StaticResource Bz.OnBrand}" StrokeThickness="2.4"
+                                  StrokeStartLineCap="Flat" StrokeEndLineCap="Flat" StrokeLineJoin="Miter" StrokeMiterLimit="4"/>
+                            <Rectangle Canvas.Left="18.2" Canvas.Top="4.8" Width="4" Height="2.4" Fill="{StaticResource Bz.Logo.Amber}"/>
+                        </Canvas>
+                    </Viewbox>
                 </Border>
-                <TextBlock Grid.Column="1" VerticalAlignment="Center" FontSize="12.5" TextTrimming="CharacterEllipsis">
-                    <Run Text="{Binding PanelTitle, Mode=OneWay}" FontWeight="SemiBold" Foreground="{StaticResource Bz.ChromeStrong}"/><Run Text=" BINA" Foreground="{StaticResource Bz.Text3}"/>
-                </TextBlock>
-                <Button x:Name="CloseBtn" Grid.Column="2" VerticalAlignment="Center"
-                        Style="{StaticResource Bz.ChromeIconButton}" Click="Close_Click"
-                        ToolTip="{Binding CloseLabel}" AutomationProperties.Name="{Binding CloseLabel}">
-                    <Path Data="M18,6 L6,18 M6,6 L18,18" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
-                          StrokeThickness="1.75" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
-                          Width="11" Height="11" Stretch="Uniform"/>
-                </Button>
-            </Grid>
-        </Border>
-
-        <!-- Context bar: project label, the file (mono), the BM / EN switch -->
-        <Border Grid.Row="1" Background="{StaticResource Bz.Chrome}" BorderBrush="{StaticResource Bz.Line}"
-                BorderThickness="0,0,0,1" Padding="14,6,10,6">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="{Binding ProjectLabel}" FontSize="11" Foreground="{StaticResource Bz.Text3}"
-                           VerticalAlignment="Center" Margin="0,0,8,0"/>
-                <TextBlock x:Name="FileText" Grid.Column="1" Text="{Binding FileLabel}" FontSize="11.5" VerticalAlignment="Center" Margin="0,0,10,0"
-                           FontFamily="{StaticResource Bz.Font.Mono}" Foreground="{StaticResource Bz.Text}"
-                           TextTrimming="CharacterEllipsis" ToolTip="{Binding FileLabel}"/>
-                <Border Grid.Column="2" Background="{StaticResource Bz.Sunken}" BorderBrush="{StaticResource Bz.Line}" BorderThickness="1"
-                        CornerRadius="7" Padding="2" VerticalAlignment="Center" AutomationProperties.Name="Language">
+                <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="0,0,8,0">
+                    <TextBlock Text="{Binding PanelTitle, Mode=OneWay}" FontSize="14" FontWeight="SemiBold" LineHeight="18"
+                               Foreground="{StaticResource Bz.Text}" TextTrimming="CharacterEllipsis"/>
+                    <TextBlock x:Name="FileText" Text="{Binding HeaderSubtitle}" FontSize="11.5" LineHeight="15" Margin="0,1,0,0"
+                               Foreground="{StaticResource Bz.Text2}" TextTrimming="CharacterEllipsis" ToolTip="{Binding HeaderSubtitle}">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="FontFamily" Value="{StaticResource Bz.Font.Sans}"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding HeaderIsFile}" Value="True">
+                                        <Setter Property="FontFamily" Value="{StaticResource Bz.Font.Mono}"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                </StackPanel>
+                <Border Grid.Column="2" Background="{StaticResource Bz.Sunken2}" CornerRadius="8" Padding="2" VerticalAlignment="Center"
+                        Margin="0,0,4,0" AutomationProperties.Name="Language">
                     <StackPanel Orientation="Horizontal">
                         <RadioButton x:Name="BmBtn" GroupName="PaneLang" Content="BM" Style="{StaticResource LangSeg}"
-                                     IsChecked="{Binding IsBm, Mode=TwoWay}" Margin="0,0,2,0"/>
+                                     IsChecked="{Binding IsBm, Mode=TwoWay}"/>
                         <RadioButton x:Name="EnBtn" GroupName="PaneLang" Content="EN" Style="{StaticResource LangSeg}"
                                      IsChecked="{Binding IsEn, Mode=TwoWay}"/>
                     </StackPanel>
                 </Border>
+                <Button x:Name="CloseBtn" Grid.Column="3" VerticalAlignment="Center" Width="32" Height="32"
+                        Style="{StaticResource Bz.ChromeIconButton}" Foreground="{StaticResource Bz.TextBody}" Click="Close_Click"
+                        ToolTip="{Binding CloseLabel}" AutomationProperties.Name="{Binding CloseLabel}">
+                    <Path Data="M4.5,4.5 L11.5,11.5 M11.5,4.5 L4.5,11.5" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                          StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                          Width="16" Height="16" Stretch="None"/>
+                </Button>
             </Grid>
         </Border>
 
         <!-- body -->
-        <Grid Grid.Row="2">
+        <Grid Grid.Row="1">
             <!-- The existing panel stays loaded (it owns the scan, the issue statuses,
                  the Revit writes and the audit file) but is never shown: the screens
                  below are the view. -->
             <ContentPresenter x:Name="EngineHost" Visibility="Collapsed"/>
             <ContentPresenter x:Name="ContentHost" Visibility="{Binding ShowContent, Converter={StaticResource B2V}}"/>
 
-            <!-- No model open: centred icon tile, title, text -->
+            <!-- Waiting for a model: icon tile, title, text (Clear Sheet "edge states, refined") -->
             <StackPanel x:Name="NoModelView" Visibility="{Binding ShowNoModel, Converter={StaticResource B2V}}"
-                        Margin="28,0,28,48" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="320">
-                <Border Width="48" Height="48" CornerRadius="12" Background="{StaticResource Bz.Sunken2}"
-                        BorderBrush="{StaticResource Bz.Line}" BorderThickness="1" HorizontalAlignment="Center">
-                    <Path Data="M12,2 L21,7 L21,17 L12,22 L3,17 L3,7 Z M3,7 L12,12 L21,7 M12,12 L12,22"
-                          Stroke="{StaticResource Bz.Text2}" StrokeThickness="1.6" StrokeLineJoin="Round"
-                          Width="22" Height="22" Stretch="Uniform"/>
+                        Margin="40,0,40,80" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="300">
+                <Border Style="{StaticResource EdgeTile}">
+                    <Viewbox Width="22" Height="22">
+                        <Canvas Width="16" Height="16">
+                            <Path Data="M4,1.8 L9.2,1.8 L12.5,5 L12.5,14.2 L4,14.2 Z M9,1.8 L9,5 L12.5,5" Stroke="{StaticResource Bz.TextBody}"
+                                  StrokeThickness="1.4" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                        </Canvas>
+                    </Viewbox>
                 </Border>
-                <TextBlock Text="{Binding NoModelTitle}" FontSize="16" FontWeight="SemiBold" Margin="0,16,0,0"
+                <TextBlock Text="{Binding NoModelTitle}" FontSize="17" FontWeight="Bold" LineHeight="22" Margin="0,16,0,0"
                            HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" Foreground="{StaticResource Bz.Text}"/>
-                <TextBlock Text="{Binding NoModelText}" FontSize="12.5" LineHeight="19" Margin="0,6,0,0"
-                           TextAlignment="Center" TextWrapping="Wrap" Foreground="{StaticResource Bz.Text2}"/>
+                <TextBlock Text="{Binding NoModelText}" FontSize="13" LineHeight="18" Margin="0,10,0,0" MaxWidth="240"
+                           TextAlignment="Center" TextWrapping="Wrap" Foreground="{StaticResource Bz.TextBody}"/>
             </StackPanel>
 
-            <!-- Login required: centred icon tile, title, info note, Retry (amber primary) -->
+            <!-- Login required: icon tile, title, text, Retry (ink primary) -->
             <StackPanel x:Name="LoginView" Visibility="{Binding ShowLogin, Converter={StaticResource B2V}}"
-                        Margin="28,0,28,48" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="320">
-                <Border Width="48" Height="48" CornerRadius="12" Background="{StaticResource Bz.Sunken2}"
-                        BorderBrush="{StaticResource Bz.Line}" BorderThickness="1" HorizontalAlignment="Center">
-                    <Path Data="M6,11 L18,11 L18,21 L6,21 Z M8,11 L8,7 A4,4 0 0 1 16,7 L16,11"
-                          Stroke="{StaticResource Bz.Text2}" StrokeThickness="1.6" StrokeLineJoin="Round"
-                          Width="18" Height="22" Stretch="Uniform"/>
+                        Margin="40,0,40,80" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="300">
+                <Border Style="{StaticResource EdgeTile}">
+                    <Viewbox Width="22" Height="22">
+                        <Canvas Width="16" Height="16">
+                            <Rectangle Canvas.Left="3" Canvas.Top="7" Width="10" Height="7" RadiusX="1.5" RadiusY="1.5"
+                                       Stroke="{StaticResource Bz.TextBody}" StrokeThickness="1.4"/>
+                            <Path Data="M5.5,7 L5.5,5.2 A2.5,2.5 0 0 1 10.5,5.2 L10.5,7" Stroke="{StaticResource Bz.TextBody}"
+                                  StrokeThickness="1.4" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                        </Canvas>
+                    </Viewbox>
                 </Border>
-                <TextBlock Text="{Binding LoginTitle}" FontSize="16" FontWeight="SemiBold" Margin="0,16,0,0"
+                <TextBlock Text="{Binding LoginTitle}" FontSize="17" FontWeight="Bold" LineHeight="22" Margin="0,16,0,0"
                            HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" Foreground="{StaticResource Bz.Text}"/>
-                <Border Background="{StaticResource Bz.BrandTint}" BorderBrush="{StaticResource Bz.BrandTintLine}" BorderThickness="1" CornerRadius="8" Padding="12,9,12,9" Margin="0,12,0,0">
-                    <TextBlock Text="{Binding LoginText}" FontSize="12" LineHeight="18" TextWrapping="Wrap"
-                               Foreground="{StaticResource Bz.BrandTintText}"/>
-                </Border>
-                <Button x:Name="RetryBtn" Content="{Binding LoginRetry}" Style="{StaticResource Bz.Btn.Primary}"
-                        HorizontalAlignment="Center" Margin="0,16,0,0" Padding="18,0,18,0" Height="36" FontSize="12.5" Click="Retry_Click"/>
+                <TextBlock Text="{Binding LoginText}" FontSize="13" LineHeight="18" Margin="0,10,0,0"
+                           TextAlignment="Center" TextWrapping="Wrap" Foreground="{StaticResource Bz.TextBody}"/>
+                <Button x:Name="RetryBtn" Style="{StaticResource Bz.Btn.Primary}" HorizontalAlignment="Center" Margin="0,18,0,0"
+                        Padding="14,0,14,0" Height="36" FontSize="13" Click="Retry_Click" AutomationProperties.Name="{Binding LoginRetry}">
+                    <StackPanel Orientation="Horizontal">
+                        <Viewbox Width="14" Height="14" Margin="0,0,6,0">
+                            <Canvas Width="16" Height="16">
+                                <Path Data="M13,8 A5,5 0 1 1 11.54,4.46 M13,2.5 L13,5 L10.5,5" Stroke="{StaticResource Bz.OnBrand}"
+                                      StrokeThickness="1.6" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                            </Canvas>
+                        </Viewbox>
+                        <TextBlock Text="{Binding LoginRetry}" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
             </StackPanel>
         </Grid>
 
-        <!-- Toast: bottom centre, raised dark with a hairline; Undo as an amber text button when offered -->
-        <Border x:Name="ToastBox" Grid.Row="2" Visibility="Collapsed" VerticalAlignment="Bottom" HorizontalAlignment="Center"
-                Margin="16,0,16,20" Background="{StaticResource Bz.Sunken2}" BorderBrush="{StaticResource Bz.Line2}" BorderThickness="1"
-                CornerRadius="9" Padding="14,6,8,6">
+        <!-- Toast: bottom centre, ink pill with white text. One child, so the padding is plain. -->
+        <Border x:Name="ToastBox" Grid.Row="1" Visibility="Collapsed" VerticalAlignment="Bottom" HorizontalAlignment="Center"
+                Margin="16,0,16,20" Background="{StaticResource Bz.Ink}" CornerRadius="8" Padding="14,10,14,10">
             <Border.Effect>
-                <DropShadowEffect Color="Black" BlurRadius="24" ShadowDepth="6" Direction="270" Opacity="0.55"/>
+                <DropShadowEffect Color="#15181D" BlurRadius="24" ShadowDepth="6" Direction="270" Opacity="0.22"/>
             </Border.Effect>
-            <StackPanel Orientation="Horizontal">
-                <TextBlock x:Name="ToastText" Foreground="{StaticResource Bz.Text}" FontSize="12.5" VerticalAlignment="Center"
-                           TextWrapping="Wrap" MaxWidth="290" Margin="0,4,6,4" AutomationProperties.LiveSetting="Polite"/>
-                <Button x:Name="ToastUndo" Margin="6,0,0,0" Cursor="Hand" Click="ToastUndo_Click" VerticalAlignment="Center"
-                        FocusVisualStyle="{StaticResource Bz.FocusRing}">
-                    <Button.Template>
-                        <ControlTemplate TargetType="Button">
-                            <Border x:Name="Bd" Background="Transparent" CornerRadius="6" Padding="8,0,8,0" MinHeight="28">
-                                <TextBlock x:Name="T" Text="{Binding UndoLabel}" Foreground="{StaticResource Bz.Brand}" FontWeight="SemiBold" FontSize="12"
-                                           VerticalAlignment="Center"/>
-                            </Border>
-                            <ControlTemplate.Triggers>
-                                <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="Bd" Property="Background" Value="{StaticResource Bz.Hover}"/>
-                                    <Setter TargetName="T" Property="Foreground" Value="{StaticResource Bz.BrandHover}"/>
-                                </Trigger>
-                            </ControlTemplate.Triggers>
-                        </ControlTemplate>
-                    </Button.Template>
-                </Button>
-            </StackPanel>
+            <TextBlock x:Name="ToastText" Foreground="{StaticResource Bz.OnBrand}" FontSize="13" LineHeight="18"
+                       TextWrapping="Wrap" MaxWidth="300" AutomationProperties.LiveSetting="Polite"/>
         </Border>
 
         <!-- pane edge -->
-        <Border Grid.RowSpan="3" BorderBrush="{StaticResource Bz.Line}" BorderThickness="1,0,0,0" IsHitTestVisible="False"/>
+        <Border Grid.RowSpan="2" BorderBrush="{StaticResource Bz.Line}" BorderThickness="1,0,0,0" IsHitTestVisible="False"/>
     </Grid>
 </UserControl>

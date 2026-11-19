@@ -28,7 +28,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             // The backend sends one language; the same text shows in BM and EN. A spec
             // evaluator's issue takes its title from the catalog and its text from the
             // run's BM / EN remarks, so it follows the BM / EN switch.
-            var desc = spec ? Bilingual(i.Description ?? "", notes) : Text.Same(i.Description ?? "");
+            // The BIM010 checker writes BM; the remarks the pane knows get their English (F15).
+            var desc = spec ? Bilingual(i.Description ?? "", notes) : PaneText.AuditRemark(i.Description ?? "");
             return new PanelItem
             {
                 Id = i.Id,
@@ -51,6 +52,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 AiFix = i.AiFixCandidate,
                 Status = human ? (i.Reviewed ? ItemStatus.Reviewed : ItemStatus.Open) : StatusOf(i.Status),
                 Passed = i.Status == IssueStatus.Fixed && i.FixVerified,
+                MarkedManual = i.Status == IssueStatus.ManualFixNeeded,
+                CanMarkManual = !human && i.CanMarkManual,
             };
         }
 
@@ -67,6 +70,16 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             var id = SpecReport.ResolveCheckId(raw.Substring(SpecModelIssues.CheckIdPrefix.Length));
             var c = id == null ? null : SpecCatalog.Find(id);
             return c == null ? null : new Text(c.Id + " · " + c.Title.Ms, c.Id + " · " + c.Title.En);
+        }
+
+        /// <summary>The issue's title in <paramref name="lang"/> (null = the pane's): a spec
+        /// evaluator's issue from the catalog ("A1.1 · Ceiling height (NS §4.1.9)"), any
+        /// other as it came. For toasts, which name the issue in the pane's language.</summary>
+        public static string TitleIn(IssueVm i, string lang = null)
+        {
+            if (i == null) return "";
+            var t = IsSpecIssue(i) ? SpecTitle(i.CheckId) : null;
+            return t != null ? t.In(lang ?? PaneLanguage.Current) : i.Title ?? "";
         }
 
         /// <summary>Every remark of a run that has an English text, by its BM and by its
@@ -142,17 +155,17 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             return new Text(string.Join("\n", ms), string.Join("\n", en));
         }
 
-        /// <summary>Pane status → prototype status. Approved (old "accept") and a
-        /// user's "mark as manual" both keep the item out of Open and still print it
-        /// as not comply, which is the prototype's Ignored.</summary>
+        /// <summary>Pane status → prototype status. Approved (old "accept") keeps the
+        /// item out of Open and still prints it as not comply (the prototype's Ignored).
+        /// A user's "mark as manual" stays Open (<see cref="PanelItem.MarkedManual"/>):
+        /// still a fail, just not offered for a fix.</summary>
         public static ItemStatus StatusOf(IssueStatus s)
         {
             switch (s)
             {
                 case IssueStatus.Fixed: return ItemStatus.Resolved;
                 case IssueStatus.Ignored:
-                case IssueStatus.Approved:
-                case IssueStatus.ManualFixNeeded: return ItemStatus.Ignored;
+                case IssueStatus.Approved: return ItemStatus.Ignored;
                 default: return ItemStatus.Open;
             }
         }

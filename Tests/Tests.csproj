@@ -178,6 +178,7 @@
     <Compile Include="..\UI\Jkr\Panel\Core\PanelStrings.cs" Link="Panel\PanelStrings.cs" />
     <Compile Include="..\UI\Jkr\Panel\Core\PanelFixture.cs" Link="Panel\PanelFixture.cs" />
     <Compile Include="..\UI\Jkr\Panel\Core\PanelCore.cs" Link="Panel\PanelCore.cs" />
+    <Compile Include="..\UI\Jkr\Panel\Core\JkrPaneLog.cs" Link="Panel\JkrPaneLog.cs" />
     <Compile Include="..\UI\Jkr\Panel\Core\PaneShellModel.cs" Link="Panel\PaneShellModel.cs" />
     <Compile Include="..\UI\Jkr\Panel\Core\StartScreenModel.cs" Link="Panel\StartScreenModel.cs" />
     <Compile Include="..\UI\Jkr\Panel\Core\RunScreenModel.cs" Link="Panel\RunScreenModel.cs" />
@@ -187,6 +188,7 @@
     <Compile Include="..\UI\Jkr\Panel\Core\SpecCatalog.cs" Link="Panel\SpecCatalog.cs" />
     <Compile Include="..\UI\Jkr\Panel\Core\SpecReport.cs" Link="Panel\SpecReport.cs" />
     <Compile Include="..\UI\Jkr\Panel\Core\SpecChecklist.cs" Link="Panel\SpecChecklist.cs" />
+    <Compile Include="..\UI\Jkr\Panel\Core\SpecAspects.cs" Link="Panel\SpecAspects.cs" />
     <Compile Include="..\UI\Jkr\Panel\Core\SpecBorang.cs" Link="Panel\SpecBorang.cs" />
     <!-- The add-in's own JKR spec evaluators (pure; the Revit reader is not linked). -->
     <Compile Include="..\Services\JkrSpec\SpecModel.cs" Link="JkrSpec\SpecModel.cs" />
@@ -202,8 +204,9 @@
     <Compile Include="..\Services\JkrAuditStore.cs" Link="JkrAuditStore.cs" />
     <Compile Include="..\UI\Jkr\Export\BorangDoc.cs" Link="Export\BorangDoc.cs" />
     <Compile Include="..\UI\Jkr\Export\BorangPdf.cs" Link="Export\BorangPdf.cs" />
+    <Compile Include="..\UI\Jkr\Export\IssueExportRows.cs" Link="Export\IssueExportRows.cs" />
     <Compile Include="..\Services\JkrDisciplineDetector.cs" Link="JkrDisciplineDetector.cs" />
-    <!-- Rules of the confirm dialog before every model write (consent for the paid action, 500-element pause warning); the window is UI\Jkr\Modals\JkrConfirmWindow.xaml. -->
+    <!-- Rules of the confirm dialog before every model write (500-element pause warning); the window is UI\Jkr\Modals\JkrConfirmWindow.xaml. -->
     <Compile Include="..\UI\Jkr\ViewModels\JkrConfirmModel.cs" Link="JkrConfirmModel.cs" />
     <!-- "Locate in 3D" outcome messages (type issues, hidden in view, no view shows it); the Revit side is the panel's LocateInRevitAsync. -->
     <Compile Include="..\UI\Jkr\ViewModels\JkrLocateResult.cs" Link="JkrLocateResult.cs" />

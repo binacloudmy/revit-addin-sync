@@ -103,7 +103,7 @@
         <Setter Property="Background" Value="{StaticResource BrandTint}"/>
         <Setter Property="Foreground" Value="{StaticResource Brand}"/>
         <Setter Property="BorderThickness" Value="1"/>
-        <Setter Property="BorderBrush" Value="#33E27449"/>
+        <Setter Property="BorderBrush" Value="#3315181D"/>
         <Setter Property="Cursor" Value="Hand"/>
         <Setter Property="Padding" Value="0"/>
         <Setter Property="Template">
@@ -129,7 +129,7 @@
     <Style x:Key="Btn.QuickApprove" TargetType="Button" BasedOn="{StaticResource Btn.QuickFix}">
         <Setter Property="Background" Value="{StaticResource InfoBg}"/>
         <Setter Property="Foreground" Value="{StaticResource Info}"/>
-        <Setter Property="BorderBrush" Value="#332B63A8"/>
+        <Setter Property="BorderBrush" Value="#335B3FD0"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
