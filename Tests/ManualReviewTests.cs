@@ -59,7 +59,7 @@ namespace RevitWebAppSync.Tests
             item.Status = IssueStatus.ManualFixNeeded;
             JkrAuditStore.Save(Rvt, item);
             Assert.Equal(IssueStatus.ManualFixNeeded, JkrAuditStore.LoadFor(Rvt)["m1"]);
-            
+
             item.Status = IssueStatus.Open;                 // Reopen
             JkrAuditStore.Save(Rvt, item);
             Assert.False(JkrAuditStore.LoadFor(Rvt).ContainsKey("m1"));      // a fresh scan reads it as Open

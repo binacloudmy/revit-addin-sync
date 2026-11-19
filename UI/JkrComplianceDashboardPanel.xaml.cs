@@ -1409,7 +1409,9 @@ namespace RevitWebAppSync.UI
                 }
                 // A marked item the fresh scan no longer returns was fixed in Revit: it
                 // passes as normal, so its entry is dropped (still-present ids keep the overlay).
-                JkrAuditStore.PruneMissing(_scannedDocPath, freshIds);
+                // Only when the backend answered: after an error the scan is partial and a
+                // backend-only check's marked item was never re-checked.
+                if (backendError == null) JkrAuditStore.PruneMissing(_scannedDocPath, freshIds);
             }
 
             // Carry attempted-fix issues through the rescan boundary. Dedup by Id so when
