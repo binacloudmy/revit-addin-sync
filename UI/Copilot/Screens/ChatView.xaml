@@ -143,6 +143,35 @@
             <StackPanel x:Name="BodyHost"/>
         </ScrollViewer>
 
+        <!-- Jump to the newest message: a round down-arrow at the thread's bottom-right, shown only while the
+             drafter has scrolled up (not stuck to the bottom, ChatView.UpdateJump). A click scrolls to the end and
+             pins the view to the bottom again. Above the scroller, under the slash and save layers. -->
+        <Button x:Name="JumpToBottom" Grid.Row="1" Width="34" Height="34" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                Margin="0,0,18,12" Visibility="Collapsed" Cursor="Hand" Focusable="False" FocusVisualStyle="{x:Null}"
+                ToolTip="Jump to the newest message" AutomationProperties.Name="Jump to the newest message"
+                Click="OnJumpToBottom">
+            <Button.Template>
+                <ControlTemplate TargetType="Button">
+                    <Border CornerRadius="17" Background="{DynamicResource Cp.Bg}"
+                            BorderBrush="{DynamicResource Cp.Line}" BorderThickness="1">
+                        <Border.Effect>
+                            <DropShadowEffect Color="Black" Opacity="0.16" BlurRadius="12" ShadowDepth="2" Direction="270"/>
+                        </Border.Effect>
+                        <Border x:Name="hv" CornerRadius="17" Background="Transparent">
+                            <Path Width="13" Height="13" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                  Data="M12,4 V20 M5.5,13.5 L12,20 L18.5,13.5" Stroke="{DynamicResource Cp.Ink}" StrokeThickness="2.2"
+                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
+                        </Border>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="hv" Property="Background" Value="{DynamicResource Cp.Hover}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Button.Template>
+        </Button>
+
         <!-- Bottom band: near-limit notice stacked directly above the composer, so
              the notice pushes the composer down instead of overlaying it. Both
              collapse together when the blocked state takes over (see UpdateUsage). -->

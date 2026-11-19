@@ -328,6 +328,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 Scroller.Visibility = Visibility.Visible;
                 Grid.SetRow(BlockedHost, 2);
                 UpdateNotice(vm, false);
+                UpdateJump();
                 return;
             }
             bool centered = vm.Thread.Count == 0;
@@ -337,6 +338,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             // rooms". With a thread present the wall sits in the composer row instead
             // and the conversation behind it should stay readable.
             Scroller.Visibility = centered ? Visibility.Collapsed : Visibility.Visible;
+            UpdateJump();
             Grid.SetRow(BlockedHost, centered ? 1 : 2);
             BlockedHost.VerticalAlignment = centered ? VerticalAlignment.Center : VerticalAlignment.Bottom;
             BlockedHost.Content = Controls.BlockedView.Build(
@@ -479,6 +481,30 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 // question does not scroll it later either.
                 _tailAskModel.ArrivalShown = true;
             }
+            UpdateJump();
+        }
+
+        /// <summary>The round down-arrow at the thread's bottom-right: shown only while the drafter is not stuck to the
+        /// bottom (the same 40 px band as <see cref="_stick"/>), with a thread that overflows the pane.</summary>
+        private void UpdateJump()
+        {
+            if (JumpToBottom == null || Scroller == null) return;
+            var sv = Scroller;
+            bool show = !_stick && Vm != null && Vm.Thread.Count > 0 && sv.Visibility == Visibility.Visible
+                && sv.ScrollableHeight > 0 && sv.VerticalOffset < sv.ScrollableHeight - StickThresholdPx;
+            var want = show ? Visibility.Visible : Visibility.Collapsed;
+            if (JumpToBottom.Visibility != want) JumpToBottom.Visibility = want;
+        }
+
+        /// <summary>The down-arrow clicked: scroll to the newest message and follow the bottom again.</summary>
+        private void OnJumpToBottom(object sender, RoutedEventArgs e)
+        {
+            _arrivalHeld = false;
+            _followAsk = false;
+            if (_tailAskModel != null) _tailAskModel.ArrivalShown = true;
+            _stick = true;
+            Scroller?.ScrollToEnd();
+            UpdateJump();
         }
 
         // The live question card at the thread's tail in the last build (Message; reset by Rebuild), whether the pane keeps
@@ -590,6 +616,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 _elapsedSw = null;
                 if (ElapsedText != null) ElapsedText.Text = "";
                 BodyHost.Children.Add(HomeState());
+                UpdateJump();
                 return;
             }
 
@@ -600,6 +627,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 MsgRise(thread.Children[thread.Children.Count - 1] as FrameworkElement);
             BodyHost.Children.Add(thread);
             _threadPanel = thread;
+            UpdateJump();
             RevitWebAppSync.UI.Copilot.Model.HandleProbe.Mark("chat rebuild end (" + Vm.Thread.Count + " messages)");
         }
 
