@@ -229,7 +229,17 @@ namespace RevitWebAppSync.UI
 
         /// <summary>"Export issues (Excel/CSV)": the issue-list export window (the
         /// secondary export next to the Borang PDF).</summary>
-        public void OpenExport() => _vm.ExportOpen = true;
+        public void OpenExport(Jkr.Export.IssueExportFormat format = Jkr.Export.IssueExportFormat.Excel)
+        {
+            _exportFormat = format;
+            _vm.ExportOpen = true;
+        }
+
+        private Jkr.Export.IssueExportFormat _exportFormat;
+
+        /// <summary>How many issues the export writes with the dialog's default options
+        /// (what the Borang preview's footer shows).</summary>
+        public int IssueExportCount => Jkr.Export.IssueExportRows.DefaultCount(_vm.Issues);
 
         /// <summary>The Borang BIM010 for the last run: every row marked from the run's
         /// BIM010 summary, remarks from the issues, header from the model. Null before
@@ -1967,7 +1977,7 @@ namespace RevitWebAppSync.UI
         private void OpenExportWindow()
         {
             if (_exportWindow != null && _exportWindow.IsLoaded) { _exportWindow.Activate(); return; }
-            _exportWindow = new Jkr.Modals.ExportWindow(_vm);
+            _exportWindow = new Jkr.Modals.ExportWindow(_vm, _exportFormat);
             _exportWindow.Closed += (_, __) => { _vm.ExportOpen = false; _exportWindow = null; };
             if (!Jkr.Modals.RevitWindowCover.Cover(_exportWindow, this))
                 Jkr.Modals.RevitWindowCover.CenterOnRevit(_exportWindow, this);

@@ -157,7 +157,29 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
 
         // ── export ──
         public static string ExportIssues(string lang = null) =>
-            L(lang, "Eksport isu (Excel/CSV)", "Export issues (Excel/CSV)");
+            L(lang, "Eksport isu", "Export issues");
+        public static string BorangPreviewTitle(string lang = null) =>
+            L(lang, "Pratonton Borang BIM010", "Borang BIM010 preview");
+        public static string BorangPreviewNote(string lang = null) =>
+            L(lang, "Diisi daripada templat BIM010 HOD, bahagian A hingga E, tidak diubah",
+                    "Filled from the HOD’s BIM010 template, sections A to E, unchanged");
+        public static string PageOf(int page, int pages, string lang = null) =>
+            L(lang, $"Halaman {page} daripada {pages}", $"Page {page} of {pages}");
+        public static string PreviousPage(string lang = null) => L(lang, "Halaman sebelumnya", "Previous page");
+        public static string NextPage(string lang = null) => L(lang, "Halaman seterusnya", "Next page");
+        public static string SavePdf(string lang = null) => L(lang, "Simpan PDF", "Save PDF");
+        public static string FormatExcel(string lang = null) => "Excel (.xlsx)";
+        public static string FormatCsv(string lang = null) => "CSV (.csv)";
+        public static string IssueCount(int n, string lang = null) =>
+            L(lang, $"{n} isu", $"{n} issue{S(n)}");
+        public static string ExportDialogHint(string lang = null) =>
+            L(lang, "Pilih format dan isu yang dimasukkan dalam fail.", "Choose the format and which issues go in the file.");
+        public static string ExportFormat(string lang = null) => L(lang, "Format", "Format");
+        public static string ExportInclude(string lang = null) => L(lang, "Sertakan", "Include");
+        public static string ExportWillWrite(int n, string lang = null) =>
+            L(lang, $"{n} isu akan ditulis", $"{n} issue{S(n)} will be written");
+        public static string ExportAction(string lang = null) => L(lang, "Eksport", "Export");
+        public static string Cancel(string lang = null) => L(lang, "Batal", "Cancel");
         public static string PdfSaved(string path, string lang = null) =>
             L(lang, "PDF disimpan: ", "PDF saved: ") + path;
         public static string PdfSaveFailed(string message, string lang = null) =>

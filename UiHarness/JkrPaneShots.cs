@@ -14,6 +14,7 @@ using Newtonsoft.Json.Linq;
 using RevitWebAppSync.Handlers;
 using RevitWebAppSync.Services;
 using RevitWebAppSync.Services.JkrSpec;
+using RevitWebAppSync.UI.Jkr.Export;
 using RevitWebAppSync.UI.Jkr.Modals;
 using RevitWebAppSync.UI.Jkr.Panel;
 using RevitWebAppSync.UI.Jkr.Panel.Core;
@@ -155,6 +156,63 @@ namespace UiHarness
             FixResultShot(dir, "jkr-fixresult-allwritten-en.png", applied: 42, failures: false);
             FixResultShot(dir, "jkr-fixresult-nothing-en.png", applied: 0);
             FixResultShot(dir, "jkr-fixresult.png", applied: 42, en: false);
+            BorangPreviewShot(dir, "jkr-borang-preview-en.png", en: true, menu: false);
+            BorangPreviewShot(dir, "jkr-borang-preview-menu-en.png", en: true, menu: true);
+            BorangPreviewShot(dir, "jkr-borang-preview.png", en: false, menu: false);
+            BorangPreviewShot(dir, "jkr-borang-preview-menu.png", en: false, menu: true);
+            ExportShot(dir, "jkr-export-en.png", en: true, IssueExportFormat.Excel);
+            ExportShot(dir, "jkr-export-csv.png", en: false, IssueExportFormat.Csv);
+        }
+
+        /// <summary>The Borang BIM010 preview: the PDF's own pages for a sample run, with the
+        /// Export issues menu open or closed.</summary>
+        private static void BorangPreviewShot(string dir, string file, bool en, bool menu)
+        {
+            try
+            {
+                PaneLanguage.Set(en ? PanelStrings.En : PanelStrings.Ms);
+                var doc = BorangDoc.Build(
+                    AuditSummary.Build(new[]
+                    {
+                        new Bim010Cell { Key = "A1", Verdict = Bim010Verdict.Fail },
+                        new Bim010Cell { Key = "A2", Verdict = Bim010Verdict.Pass },
+                        new Bim010Cell { Key = "B1", Verdict = Bim010Verdict.Fail, Note = "JKR_KodProjek empty on 112 elements." },
+                        new Bim010Cell { Key = "C1.1", Verdict = Bim010Verdict.Pass },
+                    }),
+                    new IssueVm[0],
+                    new BorangHeader
+                    {
+                        Project = "BEde1A_p14-001", Model = BorangDoc.ModelLine("AR", "300"),
+                        File = "jkrAR24_5a_(BEde1A_p14-001)_A1_w-01.rvt", Date = BorangDoc.DateOf(new DateTime(2026, 11, 10)),
+                    });
+                var pdf = BorangPdf.Pdf(doc);
+                var pages = (IReadOnlyList<byte[]>)BorangPdf.Pages(doc, dpi: 150);
+                var w = (Window)Activator.CreateInstance(typeof(BorangPreviewWindow), BindingFlags.Instance | BindingFlags.NonPublic, null,
+                    new object[] { pdf, pages, null, "BIM010_model.pdf", doc.Header.File, 99, (Action<IssueExportFormat>)(_ => { }), (Action<string>)null }, null);
+                w.WindowStartupLocation = WindowStartupLocation.Manual;
+                w.ShowInTaskbar = false; w.Left = -4000; w.Top = -4000;
+                w.Show();
+                Settle(500);
+                if (menu) { ((Button)w.FindName("IssuesBtn")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Settle(300); }
+                Save((FrameworkElement)w.Content, Path.Combine(dir, file), (int)Math.Ceiling(w.ActualHeight));
+                w.Close();
+                Console.WriteLine("wrote " + file);
+            }
+            catch (Exception ex) { Console.WriteLine(file + ": failed — " + ex); }
+        }
+
+        /// <summary>The export dialog over a sample issue list, with a format preselected.</summary>
+        private static void ExportShot(string dir, string file, bool en, IssueExportFormat format)
+        {
+            try
+            {
+                PaneLanguage.Set(en ? PanelStrings.En : PanelStrings.Ms);
+                var vm = new PanelVm();
+                foreach (var i in new[] { ("1", IssueStatus.Open), ("2", IssueStatus.Open), ("3", IssueStatus.Fixed), ("4", IssueStatus.Ignored) })
+                    vm.Issues.Add(new IssueVm { Id = i.Item1, Title = "Sample " + i.Item1, Status = i.Item2 });
+                var ew = new ExportWindow(vm, format); ew.Width = 460; RenderWindow(ew, dir, file);
+            }
+            catch (Exception ex) { Console.WriteLine(file + ": failed — " + ex); }
         }
 
         /// <summary>The detail window over the failing run, at the first issue that
