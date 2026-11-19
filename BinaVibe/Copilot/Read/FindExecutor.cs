@@ -194,7 +194,7 @@ namespace BinaVibe.Copilot.Read
             {
                 if (roomKey) EnsureRoom(h);
                 h.Row.GroupKeys = plan.GroupKeys.Count == 0
-                    ? new List<string?> { h.Row.Type }
+                    ? new List<string?> { h.Row.TypeKey }
                     : plan.GroupKeys.Select(k => GroupKey(k, h)).ToList();
             }
             // AI-269 item 4: the number to total per group is read for every match, never only the rows shown.
@@ -566,6 +566,7 @@ namespace BinaVibe.Copilot.Read
                 Category = el.Category?.Name,
                 Type = typeName ?? RevitValues.TypeName(t.Doc, el),
                 Family = family ?? RevitValues.FamilyName(t.Doc, el),
+                FamilyInstance = el is FamilyInstance,
                 Level = RevitValues.LevelName(t.Doc, el),
                 Mark = mark,
                 Room = room,
@@ -676,7 +677,7 @@ namespace BinaVibe.Copilot.Read
             switch (g.Kind)
             {
                 case "level": return h.Row.Level ?? "(no level)";
-                case "type": return h.Row.Type ?? "(no type)";
+                case "type": return h.Row.TypeKey ?? "(no type)";
                 case "category": return h.Row.Category ?? "(no category)";
                 case "room": return h.Row.Room ?? "(no room)";
                 case "param":

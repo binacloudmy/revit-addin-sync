@@ -24,6 +24,9 @@ namespace BinaVibe.Copilot.Read
         public string? Category;
         public string? Type;
         public string? Family;
+        /// <summary>A loadable family's instance (door, window, furniture): its types are named per family ("750 x 2100"
+        /// in several door families), so a type group keys on "Family: Type". System types (walls, floors) keep the name.</summary>
+        public bool FamilyInstance;
         public string? Level;
         public string? Room;
         public string? Mark;
@@ -31,6 +34,17 @@ namespace BinaVibe.Copilot.Read
         public string? LinkName;
         /// <summary>group_by keys of this element, one per plan.GroupKeys entry.</summary>
         public List<string?> GroupKeys = new();
+
+        /// <summary>The key a "type" group uses (issue 7: size-named door types of different families merged into one group):
+        /// "Family: Type" for a family instance, the bare type name for a system type. The row's own type stays bare.</summary>
+        public string? TypeKey => TypeKeyOf(Type, Family, FamilyInstance);
+
+        public static string? TypeKeyOf(string? type, string? family, bool familyInstance)
+        {
+            if (type == null) return null;
+            if (!familyInstance || string.IsNullOrWhiteSpace(family) || string.Equals(family, type, StringComparison.Ordinal)) return type;
+            return family + ": " + type;
+        }
 
         /// <summary>The first group_by key (setting it replaces the keys).</summary>
         public string? GroupKey
@@ -390,7 +404,7 @@ namespace BinaVibe.Copilot.Read
                 {
                     // Several categories (a categoryless text search): break down by category, else by type.
                     var byCategory = groups == null && o.Rows.Select(r => r.Category).Distinct().Count() > 1;
-                    Func<FoundRow, string?> key = byCategory ? r => r.Category : r => r.Type;
+                    Func<FoundRow, string?> key = byCategory ? r => r.Category : r => r.TypeKey;
                     var parts = groups != null
                         ? groups.Take(3).Select(GroupPhrase).ToList()
                         : o.Rows.Where(r => key(r) != null).GroupBy(r => key(r)!)

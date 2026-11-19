@@ -145,7 +145,7 @@
               "items": { "type": "string", "pattern": "^(level|type|category|room|param:.+)$" }
             }
           ],
-          "description": "level, type, category, room or param:<parameter name>; or two of them, e.g. [\"level\", \"type\"]."
+          "description": "level, type, category, room or param:<parameter name>; or two of them, e.g. [\"level\", \"type\"]. A type group of family instances (doors, windows, furniture) is keyed \"Family: Type\", so same-named types of different families stay apart; system types (walls, floors, ceilings) keep the bare type name."
         },
         "sum": {
           "type": "string",
