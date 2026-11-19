@@ -418,7 +418,9 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             if (vm == null || _threadPanel == null || !BodyHost.Children.Contains(_threadPanel)) return false;
             if (e.NewItems == null || e.NewItems.Count != 1 || e.OldItems == null || e.OldItems.Count != 1) return false;
             int i = e.NewStartingIndex;
-            if (i != vm.Thread.Count - 1 || _threadPanel.Children.Count != vm.Thread.Count) return false;
+            // The live row is the last message's; an undo line may sit under it (r12), so the row is found by _tailRow.
+            if (i != vm.Thread.Count - 1 || _tailRow < 0 || _tailRow >= _threadPanel.Children.Count
+                || _threadPanel.Children.Count - _tailRow - 1 != vm.UndoNotices.After(i).Count()) return false;
             if (!(e.OldItems[0] is ChatMessage oldM) || !(e.NewItems[0] is ChatMessage newM)) return false;
             if (oldM.Kind != CpMsgKind.Thinking || newM.Kind != CpMsgKind.Thinking) return false;
             try
@@ -427,8 +429,8 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 // already in use" for a drawn row, so every live tick failed and the pane kept its first "Thinking…"
                 // until the turn ended (live test of 0.0.99). Take the old row out, put the new one in.
                 var row = Message(newM);
-                _threadPanel.Children.RemoveAt(i);
-                _threadPanel.Children.Insert(i, row);
+                _threadPanel.Children.RemoveAt(_tailRow);
+                _threadPanel.Children.Insert(_tailRow, row);
                 return true;
             }
             catch (System.Exception ex)
@@ -570,6 +572,8 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         // The thread's StackPanel from the last full Rebuild (null on the empty
         // state): TryRenderLiveTail swaps its last child in place.
         private StackPanel _threadPanel;
+        // The panel index of the last message's row in the last full Rebuild (-1: none); undo lines are rows too.
+        private int _tailRow = -1;
 
         private void Rebuild()
         {
@@ -621,14 +625,47 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             }
 
             var thread = new StackPanel { Margin = new Thickness(16, 16, 16, 16) };
-            foreach (var m in Vm.Thread)
-                thread.Children.Add(Message(m));
-            if (appended && thread.Children.Count > 0)
-                MsgRise(thread.Children[thread.Children.Count - 1] as FrameworkElement);
+            _tailRow = -1;
+            for (int mi = 0; mi < Vm.Thread.Count; mi++)
+            {
+                thread.Children.Add(Message(Vm.Thread[mi]));
+                _tailRow = thread.Children.Count - 1;
+                // Revit's own Undo/Redo after this message: the pane's "You undid: …" line (r12; not part of the thread).
+                foreach (var note in Vm.UndoNotices.After(mi))
+                    thread.Children.Add(UndoNoticeLine(note));
+            }
+            if (appended && _tailRow >= 0)
+                MsgRise(thread.Children[_tailRow] as FrameworkElement);
             BodyHost.Children.Add(thread);
             _threadPanel = thread;
             UpdateJump();
             RevitWebAppSync.UI.Copilot.Model.HandleProbe.Mark("chat rebuild end (" + Vm.Thread.Count + " messages)");
+        }
+
+        /// <summary>"You undid: Set Mark" (Revit's own Undo/Redo of a BINA entry, r12): a small muted line with an undo or
+        /// redo arrow, between the messages where it happened. Pane-only; the card of that turn shows Undone itself.</summary>
+        private static FrameworkElement UndoNoticeLine(Model.UndoNotice note)
+        {
+            var redo = note.Kind == BinaVibe.Copilot.Undo.UndoChangeKind.Redone;
+            var row = new Grid { Margin = new Thickness(0, 2, 0, 12) };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            var icon = new System.Windows.Shapes.Path
+            {
+                Width = 12, Height = 12, Stretch = Stretch.Uniform, StrokeThickness = 2,
+                StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round, StrokeLineJoin = PenLineJoin.Round,
+                // a hooked arrow: back (undo) or forward (redo)
+                Data = Geometry.Parse(redo ? "M15,14 L20,9 L15,4 M20,9 H9 A5,5 0 0 0 9,19 H13" : "M9,14 L4,9 L9,4 M4,9 H15 A5,5 0 0 1 15,19 H11"),
+                VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 2, 7, 0),
+            };
+            icon.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, "Cp.Muted");
+            row.Children.Add(icon);
+            var tb = new TextBlock { Text = note.Text, FontSize = 12, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
+            tb.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Muted");
+            Grid.SetColumn(tb, 1);
+            row.Children.Add(tb);
+            System.Windows.Automation.AutomationProperties.SetName(row, note.Text);
+            return row;
         }
 
         // Italic faint "Interrupted." row (design lines 175-180).

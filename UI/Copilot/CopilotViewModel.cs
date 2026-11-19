@@ -44,6 +44,8 @@ namespace RevitWebAppSync.UI.Copilot
             _pane = pane ?? new PaneServices();
             Revit = revit ?? new RevitActions(() => InModel);
             Revit.UndoChanged += OnUndoChanged;
+            // A new chat or another one continued (Thread.Clear raises Reset): the undo lines went with the old thread.
+            Thread.CollectionChanged += (_, e) => { if (e.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Reset) UndoNotices.Clear(); };
             // The commands saved on this PC are the catalog's Mine tier from the first frame.
             try { ToolCatalog.MergeMine(LocalCommandStore.Default.ToTools()); } catch (Exception) { /* none shown */ }
             var st = CopilotStateStore.Load();
@@ -176,6 +178,9 @@ namespace RevitWebAppSync.UI.Copilot
         public string LastRunElapsed { get => _lastRunElapsed; private set { _lastRunElapsed = value; Raise(); } }
 
         public ObservableCollection<ChatMessage> Thread { get; } = new ObservableCollection<ChatMessage>();
+        /// <summary>The thread's "You undid: …" lines for Revit's own Undo/Redo (r12). Pane-only: never in Thread, the saved
+        /// history or the model's transcript; cleared with the thread.</summary>
+        public UndoNotices UndoNotices { get; } = new UndoNotices();
         public ObservableCollection<HistoryEntry> History { get; }
         public ObservableCollection<HighlightMarker> Highlights { get; } = new ObservableCollection<HighlightMarker>();
 
@@ -1377,8 +1382,15 @@ namespace RevitWebAppSync.UI.Copilot
         private void OnUndoChanged(BinaVibe.Copilot.Undo.UndoChange change)
         {
             // Revit's own Ctrl+Z undid the turn whose result the model shows: the marks and the key go, as with the card's Undo.
-            try { _pane.BeginOnUi(() => { if (InModel?.GoneWith(change) == true) Revit.ClearMarks(); UndoStateChanged?.Invoke(); }); }
+            // Revit's own Undo/Redo (not the card's button) also leaves a "You undid: …" line in the thread (r12).
+            try { _pane.BeginOnUi(() => { NoteUndo(change); if (InModel?.GoneWith(change) == true) Revit.ClearMarks(); UndoStateChanged?.Invoke(); }); }
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] undo state: " + ex.Message); }
+        }
+
+        private void NoteUndo(BinaVibe.Copilot.Undo.UndoChange change)
+        {
+            try { UndoNotices.Record(change, Thread.Count, DateTime.Now); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] undo notice: " + ex.Message); }
         }
 
         /// <summary>Undo the turn's BINA entries (W3's UndoService; one per batch).</summary>
