@@ -323,12 +323,13 @@ namespace BinaVibe.Copilot.Writes
 
         private const string Ft = @"(?:feet|foot|kaki|ft|')";
         private const string In = @"(?:inches|inch|inci|in|"")";
-        // A whole or decimal number, optionally followed by a fraction ("1 1/2", "1-1/2"), or a fraction alone.
-        private const string Mixed = @"(?:\d+(?:\.\d+)?(?:\s*-\s*|\s+)\d+\s*/\s*\d+|\d+\s*/\s*\d+|\d+(?:\.\d+)?)";
+        // A whole number followed by a fraction ("1 1/2", "1-1/2"; a decimal before a fraction, "1.5 1/2", and a
+        // spaced hyphen, "1 - 1/2", which may mean subtraction, are refused), a fraction alone, or a decimal.
+        private const string Mixed = @"(?:\d+(?:-|\s+)\d+\s*/\s*\d+|\d+\s*/\s*\d+|\d+(?:\.\d+)?)";
         private static readonly Regex ImperialFeet = new(@"^(?<ft>\d+(?:\.\d+)?)\s*" + Ft + @"(?:\s*-?\s*(?<in>" + Mixed + @")\s*" + In + @"?)?$", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
         private static readonly Regex ImperialInches = new(@"^(?<in>" + Mixed + @")\s*" + In + "$", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
         private static readonly Regex BareFraction = new(@"^(?<in>" + Mixed + ")$", RegexOptions.CultureInvariant);
-        private static readonly Regex MixedParts = new(@"^(?:(?<whole>\d+(?:\.\d+)?)(?:\s*-\s*|\s+))?(?<num>\d+)\s*/\s*(?<den>\d+)$|^(?<whole>\d+(?:\.\d+)?)$", RegexOptions.CultureInvariant);
+        private static readonly Regex MixedParts = new(@"^(?:(?<whole>\d+)(?:-|\s+))?(?<num>\d+)\s*/\s*(?<den>\d+)$|^(?<whole>\d+(?:\.\d+)?)$", RegexOptions.CultureInvariant);
 
         /// <summary>Feet-inches ("2'-6\"", "2' 6 1/2\"", "2 kaki 6 inci") and inch fractions ("3/4\"",
         /// "1 1/2 in", "1-1/2\""), in mm. Null with no error when the text is none of these (Grammar reads
@@ -344,8 +345,11 @@ namespace BinaVibe.Copilot.Writes
                 var inch = feet.Groups["in"].Success ? Inches(feet.Groups["in"].Value, out error) : 0m;
                 return inch == null ? null : ft * 304.8m + inch.Value * 25.4m;
             }
-            if (s.IndexOf('/') < 0) return null; // plain decimals with a unit stay with Grammar, unchanged
             var inches = ImperialInches.Match(s);
+            // Plain decimals with a unit stay with Grammar, unchanged; only a typographic inch mark ("6”", "6″")
+            // that Grammar does not know is read here.
+            if (s.IndexOf('/') < 0)
+                return inches.Success && s != Regex.Replace(raw, @"\s+", " ").Trim() ? Inches(inches.Groups["in"].Value, out error) * 25.4m : null;
             if (inches.Success)
             {
                 var v = Inches(inches.Groups["in"].Value, out error);

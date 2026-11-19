@@ -38,7 +38,6 @@ namespace RevitAddinSync.Tests
         [InlineData("¾\"", 19.05)]
         [InlineData("1 1/2\"", 38.1)]
         [InlineData("1-1/2\"", 38.1)]
-        [InlineData("1 - 1/2\"", 38.1)]
         [InlineData("1  1/2 in", 38.1)]       // double space
         [InlineData("1 1/2 inci", 38.1)]
         [InlineData("1 1/2\"", 38.1)]    // no-break space
@@ -47,6 +46,12 @@ namespace RevitAddinSync.Tests
         [InlineData("1⁄2\"", 12.7)]           // fraction slash
         [InlineData("0.75 in", 19.05)]
         [InlineData("0.75\"", 19.05)]
+        [InlineData("0.75”", 19.05)]          // typographic inch mark, no fraction
+        [InlineData("6”", 152.4)]
+        [InlineData("6″", 152.4)]
+        [InlineData("6 ″", 152.4)]
+        [InlineData("6''", 152.4)]
+        [InlineData("6’", 1828.8)]            // typographic foot mark
         [InlineData("1.5 in", 38.1)]
         [InlineData("19.05 mm", 19.05)]
         [InlineData("1.905 cm", 19.05)]
@@ -134,7 +139,16 @@ namespace RevitAddinSync.Tests
         [InlineData("2' 3' ")]
         [InlineData("/4\"")]
         [InlineData("3/\"")]
-        [InlineData("1/4'")]            // fractions of a foot are not read; give feet-inches
+        [InlineData("1/4'")]
+        [InlineData("1.5 1/2\"")]      // a decimal before a fraction is a guess, not one length
+        [InlineData("1.5-1/2\"")]
+        [InlineData("2' 6.5 1/2\"")]
+        [InlineData("2'-6.5-1/2\"")]
+        [InlineData("0.5 3/4 in")]
+        [InlineData("1 - 1/2\"")]      // a spaced hyphen may mean subtraction
+        [InlineData("1 -1/2\"")]
+        [InlineData("1- 1/2\"")]
+        [InlineData("2' 6 - 1/2\"")]            // fractions of a foot are not read; give feet-inches
         public void Length_RejectsWhatIsNotOneLength(string raw)
         {
             foreach (var unit in new[] { "mm", "in" })
@@ -156,6 +170,8 @@ namespace RevitAddinSync.Tests
         [InlineData("0.75", "in", 0.75)]         // bare number: unchanged
         [InlineData("1 1/2\"", "in", 1.5)]
         [InlineData("1-1/2\"", "in", 1.5)]
+        [InlineData("6”", "in", 6)]
+        [InlineData("0' - 0 3/4\"", "in", 0.75)]   // Revit's own feet-and-fractional-inches spelling
         [InlineData("1 1/2", "in", 1.5)]
         [InlineData("1.5 in", "in", 1.5)]
         [InlineData("38.1 mm", "in", 1.5)]
