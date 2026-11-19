@@ -223,7 +223,7 @@ namespace BinaVibe.Copilot.Contracts
     {
         [JsonPropertyName("request_id")] public string RequestId { get; set; } = "";
         [JsonPropertyName("question")] public string Question { get; set; } = "";
-        /// <summary>2–4 options.</summary>
+        /// <summary>2–6 options (protocol3 ask_option maxItems 6, mirrored from the backend).</summary>
         [JsonPropertyName("options")] public List<AskOptionDto>? Options { get; set; }
         [JsonPropertyName("fields")] public List<AskFieldDto>? Fields { get; set; }
         [JsonPropertyName("multi")] public bool Multi { get; set; }

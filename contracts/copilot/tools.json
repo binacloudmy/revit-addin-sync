@@ -548,7 +548,7 @@
   {
     "name": "ask_user",
     "kind": "pane",
-    "description": "Ask the drafter one question when something you need is missing or ambiguous: give 2–4 options taken from the model (for example the real level names), or a small form with fields. purpose 'project_note' proposes saving a project fact the drafter stated; it is saved only if they confirm. Never use this to ask permission for a change: changes apply at once and can be undone.",
+    "description": "Ask the drafter one question when something you need is missing or ambiguous: give 2–6 options with real names from tool results (for example the level names), or a small form with fields. Set multi: true when several may apply (tag kinds, levels, fields, categories, types). purpose 'project_note' proposes saving a project fact the drafter stated; it is saved only if they confirm. Never use this to ask permission for a change: changes apply at once and can be undone.",
     "parameters": {
       "type": "object",
       "additionalProperties": false,
@@ -562,7 +562,7 @@
         "options": {
           "type": "array",
           "minItems": 2,
-          "maxItems": 4,
+          "maxItems": 6,
           "items": {
             "type": "object",
             "additionalProperties": false,
