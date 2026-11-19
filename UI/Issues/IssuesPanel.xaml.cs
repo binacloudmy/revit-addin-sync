@@ -96,9 +96,9 @@ namespace RevitWebAppSync.UI.Issues
                 string token = await BinaCloudSession.EnsureValidTokenAsync(config);
                 if (string.IsNullOrEmpty(token))
                 {
-                    if (ShowCached(designId, source, mine, config.UserId, "your Cloud Docs session has expired")) return;
+                    if (ShowCached(designId, source, mine, config.UserId, "your BINA session has expired")) return;
 
-                    SetBusy(false, "Your Cloud Docs session has expired — click 'Login to CDE' and sync again.");
+                    SetBusy(false, "Your BINA session has expired — click 'Login to BINA' and sync again.");
                     return;
                 }
 
@@ -280,7 +280,7 @@ namespace RevitWebAppSync.UI.Issues
                         return;
                     }
 
-                    DetailStatusLine.Text = "Your Cloud Docs session has expired — click 'Login to CDE'.";
+                    DetailStatusLine.Text = "Your BINA session has expired — click 'Login to BINA'.";
                     return;
                 }
 

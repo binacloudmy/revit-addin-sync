@@ -5,6 +5,20 @@ namespace Tests
 {
     public class DisciplineTypesTests
     {
+        [Fact]
+        public void MechanicalLabel_IsMechanical() => Assert.Equal("Mechanical", DisciplineTypes.ToLabel("Mechanical"));
+
+        [Theory]
+        [InlineData("HVAC")]
+        [InlineData("hvac")]
+        [InlineData("Mechanical")]
+        public void ToApiValue_MapsToMechanical(string input) => Assert.Equal("Mechanical", DisciplineTypes.ToApiValue(input));
+
+        [Theory]
+        [InlineData("HVAC_Level1.rvt")]
+        [InlineData("Mechanical_Level1.rvt")]
+        public void FromFileName_AcceptsHvacAndMechanical(string name) => Assert.Equal("Mechanical", DisciplineTypes.FromFileName(name));
+
         // JKR naming puts the discipline right after "jkr" (14zefhy56zu).
         [Theory]
         [InlineData("jkrST27_2a_(BEpj00_p19-211441)_A-PTBR_w01_(K).rvt", "Structure")]
