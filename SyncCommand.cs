@@ -105,7 +105,8 @@ namespace RevitWebAppSync
                         lineageId,
                         config.ProjectId,
                         config.ProjectName,
-                        GetDisciplineTypeFromFileName(Path.GetFileName(docPathName)));
+                        GetDisciplineTypeFromFileName(Path.GetFileName(docPathName)),
+                        Services.ModelRecordStore.Find(docPathName));
 
                     Services.RevitWindowOwner.SetOwner(options, commandData.Application);
 
@@ -198,7 +199,7 @@ namespace RevitWebAppSync
                         Comment = options.Comment,
                         ClientInfo = clientInfo,
                         LinkedFiles = linkedFiles,
-                        AccessToken = beToken,
+                        Progress = options.Progress,
                         // The chain the user picked. Null on an ordinary sync,
                         // where the server resolves the lineage from the filename
                         // exactly as before.
@@ -231,6 +232,25 @@ namespace RevitWebAppSync
                     // Null when the dialog closed without a sync ever running.
                     var runResult = options.LastResult;
                     if (runResult == null) return Result.Cancelled;
+
+                    // Remember where this file now lives, so the next Sync of it
+                    // starts on the same project, folder and model. An unchanged
+                    // result still confirms the target, so it counts too.
+                    if (runResult.Succeeded)
+                    {
+                        Services.ModelRecordStore.Save(new Services.ModelRecord
+                        {
+                            Path = docPathName,
+                            ProjectId = options.SelectedProjectId,
+                            FolderId = options.SelectedFolderId,
+                            DisciplineType = options.SelectedDiscipline,
+                            DesignId = runResult.DesignId ?? options.TargetDesignId,
+                            LineageId = runResult.LineageId ?? options.TargetLineageId,
+                            DocGuid = lineageId,
+                            Name = runResult.FileName ?? options.UploadFileName,
+                            Source = "sync",
+                        });
+                    }
 
                     // Remember the project so the next sync defaults to it.
                     if (options.SelectedProjectId != config.ProjectId)

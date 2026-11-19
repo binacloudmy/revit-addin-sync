@@ -83,6 +83,20 @@ namespace RevitWebAppSync.Services
         public string SyncSource { get; set; }
         public string UrnInBase64 { get; set; }
 
+        /// <summary>The folder the row lives in; sent on every browse row.</summary>
+        public int? FolderId { get; set; }
+
+        /// <summary>
+        /// Presigned link to this version's preview picture, or null when it has
+        /// none (or the server predates the field). Short-lived (about five
+        /// minutes on production), so it is fetched as soon as the row is shown,
+        /// and never with the BINA bearer token: it points at object storage.
+        /// </summary>
+        public string ThumbnailUrl { get; set; }
+
+        /// <summary>manual | browser | converter; null when there is no picture.</summary>
+        public string ThumbnailSource { get; set; }
+
         /// <summary>
         /// bina-be's viewer state for the new converter: ready | partial |
         /// converting | needsGlb | failed | notConverted. Null from a server that
@@ -254,6 +268,17 @@ namespace RevitWebAppSync.Services
         public string DesignStatus { get; set; }
         public string UrnInBase64 { get; set; }
 
+        /// <summary>
+        /// Presigned link to this version's preview picture, or null when it has
+        /// none (or the server predates the field). Short-lived (about five
+        /// minutes on production), so it is fetched as soon as the row is shown,
+        /// and never with the BINA bearer token: it points at object storage.
+        /// </summary>
+        public string ThumbnailUrl { get; set; }
+
+        /// <summary>manual | browser | converter; null when there is no picture.</summary>
+        public string ThumbnailSource { get; set; }
+
         /// <summary>The old xkt conversion status; "Completed" counts as viewable when bina-be sends no odaViewerState.</summary>
         public string XktConversionStatus { get; set; }
 
@@ -303,7 +328,6 @@ namespace RevitWebAppSync.Services
         /// <summary>Stable across retries of one attempt — this is what makes commit idempotent.</summary>
         public string SyncSessionId { get; set; }
         public string Comment { get; set; }
-        public string UrnInBase64 { get; set; }
         public object ClientInfo { get; set; }
         public object Metadata { get; set; }
 
@@ -468,7 +492,10 @@ namespace RevitWebAppSync.Services
         public double[] Direction { get; set; }
         public double[] UpVector { get; set; }
         public double? FieldOfView { get; set; }
+        /// <summary>Orthographic only: the visible height in metres.</summary>
         public double? ViewToWorldScale { get; set; }
+        /// <summary>Width over height of the view it was captured in.</summary>
+        public double? AspectRatio { get; set; }
         public string Units { get; set; }
     }
 

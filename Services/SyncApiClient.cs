@@ -8,6 +8,7 @@ using System.Threading;
 using System.Text;
 using System.Threading.Tasks;
 using System.Collections.Generic;
+using System.Linq;
 using Newtonsoft.Json;
 
 namespace RevitWebAppSync.Services
@@ -168,6 +169,35 @@ namespace RevitWebAppSync.Services
         }
 
         /// <summary>
+        /// Every model in a project's WIP folders the caller may read, one row
+        /// per model with its folder. Used by Sync to find which model a file is
+        /// when the file itself carries no BINA identity. An empty list on any
+        /// failure: a missing pre-selection must never block a sync.
+        /// </summary>
+        public async Task<List<BimDesign>> GetProjectDesignsAsync(
+            int projectId, string areas = "wip", int limit = 500,
+            CancellationToken cancellationToken = default(CancellationToken))
+        {
+            string url = $"{_baseUrl}/api/cloud-docs/bim-discipline/project/{projectId}/designs" +
+                         $"?areas={Uri.EscapeDataString(areas)}&limit={limit}";
+            try
+            {
+                using (var resp = await SendWithRefreshAsync(() => _http.GetAsync(url, cancellationToken))
+                    .ConfigureAwait(false))
+                {
+                    if (!resp.IsSuccessStatusCode) return new List<BimDesign>();
+                    string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    return JsonConvert.DeserializeObject<BimDesignsResponse>(body)?.Designs
+                           ?? new List<BimDesign>();
+                }
+            }
+            catch (Exception) when (!cancellationToken.IsCancellationRequested)
+            {
+                return new List<BimDesign>();
+            }
+        }
+
+        /// <summary>
         /// Who this token belongs to, per bina-be. The OAuth token response
         /// carries only a userId, and the plugin holds a second, unrelated
         /// bina-ai session whose name must never be shown for this one.
@@ -281,13 +311,16 @@ namespace RevitWebAppSync.Services
             int? designId = null,
             string status = null,
             string source = null,
-            int limit = 50)
+            int limit = 50,
+            bool mine = false)
         {
             var query = new List<string> { $"limit={limit}" };
             if (designId.HasValue) query.Add($"designId={designId.Value}");
             if (!string.IsNullOrEmpty(status)) query.Add($"status={Uri.EscapeDataString(status)}");
             // design | coordination; omitted means both.
             if (!string.IsNullOrEmpty(source)) query.Add($"source={Uri.EscapeDataString(source)}");
+            // Issues assigned to the signed-in account or raised by them.
+            if (mine) query.Add("mine=true");
 
             string url = $"{_baseUrl}/api/cloud-docs/bim-issues/project/{projectId}/issues" +
                          $"?{string.Join("&", query)}";
@@ -497,10 +530,47 @@ namespace RevitWebAppSync.Services
                     throw new SyncConflictException(ExtractMessage(body), ExtractHead(body));
 
                 if (!resp.IsSuccessStatusCode)
-                    throw new InvalidOperationException($"{path} failed (HTTP {(int)resp.StatusCode}): {body}");
+                    throw new InvalidOperationException(DescribeFailure(path, (int)resp.StatusCode, body));
 
                 return JsonConvert.DeserializeObject<T>(body);
             }
+        }
+
+        /// <summary>
+        /// A failed sync call in words a drafter can act on. bina-be answers with
+        /// a JSON body whose `message` is the reason ("BIM_VIEWER cannot perform
+        /// UPLOAD"); showing the raw JSON made the reason look like a crash.
+        /// </summary>
+        internal static string DescribeFailure(string path, int status, string body)
+        {
+            string reason = null;
+            try
+            {
+                var o = Newtonsoft.Json.Linq.JObject.Parse(body ?? "");
+                var message = o["message"];
+                // A string, a nested { message } (Nest's wrapped exceptions), or
+                // the validation pipe's array of messages.
+                if (message is Newtonsoft.Json.Linq.JArray list)
+                    reason = string.Join("; ", list.Select(m => (string)m));
+                else if (message is Newtonsoft.Json.Linq.JObject inner)
+                    reason = (string)inner["message"];
+                else if (message != null)
+                    reason = (string)message;
+            }
+            catch
+            {
+                // Not JSON (a proxy page, an empty body): fall through to the status.
+            }
+
+            if (status == (int)HttpStatusCode.Forbidden)
+                return "BINA did not allow this sync" +
+                       (string.IsNullOrWhiteSpace(reason) ? "." : $": {reason}.") +
+                       " Your role in this project may not include uploading models. " +
+                       "Ask the project admin, or pick a project where you can upload.";
+
+            return string.IsNullOrWhiteSpace(reason)
+                ? $"BINA could not complete the sync (HTTP {status} from {path})."
+                : $"BINA could not complete the sync: {reason} (HTTP {status}).";
         }
 
         private static string ExtractMessage(string body)
@@ -540,7 +610,7 @@ namespace RevitWebAppSync.Services
         public async Task<bool> UploadAsync(
             string uploadUrl,
             string filePath,
-            IProgress<int> progress = null,
+            IProgress<long> bytesSent = null,
             System.Threading.CancellationToken ct = default(System.Threading.CancellationToken))
         {
             // Object storage drops connections; a model big enough to matter is
@@ -556,17 +626,14 @@ namespace RevitWebAppSync.Services
                 {
                     using (var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite,
                                                        bufferSize: 81920, useAsync: true))
-                    using (var content = new StreamContent(stream, 81920))
+                    using (var content = new ProgressContent(stream, bytesSent))
                     {
-                        content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
-                        content.Headers.ContentLength = stream.Length;
-
                         using (var req = new HttpRequestMessage(HttpMethod.Put, uploadUrl) { Content = content })
                         using (var resp = await _http.SendAsync(req, ct).ConfigureAwait(false))
                         {
                             if (resp.IsSuccessStatusCode)
                             {
-                                progress?.Report(100);
+                                bytesSent?.Report(stream.Length);
                                 return true;
                             }
 
@@ -594,16 +661,74 @@ namespace RevitWebAppSync.Services
         /// SHA-256 of the bytes that will actually be uploaded. Streamed for the
         /// same reason as the upload.
         /// </summary>
-        public static string ComputeFileHash(string filePath)
+        public static string ComputeFileHash(string filePath, IProgress<long> bytesRead = null)
         {
             using (var sha = SHA256.Create())
             using (var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite,
                                                bufferSize: 81920))
             {
-                byte[] hash = sha.ComputeHash(stream);
+                var buf = new byte[81920];
+                int n;
+                long total = 0, lastReported = 0;
+                while ((n = stream.Read(buf, 0, buf.Length)) > 0)
+                {
+                    sha.TransformBlock(buf, 0, n, null, 0);
+                    total += n;
+                    // Reported per ~1 MB, not per read: a 2 GB model is 25k reads.
+                    if (bytesRead != null && total - lastReported >= 1048576)
+                    {
+                        bytesRead.Report(total);
+                        lastReported = total;
+                    }
+                }
+                sha.TransformFinalBlock(buf, 0, 0);
+                byte[] hash = sha.Hash;
                 var sb = new StringBuilder(hash.Length * 2);
                 foreach (byte b in hash) sb.Append(b.ToString("x2"));
                 return sb.ToString();
+            }
+        }
+
+        /// <summary>
+        /// Streams a file as the request body and reports bytes written to the
+        /// socket, about once per MB. Same wire behaviour as StreamContent, including rewinding on re-send.
+        /// </summary>
+        internal sealed class ProgressContent : HttpContent
+        {
+            private readonly Stream _stream;
+            private readonly IProgress<long> _progress;
+
+            public ProgressContent(Stream stream, IProgress<long> progress)
+            {
+                _stream = stream;
+                _progress = progress;
+                Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+                Headers.ContentLength = stream.Length;
+            }
+
+            protected override async Task SerializeToStreamAsync(Stream target, System.Net.TransportContext context)
+            {
+                // StreamContent rewinds when HttpClient re-sends (redirect, auth retry); so must we.
+                if (_stream.CanSeek) _stream.Position = 0;
+                var buf = new byte[81920];
+                int n;
+                long total = 0, lastReported = 0;
+                while ((n = await _stream.ReadAsync(buf, 0, buf.Length).ConfigureAwait(false)) > 0)
+                {
+                    await target.WriteAsync(buf, 0, n).ConfigureAwait(false);
+                    total += n;
+                    if (_progress != null && total - lastReported >= 1048576)
+                    {
+                        _progress.Report(total);
+                        lastReported = total;
+                    }
+                }
+            }
+
+            protected override bool TryComputeLength(out long length)
+            {
+                length = _stream.Length;
+                return true;
             }
         }
 

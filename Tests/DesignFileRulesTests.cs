@@ -21,6 +21,19 @@ namespace Tests
             Assert.Equal(label, DesignFileRules.DescribeViewerState(state, null, null));
         }
 
+        [Theory]
+        [InlineData("converting", "Converting…")]
+        [InlineData("needsGlb", "Converting…")]
+        [InlineData("failed", "Conversion failed")]
+        [InlineData("ready", "No preview")]
+        [InlineData("notConverted", "No preview")]
+        [InlineData(null, "No preview")]
+        [InlineData("someFutureState", "No preview")]
+        public void Missing_thumbnail_says_why_like_the_web(string state, string label)
+        {
+            Assert.Equal(label, DesignFileRules.DescribeMissingThumbnail(state));
+        }
+
         [Fact]
         public void Viewer_state_wins_over_an_old_Autodesk_urn()
         {

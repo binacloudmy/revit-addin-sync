@@ -36,8 +36,9 @@ namespace RevitWebAppSync.Services
                 (Structure, "Structure", "Beams, columns, foundations, framing."),
                 (Mechanical, MechanicalLabel, "Heating, ventilation and air conditioning."),
                 (Electrical, "Electrical", "Power, lighting, containment."),
-                (Civil, "Civil", "Earthworks, drainage, external works."),
-                (MainFile, "Main model", "The federated or general model for the project.")
+                (Civil, "Civil", "Earthworks, drainage, external works.")
+                // MainFile is not offered any more (ClickUp 14zefhy2nzg), but stays a valid wire value
+                // for linked files and the fallbacks below.
             };
 
         /// <summary>
@@ -76,6 +77,20 @@ namespace RevitWebAppSync.Services
             if (upper.StartsWith("HVAC") || upper.StartsWith("MECHANICAL")) return Mechanical;
             if (upper.StartsWith("ELECTRICAL") || upper.StartsWith("ELEC")) return Electrical;
             if (upper.StartsWith("CIVIL")) return Civil;
+
+            // JKR file naming: "jkrST27_2a_...", "jkrAR20_...", "jkrME22_..." —
+            // the two letters after "JKR" are the discipline.
+            if (upper.StartsWith("JKR") && upper.Length >= 5)
+            {
+                switch (upper.Substring(3, 2))
+                {
+                    case "AR": return Architecture;
+                    case "ST": return Structure;
+                    case "ME": return Mechanical;
+                    case "EL": return Electrical;
+                    case "CV": return Civil;
+                }
+            }
             return MainFile;
         }
     }

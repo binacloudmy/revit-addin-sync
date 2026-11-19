@@ -56,6 +56,9 @@
     <Compile Include="..\Services\AutoParameterPull.cs" Link="Services\AutoParameterPull.cs" />
     <Compile Include="..\Services\HttpBodyReader.cs" Link="Services\HttpBodyReader.cs" />
     <Compile Include="..\Services\SyncApiClient.cs" Link="Services\SyncApiClient.cs" />
+    <Compile Include="..\Services\SyncProgress.cs" Link="Services\SyncProgress.cs" />
+    <Compile Include="..\Services\SyncRunner.cs" Link="Services\SyncRunner.cs" />
+    <Compile Include="..\SaveFederatedFileDto.cs" Link="SaveFederatedFileDto.cs" />
     <Compile Include="..\Services\BinaAccessDeniedException.cs" Link="Services\BinaAccessDeniedException.cs" />
     <Compile Include="..\LoginModels.cs" Link="LoginModels.cs" />
     <Compile Include="..\Services\SyncProtocolModels.cs" Link="Services\SyncProtocolModels.cs" />
@@ -75,6 +78,13 @@
     <Compile Include="..\Services\DiagnosticsPolicy.cs" Link="Services\DiagnosticsPolicy.cs" />
     <!-- Download dialog / rollback picker: viewer-state label and Revit-file rule (Revit-free; DesignFileRulesTests). -->
     <Compile Include="..\Services\DesignFileRules.cs" Link="Services\DesignFileRules.cs" />
+    <!-- Issues "Show in model": federated (shared) camera to Revit internal coordinates (Revit-free; IssueCameraMathTests). -->
+    <Compile Include="..\Services\IssueCameraMath.cs" Link="Services\IssueCameraMath.cs" />
+    <!-- Sync dialog pre-selection: which model a file is, and where it was downloaded from (Revit-free; ModelMatchTests, ModelRecordStoreTests). -->
+    <Compile Include="..\Services\ModelMatch.cs" Link="Services\ModelMatch.cs" />
+    <Compile Include="..\Services\ModelRecordStore.cs" Link="Services\ModelRecordStore.cs" />
+    <!-- Discipline UI label / API value mapping (Revit-free; DisciplineTypesTests). -->
+    <Compile Include="..\Services\DisciplineTypes.cs" Link="Services\DisciplineTypes.cs" />
   </ItemGroup>
 
   <!-- Cad2Bim engine (CAD to BIM pane): pure geometry, System + Linq + ACadSharp + plain WPF,

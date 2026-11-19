@@ -72,6 +72,26 @@ namespace RevitWebAppSync.Services
         }
 
         /// <summary>
+        /// What the picture tile says when there is no picture to show. Matches
+        /// bina-web's placeholder: a model still converting or whose conversion
+        /// failed says so, because "No preview" would read as "nothing to see"
+        /// for a model that will have one in a minute or needs a re-convert.
+        /// </summary>
+        public static string DescribeMissingThumbnail(string odaViewerState)
+        {
+            switch (odaViewerState)
+            {
+                case "converting":
+                case "needsGlb":
+                    return "Converting…";
+                case "failed":
+                    return "Conversion failed";
+                default:
+                    return "No preview";
+            }
+        }
+
+        /// <summary>
         /// Lower-case extension without the dot, or null when there is none:
         /// bina-be's fileExtension when it sends one, else the one in the name.
         /// Read by hand rather than with Path.GetExtension, which throws on
