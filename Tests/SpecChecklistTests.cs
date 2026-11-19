@@ -105,7 +105,7 @@ namespace RevitWebAppSync.Tests
             return list;
         }
 
-        private static SpecReport Report(string name) => SpecReport.Build(Results(Run(name)));
+        internal static SpecReport Report(string name) => SpecReport.Build(Results(Run(name)));
 
         // ── catalog ──
 
@@ -269,7 +269,7 @@ namespace RevitWebAppSync.Tests
 
         // ── the Results screen ──
 
-        private static (ResultsScreenModel results, PanelCore core) Results(string run)
+        internal static (ResultsScreenModel results, PanelCore core) Results(string run)
         {
             var core = new PanelCore(new List<PanelItem>(), null, new ManualClock());
             var start = new StartScreenModel(core) { FileLabel = "jkrAR24.rvt" };

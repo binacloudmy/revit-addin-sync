@@ -18,6 +18,32 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public List<ChecklistItem> Items { get; set; } = new List<ChecklistItem>();
     }
 
+    /// <summary>A row of the Result screen's list: a Borang section (A–E) or an aspect
+    /// (N / P / Q / G) — letter, name, %, one tick per check, "n fail" / "n manual".</summary>
+    public sealed class GroupRow
+    {
+        /// <summary>The section letter, or the aspect letter.</summary>
+        public string Key { get; set; } = "";
+        public string Letter { get; set; } = "";
+        public string Name { get; set; } = "";
+        /// <summary>Spec checks in the group.</summary>
+        public int Checks { get; set; }
+        public int? Pct { get; set; }
+        public string PctLabel { get; set; } = "—";
+        /// <summary>Bar fill 0..1.</summary>
+        public double Fraction { get; set; }
+        /// <summary>One code per check, catalog order (<see cref="SpecChecklist.TickOf"/>).</summary>
+        public List<string> Ticks { get; set; } = new List<string>();
+        public int Fails { get; set; }
+        /// <summary>Checks a person decides (semak manual).</summary>
+        public int Manual { get; set; }
+        /// <summary>"n fail"; when none fail, "n manual"; else "".</summary>
+        public string CountLabel { get; set; } = "";
+        /// <summary>fail | person | "" — the count's colour.</summary>
+        public string CountTone { get; set; } = "";
+        public string Aria { get; set; } = "";
+    }
+
     public sealed class ChecklistItem
     {
         public string No { get; set; } = "";
@@ -236,6 +262,16 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             ["backendDown"] = ("Backend tidak tersedia — semakan yang bergantung padanya belum disemak",
                                "Backend unavailable — checks that depend on it are not checked"),
             ["filterEmpty"] = ("Tiada semakan dengan status ini.", "No check has this state."),
+            // Result screen list: "Borang sections | Aspects" and its rows (Clear Sheet).
+            ["bySections"] = ("Seksyen Borang", "Borang sections"),
+            ["byAspects"] = ("Aspek", "Aspects"),
+            ["groupAria"] = ("Kumpul semakan ikut", "Group checks by"),
+            ["gManual"] = ("{0} manual", "{0} manual"),
+            ["gCompliant"] = ("patuh", "compliant"),
+            ["gFailAria"] = ("{0} semakan gagal", "{0} checks fail"),
+            ["gFailAria1"] = ("", "1 check fails"),
+            ["gManualAria"] = ("{0} semakan menunggu semak manual", "{0} checks wait for semak manual"),
+            ["gManualAria1"] = ("", "1 check waits for semak manual"),
             ["filterAria"] = ("Tapis ikut status: {0}", "Filter by state: {0}"),
         };
 
@@ -320,7 +356,11 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// results the scan could not judge, partial-rule passes (they prove no pass)
         /// or not-applicable results.
         /// </summary>
-        public static (int Passed, int Total) Score(SpecReport r, string section = null)
+        public static (int Passed, int Total) Score(SpecReport r, string section = null) =>
+            Score(r, InSection(section));
+
+        /// <summary>Score over the checks <paramref name="member"/> picks (a section, an aspect).</summary>
+        public static (int Passed, int Total) Score(SpecReport r, Func<SpecCheck, bool> member)
         {
             if (r == null) return (0, 0);
             // Only checks that passed or failed count: a partly checked one (backend
@@ -328,18 +368,76 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             // not checked adds nothing, so passes cannot inflate the % of an unproven check.
             var ai = r.Checks.Where(c => c.Check.Class == SpecCellClass.Ai
                                          && (c.State == SpecState.Pass || c.State == SpecState.Fail)
-                                         && (string.IsNullOrEmpty(section) || section == PanelCore.AllSections || c.Check.Section == section));
+                                         && member(c.Check));
             int pass = 0, total = 0;
             foreach (var c in ai) { pass += c.Passed; total += c.Passed + c.Failed; }
             return (pass, total);
         }
 
         /// <summary>Score as a whole %, or null when nothing AI-verifiable was judged.</summary>
-        public static int? Pct(SpecReport r, string section = null)
+        public static int? Pct(SpecReport r, string section = null) => Pct(r, InSection(section));
+
+        public static int? Pct(SpecReport r, Func<SpecCheck, bool> member)
         {
-            var (p, t) = Score(r, section);
+            var (p, t) = Score(r, member);
             return t == 0 ? (int?)null : (int)Math.Round(100.0 * p / t, MidpointRounding.AwayFromZero);
         }
+
+        /// <summary>One section, or every check (null / PanelCore.AllSections).</summary>
+        private static Func<SpecCheck, bool> InSection(string section) =>
+            string.IsNullOrEmpty(section) || section == PanelCore.AllSections
+                ? (Func<SpecCheck, bool>)(c => true)
+                : c => c.Section == section;
+
+        // ─── group rows: a Borang section or an aspect (the Result screen's list) ───
+
+        /// <summary>The tick code of a state (Clear Sheet's tick strip): f fail, p pass,
+        /// h partly, m semak manual, l listed, n not applicable, x not checked.</summary>
+        public static string TickOf(SpecState s)
+        {
+            switch (s)
+            {
+                case SpecState.Fail: return "f";
+                case SpecState.Pass: return "p";
+                case SpecState.Partial: return "h";
+                case SpecState.NeedsPerson: return "m";
+                case SpecState.Listed: return "l";
+                case SpecState.NotApplicable: return "n";
+                default: return "x";
+            }
+        }
+
+        /// <summary>
+        /// One row of the Result screen's list, for the checks <paramref name="member"/>
+        /// picks: % as the headline counts it (<see cref="Pct(SpecReport, Func{SpecCheck, bool})"/>),
+        /// one tick per check in catalog order, and "n fail" — or, when none fail,
+        /// "n manual". Section rows and aspect rows are both built here, the same way.
+        /// </summary>
+        public static GroupRow Group(SpecReport r, string key, string letter, string name,
+                                     Func<SpecCheck, bool> member, string lang)
+        {
+            var checks = r == null ? new List<SpecCheckResult>()
+                : SpecCatalog.Checks.Where(member).Select(c => r.For(c.Id)).Where(c => c != null).ToList();
+            var pct = Pct(r, member);
+            var fails = checks.Count(c => c.State == SpecState.Fail);
+            var manual = checks.Count(c => c.State == SpecState.NeedsPerson);
+            var pctLabel = pct.HasValue ? pct.Value + "%" : "—";
+            string count = "", tone = "", aria = name + ", " + pctLabel + " " + Str("gCompliant", lang);
+            if (fails > 0) { count = F("secFail", lang, fails); tone = "fail"; aria += ", " + Plural("gFailAria", lang, fails); }
+            else if (manual > 0) { count = F("gManual", lang, manual); tone = "person"; aria += ", " + Plural("gManualAria", lang, manual); }
+            return new GroupRow
+            {
+                Key = key, Letter = letter, Name = name, Checks = checks.Count,
+                Pct = pct, PctLabel = pctLabel, Fraction = (pct ?? 0) / 100.0,
+                Ticks = checks.Select(c => TickOf(c.State)).ToList(),
+                Fails = fails, Manual = manual, CountLabel = count, CountTone = tone, Aria = aria,
+            };
+        }
+
+        /// <summary>The Borang section rows A–E (the "Borang sections" view).</summary>
+        public static List<GroupRow> SectionRows(SpecReport r, string lang) =>
+            r == null ? new List<GroupRow>()
+                : PanelCore.Secs.Select(s => Group(r, s, s, SectionName(s, lang), c => c.Section == s, lang)).ToList();
 
         /// <summary>Checks a person decides, in one section or all (null).</summary>
         public static int NeedsPerson(SpecReport r, string section = null) =>

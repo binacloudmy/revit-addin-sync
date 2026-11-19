@@ -368,6 +368,29 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 _stateFilter,
                 id => _why.TryGetValue(id, out var w) ? w : (bool?)null);
 
+        // ── "Borang sections | Aspects" (Clear Sheet): the same 61 checks, two groupings ──
+        // A view switch only: the section filter, state filter, selection and open
+        // sections are left as they are.
+        private bool _aspects;
+
+        /// <summary>The list groups checks by aspect (N / P / Q / G) instead of Borang section (A–E).</summary>
+        public bool ShowAspects
+        {
+            get => _aspects;
+            set { if (_aspects == value) return; _aspects = value; RaiseAll(); }
+        }
+        public bool ShowSections => !_aspects;
+        public void ShowSectionsView() => ShowAspects = false;
+        public void ShowAspectsView() => ShowAspects = true;
+        public string SectionsToggleLabel => SpecChecklist.Str("bySections", _core.Lang);
+        public string AspectsToggleLabel => SpecChecklist.Str("byAspects", _core.Lang);
+        public string GroupToggleAria => SpecChecklist.Str("groupAria", _core.Lang);
+
+        /// <summary>The rows of the current grouping (empty without a spec report): section
+        /// rows A–E, or aspect rows N / P / Q / G — both from <see cref="SpecChecklist.Group"/>.</summary>
+        public IReadOnlyList<GroupRow> GroupRows =>
+            _aspects ? SpecAspects.Rows(_spec, _core.Lang) : SpecChecklist.SectionRows(_spec, _core.Lang);
+
         /// <summary>The legend: every state with its count of spec checks; click filters the Checklist.</summary>
         public IReadOnlyList<StateChip> StateChips => SpecChecklist.StateChips(_spec, _core.Lang, _stateFilter);
         public string StateFilter => _stateFilter;
