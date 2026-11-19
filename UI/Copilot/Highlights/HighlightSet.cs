@@ -73,6 +73,23 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
 
         public bool IsEmpty => !FromSelection && Kinds.All(g => g.Ids.Count == 0);
 
+        /// <summary>r13 (0.0.149), live 01a8e152 on 0.0.148 (frames V8-B1-03, -04): everything the set marks is a view, sheet or schedule the
+        /// turn made. Such a thing is no element of the active view: the card said "1 view made · Not visible in this view" and offered Select
+        /// all, Zoom to all and Hide marks. A set like this draws nothing and the card has no marks header (the view row keeps "Open ›").
+        /// Walls or tags made in the same turn keep their marks.</summary>
+        public bool OnlyViewsMade
+        {
+            get
+            {
+                var marked = Kinds.Where(k => k.Ids.Count > 0 || k.Count > 0).ToList();
+                return !FromSelection && marked.Count > 0
+                    && marked.All(k => k.Outcome == MarkOutcome.Made && k.Kind != MarkKind.TypeInstances && CreatedSummary.IsViewLike(k.Category));
+            }
+        }
+
+        /// <summary>The set has marks to draw in the model and the card has a marks header: not empty, not only made views.</summary>
+        public bool Drawable => !IsEmpty && !OnlyViewsMade;
+
         /// <summary>Found marks for these element ids (a card's Show / "Highlight in model"): no transaction, no Undo entry.</summary>
         public static HighlightSet Found(IEnumerable<long> ids, string turnId = "")
         {

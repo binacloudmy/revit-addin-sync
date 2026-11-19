@@ -39,12 +39,15 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 Grid.SetColumn(n, 1);
                 grid.Children.Add(name); grid.Children.Add(n);
                 var line = ItemsCard.Line(grid, below || i > 0, new Thickness(14, 6, 14, 6), 40);
-                actions.Rows?.Link(line, Highlights.MarkFocus.ForCategory(g.Category, g.Count));
+                // r13 (0.0.149): a made view, sheet or schedule is no element of the active view: its row selects and zooms to nothing
+                // (the server's item row below opens it: "Open ›").
+                if (!by.OnlyViews) actions.Rows?.Link(line, Highlights.MarkFocus.ForCategory(g.Category, g.Count));
                 box.Children.Add(line);
             }
             if (by.Groups.Count > drawn) box.Children.Add(ItemsCard.MoreRow(ItemsBody.MoreLine(by.Groups.Count - drawn, lang), true));
-            // What Revit made along (viewports of a sheet, sketch planes, ...): one quiet line, never rows (live R7).
-            if (by.SupportingLine(lang) is string supporting)
+            // What Revit made along (viewports of a sheet, sketch planes, ...): one quiet line, never rows (live R7). r13 (0.0.149), live
+            // 01a8e152: not when only views, sheets or schedules were made ("Views 1 · and 10 supporting elements" for one section box view).
+            if (!by.OnlyViews && by.SupportingLine(lang) is string supporting)
                 box.Children.Add(CardKit.Text(supporting, 11.5, "Cp.Faint", margin: new Thickness(14, 2, 14, 8)));
             box.Children.Add(Footnote(by.SourceLine(lang)));
             root.Children.Add(box);

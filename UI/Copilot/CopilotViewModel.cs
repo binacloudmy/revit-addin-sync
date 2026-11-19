@@ -1301,7 +1301,7 @@ namespace RevitWebAppSync.UI.Copilot
             ReplaceLastThinking(reply);
             try
             {
-                if (highlights != null && !highlights.IsEmpty) ModelResultReady?.Invoke(highlights, reply);
+                if (highlights != null && highlights.Drawable) ModelResultReady?.Invoke(highlights, reply);   // r13 (0.0.149): a made view only is nothing to draw
                 else ModelResultStale?.Invoke();   // nothing to draw for this turn: the previous turn's result must not stay
             }
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] result card: " + ex.Message); }
@@ -1444,7 +1444,7 @@ namespace RevitWebAppSync.UI.Copilot
                 if (MarksStateOf(m) == HL.MarksState.Hidden) { Revit.ShowMarksAgain(); return; }
                 var set = HL.HighlightSet.From(m.ResultCard, m.Evidence.Calls.Select(c => c.Env).ToList());
                 set.TurnId = m.TurnId ?? ""; set.Time = m.Time ?? "";
-                if (!set.IsEmpty) Revit.ShowMarks(set, () => UndoTurn(m), () => CanUndoTurn(m));
+                if (set.Drawable) Revit.ShowMarks(set, () => UndoTurn(m), () => CanUndoTurn(m));
             }
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] show in model: " + ex.Message); }
         }
@@ -1460,7 +1460,7 @@ namespace RevitWebAppSync.UI.Copilot
                 {
                     var set = HL.HighlightSet.From(m.ResultCard, m.Evidence.Calls.Select(c => c.Env).ToList());
                     set.TurnId = m.TurnId ?? ""; set.Time = m.Time ?? "";
-                    if (set.IsEmpty) return;
+                    if (!set.Drawable) return;
                     Revit.ShowMarks(set, () => UndoTurn(m), () => CanUndoTurn(m));
                 }
                 Revit.ShowGroup(target);
@@ -1499,7 +1499,7 @@ namespace RevitWebAppSync.UI.Copilot
             try
             {
                 var set = HL.HighlightSet.From(m.ResultCard, m.Evidence.Calls.Select(c => c.Env).ToList());
-                return set.IsEmpty ? "" : HL.MarkKey.Title(set.Kinds.Where(k => k.Count > 0 || k.Ids.Count > 0).ToList());
+                return !set.Drawable ? "" : HL.MarkKey.Title(set.Kinds.Where(k => k.Count > 0 || k.Ids.Count > 0).ToList());
             }
             catch (Exception) { return ""; }
         }
@@ -1580,7 +1580,9 @@ namespace RevitWebAppSync.UI.Copilot
             if (m?.ResultCard == null || m.Evidence == null || InModel == null) return false;
             // Undone: the elements are gone, there is nothing left to show.
             if (WhyNotUndoTurn(m) == BinaVibe.Copilot.Undo.UndoBlock.AlreadyUndone) return false;
-            try { return !HL.HighlightSet.From(m.ResultCard, m.Evidence.Calls.Select(c => c.Env).ToList()).IsEmpty; }
+            // r13 (0.0.149), live 01a8e152: a turn that made only a view, sheet or schedule has no marks (no "Not visible in this view",
+            // no Select all, Zoom to all or Hide marks); Drawable says so.
+            try { return HL.HighlightSet.From(m.ResultCard, m.Evidence.Calls.Select(c => c.Env).ToList()).Drawable; }
             catch (Exception) { return false; }
         }
 

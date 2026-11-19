@@ -120,6 +120,19 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return lang == ReceiptLanguage.Ms ? "dan " + n + " elemen sokongan" : "and " + n + " supporting element" + (Supporting == 1 ? "" : "s");
         }
 
+        /// <summary>r13 (0.0.149), live 01a8e152 on 0.0.148 (frames V8-B1-03, -04): every row is a view, sheet or schedule. Such a thing is
+        /// no element of the active view: the card neither marks nor selects it (its item row keeps "Open ›"), and what Revit made along
+        /// with it (camera, section box, sun path, viewports) is no line of its own ("and 10 supporting elements"). Undo still removes all.</summary>
+        public bool OnlyViews => Groups.Count > 0 && Groups.All(g => IsViewLike(g.Category));
+
+        /// <summary>A category whose elements are views of the model rather than elements in one: Views, Sheets, Schedules.</summary>
+        public static bool IsViewLike(string? category) => ViewLikeCategories.Contains((category ?? "").Trim());
+
+        private static readonly HashSet<string> ViewLikeCategories = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "Views", "Sheets", "Schedules", "Schedules/Quantities",
+        };
+
         /// <summary>Revit's by-products of a creation, never a row: a "class:" bucket (an element with no category, such as
         /// SketchPlane or GraphicsStyle), a generic bucket ("Element", "Other"), and the categories Revit makes along with a
         /// view or a sheet (Sun Path, Work Plane Grid, Schedule Graphics) and the Center Line a pipe or duct move redraws.</summary>
