@@ -171,12 +171,30 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 modelByLevel[pair.Key] = kept.Select(w => new FitSegment(w.X1, w.Y1, w.X2, w.Y2)).ToList();
             }
 
-            // 4. The level.
+            // 4. The level: the argument, else the cluster's plan rows when they name one level,
+            // else the level the drawing fits best.
             var fitOptions = new FitOptions();
+            var fitNotes = new List<string>();
             Level? level = null;
             FitResult? fit = null;
-            string? levelName = ArgsHelp.GetString(args, "level")
-                                ?? mapping.Plans.FirstOrDefault(p => p.Cluster == cluster && p.Level != null)?.Level;
+            string? levelName = ArgsHelp.GetString(args, "level");
+            if (levelName == null)
+            {
+                List<string> rowLevels = mapping.Plans
+                    .Where(p => p.Cluster == cluster && p.Level != null)
+                    .Select(p => p.Level!)
+                    .Distinct(StringComparer.Ordinal)
+                    .ToList();
+                if (rowLevels.Count > 1)
+                {
+                    Dictionary<string, object?> needed = Failed(dwgRef, "level_needed",
+                        "the mapping gives cluster " + cluster + " more than one level — pass level",
+                        rowLevels.Select(l => (object?)l).ToList());
+                    needed["cluster"] = cluster;
+                    return needed;
+                }
+                if (rowLevels.Count == 1) levelName = rowLevels[0];
+            }
             if (levelName != null)
             {
                 level = model.Levels.FirstOrDefault(l => string.Equals(l.Name, levelName, StringComparison.Ordinal))
@@ -187,7 +205,8 @@ namespace BinaVibe.Mcp.Tools.Electrical
             }
             else
             {
-                List<LevelFit> fits = CadModelFit.FitLevels(cad, modelByLevel, fitOptions, out bool tie);
+                List<LevelFit> fits = CadModelFit.FitLevels(cad, modelByLevel, fitOptions, out bool tie,
+                                                            out List<LevelFit> elsewhere);
                 if (tie)
                 {
                     Dictionary<string, object?> ambiguous = Failed(dwgRef, "level_ambiguous",
@@ -205,6 +224,9 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     return Failed(dwgRef, "no_model_walls", "the model has no levels to place on");
                 level = model.Levels.First(l => l.Name == fits[0].Level);
                 fit = fits[0].Fit;
+                foreach (LevelFit other in elsewhere)
+                    fitNotes.Add("this cluster also fits " + other.Level + " at another plan; call again with level=" +
+                                 other.Level + " to place that one");
             }
 
             // 5. The fit: centrelines, then faces. A positioned CAD link is not tried yet.
@@ -240,16 +262,58 @@ namespace BinaVibe.Mcp.Tools.Electrical
             }
             if (fit.Outcome == "failed")
             {
-                Dictionary<string, object?> failed = Failed(dwgRef, fit.FailReason ?? "alignment_failed",
-                    "the drawing's walls could not be laid on the model's walls on " + level.Name +
-                    " (score " + Math.Round(fit.Score, 2).ToString(System.Globalization.CultureInfo.InvariantCulture) +
-                    "). Check the level and the background layers; or link the DWG into the model, move it " +
-                    "onto the building, and run plan_cad_electrical again.");
+                string message = fit.FailReason == "crop_too_small"
+                    ? "too little of the drawing's wall linework lies on this level: check the background layers and the level"
+                    : "the drawing's walls could not be laid on the model's walls on " + level.Name +
+                      " (score " + Math.Round(fit.Score, 2).ToString(System.Globalization.CultureInfo.InvariantCulture) +
+                      "). Check the level and the background layers; or link the DWG into the model, move it " +
+                      "onto the building, and run plan_cad_electrical again.";
+                Dictionary<string, object?> failed = Failed(dwgRef, fit.FailReason ?? "alignment_failed", message);
                 failed["level"] = level.Name;
                 failed["cluster"] = cluster;
                 failed["score"] = Math.Round(fit.Score, 3);
+                failed["score_uncropped"] = Math.Round(fit.ScoreUncropped, 3);
+                failed["inside_share"] = Math.Round(fit.InsideShare, 3);
                 failed["method"] = method;
                 return failed;
+            }
+
+            // Copies of one floor drawn on one sheet fit equally well at each copy: geometry
+            // cannot choose, so the caller picks one by the titles under it.
+            int pick = -1;
+            if (fit.Rivals.Count > 0)
+            {
+                List<FitResult> places = CadModelFit.Places(fit);
+                long? pickArg = ArgsHelp.GetLong(args, "pick");
+                if (!pickArg.HasValue || pickArg.Value < 0 || pickArg.Value >= places.Count)
+                {
+                    Dictionary<string, object?> ambiguous = Failed(dwgRef, "plan_ambiguous",
+                        (pickArg.HasValue ? "pick " + pickArg.Value + " is not one of the candidates. " : "") +
+                        "the drawing holds " + places.Count + " copies of " + level.Name + "'s walls in cluster " +
+                        cluster + " (top to bottom, then left to right) — pass pick with the one whose titles " +
+                        "name this level",
+                        places.Select((p, i) => (object?)new Dictionary<string, object?>
+                        {
+                            ["pick"] = i,
+                            ["titles"] = TitlesUnder(scan, p).Cast<object?>().ToList(),
+                            ["score"] = Math.Round(p.Score, 3),
+                        }).ToList());
+                    ambiguous["level"] = level.Name;
+                    ambiguous["cluster"] = cluster;
+                    return ambiguous;
+                }
+                pick = (int)pickArg.Value;
+                fit = places[pick];
+                if (fit.Outcome == "failed")
+                {
+                    Dictionary<string, object?> failed = Failed(dwgRef, "alignment_failed",
+                        "pick " + pick + " does not lay the drawing on " + level.Name + "'s walls well enough (score " +
+                        Math.Round(fit.Score, 2).ToString(System.Globalization.CultureInfo.InvariantCulture) + ")");
+                    failed["level"] = level.Name;
+                    failed["cluster"] = cluster;
+                    failed["score"] = Math.Round(fit.Score, 3);
+                    return failed;
+                }
             }
 
             // 6-7. Every placeable instance in the cluster, resolved to a point.
@@ -269,8 +333,9 @@ namespace BinaVibe.Mcp.Tools.Electrical
             var points = new List<PlannedPoint>();
             var unmapped = new Dictionary<string, UnmappedClass>(StringComparer.Ordinal);
             var dropped = new List<object?>();
-            int otherPlans = 0;
+            int otherPlans = 0, outsideFootprint = 0;
             int total = scan.Symbols.Count;
+            ModelFootprint? footprint = fit.Footprint != null && !fit.Footprint.IsEmpty ? fit.Footprint : null;
 
             for (int i = 0; i < total; i++)
             {
@@ -279,13 +344,27 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 if (!symbol.Placed) continue;
                 rows.TryGetValue(symbol.Key, out SymbolRow? row);
 
-                if (symbol.Cluster != cluster)
+                // A symbol belongs to this plan when, carried onto the model, it lies inside the
+                // level's footprint, whatever census cluster it is in (F6). With no footprint
+                // the cluster decides, as before.
+                fit.Transform.Apply(symbol.X, symbol.Y, out double mx, out double my);
+                bool inside = footprint != null ? footprint.Contains(mx, my) : symbol.Cluster == cluster;
+                string membership = CadSymbolResolve.Membership(symbol.Cluster, cluster, inside);
+                if (membership != "plan")
                 {
-                    if (row != null && CadElectricalMapping.IsPlaceable(row.Role)) otherPlans++;
+                    bool placeable = row != null && CadElectricalMapping.IsPlaceable(row.Role);
+                    if (!placeable) continue;
+                    if (membership == "other_plan")
+                    {
+                        otherPlans++;
+                    }
+                    else if (!CadSymbolResolve.NestedInMapped(scan.Symbols, i, isMappedPlaceable))
+                    {
+                        outsideFootprint++;
+                        Drop(dropped, symbol.Key, membership, mx, my, levelZMm);
+                    }
                     continue;
                 }
-
-                fit.Transform.Apply(symbol.X, symbol.Y, out double mx, out double my);
 
                 // Ignored classes, and unmapped ones that are not symbol-sized or sit on a wall
                 // layer (containers, title blocks, the background's own blocks), say nothing.
@@ -341,6 +420,10 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     TxMm = fit.Transform.TxMm,
                     TyMm = fit.Transform.TyMm,
                     Score = fit.Score,
+                    ScoreUncropped = fit.ScoreUncropped,
+                    InsideShare = fit.InsideShare,
+                    ModelCoverage = fit.ModelCoverage,
+                    Pick = pick,
                     Outcome = fit.Outcome,
                     Method = method,
                 },
@@ -349,6 +432,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     ["dwg_ref"] = dwgRef,
                     ["cluster"] = cluster,
                     ["level"] = level.Name,
+                    ["pick"] = pick >= 0 ? pick : (int?)null,
                     ["background_layers"] = background.Cast<object?>().ToList(),
                     ["pair_across_layers"] = pairAcross,
                     ["min_wall_mm"] = CadSymbolResolve.MinStructuralWallMm,
@@ -363,6 +447,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
             string planId = SocketPlanCache.Store(plan, SocketCandidates.DocKey(doc));
 
             var notes = new List<string>(mapping.Notes);
+            notes.AddRange(fitNotes);
             if (ArgsHelp.GetDouble(args, "run_height_mm").HasValue)
                 notes.Add("run_height_mm is for conduit runs, which come in phase 2; it was not used");
             if (provisional)
@@ -375,7 +460,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 ["dwg_ref"] = dwgRef,
                 ["level"] = level.Name,
                 ["cluster"] = cluster,
-                ["review"] = CadElectricalReview.PlanReview(plan, unmapped.Values.ToList(), otherPlans, notes),
+                ["review"] = CadElectricalReview.PlanReview(plan, unmapped.Values.ToList(), otherPlans, notes, outsideFootprint),
                 ["params_used"] = plan.ParamsUsed,
             };
 
@@ -565,6 +650,12 @@ namespace BinaVibe.Mcp.Tools.Electrical
             }
             return false;
         }
+
+        /// <summary>The plan titles under the part of the drawing a placement lays on the level.</summary>
+        private static List<string> TitlesUnder(ElectricalScan scan, FitResult place) =>
+            CadModelFit.DrawingBox(place, out double minX, out double minY, out double maxX, out double maxY)
+                ? scan.TitlesIn(minX, minY, maxX, maxY)
+                : new List<string>();
 
         private static void Drop(List<object?> dropped, string block, string reason, double x, double y, double z) =>
             dropped.Add(new Dictionary<string, object?>

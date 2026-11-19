@@ -149,6 +149,43 @@ namespace Tests
         }
 
         [Fact]
+        public void Outside_footprint_is_a_count_not_a_flag()
+        {
+            Dictionary<string, object?> review = CadElectricalReview.PlanReview(Plan(), Unmapped, 0, null, 6);
+
+            Assert.Equal(6, review["outside_model_footprint"]);
+            var flags = ((List<object?>)review["flagged"]!).Select(Row).Select(r => (string)r["flag"]!);
+            Assert.DoesNotContain("outside_model_footprint", flags);
+            Assert.Equal(5, review["drawn"]);
+            Assert.Contains((List<object?>)review["notes"]!, n => ((string)n!).StartsWith("6 mapped instances", StringComparison.Ordinal) &&
+                                                                  ((string)n!).IndexOf("outside", StringComparison.Ordinal) >= 0);
+
+            Dictionary<string, object?> none = CadElectricalReview.PlanReview(Plan(), Unmapped, 0);
+            Assert.Equal(0, none["outside_model_footprint"]);
+            Assert.Empty((List<object?>)none["notes"]!);
+        }
+
+        [Fact]
+        public void Alignment_shows_cropped_and_uncropped_scores()
+        {
+            SocketPlan plan = Plan();
+            plan.Alignment!.ScoreUncropped = 0.31234;
+            plan.Alignment.InsideShare = 0.33333;
+            plan.Alignment.ModelCoverage = 0.61789;
+
+            Dictionary<string, object?> a = Row(CadElectricalReview.PlanReview(plan, Unmapped, 0)["alignment"]);
+
+            Assert.Equal(0.934, a["score"]);
+            Assert.Equal(0.312, a["score_uncropped"]);
+            Assert.Equal(0.333, a["inside_share"]);
+            Assert.Equal(0.618, a["model_coverage"]);
+            Assert.Null(a["pick"]);
+
+            plan.Alignment.Pick = 2;
+            Assert.Equal(2, Row(CadElectricalReview.PlanReview(plan, Unmapped, 0)["alignment"])["pick"]);
+        }
+
+        [Fact]
         public void Review_carries_no_coordinates()
         {
             string json = Json(CadElectricalReview.PlanReview(Plan(), Unmapped, 3));

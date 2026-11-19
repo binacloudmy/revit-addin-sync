@@ -424,12 +424,14 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
         private readonly Dictionary<string, List<(double X1, double Y1, double X2, double Y2)>> _facePieces;
         private readonly CensusOptions _options;
+        private readonly List<(double X, double Y, double Height, string Value)> _titleTexts;
 
         internal ElectricalScan(ElectricalCensusResult census, double mmPerUnit, List<ScanSymbol> symbols,
                                 List<ScanCluster> clusters, IReadOnlyCollection<string> layerNames,
                                 IReadOnlyCollection<string> wallLikeLayers,
                                 Dictionary<string, List<(double X1, double Y1, double X2, double Y2)>> facePieces,
-                                CensusOptions options)
+                                CensusOptions options,
+                                List<(double X, double Y, double Height, string Value)>? titleTexts = null)
         {
             Census = census;
             MmPerUnit = mmPerUnit;
@@ -439,7 +441,14 @@ namespace BinaVibe.Mcp.Tools.Electrical
             WallLikeLayers = wallLikeLayers;
             _facePieces = facePieces;
             _options = options;
+            _titleTexts = titleTexts ?? new List<(double X, double Y, double Height, string Value)>();
         }
+
+        /// <summary>The plan titles of a box on the sheet, mm, by the census's own rule for a
+        /// plan's box: title words written under it or close beside it, tallest first, at most
+        /// three.</summary>
+        public List<string> TitlesIn(double minX, double minY, double maxX, double maxY) =>
+            ElectricalCensus.TitlesFor(_titleTexts, minX, minY, maxX, maxY);
 
         /// <summary>The non-symbol straight pieces of these layers, mm, each tagged with its
         /// layer. A name the drawing does not have adds nothing.</summary>
@@ -593,7 +602,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 result, scale, ScanSymbols(sink), ScanClusters(clusters, result),
                 sink.Layers.Keys.ToList(),
                 sink.Layers.Values.Where(tally => tally.PairsLikeWalls).Select(tally => tally.Name).ToList(),
-                facePieces, o);
+                facePieces, o, TitleTexts(sink));
         }
 
         private static List<ScanSymbol> ScanSymbols(CensusSink sink)
@@ -936,23 +945,12 @@ namespace BinaVibe.Mcp.Tools.Electrical
             result.PlansTruncated = clusters.Count > o.MaxPlans;
             clusters = clusters.Take(o.MaxPlans).ToList();
 
-            List<CensusText> titleTexts = sink.Texts.Where(text => ContainsAny(text.Value, TitleWords)).ToList();
+            List<(double X, double Y, double Height, string Value)> titleTexts = TitleTexts(sink);
 
             for (int i = 0; i < clusters.Count; i++)
             {
                 PlanCluster cluster = clusters[i];
-
-                // A plan's title sits under it, or close beside it.
-                double minX = cluster.MinX - 2000, maxX = cluster.MaxX + 2000;
-                double minY = cluster.MinY - (0.2 * cluster.Height), maxY = cluster.MaxY + 2000;
-
-                List<string> titles = titleTexts
-                    .Where(text => text.X >= minX && text.X <= maxX && text.Y >= minY && text.Y <= maxY)
-                    .OrderByDescending(text => text.Height)
-                    .Select(text => Truncate(text.Value, 60))
-                    .Distinct(StringComparer.Ordinal)
-                    .Take(3)
-                    .ToList();
+                List<string> titles = TitlesFor(titleTexts, cluster.MinX, cluster.MinY, cluster.MaxX, cluster.MaxY);
 
                 result.Plans.Add(new CensusPlan
                 {
@@ -986,6 +984,32 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
             return clusters;
         }
+
+        /// <summary>The sheet's texts that hold a title word.</summary>
+        private static List<(double X, double Y, double Height, string Value)> TitleTexts(CensusSink sink) =>
+            sink.Texts.Where(text => ContainsAny(text.Value, TitleWords))
+                .Select(text => (text.X, text.Y, text.Height, text.Value))
+                .ToList();
+
+        /// <summary>A plan's titles: title texts under its box, or close beside it, tallest
+        /// first, at most three.</summary>
+        internal static List<string> TitlesFor(IEnumerable<(double X, double Y, double Height, string Value)> titleTexts,
+                                               double boxMinX, double boxMinY, double boxMaxX, double boxMaxY)
+        {
+            double minX = boxMinX - 2000, maxX = boxMaxX + 2000;
+            double minY = boxMinY - TitleReachBelow(boxMaxY - boxMinY), maxY = boxMaxY + 2000;
+
+            return titleTexts
+                .Where(text => text.X >= minX && text.X <= maxX && text.Y >= minY && text.Y <= maxY)
+                .OrderByDescending(text => text.Height)
+                .Select(text => Truncate(text.Value, 60))
+                .Distinct(StringComparer.Ordinal)
+                .Take(3)
+                .ToList();
+        }
+
+        /// <summary>How far under a plan its title may sit.</summary>
+        private static double TitleReachBelow(double planHeight) => 0.2 * planHeight;
 
         private static bool ContainsAny(string value, string[] words)
         {

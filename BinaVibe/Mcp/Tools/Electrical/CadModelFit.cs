@@ -157,6 +157,19 @@ namespace BinaVibe.Mcp.Tools.Electrical
         /// <summary>The centre of the inside cells' box, mm; false when there are none.</summary>
         public bool Centre(out double xMm, out double yMm)
         {
+            if (!Bounds(out double minX, out double minY, out double maxX, out double maxY))
+            {
+                xMm = yMm = 0;
+                return false;
+            }
+            xMm = (minX + maxX) / 2;
+            yMm = (minY + maxY) / 2;
+            return true;
+        }
+
+        /// <summary>The box of the inside cells, mm; false when there are none.</summary>
+        public bool Bounds(out double minX, out double minY, out double maxX, out double maxY)
+        {
             int loI = int.MaxValue, hiI = -1, loJ = int.MaxValue, hiJ = -1;
             for (int j = 0; j < _ny; j++)
             {
@@ -171,11 +184,13 @@ namespace BinaVibe.Mcp.Tools.Electrical
             }
             if (hiI < 0)
             {
-                xMm = yMm = 0;
+                minX = minY = maxX = maxY = 0;
                 return false;
             }
-            xMm = _minX + ((loI + hiI + 1) * _cell / 2);
-            yMm = _minY + ((loJ + hiJ + 1) * _cell / 2);
+            minX = _minX + (loI * _cell);
+            maxX = _minX + ((hiI + 1) * _cell);
+            minY = _minY + (loJ * _cell);
+            maxY = _minY + ((hiJ + 1) * _cell);
             return true;
         }
     }
@@ -190,6 +205,15 @@ namespace BinaVibe.Mcp.Tools.Electrical
             double cos = Math.Cos(RotationRad), sin = Math.Sin(RotationRad);
             mx = (cos * x) - (sin * y) + TxMm;
             my = (sin * x) + (cos * y) + TyMm;
+        }
+
+        /// <summary>Model mm back to drawing mm.</summary>
+        public void Invert(double mx, double my, out double x, out double y)
+        {
+            double cos = Math.Cos(RotationRad), sin = Math.Sin(RotationRad);
+            double dx = mx - TxMm, dy = my - TyMm;
+            x = (cos * dx) + (sin * dy);
+            y = (-sin * dx) + (cos * dy);
         }
 
         public FitSegment Apply(FitSegment s)
@@ -328,6 +352,48 @@ namespace BinaVibe.Mcp.Tools.Electrical
             o = o ?? new FitOptions();
             ModelFootprint footprint = ModelFootprint.From(model, o.FootprintCellMm);
             return Measure(cad, new ModelIndex(model), footprint, model.Sum(s => s.Length), t, o);
+        }
+
+        /// <summary>The best and its rivals, ordered as a drafter reads the sheet: top to bottom,
+        /// then left to right (in metre bands), by the model footprint's centre carried back onto
+        /// the drawing. Each one's place in the list is its pick.</summary>
+        public static List<FitResult> Places(FitResult best)
+        {
+            return new[] { best }.Concat(best.Rivals)
+                .Select(place =>
+                {
+                    double x = 0, y = 0;
+                    if (place.Footprint != null && place.Footprint.Centre(out double mx, out double my))
+                        place.Transform.Invert(mx, my, out x, out y);
+                    return (Place: place, X: x, Y: y);
+                })
+                .OrderByDescending(p => Math.Round(p.Y / 1000))
+                .ThenBy(p => Math.Round(p.X / 1000))
+                .Select(p => p.Place)
+                .ToList();
+        }
+
+        /// <summary>The box on the drawing that a placement lays on the model footprint, mm; false
+        /// when the footprint is empty.</summary>
+        public static bool DrawingBox(FitResult place, out double minX, out double minY, out double maxX, out double maxY)
+        {
+            minX = minY = maxX = maxY = 0;
+            if (place.Footprint == null ||
+                !place.Footprint.Bounds(out double x0, out double y0, out double x1, out double y1)) return false;
+
+            var xs = new List<double>();
+            var ys = new List<double>();
+            foreach ((double mx, double my) in new[] { (x0, y0), (x1, y0), (x1, y1), (x0, y1) })
+            {
+                place.Transform.Invert(mx, my, out double x, out double y);
+                xs.Add(x);
+                ys.Add(y);
+            }
+            minX = xs.Min();
+            maxX = xs.Max();
+            minY = ys.Min();
+            maxY = ys.Max();
+            return true;
         }
 
         /// <summary>Rotations within a degree and shifts within RivalSeparationMm: one place.</summary>

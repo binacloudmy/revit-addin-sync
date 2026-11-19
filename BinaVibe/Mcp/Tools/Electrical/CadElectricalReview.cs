@@ -36,10 +36,14 @@ namespace BinaVibe.Mcp.Tools.Electrical
         /// The review card of one drawing plan: headline, alignment, rooms (room x role,
         /// drawn against will place), flagged points by flag with the flag's default, unmapped
         /// classes, family types and notes. <paramref name="otherPlanInstances"/> counts the
-        /// mapped instances that sit in the drawing's other plans, which this plan leaves out.
+        /// mapped instances that sit in the drawing's other plans, which this plan leaves out;
+        /// <paramref name="outsideFootprint"/> the mapped instances of this plan's cluster that lie
+        /// outside the level's footprint once placed (a count and a note, never a flag: they are
+        /// not points).
         /// </summary>
         public static Dictionary<string, object?> PlanReview(SocketPlan plan, IReadOnlyList<UnmappedClass> unmapped,
-                                                             int otherPlanInstances, IEnumerable<string>? notes = null)
+                                                             int otherPlanInstances, IEnumerable<string>? notes = null,
+                                                             int outsideFootprint = 0)
         {
             List<PlannedPoint> points = plan.Points;
             int drawn = points.Count;
@@ -104,6 +108,12 @@ namespace BinaVibe.Mcp.Tools.Electrical
             {
                 allNotes.Add(Count(otherPlanInstances) + " mapped instances sit in the drawing's other plans and are not in this one");
             }
+            if (outsideFootprint > 0)
+            {
+                allNotes.Add(Count(outsideFootprint) + " mapped instances in this plan's part of the drawing fall outside " +
+                             "the level's walls once aligned and are not placed: devices outdoors, or drawing that " +
+                             "belongs to another plan");
+            }
 
             return new Dictionary<string, object?>
             {
@@ -112,6 +122,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 ["drawn"] = drawn,
                 ["will_place"] = place,
                 ["excluded"] = drawn - place,
+                ["outside_model_footprint"] = outsideFootprint,
                 ["rooms"] = rooms,
                 ["flagged"] = flagged,
                 ["unmapped_classes"] = unmapped
@@ -227,8 +238,12 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     ["cluster"] = a.Cluster,
                     ["rotation_deg"] = Math.Round(a.RotationDeg, 2),
                     ["score"] = Math.Round(a.Score, 3),
+                    ["score_uncropped"] = Math.Round(a.ScoreUncropped, 3),
+                    ["inside_share"] = Math.Round(a.InsideShare, 3),
+                    ["model_coverage"] = Math.Round(a.ModelCoverage, 3),
                     ["outcome"] = a.Outcome,
                     ["method"] = a.Method,
+                    ["pick"] = a.Pick >= 0 ? a.Pick : (int?)null,
                 };
 
         private static string Count(int n) => n.ToString(CultureInfo.InvariantCulture);

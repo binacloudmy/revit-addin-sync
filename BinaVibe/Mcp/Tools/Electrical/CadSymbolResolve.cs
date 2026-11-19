@@ -106,6 +106,18 @@ namespace BinaVibe.Mcp.Tools.Electrical
             return kept.Count >= 4 ? kept : walls.ToList();
         }
 
+        /// <summary>
+        /// Whether a drawn symbol belongs to the plan being placed: "plan" when, carried onto
+        /// the model, it lies inside the level's footprint, whatever census cluster it is in
+        /// (stacked plans share a cluster; one plan can be split across two); else
+        /// "outside_model_footprint" in the chosen cluster, "other_plan" in any other.
+        /// </summary>
+        public static string Membership(int symbolCluster, int chosenCluster, bool insideFootprint)
+        {
+            if (insideFootprint) return "plan";
+            return symbolCluster == chosenCluster ? "outside_model_footprint" : "other_plan";
+        }
+
         /// <summary>The walls' centrelines filed for <see cref="Resolve"/>, same order.</summary>
         public static SegmentIndex Index(IReadOnlyList<ModelWall> walls) =>
             new SegmentIndex(walls.Select(w => new Segment(new Point(w.X1, w.Y1), new Point(w.X2, w.Y2))).ToList(), 2000);

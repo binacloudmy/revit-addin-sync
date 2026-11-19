@@ -273,6 +273,18 @@ namespace Tests
         };
 
         [Fact]
+        public void Membership_is_by_footprint_not_cluster()
+        {
+            // Inside the footprint: in the plan, even from another cluster (stacked or split plans).
+            Assert.Equal("plan", CadSymbolResolve.Membership(3, 0, true));
+            Assert.Equal("plan", CadSymbolResolve.Membership(0, 0, true));
+            // Outside: in the chosen cluster it is counted; elsewhere it is another plan's.
+            Assert.Equal("outside_model_footprint", CadSymbolResolve.Membership(0, 0, false));
+            Assert.Equal("other_plan", CadSymbolResolve.Membership(2, 0, false));
+            Assert.Equal("other_plan", CadSymbolResolve.Membership(-1, 0, false));
+        }
+
+        [Fact]
         public void Thin_walls_are_not_structural()
         {
             List<ModelWall> walls = CadSymbolResolve.Structural(CoreAndFinish());

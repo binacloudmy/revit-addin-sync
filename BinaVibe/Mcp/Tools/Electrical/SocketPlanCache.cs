@@ -80,7 +80,16 @@ namespace BinaVibe.Mcp.Tools.Electrical
         public double RotationDeg;
         public double TxMm;
         public double TyMm;
+        /// <summary>Share of the drawing's wall inside the level's footprint lying on a model wall.</summary>
         public double Score;
+        /// <summary>The same share of all the cluster's drawing wall.</summary>
+        public double ScoreUncropped;
+        /// <summary>Share of the cluster's drawing wall inside the level's footprint.</summary>
+        public double InsideShare;
+        /// <summary>Share of the level's model wall lying on a drawing wall.</summary>
+        public double ModelCoverage;
+        /// <summary>Which of several equal placements the caller picked; -1 when there was one.</summary>
+        public int Pick = -1;
         /// <summary>"accepted" | "provisional"</summary>
         public string Outcome = "";
         /// <summary>"fit" | "fit_faces" | "linked_instance"</summary>

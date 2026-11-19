@@ -257,6 +257,14 @@ namespace Tests
             var shifts = new[] { fit }.Concat(fit.Rivals).Select(r => Math.Round(r.Transform.TyMm)).OrderBy(y => y).ToList();
             Assert.Equal(new[] { -9000 - (2 * Pitch), -9000 - Pitch, -9000.0 }, shifts);
             Assert.All(fit.Rivals, r => Assert.Equal(4000, r.Transform.TxMm, 0));
+
+            // Picks run top to bottom on the drawing: the top copy (highest y) is pick 0.
+            List<FitResult> places = CadModelFit.Places(fit);
+            Assert.Equal(new[] { -9000 - (2 * Pitch), -9000 - Pitch, -9000.0 },
+                         places.Select(p => Math.Round(p.Transform.TyMm)));
+            Assert.True(CadModelFit.DrawingBox(places[0], out _, out double minY, out _, out double maxY));
+            Assert.InRange(minY, (2 * Pitch) - 1000, (2 * Pitch) + 1);
+            Assert.InRange(maxY, (2 * Pitch) + 15000, (2 * Pitch) + 16001);
         }
 
         [Fact]

@@ -121,6 +121,24 @@ namespace Tests
         }
 
         [Fact]
+        public void Titles_in_a_box_follow_the_census_rule()
+        {
+            CadDocument doc = TwoRooms();
+            Text(doc, "A-TEXT", 3000, -600, "PLAN LEVEL 1", 500);
+            Text(doc, "A-TEXT", 39000, -600, "PLAN LEVEL 2", 500);
+            Text(doc, "A-TEXT", 3000, -900, "NOTE 1", 300);
+
+            ElectricalScan scan = ElectricalCensus.Scan(doc);
+
+            Assert.Equal(new[] { "PLAN LEVEL 1" }, scan.TitlesIn(0, 0, 6000, 5000));
+            Assert.Equal(new[] { "PLAN LEVEL 2" }, scan.TitlesIn(36000, 0, 42000, 5000));
+            Assert.Empty(scan.TitlesIn(15000, 10000, 20000, 15000));
+            int left = ClusterAt(scan, 3000, 2500);
+            Assert.Equal(scan.Census.Plans[left].Titles, scan.TitlesIn(scan.Clusters[left].MinX, scan.Clusters[left].MinY,
+                                                                       scan.Clusters[left].MaxX, scan.Clusters[left].MaxY));
+        }
+
+        [Fact]
         public void Nested_symbol_points_at_its_parent()
         {
             CadDocument doc = TwoRooms();
