@@ -136,9 +136,16 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public static string FindingRepeatLabel(Finding f, ReceiptLanguage lang) =>
             f.Repeats > 1 ? RepeatFold.CountLabel(f.Repeats, f.Ids.Count, lang) : "";
 
-        /// <summary>The message of a row that may fold with others: the amber detail line of a not-done row (kind "row");
-        /// "" for every other row, which never folds.</summary>
+        /// <summary>The message of a row that may fold with others: the amber detail line of a not-done row (kind "row" with a
+        /// "state"); "" for every other row, which never folds. r13 (live turn ce75668c): a found row of kind "row" with only a
+        /// shared value ({"Fire Rating": "1 HOUR"}) is not a not-done row; folding on that value drew FD2 and FD1 as one
+        /// "1 HOUR x2" row and only FD3 beside it.</summary>
         public static string FoldMessage(ItemRow row, ReceiptLanguage lang) =>
-            row.Kind == ResultItemKinds.Row ? Parts(row, lang).Detail : "";
+            row.Kind == ResultItemKinds.Row && row.Cell("state").Trim().Length > 0 ? Parts(row, lang).Detail : "";
+
+        /// <summary>The units a section draws, in order: a row of its own, or several not-done rows with one message folded into
+        /// one (<see cref="RepeatFold"/>). Every row of the section is a member of exactly one unit.</summary>
+        public static List<RepeatGroup<ItemRow>> Units(ItemSection section, ReceiptLanguage lang) =>
+            RepeatFold.Fold(section.Rows, r => FoldMessage(r, lang), r => r.Ids);
     }
 }
