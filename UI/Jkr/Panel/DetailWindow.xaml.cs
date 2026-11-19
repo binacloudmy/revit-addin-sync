@@ -33,8 +33,6 @@ namespace RevitWebAppSync.UI.Jkr.Panel
         private DateTime _lastSwipe = DateTime.MinValue;
         private bool _closing;
 
-        /// <summary>The toast's Undo was clicked.</summary>
-
         private DetailWindow(DetailScreenModel model)
         {
             _model = model ?? throw new ArgumentNullException(nameof(model));

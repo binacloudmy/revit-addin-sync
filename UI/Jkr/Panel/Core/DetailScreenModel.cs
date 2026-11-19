@@ -264,7 +264,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             _results.FixRow(c.Id);
         }
 
-        /// <summary>Ignore (A): toast with Undo; the card turns "Ignored".</summary>
+        /// <summary>Ignore (A): plain toast; the card turns "Ignored".</summary>
         public void Ignore()
         {
             var c = Current;

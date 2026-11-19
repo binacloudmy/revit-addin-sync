@@ -8,7 +8,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
     /// The prototype's panel logic ("Model Audit Prototype.dc.html", class
     /// Component), ported method for method with no WPF and no Revit so every
     /// rule is unit-tested: stats(), filtered(), tab counts, Fix all / Ignore all
-    /// scope, ignore with a 6 s undo, re-scan (fixed → passed), reset (back to
+    /// scope, ignore with a plain toast, re-scan (fixed → passed), reset (back to
     /// Start), reviewed state, the run animation and handleKey. Timers go
     /// through <see cref="IPanelClock"/>. The XAML views (steps 7–13) bind to it.
     ///
@@ -347,7 +347,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             ShowToast(list.Count + " " + T("toastFix"));
         }
 
-        /// <summary>prototype ignore: toast with Undo for 6 s.</summary>
+        /// <summary>prototype ignore: a plain toast (no Undo).</summary>
         public void Ignore(IEnumerable<string> ids)
         {
             var list = (ids ?? Enumerable.Empty<string>()).ToList();

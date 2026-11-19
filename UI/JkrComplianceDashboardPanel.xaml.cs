@@ -97,7 +97,7 @@ namespace RevitWebAppSync.UI
         /// <summary>"Applying n changes…" while a batch is written; null when done.</summary>
         public event Action<string> BusyChanged;
 
-        /// <summary>A toast appeared (message, Undo offered) or went (null).</summary>
+        /// <summary>A toast appeared (message) or went (null).</summary>
         public event Action<string> ToastChanged;
 
         public IReadOnlyList<IssueVm> CurrentIssues => _vm.Issues.ToList();
@@ -172,7 +172,7 @@ namespace RevitWebAppSync.UI
             }
         }
 
-        /// <summary>Ignore these issues: one toast, one Undo for all, saved to the audit file.</summary>
+        /// <summary>Ignore these issues: one plain toast, saved to the audit file.</summary>
         public void IgnoreIssues(IReadOnlyList<string> ids)
         {
             var issues = (ids ?? Array.Empty<string>()).Select(FindIssue)
@@ -201,7 +201,6 @@ namespace RevitWebAppSync.UI
             RenderAll();
         }
 
-        /// <summary>The toast's Undo (restores and saves the last decision).</summary>
 
         /// <summary>Reset from the Results screen (back to Start; writes nothing).</summary>
         public void ResetToStart() => Reset_Click(this, new RoutedEventArgs());
@@ -512,7 +511,6 @@ namespace RevitWebAppSync.UI
             if (_vm.Toast != null)
             {
                 ToastMsg.Text = _vm.Toast.Message;
-                UndoBtn.Visibility = _vm.Toast.CanUndo ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
                 Toast.Visibility = System.Windows.Visibility.Visible;
                 var fade = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(250)) { EasingFunction = new CubicEase() };
                 Toast.BeginAnimation(OpacityProperty, fade);
@@ -1142,7 +1140,7 @@ namespace RevitWebAppSync.UI
                 return;
             }
 
-            // One toast with one Undo that puts every one of them back.
+            // One plain toast for all of them.
             _vm.ApplyDecisions(ignorable, IssueStatus.Ignored,
                 Jkr.Panel.Core.PaneText.IgnoredMedLow(ignorable.Count));
 
@@ -1878,18 +1876,6 @@ namespace RevitWebAppSync.UI
             _vm.ReplaceIssues(new List<IssueVm>());
             ResetDone?.Invoke();
             _vm.ShowToast(Jkr.Panel.Core.PaneText.ResetDone());
-        }
-
-        /// <summary>Toast Undo: puts back every issue the last decision changed and
-        /// saves the restored statuses, so a re-scan doesn't bring the decision back.</summary>
-        private void Undo_Click(object s, RoutedEventArgs e)
-        {
-            foreach (var issue in _vm.Undo())
-            {
-                try { JkrAuditStore.Save(_scannedDocPath, issue); }
-                catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[BINA] audit save failed: {ex.Message}"); }
-            }
-            RenderAll();
         }
 
         private async void CloseBtn_Click(object s, RoutedEventArgs e)

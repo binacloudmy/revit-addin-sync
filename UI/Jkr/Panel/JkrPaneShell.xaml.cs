@@ -31,7 +31,6 @@ namespace RevitWebAppSync.UI.Jkr.Panel
         /// <summary>The issue detail over Revit's window (step 11).</summary>
         public DetailScreenModel Detail { get; }
 
-        /// <summary>The toast's Undo was clicked.</summary>
 
         /// <summary>The login view's "Try again" was clicked.</summary>
         public event Action RetryRequested;
