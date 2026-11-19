@@ -8,12 +8,15 @@ Phase 1 of the CAD electrical to BIM work. A DWG electrical layout becomes Revit
 
 `dump_electrical_reference` and the headless `--compare-devices` and `--fit` commands measure the result.
 
-All names in this document are invented: SOCKET, LIGHT-A, A-WALL, E-POWER, "Level 1".
+Phase 2 adds conduit and trunking runs (section 7): the mapping names the run layers, `plan_cad_electrical` plans the runs beside the devices, and `route_conduit` builds them as Revit conduit and cable tray.
+
+All names in this document are invented: SOCKET, LIGHT-A, A-WALL, E-POWER, E-CONDUIT, E-TRUNK, "Level 1".
 
 Code:
 - `BinaVibe/Mcp/Tools/Electrical/`: `CadElectricalTools.cs`, `CadElectricalMapping.cs`, `CadModelFit.cs`, `CadSymbolResolve.cs`, `CadElectricalResolver.cs`, `CadElectricalReview.cs`, `SocketPlacement.cs`, `PlacementCompare.cs`
+- Phase 2: `CadRunChain.cs`, `CadRunPlan.cs`, `RunCompare.cs` in the same folder, and `BinaVibe/Mcp/Tools/MutatorsMepRouting.cs` (`route_conduit`)
 - `BinaVibe/Mcp/Tools/ImportDialogGuard.cs`
-- `Cad2Bim/Cad2Bim.Headless/ElectricalCheckCommands.cs`
+- `Cad2Bim/Cad2Bim.Headless/ElectricalCheckCommands.cs`, `Cad2Bim/Cad2Bim.Headless/RunCheckCommands.cs`
 
 Units are millimetres in project-internal coordinates unless a field says otherwise.
 
@@ -46,18 +49,22 @@ Units are millimetres in project-internal coordinates unless a field says otherw
   "census": { "…": "slim census: block classes first (symbol-sized, non-container), then layers" },
   "roles": ["socket", "switch", "isolator", "distribution_board", "light", "fan", "comms_outlet", "other", "ignore", "unknown"],
   "hosts": ["wall", "ceiling", "none"],
-  "layer_roles": ["background", "conduit", "wiring_schematic", "ignore", "unknown"],
+  "layer_roles": ["background", "conduit", "trunking", "wiring_schematic", "ignore", "unknown"],
   "model": {
     "levels": [{ "name": "Level 1", "elevation_mm": 0.0 }],
     "family_types": [{ "family_type": "Socket Outlet : Single", "category": "Electrical Fixtures", "hosting": "face" }],
     "family_types_total": 1,
-    "family_types_truncated": false
+    "family_types_truncated": false,
+    "conduit_types": [{ "type": "Conduit with Fittings : PVC", "with_fittings": true, "sizes_mm": [16, 20, 25, 32] }],
+    "cable_tray_types": [{ "type": "Cable Tray with Fittings : Trunking", "with_fittings": true }]
   },
   "notes": []
 }
 ```
 
 **Slim census limits:** at most 80 block classes and 60 layers. Each layer has name, inserts, length, long open polylines and the wall hint (`pairs_like_walls`).
+
+**`conduit_types` and `cable_tray_types`:** up to 50 each, as `Family : Type`. `with_fittings` says whether bends can be built. `sizes_mm` are the conduit trade sizes (nominal diameters in the model's size lists) of the type's standard. When the standard cannot be read, they are every standard's sizes.
 
 **`hosting` values:**
 - From the family's Host setting: `wall`, `ceiling`, `floor`, `roof`, `face`.
@@ -103,7 +110,27 @@ The AI writes the mapping from the census. Every row carries `evidence`.
 
 **Layer rows:** `role` is a layer role.
 - `background` layers are the walls the drawing is aligned on.
-- `conduit` is accepted and noted as `conduit_deferred` (phase 2).
+- `conduit` and `trunking` layers are runs (section 7). Their rows carry more fields and need `evidence`:
+
+```json
+"layers": [
+  {"layer": "E-CONDUIT", "role": "conduit", "conduit_type": "Conduit with Fittings : PVC",
+   "diameter_mm": 20, "run_height_mm": null, "evidence": "legend: '20mm PVC CONDUIT'"},
+  {"layer": "E-TRUNK", "role": "trunking", "tray_type": "Cable Tray with Fittings : Trunking",
+   "width_mm": 100, "height_mm": 50, "evidence": "text '100x50 TRUNKING'"}
+]
+```
+
+| Field | Row | Meaning |
+|---|---|---|
+| `conduit_type` | conduit | `Family : Type`, or the type name alone when only one family has it. The model's spelling replaces the mapping's. |
+| `diameter_mm` | conduit | Trade size, above 0 and at most 200. It must be one of the type's sizes. |
+| `tray_type` | trunking | A cable tray type, matched like `conduit_type` |
+| `width_mm`, `height_mm` | trunking | Above 0, at most 2000 wide and 1000 high |
+| `run_height_mm` | both | Height of the run above the level, -1000 to 10000. It wins over the call's `run_height_mm`. |
+| `evidence` | both | Required |
+
+Type and size are never defaulted.
 
 **Plan rows:** map a census plan cluster to a level.
 
@@ -131,6 +158,13 @@ All issues come back in one pass:
 | `cluster_out_of_range` | A plan row's cluster is not a plan of the drawing |
 | `level_not_found` | No such level |
 | `family_type_not_found`, `family_type_ambiguous` | No match, or several (listed) |
+| `missing_evidence` (layer row) | A conduit or trunking row has no evidence |
+| `conduit_type_not_found`, `conduit_type_ambiguous` | No conduit type matches, or several (listed) |
+| `tray_type_not_found`, `tray_type_ambiguous` | No cable tray type matches, or several (listed) |
+| `bad_diameter` | Not a number, at most 0, or over 200 |
+| `bad_tray_size` | A width or height that is not a number, at most 0, or over its limit |
+| `bad_run_height` | Not a number, or outside -1000 to 10000 |
+| `diameter_not_in_standard` | Not one of the conduit type's sizes (the sizes are the `candidates`) |
 
 ### Incomplete rows (do not reject)
 
@@ -143,6 +177,15 @@ A placeable row plans zero points and is listed under `unmapped_classes` with it
 | `no_mount_height` | A wall-hosted row has no mount height |
 | `not_in_mapping` | A symbol-sized, non-container class off the wall-like layers that the mapping omits |
 
+A run layer row plans no runs and is listed under the conduit block's `unplanned_layers` with its piece count, length and a reason:
+
+| Reason | Meaning |
+|---|---|
+| `no_conduit_type`, `no_diameter` | A conduit row without its type or size |
+| `no_tray_type`, `no_tray_size` | A trunking row without its type, width or height |
+| `no_run_height` | Neither the row nor the call gives a run height |
+| `too_many_pieces` | The layer has more than 20000 pieces in the plan: it is not a run layer |
+
 ## 3. `plan_cad_electrical` (inspect)
 
 **Args:**
@@ -154,8 +197,8 @@ A placeable row plans zero points and is listed under `unmapped_classes` with it
 | `level` | string | Overrides the plan rows and the fit's choice |
 | `cluster` | int | Census plan cluster; else the only plan row with a level, else the only cluster, else `cluster_needed` |
 | `pick` | int | Chooses one of several identical copies of the floor (see rivals) |
-| `run_height_mm` | number | Phase 2 (conduit); noted and ignored |
-| `include_points` | bool | Diagnostic: adds `points` and `dropped`, at most 2000 rows each. Not exposed to the AI. |
+| `run_height_mm` | number | Height of conduit and trunking runs above the level, -1000 to 10000, for run rows that give none. Never defaulted. Out of range: `bad_run_height`. |
+| `include_points` | bool | Diagnostic: adds `points`, `dropped` and `runs`, at most 2000 rows each. Not exposed to the AI. |
 
 **Flow:**
 
@@ -171,7 +214,8 @@ A placeable row plans zero points and is listed under `unmapped_classes` with it
    - Then wall faces are tried.
    - Under 0.50 the call fails with `alignment_failed` and tells the user to link the DWG, move it onto the building and call again.
 6. **Resolve each placeable symbol inside the footprint** to a point (`CadSymbolResolve`), then flag duplicates.
-7. **Store the plan** (`socket_plan:` id, 2 hours) and return the review.
+7. **Plan the runs** of the conduit and trunking layers (section 7).
+8. **Store the plan** (`socket_plan:` id, 2 hours) and return the review.
 
 **Fit outcomes:** `accepted` at a score of 0.80 or more, `provisional` at 0.50 or more, otherwise `failed`. A provisional fit flags every point `provisional_alignment` and adds a note.
 
@@ -276,16 +320,21 @@ Both stay at the drawn centre, with no facing. The room is looked up there.
     "background_layers": ["A-WALL"], "pair_across_layers": true,
     "min_wall_mm": 50, "thin_walls_ignored": 3, "height_basis": "level",
     "reach_mm": 400, "axial_tolerance_mm": 150, "existing_mm": 150, "duplicate_mm": 20,
-    "wet_room_keywords": ["…"]
+    "wet_room_keywords": ["…"],
+    "run_height_mm": 2700, "run_join_mm": 20, "min_run_mm": 300, "drop_reach_mm": 300,
+    "min_drop_mm": 300, "run_height_basis": "level"
   }
 }
 ```
+
+With a conduit or trunking row in the mapping, `review` also has a `conduit` block (section 7) and the headline ends with "Conduit: 12 runs, 84.0 m, 30 drops, 4 open ends."
 
 The review carries no coordinates.
 
 **`include_points`** adds:
 - `points`: `index`, `role`, `block`, `room`, `host`, `xyz_mm`, `facing`, `flags`, `excluded`
 - `dropped`: `block`, `reason`, `xyz_mm`
+- `runs`: `index`, `layer`, `kind`, `points_mm`, `start` and `end` (`kind`, `point_index`, `element_id`, `drop_mm`), `length_mm`, `flags`, `excluded`
 
 **Other errors:**
 - `cluster_needed`, `cluster_out_of_range`: with `candidates` of `{cluster, titles, symbols, width_m, height_m, level}`
@@ -310,6 +359,8 @@ The review carries no coordinates.
 **Selection:** without `indices`, every non-excluded point is placed, filtered by `roles`. If no selected point has a family type, the call returns `ok:false` before any transaction.
 
 **Transactions:** one `TransactionGroup` with one transaction per point, then `Assimilate`. The whole run is a single undo, and a refused point fails alone.
+
+**Placed ids:** each placed point records its device's id on the stored plan, so `route_conduit` can find the device for a drop (section 7).
 
 **No doubling:** before each point, devices that exist *now* within 150 mm (3D) skip the point under `skipped_already_present`. A point picked by index keeps its place. Existing devices are compared at their contact height (below), not their LocationPoint Z. A ceiling point is compared at the ceiling's underside, so a socket on the wall under a light is a different device. A ceiling point also counts a device hosted on the same ceiling within 150 mm in plan, whatever its height reads, so a second run skips every light the first one placed.
 
@@ -384,11 +435,13 @@ Dialogs seen inside a scope are logged to `%APPDATA%\RevitWebAppSync\import-dial
 | `out_path` | string, required | Refused inside any git working tree |
 | `level` | string | Only the devices on this level |
 | `include_walls` | bool | Adds the structural snapshot's wall centrelines |
+| `include_runs` | bool | Adds `runs`: every conduit and cable tray segment (fittings left out), of the level when given |
 
 **Output:** `schema: "cad.electrical.reference/1"` with:
 - `devices`: `id`, `category`, `family_type`, `level`, `xyz_mm`, `offset_mm` (from the level), `host_kind` (`wall`, `ceiling`, `face`, `none` or the host's category) and `facing`. A face-hosted device's facing is its host face normal.
 - `links`: `name`, `loaded`, `origin_mm`, `basis_x/y/z`
 - `walls` (one level) or `walls_by_level`, when `include_walls` is set
+- `runs`, when `include_runs` is set: `id`, `kind` (`conduit` or `cable_tray`), `type`, `level`, `start_mm`, `end_mm`, and `diameter_mm` or `width_mm` and `height_mm`
 
 ### Headless
 
@@ -397,7 +450,13 @@ cad2bim-headless file.dwg --fit=walls.json [--cluster=N] [--min-wall=50]
 cad2bim-headless --compare-devices <ref.json> <placed.json> [--plan=plan.json]
                  [--ref-types=text] [--ref-link=text] [--role=socket]
                  [--across=50] [--along=500] [--dz=150] [--json]
+cad2bim-headless file.dwg --runs --layers=E-CONDUIT[,E-TRUNK] [--cluster=N] [--points-out=runs.json]
+cad2bim-headless --compare-runs <ref.json> <placed.json> [--kind=conduit|cable_tray] [--tol=100] [--3d] [--json]
 ```
+
+**`--runs`** chains each named layer as `plan_cad_electrical` does (section 7), without Revit or a fit, and prints per layer: pieces (and pieces outside the cluster), arcs, runs, length, open ends, junctions and junction ends, bends, free arcs, short runs dropped, closed loops and runs with short legs. `--cluster` keeps the pieces in that census plan's box; without it, the whole sheet. No coordinate is printed. `--points-out` writes the runs' points in drawing mm, and is refused inside a git working tree.
+
+**`--compare-runs`** reads the `runs` of two `include_runs` dumps. Each segment is walked in 25 mm steps; a step is covered when it lies within `--tol` (100 mm) of a segment of the other dump, in plan unless `--3d`. It prints the reference length and the share covered by created runs, the created length along the reference, and the extra created length. `--kind` keeps one kind.
 
 **`--fit`** runs `CadModelFit` on a drawing against a dump's walls, without Revit.
 
@@ -433,7 +492,121 @@ of 38 drawn: pass 32 (84.2%), across_ok 33 (86.8%)
 - every row's `across_mm`, `along_mm`, `split`, `pass` and `dz_mm`
 - `limits`, `pass_share`, `across_ok_share`, `denominator` and `denominator_is`
 
-## 7. Exit check procedure
+## 7. Conduit and trunking runs (phase 2)
+
+Conduit and trunking are drawn as lines and polylines on their own layers. A `conduit` layer becomes Revit conduit with drops to the devices; a `trunking` layer becomes Revit cable tray, with no drops.
+
+### Planning (inside `plan_cad_electrical`)
+
+For each conduit or trunking row, in mapping order:
+
+1. **Unplanned rows.** A row without its type, its size or a run height plans nothing (section 2). The block's `status` is `needs_run_height` when a run height is missing, else `planned`.
+2. **Pieces.** The layer's straight pieces and arcs, without symbol linework (blocks up to 2000 mm across). A piece belongs to the plan by the symbols' rule: its midpoint, carried onto the model, lies inside the level's footprint. Without a footprint, it lies inside the cluster's box grown by 400 mm. The rest are counted as `pieces_outside_footprint`.
+3. **Chaining** (`CadRunChain`, drawing mm):
+   - Pieces along one line join when their ends are within 20 mm. If that merge would move an end by more than 20 mm, the pieces are chained as drawn.
+   - An arc of radius up to 1000 mm whose ends meet two pieces within 20 mm, each along the arc's tangent (within 5 degrees), is a bend. The two pieces are extended to their intersection, which becomes the corner. Any other arc is a free arc: counted, not chained.
+   - Ends within 20 mm are one node. A node within 20 mm of another piece's interior splits that piece there, so a branch meets the run it touches. Two pieces that cross with no end at the crossing stay apart.
+   - At a junction (three or more pieces at one node), the two pieces closest to opposite (within 10 degrees) carry on as one run. Every other piece ends there, as a `junction` end. There is no tee and no junction box.
+   - Vertices turning less than 1 degree are removed. A run under 300 mm is dropped and counted (`dropped_short`).
+   - Runs are ordered by layer, then lowest x, then lowest y, so indices are the same from call to call.
+4. **Planning** (`CadRunPlan`, model mm):
+   - Each point is carried onto the model by the fit. Z is the level plus the run height: the row's, else the call's.
+   - **Drops (conduit only).** Each open end looks for a device within 300 mm. Devices are the plan's points that are not excluded, and the model's devices between this level and the next. Distance is to the device's point, or to its drawn symbol's edge, whichever is nearer. A drawn run stops at the symbol, while the point sits on the wall face.
+   - The nearest device wins. Another within 50 mm of that distance flags `device_ambiguous`.
+   - An end within 150 mm of the device moves onto it. A farther end gets a horizontal jog to it, unless the jog runs straight on, in which case the last leg is lengthened. Then a vertical leg goes to the device's height: the point's Z, or an existing device's contact height. The drop sits at the wall face, where the device point is.
+   - One drop per device. A later end at the same device stops at the top of that drop (`shares_drop`). A vertical under 300 mm is left out (`drop_too_short`).
+
+### Run flags
+
+| Flag | Default |
+|---|---|
+| `open_end` (a conduit end reaches no device) | kept |
+| `junction` (an end at a junction) | kept |
+| `shares_drop` | kept |
+| `short_leg` (a leg under 150 mm: its elbows may not fit) | kept |
+| `drop_too_short` | kept |
+| `device_ambiguous` | kept |
+| `provisional_alignment` | kept |
+| `closed_loop` | excluded |
+
+### The conduit block (`review.conduit`)
+
+Present when the mapping has a conduit or trunking row. It carries counts, names and run indices only, never a coordinate.
+
+```json
+{
+  "status": "planned",
+  "runs": 12, "will_route": 12, "total_length_m": 84.0, "drops": 30,
+  "open_ends": 4, "junctions": 2,
+  "by_layer": [{ "layer": "E-CONDUIT", "kind": "conduit", "type": "Conduit with Fittings : PVC",
+                 "diameter_mm": 20, "width_mm": null, "height_mm": null, "run_height_mm": 2700,
+                 "runs": 12, "will_route": 12, "length_m": 84.0 }],
+  "flagged": [{ "flag": "open_end", "default": "kept", "count": 4, "runs": [1, 5, 7, 9], "truncated": false }],
+  "unplanned_layers": [{ "layer": "E-CONDUIT-2", "reason": "no_run_height", "pieces": 40, "length_m": 81.2 }],
+  "dropped_short": 3,
+  "free_arcs": 0,
+  "pieces_outside_footprint": 11
+}
+```
+
+- `status`: `planned` or `needs_run_height`.
+- `open_ends` counts conduit ends that reach no device. Closed loops and tray runs are not counted.
+- `junctions` counts run ends at a junction.
+- `flagged.runs` lists up to 50 run indices per flag; `count` is always the full count.
+
+### `route_conduit` (mutate)
+
+There are two modes. Passing both, or neither, is an error.
+
+**`points_mm` mode** builds one run.
+
+| Arg | Type | Meaning |
+|---|---|---|
+| `points_mm` | `[[x, y, z], ...]` mm, required | At least 2 points |
+| `level` | string, required | Level name |
+| `conduit_type_name` | string | `Family : Type` or a unique type name. Default: the first conduit type with fittings |
+| `diameter_mm` | number | Must be one of the type's sizes |
+| `tray_type_name` | string | Builds cable tray instead (trunking). Not with `conduit_type_name` |
+| `width_mm`, `height_mm` | number | Cable tray size |
+| `connect_start_to`, `connect_end_to` | element id | Snap that end to the element's free connector within 50 mm |
+
+The run is built in one transaction, with an elbow at each corner. The result has the same keys as `route_pipe`: `ok`, `new_ids`, `fitting_ids`, `total_length_mm`, `open_connectors {count, origins_mm}` and `warnings`. A failure rolls the run back and returns `{ok: false, error, failed_corner_index}`.
+
+**`plan_id` mode** builds a drawing plan's runs.
+
+| Arg | Type | Meaning |
+|---|---|---|
+| `plan_id` | string, required | From `plan_cad_electrical`, for the same document |
+| `run_indices` | int[] | Explicit runs. These win even over excluded runs. Otherwise every run that is not excluded. |
+
+1. **Types.** Before any transaction, each distinct type is resolved once:
+   - A run with corners needs a with-fittings type. A conduit type also needs a Bend assigned.
+   - A conduit diameter must be one of the type's sizes.
+   - A type error fails every run that uses it.
+2. **Skips.** A run whose created elements all still exist is skipped as `already_routed`. After an undo, it is built again.
+3. **Transactions.** One `TransactionGroup`, with one transaction per run. A run that fails rolls back alone. The group is assimilated when at least one run was built, so the call is one undo step.
+4. **Device ends (conduit).** The device is found by:
+   - the run end's element id (an existing device), else
+   - the plan point's placed device (`place_socket_points` records it), else
+   - a device within 150 mm of the planned point.
+   
+   If the device has a free conduit connector within 300 mm, and that connector's axis is within 30 degrees of vertical, the drop is moved onto the connector and connected. Otherwise the drop stays open, with a warning:
+   - `device_not_placed`: no device was found. Place the devices first.
+   - `no_drop`: the end has no vertical leg.
+   - `no_conduit_connector`
+   - `connector_not_vertical`
+
+**Result:**
+- `ok`: true when a run was built, or when none failed
+- `plan_id`, `runs_created`, `runs_failed`
+- `created`: `index`, `new_ids`, `fitting_ids`, `length_mm`, `start` and `end` (`kind`, `point_index`, `element_id`, `connected`)
+- `failed`: `index`, `reason`, `failed_corner_index`
+- `skipped`: `index`, `reason`
+- `new_ids`, `fitting_ids`, `total_length_mm`, `open_connectors`, `warnings`: flat over all the runs, as `route_pipe` returns them
+
+No runs selected gives `ok: false`. If the plan has no runs at all, the error says to run `plan_cad_electrical` with `run_height_mm`.
+
+## 8. Exit check procedure
 
 Keep every file in a private folder outside all repositories. Record numbers only: no client names, layer or block names, or drawing content in any repo, issue or commit.
 
@@ -473,3 +646,30 @@ Keep every file in a private folder outside all repositories. Record numbers onl
 - Look at 10 sockets in plan and 3D: on the right wall face, facing the room, at the right height.
 - Press Ctrl+Z once and everything goes. Redo and everything comes back.
 - Run step 8 again: everything is skipped as `already_present`.
+
+### Conduit and trunking (phase 2)
+
+Run this on the phase 1 working copy, with the devices already placed. Keep every file private, as above.
+
+1. Run the headless `--runs` on the drawing's run layers, without Revit. Check that the run count and length look like the drawing.
+2. Build the add-in and open the working copy.
+3. Check that the model has a Conduit with Fittings type, with a Bend assigned and the wanted size. For trunking, check for a Cable Tray with Fittings type. Load one if needed.
+4. Add the conduit and trunking rows to `mapping.json`. Run `plan_cad_electrical` without `run_height_mm`: expect `needs_run_height`, and the points unchanged.
+5. Run it again with `run_height_mm` and `include_points=true`, and save the result as `plan.json`. Check the runs, length, drops, open ends and junctions against the drawing.
+6. Run `route_conduit` with the `plan_id`.
+7. **Pass:**
+   - created + failed + skipped = the runs selected
+   - every failed run has a reason
+   - the total created length is within 2% of the planned length
+8. Look at 5 runs in plan and in 3D. Each should be on the drawn line and at the run height, with elbows at the corners and drops at the devices.
+9. Press Ctrl+Z once: every run goes. Redo: they come back.
+10. Run step 6 again: every run is skipped as `already_routed`.
+11. Run `route_conduit` once in `points_mm` mode with a type without fittings and three points. Expect a clear error and no elements. Then run it with a type with fittings: two legs and one elbow.
+12. In the drafter's model and in the working copy, run `dump_electrical_reference` with `include_runs=true` and the level. Then compare:
+
+    ```
+    --compare-runs ref.json placed.json --kind=conduit
+    --compare-runs ref.json placed.json --kind=cable_tray
+    ```
+
+    Record the reference share covered, the created share along the reference, and the extra length.
