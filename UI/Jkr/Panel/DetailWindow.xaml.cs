@@ -13,7 +13,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel
 {
     /// <summary>
     /// The issue detail over Revit's window (prototype detail dialog). Shows the
-    /// current card of <see cref="DetailScreenModel"/>; ‹ ›, the dots, ← → / J K
+    /// current card of <see cref="DetailScreenModel"/>; ‹ ›, ← → / J K
     /// and sideways scrolling (tilt wheel, touchpad, Shift + wheel) move between
     /// issues. Esc, × or a click on the scrim close it. Modeless, so the confirm
     /// dialog and Revit's own work keep running while it is open.
@@ -122,13 +122,10 @@ namespace RevitWebAppSync.UI.Jkr.Panel
         private void Fix_Click(object sender, RoutedEventArgs e) => _model.Fix();
         private void Ignore_Click(object sender, RoutedEventArgs e) => _model.Ignore();
         private void Review_Click(object sender, RoutedEventArgs e) => _model.ToggleReviewed();
+        private void MarkManual_Click(object sender, RoutedEventArgs e) => _model.MarkManual();
+        private void Reopen_Click(object sender, RoutedEventArgs e) => _model.Reopen();
         private void Locate_Click(object sender, RoutedEventArgs e) => _model.Locate();
         private void Source_Click(object sender, MouseButtonEventArgs e) => _model.OpenSource();
-
-        private void Dot_Click(object sender, RoutedEventArgs e)
-        {
-            if (sender is FrameworkElement fe && fe.Tag is int j) _model.GoTo(j);
-        }
 
         /// <summary>A letter shortcut caught by the pane's key hook (J / K / F / A).</summary>
         internal bool HandleHookKey(PanelKey key) => _model.HandleKey(key) == KeyOutcome.Handled;

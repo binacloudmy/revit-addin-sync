@@ -63,6 +63,10 @@
     <SolidColorBrush x:Key="Bz.Med"               Color="#B26B00"/>
     <SolidColorBrush x:Key="Bz.MedText"           Color="#B26B00"/>
     <SolidColorBrush x:Key="Bz.MedBg"             Color="#FFF5E0"/>
+    <!-- Clear Sheet's tag ink on the tints: Medium tag text, + line of a diff, the semak manual block -->
+    <SolidColorBrush x:Key="Bz.MedInk"            Color="#8A5300"/>
+    <SolidColorBrush x:Key="Bz.OkInk"             Color="#126A41"/>
+    <SolidColorBrush x:Key="Bz.ManualSoft"        Color="#F5F3FE"/>
     <SolidColorBrush x:Key="Bz.Low"               Color="#8A919C"/>
     <SolidColorBrush x:Key="Bz.Manual"            Color="#5B3FD0"/>
     <SolidColorBrush x:Key="Bz.ManualBg"          Color="#EEEAFB"/>

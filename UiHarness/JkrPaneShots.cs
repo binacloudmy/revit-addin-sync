@@ -116,8 +116,37 @@ namespace UiHarness
             Shot(dir, "jkr-degraded-320.png", s => { ShowRun(s, Failing, backendDown: true); s.Core.SetLod("400"); }, 900, (int)JkrPaneShell.MinimumWidth);
 
             // The issue detail and the two fix modals (Direction C: Task, Verify).
-            DetailShot(dir, "jkr-detail-fix-en.png", i => !i.IsHuman && i.Status == ItemStatus.Open && i.Fix == FixKind.Fix);
-            DetailShot(dir, "jkr-detail-manual-en.png", i => i.IsHuman);
+            // Clear Sheet: issue with a fix, with an AI fixer proposal, semak manual issue; plus
+            // the states Clear Sheet does not draw (Reopen, Mark as Manual, fix failed, AI can propose).
+            Func<PanelItem, bool> fix = i => !i.IsHuman && i.Status == ItemStatus.Open && i.Fix == FixKind.Fix && !i.MarkedManual;
+            Func<PanelItem, bool> noFix = i => !i.IsHuman && i.Status == ItemStatus.Open && i.Fix == FixKind.None && !i.MarkedManual;
+            // Below High, so Mark as Manual is offered (JkrTierMap.CanMarkManual).
+            Func<PanelItem, bool> fixMed = i => fix(i) && i.CanMarkManual;
+            Func<PanelItem, bool> noFixMed = i => noFix(i) && i.CanMarkManual && i.Act.En != "—";
+            DetailShot(dir, "jkr-detail-fix-en.png", fix);
+            DetailShot(dir, "jkr-detail-fix-mark-en.png", fixMed);
+            DetailShot(dir, "jkr-detail-fix.png", fix, en: false);
+            DetailShot(dir, "jkr-detail-manual-en.png", i => i.IsHuman, tab: PanelTab.Manual);
+            DetailShot(dir, "jkr-detail-manual.png", i => i.IsHuman, tab: PanelTab.Manual, en: false);
+            // Harness sample: today the AI fixer proposes only during Fix all, so no row carries a
+            // proposed value; this sets one to show the "Proposed by the AI fixer" state.
+            Action<PanelItem> proposal = i =>
+            {
+                i.AiFix = true;
+                i.Prop = "jkrMT_ST_Putih";
+                i.AiReason = new Text("Padanan terdekat dalam senarai bahan JKR: keluli bercat, kemasan putih.",
+                                      "Closest match in the JKR material list: painted steel, white finish.");
+            };
+            Func<PanelItem, bool> material = i => noFixMed(i)
+                && (i.Title.En + " " + i.El).IndexOf("material", StringComparison.OrdinalIgnoreCase) >= 0;
+            DetailShot(dir, "jkr-detail-ai-proposal-en.png", material, tweak: proposal);
+            DetailShot(dir, "jkr-detail-ai-proposal.png", material, tweak: proposal, en: false);
+            DetailShot(dir, "jkr-detail-ai-can-en.png", noFixMed, tweak: i => i.AiFix = true);
+            DetailShot(dir, "jkr-detail-ignored-en.png", fix, tab: PanelTab.Ignore, tweak: i => i.Status = ItemStatus.Ignored);
+            DetailShot(dir, "jkr-detail-marked-en.png", fixMed, tweak: i => i.MarkedManual = true);
+            DetailShot(dir, "jkr-detail-marked.png", fixMed, tweak: i => i.MarkedManual = true, en: false);
+            DetailShot(dir, "jkr-detail-failed-en.png", fixMed, tweak: i => i.FixError = "Type name already used in this family.");
+            DetailShot(dir, "jkr-detail-steps-en.png", noFixMed, steps: true);
             ConfirmShot(dir, "jkr-confirm-en.png");
             FixResultShot(dir, "jkr-fixresult-en.png");
         }
@@ -125,7 +154,8 @@ namespace UiHarness
         /// <summary>The detail window over the failing run, at the first issue that
         /// matches. The detail is opened on the core only (not Detail.Open), so the
         /// shell does not place its own window over the screen.</summary>
-        private static void DetailShot(string dir, string file, Func<PanelItem, bool> pick)
+        private static void DetailShot(string dir, string file, Func<PanelItem, bool> pick, bool en = true,
+                                       PanelTab tab = PanelTab.Open, Action<PanelItem> tweak = null, bool steps = false)
         {
             var shell = new JkrPaneShell(new Grid());
             var host = new Window
@@ -137,11 +167,17 @@ namespace UiHarness
             Settle(300);
             try
             {
-                shell.Model.IsEn = true;
+                shell.Model.IsEn = en;
                 ShowRun(shell, Failing);
                 Settle(300);
                 var item = shell.Core.Issues.FirstOrDefault(pick);
                 if (item == null) { Console.WriteLine(file + ": no matching issue in " + Failing); return; }
+                tweak?.Invoke(item);
+                if (steps)
+                    shell.Detail.StepsOf = id => en
+                        ? new[] { "Select the element in the model (Locate in 3D).", "Open its type properties and set the value the Borang requires.", "Re-scan to confirm." }
+                        : new[] { "Pilih elemen dalam model (Cari dalam 3D).", "Buka sifat jenisnya dan tetapkan nilai yang Borang perlukan.", "Imbas semula untuk sahkan." };
+                shell.Results.SelectTab(tab);
                 shell.Core.Open(item.Id);
                 RenderWindow(NewWindow<DetailWindow>(shell.Detail), dir, file);
             }
