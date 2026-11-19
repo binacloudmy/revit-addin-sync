@@ -941,7 +941,13 @@ namespace BinaVibe.Mcp.Tools.Electrical
         private static List<PlanCluster> BuildPlans(CensusSink sink, List<Wall> walls, CensusOptions o,
                                                     ElectricalCensusResult result)
         {
-            List<PlanCluster> clusters = CadClassifier.ClusterPlans(CadClassifier.DeduplicateWalls(walls), null);
+            // Biggest first, then left to right and bottom to top, so the indices do not depend
+            // on the order the recursion found them in.
+            List<PlanCluster> clusters = ClusterRecursively(CadClassifier.DeduplicateWalls(walls), 0)
+                .OrderByDescending(cluster => cluster.Area)
+                .ThenBy(cluster => cluster.MinX)
+                .ThenBy(cluster => cluster.MinY)
+                .ToList();
             result.PlansTruncated = clusters.Count > o.MaxPlans;
             clusters = clusters.Take(o.MaxPlans).ToList();
 
@@ -985,6 +991,27 @@ namespace BinaVibe.Mcp.Tools.Electrical
             return clusters;
         }
 
+        private const int MaxClusterDepth = 6;
+
+        /// <summary>
+        /// The plan clustering, run again inside each cluster it finds until one comes back
+        /// whole. One pass bands the sheet down it, then each band across: plans stacked in a
+        /// column beside a column offset by half a pitch leave no blank row across the whole
+        /// sheet, so the down pass finds no gap and each column keeps its stacked plans. Inside
+        /// one column the gaps show. A wall bridging the gaps still keeps them together; the fit's
+        /// footprint crop and rivals carry that case. The engine itself is left as the CAD to
+        /// BIM pane uses it.
+        /// </summary>
+        private static List<PlanCluster> ClusterRecursively(List<Wall> walls, int depth)
+        {
+            List<PlanCluster> clusters = CadClassifier.ClusterPlans(walls, null);
+            if (clusters.Count <= 1 || depth >= MaxClusterDepth) return clusters;
+
+            var split = new List<PlanCluster>();
+            foreach (PlanCluster cluster in clusters) split.AddRange(ClusterRecursively(cluster.Walls, depth + 1));
+            return split;
+        }
+
         /// <summary>The sheet's texts that hold a title word.</summary>
         private static List<(double X, double Y, double Height, string Value)> TitleTexts(CensusSink sink) =>
             sink.Texts.Where(text => ContainsAny(text.Value, TitleWords))
@@ -1008,8 +1035,10 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 .ToList();
         }
 
-        /// <summary>How far under a plan its title may sit.</summary>
-        private static double TitleReachBelow(double planHeight) => 0.2 * planHeight;
+        /// <summary>How far under a plan its title may sit: a fifth of its height, and at least
+        /// 4 m (a title in a 10 m gap can sit more than 2.6 m under a 13 m plan; 4 m stays under
+        /// the 5 m plan gap).</summary>
+        private static double TitleReachBelow(double planHeight) => Math.Max(0.2 * planHeight, 4000);
 
         private static bool ContainsAny(string value, string[] words)
         {

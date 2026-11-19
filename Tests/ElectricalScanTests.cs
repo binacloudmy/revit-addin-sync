@@ -138,6 +138,110 @@ namespace Tests
                                                                        scan.Clusters[left].MaxX, scan.Clusters[left].MaxY));
         }
 
+        // ---------------------------------------------------------------- stacked plans
+
+        private const double Pitch = 23000;
+
+        /// <summary>One 20 m x 15 m floor plan: an outer room of A-WALL and two partitions.</summary>
+        private static void FloorPlan(CadDocument doc, double x, double y)
+        {
+            Room(doc, "A-WALL", x, y, 20000, 15000);
+            WallPair(doc, "A-WALL", x + 7000, y, x + 7000, y + 9000);
+            WallPair(doc, "A-WALL", x + 7000, y + 6000, x + 20000, y + 6000);
+        }
+
+        /// <summary>Two columns of three plans each, 8 m apart down a column; the right column,
+        /// 10 m to the side, sits half a pitch higher, so no blank row crosses the sheet. With
+        /// <paramref name="bridge"/>, one long wall runs beside the whole left column.</summary>
+        private static CadDocument Staggered(bool bridge = false)
+        {
+            CadDocument doc = MmDrawing();
+            for (int k = 0; k < 3; k++)
+            {
+                FloorPlan(doc, 0, k * Pitch);
+                FloorPlan(doc, 30000, (k * Pitch) + (Pitch / 2));
+            }
+            if (bridge) WallPair(doc, "A-WALL", -3000, 0, -3000, (2 * Pitch) + 15000);
+            return doc;
+        }
+
+        [Fact]
+        public void Stacked_plans_in_a_staggered_sheet_get_their_own_clusters()
+        {
+            ElectricalScan scan = ElectricalCensus.Scan(Staggered());
+
+            Assert.Equal(6, scan.Clusters.Count);
+            Assert.All(scan.Clusters, c =>
+            {
+                Assert.InRange(c.MaxX - c.MinX, 19000, 20500);
+                Assert.InRange(c.MaxY - c.MinY, 14000, 15500);
+            });
+            for (int k = 0; k < 3; k++)
+            {
+                Assert.NotEqual(ClusterAt(scan, 10000, (k * Pitch) + 7500), ClusterAt(scan, 40000, (k * Pitch) + (Pitch / 2) + 7500));
+            }
+            Assert.Equal(6, scan.Clusters.Select(c => ClusterAt(scan, (c.MinX + c.MaxX) / 2, (c.MinY + c.MaxY) / 2)).Distinct().Count());
+        }
+
+        [Fact]
+        public void A_wall_bridging_three_plans_keeps_one_cluster()
+        {
+            ElectricalScan scan = ElectricalCensus.Scan(Staggered(bridge: true));
+
+            Assert.Equal(4, scan.Clusters.Count);
+            ScanCluster column = scan.Clusters[0];
+            Assert.InRange(column.MaxY - column.MinY, (2 * Pitch) + 14000, (2 * Pitch) + 15500);
+
+            // The fit sees the three copies in that cluster as rivals of one another.
+            List<FitSegment> cad = scan.WallCentrelines(0, new[] { "A-WALL" }, false);
+            List<FitSegment> floor = scan.WallCentrelines(ClusterAt(scan, 40000, (Pitch / 2) + 7500), new[] { "A-WALL" }, false);
+            var shift = new FitTransform { TxMm = 5000 - 30000, TyMm = -9000 - (Pitch / 2) };
+            FitResult fit = CadModelFit.Fit(cad, floor.Select(s => shift.Apply(s)).ToList());
+
+            Assert.NotEqual("failed", fit.Outcome);
+            Assert.Equal(2, fit.Rivals.Count);
+            Assert.InRange(fit.InsideShare, 0.25, 0.4);
+        }
+
+        [Fact]
+        public void Each_split_plan_keeps_the_title_under_it()
+        {
+            CadDocument doc = Staggered();
+            for (int k = 0; k < 3; k++)
+            {
+                // 3.5 m under each plan, in the 8 m gap: further down than a fifth of its height.
+                Text(doc, "A-TEXT", 10000, (k * Pitch) - 3500, "LEVEL " + (k + 1) + " PLAN", 500);
+                Text(doc, "A-TEXT", 40000, (k * Pitch) + (Pitch / 2) - 3500, "LEVEL " + (k + 4) + " PLAN", 500);
+            }
+
+            ElectricalScan scan = ElectricalCensus.Scan(doc);
+
+            for (int k = 0; k < 3; k++)
+            {
+                Assert.Equal(new[] { "LEVEL " + (k + 1) + " PLAN" }, scan.Clusters[ClusterAt(scan, 10000, (k * Pitch) + 7500)].Titles);
+                Assert.Equal(new[] { "LEVEL " + (k + 4) + " PLAN" },
+                             scan.Clusters[ClusterAt(scan, 40000, (k * Pitch) + (Pitch / 2) + 7500)].Titles);
+            }
+        }
+
+        [Fact]
+        public void Cluster_order_is_stable()
+        {
+            ElectricalScan first = ElectricalCensus.Scan(Staggered());
+            ElectricalScan again = ElectricalCensus.Scan(Staggered());
+
+            Assert.Equal(first.Clusters.Select(c => (c.MinX, c.MinY)), again.Clusters.Select(c => (c.MinX, c.MinY)));
+            // Equal areas: left column first, each column bottom to top.
+            List<ScanCluster> c6 = first.Clusters;
+            for (int i = 1; i < c6.Count; i++)
+            {
+                bool ordered = c6[i - 1].MinX < c6[i].MinX - 1 ||
+                               (Math.Abs(c6[i - 1].MinX - c6[i].MinX) <= 1 && c6[i - 1].MinY < c6[i].MinY);
+                Assert.True(ordered, "cluster " + i + " out of order");
+            }
+            Assert.Equal(Enumerable.Range(0, 6), first.Census.Plans.Select(p => p.Cluster));
+        }
+
         [Fact]
         public void Nested_symbol_points_at_its_parent()
         {
