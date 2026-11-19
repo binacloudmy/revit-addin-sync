@@ -335,12 +335,8 @@
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>  <!-- tools bar, or the back bar inside a section -->
-            <RowDefinition Height="Auto"/>  <!-- split banner: LOD changed / backend unavailable -->
-            <RowDefinition Height="Auto"/>  <!-- head: verdict (list), one-line verdict (issues), section head -->
-            <RowDefinition Height="Auto"/>  <!-- tabs: Checklist n / Issues n -->
-            <RowDefinition Height="Auto"/>  <!-- issue toolbar -->
             <RowDefinition Height="Auto"/>  <!-- busy -->
-            <RowDefinition Height="*"/>     <!-- list / section checks / issues -->
+            <RowDefinition Height="*"/>     <!-- one scroll: banner, head, tabs, issue toolbar, then the list / section checks / issues -->
             <RowDefinition Height="Auto"/>  <!-- footer -->
         </Grid.RowDefinitions>
 
@@ -400,9 +396,21 @@
             </Grid>
         </Border>
 
+        <!-- busy: a fix batch is being written -->
+        <Border Grid.Row="1" Background="{StaticResource Bz.BrandTint}" BorderBrush="{StaticResource Bz.BrandTintLine}" BorderThickness="0,0,0,1" Padding="16,8,16,8"
+                Visibility="{Binding IsBusy, Converter={StaticResource B2V}}">
+            <TextBlock Text="{Binding BusyText}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource Bz.BrandTintText}" TextWrapping="Wrap"/>
+        </Border>
+
+        <!-- One scroll for everything under the tools bar (live F1 / F5): the banner, the head,
+             the tabs and the issue toolbar scroll away with the list, so the rows can take the
+             pane's height. Opening the Issues tab scrolls the banner and verdict out of view
+             (they stay above, a scroll away); the list keys bring the selected row into view. -->
+        <ScrollViewer x:Name="BodyScroll" Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel x:Name="BodyContent">
         <!-- Split banner (edge states, refined): "This result is for LOD 300. Re-scan …" and
              "BINA backend unavailable. B1.2 needs it, so it shows as not checked, never as passed." -->
-        <Border Grid.Row="1" Margin="16,12,16,0" CornerRadius="10" Background="{StaticResource Bz.Tone.WarnBg}" BorderBrush="{StaticResource Bz.Tone.WarnLine}" BorderThickness="1"
+        <Border Margin="16,12,16,0" CornerRadius="10" Background="{StaticResource Bz.Tone.WarnBg}" BorderBrush="{StaticResource Bz.Tone.WarnLine}" BorderThickness="1"
                 Visibility="{Binding ShowBanner, Converter={StaticResource B2V}}">
             <StackPanel>
                 <Grid Margin="12,10,12,10" Visibility="{Binding ShowLodBanner, Converter={StaticResource B2V}}">
@@ -433,7 +441,7 @@
         <!-- Head of the list: verdict mark + "Does not comply" / "n spec checks fail.", the score
              sentence, "n checks wait for semak manual" (opens those checks). The same facts as the
              old progress ring and hero tile (item 11). -->
-        <StackPanel Grid.Row="2" Margin="16,20,16,16" Visibility="{Binding ShowOverview, Converter={StaticResource B2V}}">
+        <StackPanel Margin="16,16,16,12" Visibility="{Binding ShowOverview, Converter={StaticResource B2V}}">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
@@ -467,8 +475,8 @@
         </StackPanel>
 
         <!-- Issues view: the verdict in one line (Clear Sheet issues); it opens the full result -->
-        <Button Grid.Row="2" Style="{StaticResource RowBtn}" Click="Checklist_Click" Padding="16,0,16,0" MinHeight="44"
-                Visibility="{Binding ShowVerdictBar, Converter={StaticResource B2V}}"
+        <Grid Visibility="{Binding ShowVerdictBar, Converter={StaticResource B2V}}">
+        <Button Style="{StaticResource RowBtn}" Click="Checklist_Click" Padding="16,0,16,0" MinHeight="44"
                 BorderBrush="{StaticResource Bz.Line}" AutomationProperties.Name="{Binding VerdictHead}">
             <Grid VerticalAlignment="Center">
                 <Grid.ColumnDefinitions>
@@ -484,12 +492,12 @@
                            TextAlignment="Right" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="10,0,0,0"/>
             </Grid>
         </Button>
-        <Border Grid.Row="2" Height="1" VerticalAlignment="Bottom" Background="{StaticResource Bz.Line}"
-                Visibility="{Binding ShowVerdictBar, Converter={StaticResource B2V}}"/>
+        <Border Height="1" VerticalAlignment="Bottom" Background="{StaticResource Bz.Line}"/>
+        </Grid>
 
         <!-- Section head (Clear Sheet section D): letter, name, %, its ticks, then the state chips
              with counts in it (item 12). The other JKR rules: a dashed "+", no chips. -->
-        <StackPanel Grid.Row="2" Margin="16,16,16,12" Visibility="{Binding IsFocused, Converter={StaticResource B2V}}">
+        <StackPanel Margin="16,16,16,12" Visibility="{Binding IsFocused, Converter={StaticResource B2V}}">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
@@ -553,7 +561,7 @@
         </StackPanel>
 
         <!-- Tabs: Checklist n / Issues n (active: ink, 2 px ink underline) -->
-        <Border Grid.Row="3" BorderBrush="{StaticResource Bz.Line}" BorderThickness="0,0,0,1" Padding="16,0,16,0">
+        <Border x:Name="TabsRow" BorderBrush="{StaticResource Bz.Line}" BorderThickness="0,0,0,1" Padding="16,0,16,0">
             <Border.Style>
                 <Style TargetType="Border">
                     <Style.Triggers>
@@ -616,8 +624,8 @@
              counts, search ("/"), "0 of 99 resolved" + severity legend + bar, the section pill
              (item 9: "Clear section filter"), "n shown" · Ignore all · Fix all n. At 320 px BM the
              legend and the buttons take their own line rather than cut a word. -->
-        <StackPanel Grid.Row="4" Visibility="{Binding ShowList, Converter={StaticResource B2V}}">
-            <StackPanel Margin="16,12,16,0">
+        <StackPanel Visibility="{Binding ShowList, Converter={StaticResource B2V}}">
+            <StackPanel Margin="16,8,16,0">
                 <Border Background="{StaticResource Bz.Sunken2}" CornerRadius="8" Padding="2" AutomationProperties.Name="{Binding StateTabsAria}">
                     <ItemsControl ItemsSource="{Binding Tabs}" Focusable="False">
                         <ItemsControl.ItemsPanel>
@@ -658,7 +666,7 @@
                 </Border>
 
                 <!-- search: 36 px, hairline, "/" focuses it -->
-                <Border x:Name="SearchBox" Height="36" Margin="0,10,0,0" BorderBrush="{StaticResource Bz.Line2}" BorderThickness="1" CornerRadius="8"
+                <Border x:Name="SearchBox" Height="36" Margin="0,8,0,0" BorderBrush="{StaticResource Bz.Line2}" BorderThickness="1" CornerRadius="8"
                         Padding="10,0,8,0" Background="{StaticResource Bz.Surface}">
                     <Grid>
                         <Grid.ColumnDefinitions>
@@ -687,7 +695,7 @@
                 </Border>
 
                 <!-- "0 of 99 resolved" … "4 high · 94 medium · 1 low" (the row's pip), then the bar -->
-                <local:SplitRowPanel Margin="0,10,0,0" Gap="8" RowGap="4" WrapAlignment="Left">
+                <local:SplitRowPanel Margin="0,8,0,0" Gap="8" RowGap="4" WrapAlignment="Left">
                     <TextBlock Text="{Binding ProgressLabel}" FontSize="12" LineHeight="18" Foreground="{StaticResource Bz.TextBody}" TextWrapping="Wrap" VerticalAlignment="Center"/>
                     <ItemsControl ItemsSource="{Binding SevChips}" VerticalAlignment="Center" Focusable="False" Margin="-8,0,0,0">
                         <ItemsControl.ItemsPanel>
@@ -703,7 +711,7 @@
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
                 </local:SplitRowPanel>
-                <Grid Height="3" Margin="0,6,0,0">
+                <Grid Height="3" Margin="0,5,0,0">
                     <Border Background="{StaticResource Bz.Track}" CornerRadius="2"/>
                     <Border Background="{StaticResource Bz.Ink}" CornerRadius="2" RenderTransformOrigin="0,0.5">
                         <Border.RenderTransform>
@@ -715,7 +723,7 @@
                 <!-- .pill: the section filter (item 9), on its own line so a 320 px pane never
                      squeezes it out. The whole pill clears it ("Clear section filter"), and so does
                      its × on its own: a 24 px target with a grey disc on hover (live F7). -->
-                <Grid HorizontalAlignment="Left" Margin="0,10,0,0" Visibility="{Binding HasCat, Converter={StaticResource B2V}}">
+                <Grid HorizontalAlignment="Left" Margin="0,8,0,0" Visibility="{Binding HasCat, Converter={StaticResource B2V}}">
                     <Button Style="{StaticResource Bare}" Click="ClearCat_Click" AutomationProperties.Name="{Binding ClearCatLabel}" ToolTip="{Binding ClearCatLabel}">
                         <Border Background="{StaticResource Bz.Sunken2}" CornerRadius="14" MinHeight="28" Padding="10,4,32,4">
                             <TextBlock Text="{Binding CatLabel}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource Bz.Text}" TextWrapping="Wrap" VerticalAlignment="Center"/>
@@ -741,7 +749,7 @@
             </StackPanel>
 
             <!-- "99 shown" · Ignore all · Fix all n (the buttons drop under it when the pane is narrow) -->
-            <local:SplitRowPanel Margin="16,12,16,12" Gap="8" RowGap="8" WrapAlignment="Right">
+            <local:SplitRowPanel Margin="16,8,16,8" Gap="8" RowGap="8" WrapAlignment="Right">
                 <TextBlock Text="{Binding ShownLabel}" FontSize="12" Foreground="{StaticResource Bz.Text2}" VerticalAlignment="Center" TextWrapping="Wrap"/>
                 <StackPanel Orientation="Horizontal">
                     <Button Content="{Binding IgnoreAllLabel}" Style="{StaticResource TextBtn}" Click="IgnoreAll_Click" Padding="10,0,10,0" MinHeight="32"
@@ -761,17 +769,12 @@
             </local:SplitRowPanel>
         </StackPanel>
 
-        <!-- busy: a fix batch is being written -->
-        <Border Grid.Row="5" Background="{StaticResource Bz.BrandTint}" BorderBrush="{StaticResource Bz.BrandTintLine}" BorderThickness="0,0,0,1" Padding="16,8,16,8"
-                Visibility="{Binding IsBusy, Converter={StaticResource B2V}}">
-            <TextBlock Text="{Binding BusyText}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource Bz.BrandTintText}" TextWrapping="Wrap"/>
-        </Border>
 
         <!-- The list: "Borang sections | Aspects", one row per section / aspect (a row opens it,
              item 10), "Other JKR rules", the aspects note, the legend -->
-        <ScrollViewer x:Name="OverviewScroll" Grid.Row="6" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
-                      Visibility="{Binding ShowOverview, Converter={StaticResource B2V}}">
-            <StackPanel Margin="0,0,0,16">
+        <Border Visibility="{Binding ShowOverview, Converter={StaticResource B2V}}">
+            <!-- the legend ends the scroll with at least the footer's height under it (live F2) -->
+            <StackPanel Margin="0,0,0,64">
                 <Border HorizontalAlignment="Left" Margin="16,10,16,10" Padding="2" CornerRadius="8" Background="{StaticResource Bz.Sunken2}"
                         AutomationProperties.Name="{Binding GroupToggleAria}">
                     <StackPanel Orientation="Horizontal">
@@ -885,11 +888,10 @@
                     </ItemsControl>
                 </Border>
             </StackPanel>
-        </ScrollViewer>
+        </Border>
 
         <!-- .list: the issue rows (Clear Sheet .iss) -->
-        <ScrollViewer x:Name="ListScroll" Grid.Row="6" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
-                      Visibility="{Binding ShowList, Converter={StaticResource B2V}}">
+        <Border Visibility="{Binding ShowList, Converter={StaticResource B2V}}">
             <StackPanel>
                 <Border Background="{StaticResource Bz.ManualBg}" Padding="14,9,14,9"
                         Visibility="{Binding IsManualTab, Converter={StaticResource B2V}}">
@@ -906,7 +908,7 @@
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="52"/>
                                     </Grid.ColumnDefinitions>
-                                    <Button Style="{StaticResource Bare}" Tag="{Binding Id}" Click="Row_Click" Padding="16,11,0,11"
+                                    <Button Style="{StaticResource Bare}" Tag="{Binding Id}" Click="Row_Click" Padding="16,9,0,9"
                                             AutomationProperties.Name="{Binding Title}">
                                         <Grid>
                                             <Grid.ColumnDefinitions>
@@ -950,7 +952,7 @@
                                         </Grid>
                                     </Button>
                                     <!-- the ready-made fix (bolt, F) -->
-                                    <Button x:Name="FixBtn" Grid.Column="1" Margin="12,11,8,0" VerticalAlignment="Top"
+                                    <Button x:Name="FixBtn" Grid.Column="1" Margin="12,9,8,0" VerticalAlignment="Top"
                                             Style="{StaticResource RowIconBtn}" Tag="{Binding Id}" Click="RowFix_Click"
                                             Visibility="{Binding ShowFix, Converter={StaticResource B2V}}"
                                             AutomationProperties.Name="{Binding DataContext.KeyFix, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
@@ -962,7 +964,7 @@
                                         </Viewbox>
                                     </Button>
                                     <!-- an AI fixer candidate: the spark-bolt mark (Clear Sheet "AI fix mark", option 1) -->
-                                    <Grid Grid.Column="1" Width="32" Height="32" Margin="12,11,8,0" VerticalAlignment="Top" Background="Transparent"
+                                    <Grid Grid.Column="1" Width="32" Height="32" Margin="12,9,8,0" VerticalAlignment="Top" Background="Transparent"
                                           Visibility="{Binding IsAiFixer, Converter={StaticResource B2V}}"
                                           ToolTip="{Binding AiMarkLabel}" AutomationProperties.Name="{Binding AiMarkLabel}">
                                         <Viewbox Width="14" Height="14" HorizontalAlignment="Center" VerticalAlignment="Center">
@@ -1009,14 +1011,13 @@
                             Click="ClearQuery_Click" Visibility="{Binding HasQ, Converter={StaticResource B2V}}"/>
                 </StackPanel>
             </StackPanel>
-        </ScrollViewer>
+        </Border>
 
         <!-- Inside a section (Clear Sheet section D): Borang item headers, then one row per check
              (mark, id, title, one line why); a check opens to its card: what the run found, the
              inventory table and elements with "Show all" (item 13), why it fails, Fix n. -->
-        <ScrollViewer x:Name="ChecklistScroll" Grid.Row="6" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
-                      BorderBrush="{StaticResource Bz.Line}" BorderThickness="0,1,0,0"
-                      Visibility="{Binding IsFocused, Converter={StaticResource B2V}}">
+        <Border BorderBrush="{StaticResource Bz.Line}" BorderThickness="0,1,0,0"
+                Visibility="{Binding IsFocused, Converter={StaticResource B2V}}">
             <StackPanel Margin="0,0,0,12">
                 <TextBlock Text="{Binding ChecklistEmptyText}" FontSize="12" Foreground="{StaticResource Bz.Text2}" HorizontalAlignment="Center"
                            TextWrapping="Wrap" Margin="16,24,16,24" Visibility="{Binding ChecklistEmpty, Converter={StaticResource B2V}}"/>
@@ -1248,10 +1249,12 @@
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
             </StackPanel>
+        </Border>
+        </StackPanel>
         </ScrollViewer>
 
         <!-- Footer (60 px): Reset (text), keyboard shortcuts, Export Borang (secondary) -->
-        <Border Grid.Row="7" Background="{StaticResource Bz.Sunken}" BorderBrush="{StaticResource Bz.Line}" BorderThickness="0,1,0,0" Padding="8,12,16,12">
+        <Border Grid.Row="3" Background="{StaticResource Bz.Sunken}" BorderBrush="{StaticResource Bz.Line}" BorderThickness="0,1,0,0" Padding="8,12,16,12">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>

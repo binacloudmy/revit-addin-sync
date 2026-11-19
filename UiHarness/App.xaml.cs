@@ -83,7 +83,7 @@ namespace UiHarness
             {
                 ShutdownMode = ShutdownMode.OnExplicitShutdown;
                 var jkrDir = e.Args.Length >= 2 ? e.Args[1] : System.AppContext.BaseDirectory;
-                JkrPaneShots.Capture(jkrDir);
+                JkrPaneShots.Capture(jkrDir, e.Args.Length >= 3 ? e.Args[2] : null);
                 Shutdown();
                 return;
             }

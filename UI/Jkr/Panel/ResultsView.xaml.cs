@@ -17,7 +17,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel
             InitializeComponent();
             _model = model;
             DataContext = model;
-            model.PropertyChanged += (_, __) => { UpdateSearchHint(); QueueFitTools(); };
+            model.PropertyChanged += (_, __) => { UpdateSearchHint(); QueueFitTools(); FollowView(); };
             PreviewKeyDown += OnPreviewKeyDown;
             SizeChanged += (_, __) => QueueFitTools();
             Loaded += (_, __) => { UpdateSearchHint(); Focus(); };
@@ -26,7 +26,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel
         // ── clicks ──
         private void Rescan_Click(object s, RoutedEventArgs e) => _model.Rescan();
         // "n checks wait for semak manual": those checks (with a spec report), else the Manual tab.
-        private void GoManual_Click(object s, RoutedEventArgs e) { _model.GoNeedsPerson(); ChecklistScroll.ScrollToTop(); }
+        private void GoManual_Click(object s, RoutedEventArgs e) { _model.GoNeedsPerson(); BodyScroll.ScrollToTop(); }
         private void IgnoreAll_Click(object s, RoutedEventArgs e) => _model.IgnoreAll();
         private void FixAll_Click(object s, RoutedEventArgs e) => _model.FixAll();
         private void ClearCat_Click(object s, RoutedEventArgs e) => _model.ClearCat();
@@ -43,8 +43,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel
         private void ShowSections_Click(object s, RoutedEventArgs e) => _model.ShowSectionsView();
         private void ShowAspects_Click(object s, RoutedEventArgs e) => _model.ShowAspectsView();
         // A section / aspect row opens its checks (item 10: a section also filters the Issues tab).
-        private void Group_Click(object s, RoutedEventArgs e) { _model.OpenGroup((string)((FrameworkElement)s).Tag); ChecklistScroll.ScrollToTop(); }
-        private void Other_Click(object s, RoutedEventArgs e) { _model.OpenGroup(SpecChecklist.OtherKey); ChecklistScroll.ScrollToTop(); }
+        private void Group_Click(object s, RoutedEventArgs e) { _model.OpenGroup((string)((FrameworkElement)s).Tag); BodyScroll.ScrollToTop(); }
+        private void Other_Click(object s, RoutedEventArgs e) { _model.OpenGroup(SpecChecklist.OtherKey); BodyScroll.ScrollToTop(); }
         private void Back_Click(object s, RoutedEventArgs e) => _model.CloseFocus();
         private void SectionIssues_Click(object s, RoutedEventArgs e) => _model.ShowSectionIssues();
         private void CheckToggle_Click(object s, RoutedEventArgs e) => _model.ToggleCheck((string)((FrameworkElement)s).Tag);
@@ -53,6 +53,29 @@ namespace RevitWebAppSync.UI.Jkr.Panel
         private void ChecklistFix_Click(object s, RoutedEventArgs e) => _model.FixCheck((string)((FrameworkElement)s).Tag);
         private void StateChip_Click(object s, RoutedEventArgs e) => _model.SetStateFilter((string)((FrameworkElement)s).Tag);
         private void CheckWhy_Click(object s, RoutedEventArgs e) => _model.ToggleWhy((string)((FrameworkElement)s).Tag);
+
+        // ── one scroll (live F1 / F5): a new view starts at its top; the Issues view starts
+        //    at its tabs, the banner and the verdict line a scroll above ──
+        private string _view;
+
+        private void FollowView()
+        {
+            var view = _model.ShowList ? "list" : _model.IsFocused ? "focus" : "overview";
+            if (view == _view) return;
+            var first = _view == null;
+            _view = view;
+            if (first && view != "list") return;
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (_view != view) return;
+                BodyScroll.UpdateLayout();
+                if (view != "list") { BodyScroll.ScrollToTop(); return; }
+                double y;
+                try { y = TabsRow.TransformToAncestor(BodyContent).Transform(new Point(0, 0)).Y; }
+                catch (InvalidOperationException) { y = 0; }
+                BodyScroll.ScrollToVerticalOffset(Math.Max(0, y));
+            }), System.Windows.Threading.DispatcherPriority.Loaded);
+        }
 
         // ── tools bar: Re-scan keeps only its icon when its word would not fit (320 px, BM) ──
         // The bar or a dropdown changed size (the pane, a new selection, BM / EN): check after layout.

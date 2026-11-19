@@ -43,8 +43,13 @@ namespace UiHarness
         private const string Compliant = "jkr_run_compliant.json";
         private const string BackendTimeout = "The backend check timed out after 60 s.";
 
-        public static void Capture(string dir)
+        /// <summary>Only the frames whose file name contains this (third argument); null = all.</summary>
+        private static string _only;
+        private static bool Skip(string file) => _only != null && file.IndexOf(_only, StringComparison.OrdinalIgnoreCase) < 0;
+
+        public static void Capture(string dir, string only = null)
         {
+            _only = string.IsNullOrWhiteSpace(only) ? null : only;
             Directory.CreateDirectory(dir);
             FontCheck();
             ActiveModelSource.Set(new ActiveModelInfo(Title, @"C:\Projects\Dewan\" + Title + ".rvt", false));
@@ -116,6 +121,21 @@ namespace UiHarness
             Shot(dir, "jkr-issues-manual-tab.png", s => { ShowRun(s, Failing, tweak: IssueSamples); s.Results.SelectTab(PanelTab.Manual); }, 900, (int)JkrPaneShell.MinimumWidth);
             Shot(dir, "jkr-degraded-320.png", s => { ShowRun(s, Failing, backendDown: true); s.Core.SetLod("400"); }, 900, (int)JkrPaneShell.MinimumWidth);
 
+            // Live test (Revit 2027, 2026-11-19): the pane at 815 px with the backend banner.
+            // F5: the Issues tab (and a section's issues, with its pill) shows at least 5 rows;
+            // F1: the Checklist at least 4 section rows; F2: the legend clears the footer.
+            Shot(dir, "jkr-live-issues-815-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing, backendDown: true, tweak: IssueSamples); s.Results.ShowIssues(); }, 815);
+            Shot(dir, "jkr-live-issues-815.png", s => { ShowRun(s, Failing, backendDown: true, tweak: IssueSamples); s.Results.ShowIssues(); }, 815);
+            Shot(dir, "jkr-live-section-d-issues-815-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing, backendDown: true); s.Results.OpenGroup("D"); s.Results.ShowSectionIssues(); }, 815);
+            Shot(dir, "jkr-live-section-d-issues-815-320.png", s => { ShowRun(s, Failing, backendDown: true); s.Results.OpenGroup("D"); s.Results.ShowSectionIssues(); }, 815, (int)JkrPaneShell.MinimumWidth);
+            Shot(dir, "jkr-live-manual-tab-815-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing, backendDown: true); s.Results.SelectTab(PanelTab.Manual); }, 815);
+            Shot(dir, "jkr-live-issues-scrolled-815-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing, backendDown: true); s.Results.ShowIssues(); Settle(300); ScrollTo(s, "BodyScroll", 900); }, 815);
+            Shot(dir, "jkr-live-checklist-815-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing, backendDown: true); }, 815);
+            Shot(dir, "jkr-live-checklist-815.png", s => ShowRun(s, Failing, backendDown: true), 815);
+            Shot(dir, "jkr-live-checklist-end-815.png", s => { ShowRun(s, Failing, backendDown: true); Settle(300); ScrollTo(s, "BodyScroll", double.MaxValue); }, 815);
+            Shot(dir, "jkr-live-aspects-end-815.png", s => { ShowRun(s, Failing, backendDown: true); s.Results.ShowAspectsView(); Settle(300); ScrollTo(s, "BodyScroll", double.MaxValue); }, 815);
+            Shot(dir, "jkr-live-aspects-end-815-320.png", s => { ShowRun(s, Failing, backendDown: true); s.Results.ShowAspectsView(); Settle(300); ScrollTo(s, "BodyScroll", double.MaxValue); }, 815, (int)JkrPaneShell.MinimumWidth);
+
             // The issue detail and the two fix modals (Task, Verify).
             // Clear Sheet: issue with a fix, with an AI fixer proposal, semak manual issue; plus
             // the states Clear Sheet does not draw (Reopen, Mark as Manual, fix failed, AI can propose).
@@ -169,6 +189,7 @@ namespace UiHarness
         /// Export issues menu open or closed.</summary>
         private static void BorangPreviewShot(string dir, string file, bool en, bool menu, bool zoom = false)
         {
+            if (Skip(file)) return;
             try
             {
                 PaneLanguage.Set(en ? PanelStrings.En : PanelStrings.Ms);
@@ -211,6 +232,7 @@ namespace UiHarness
         /// <summary>The export dialog over a sample issue list, with a format preselected.</summary>
         private static void ExportShot(string dir, string file, bool en, IssueExportFormat format)
         {
+            if (Skip(file)) return;
             try
             {
                 PaneLanguage.Set(en ? PanelStrings.En : PanelStrings.Ms);
@@ -228,6 +250,7 @@ namespace UiHarness
         private static void DetailShot(string dir, string file, Func<PanelItem, bool> pick, bool en = true,
                                        PanelTab tab = PanelTab.Open, Action<PanelItem> tweak = null, bool steps = false)
         {
+            if (Skip(file)) return;
             var shell = new JkrPaneShell(new Grid());
             var host = new Window
             {
@@ -262,6 +285,7 @@ namespace UiHarness
         /// <paramref name="affected"/> 500 the "Revit may pause" note shows.</summary>
         private static void ConfirmShot(string dir, string file, int ai, int affected, bool en = true)
         {
+            if (Skip(file)) return;
             try
             {
                 var json = JObject.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "data", Failing)));
@@ -289,6 +313,7 @@ namespace UiHarness
         /// without JKR parameters, model group, a reason Revit gave).</summary>
         private static void FixResultShot(string dir, string file, int applied, bool failures = true, bool en = true)
         {
+            if (Skip(file)) return;
             try
             {
                 var lang = en ? PanelStrings.En : PanelStrings.Ms;
@@ -468,6 +493,7 @@ namespace UiHarness
 
         private static void Shot(string dir, string file, Action<JkrPaneShell> configure, int height = 1100, int width = (int)JkrPaneShell.DesignWidth)
         {
+            if (Skip(file)) return;
             var shell = new JkrPaneShell(new Grid());
             var win = new Window
             {
@@ -488,6 +514,28 @@ namespace UiHarness
             Save(shell, Path.Combine(dir, file), height);
             win.Close();
             Console.WriteLine("wrote " + file);
+        }
+
+        /// <summary>Scroll the named ScrollViewer of the shown screen (double.MaxValue = to the end).</summary>
+        private static void ScrollTo(DependencyObject root, string name, double offset)
+        {
+            var sv = Find<ScrollViewer>(root, name);
+            if (sv == null) { Console.WriteLine("no ScrollViewer " + name); return; }
+            sv.UpdateLayout();
+            if (offset >= double.MaxValue) sv.ScrollToEnd(); else sv.ScrollToVerticalOffset(offset);
+            sv.UpdateLayout();
+        }
+
+        private static T Find<T>(DependencyObject root, string name) where T : FrameworkElement
+        {
+            if (root == null) return null;
+            if (root is T t && t.Name == name) return t;
+            for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+            {
+                var hit = Find<T>(VisualTreeHelper.GetChild(root, i), name);
+                if (hit != null) return hit;
+            }
+            return null;
         }
 
         private static void Save(FrameworkElement el, string path, int height)
