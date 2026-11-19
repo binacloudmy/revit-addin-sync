@@ -57,6 +57,25 @@ namespace BinaVibe.Mcp.Tools.Electrical
         public static bool HeightOk(double contactZMm, double targetZMm) =>
             Math.Abs(contactZMm - targetZMm) <= HeightTolMm;
 
+        /// <summary>A set parameter read back within this has taken.</summary>
+        public const double ReadBackTolMm = 1;
+
+        /// <summary>
+        /// The contact height of a device placed on a level (or a horizontal work plane): the
+        /// plane's Z plus the first offset parameter that reads a value, in the order that applies
+        /// to the family. Null when none does. The LocationPoint plays no part: a work-plane-based
+        /// family's origin can sit off its work plane.
+        /// </summary>
+        public static double? LevelContactMm(double planeZMm, IReadOnlyList<double?> offsetsMm)
+        {
+            foreach (double? o in offsetsMm)
+                if (o.HasValue) return planeZMm + o.Value;
+            return null;
+        }
+
+        /// <summary>True when a parameter read back after a Set holds the value set.</summary>
+        public static bool ReadBackOk(double setMm, double readMm) => Math.Abs(readMm - setMm) <= ReadBackTolMm;
+
         /// <summary>Z of a plane (a point on it and its normal) over (x, y); null for a vertical plane.</summary>
         public static double? PlaneZAt(double ox, double oy, double oz, double nx, double ny, double nz,
                                        double x, double y)

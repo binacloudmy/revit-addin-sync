@@ -519,51 +519,51 @@ namespace BinaVibe.Mcp.Tools.Electrical
         }
 
         /// <summary>
-        /// Put an overhead device placed with the level overload at its target height, and read
-        /// it back as a contact height. A work-plane-based family on a level has no
-        /// INSTANCE_ELEVATION_PARAM: its height is the level plus "Offset from Host"
-        /// (INSTANCE_FREE_HOST_OFFSET_PARAM), and its LocationPoint need not show it. An unhosted
-        /// family takes "Elevation from Level" (INSTANCE_ELEVATION_PARAM) and its LocationPoint
-        /// does show it. Each parameter that applies is set, measured, and kept when the contact
-        /// height is the target. None works: elevation_unset, and the point fails alone; it is
-        /// never left at the level.
+        /// Put an overhead device placed with the level overload at its target height. Its
+        /// height is the plane it was placed on (CadElectricalResolver.LevelBase) plus its offset
+        /// parameter, never its LocationPoint: a work-plane-based family's origin can sit off its
+        /// work plane (a live test read 2044 mm under an offset that had taken). The parameters
+        /// that apply (CadElectricalResolver.OffsetParams: "Offset from Host" first for a
+        /// work-plane-based family, which has no "Elevation from Level"; the other way round for
+        /// an unhosted one) are each set to target minus that plane, and the first whose read-back
+        /// value equals the value set wins. elevation_unset, failing the point alone, only when
+        /// every one is missing, read-only, refused, or reads back a different value; it is never
+        /// left at the level.
         /// </summary>
         private static string SetLevelHeight(Document doc, FamilyInstance fi, Level? level, double targetZFt, int index)
         {
-            bool workPlane;
-            try { workPlane = fi.Symbol.Family.FamilyPlacementType == FamilyPlacementType.WorkPlaneBased; }
-            catch { workPlane = false; }
-            bool AtTarget() => Math.Abs(CadElectricalResolver.ContactHeight(doc, fi).ZFt - targetZFt) <= ZTolFt;
+            if (!CadElectricalResolver.LevelBase(doc, fi, level, out double baseFt))
+                baseFt = level?.Elevation ?? 0;
+            double want = targetZFt - baseFt;
 
-            if (!workPlane && AtTarget()) return "insertion_point";
-
-            Level? hostLevel = null;
-            try { hostLevel = fi.Host as Level; } catch { hostLevel = null; }
-            Level? ownLevel = doc.GetElement(fi.LevelId) as Level;
-            Level? from = (workPlane ? hostLevel ?? ownLevel : ownLevel ?? hostLevel) ?? level;
-            double want = targetZFt - (from?.Elevation ?? 0);
-
-            var order = workPlane
-                ? new[] { BuiltInParameter.INSTANCE_FREE_HOST_OFFSET_PARAM, BuiltInParameter.INSTANCE_ELEVATION_PARAM }
-                : new[] { BuiltInParameter.INSTANCE_ELEVATION_PARAM, BuiltInParameter.INSTANCE_FREE_HOST_OFFSET_PARAM };
-            foreach (var bip in order)
+            var why = new List<string>();
+            foreach (var bip in CadElectricalResolver.OffsetParams(fi))
             {
                 var prm = fi.get_Parameter(bip);
-                if (prm == null || prm.IsReadOnly || prm.StorageType != StorageType.Double) continue;
+                if (prm == null) { why.Add(bip + " missing"); continue; }
+                if (prm.IsReadOnly || prm.StorageType != StorageType.Double) { why.Add(bip + " read-only"); continue; }
+                double read;
                 try
                 {
                     prm.Set(want);
                     doc.Regenerate();
+                    read = prm.AsDouble();
                 }
-                catch { continue; }
-                if (AtTarget()) return bip.ToString();
+                catch (Exception ex) { why.Add(bip + " refused (" + ex.Message + ")"); continue; }
+                if (OverheadPlacement.ReadBackOk(want * MmPerFoot, read * MmPerFoot)) return bip.ToString();
+                why.Add($"{bip} set {Math.Round(want * MmPerFoot, 1)} mm, read back {Math.Round(read * MmPerFoot, 1)} mm");
             }
 
-            if (AtTarget()) return "insertion_point";
+            // A family with neither parameter keeps the insertion point when that is right.
+            if (why.All(w => w.EndsWith(" missing", StringComparison.Ordinal)) &&
+                ActualZ(fi, out double z) && Math.Abs(z - targetZFt) <= ZTolFt)
+                return "insertion_point";
+
             throw new InvalidOperationException(
                 $"elevation_unset: candidate {index} was placed at the level but its height could not be set to " +
-                $"{Math.Round(targetZFt * MmPerFoot, 1)} mm (contact {Math.Round(CadElectricalResolver.ContactHeight(doc, fi).ZFt * MmPerFoot, 1)} mm): " +
-                "neither Offset from Host nor Elevation from Level took. Use a ceiling, face-based or unhosted family for it.");
+                $"{Math.Round(targetZFt * MmPerFoot, 1)} mm ({Math.Round(want * MmPerFoot, 1)} mm above " +
+                $"{Math.Round(baseFt * MmPerFoot, 1)} mm): {string.Join("; ", why)}. " +
+                "Use a ceiling, face-based or unhosted family for it.");
         }
 
         // ─── place_socket_on_wall ───────────────────────────────────────

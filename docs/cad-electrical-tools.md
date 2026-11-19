@@ -316,7 +316,7 @@ The review carries no coordinates.
 **Contact height:** where a device meets its host, under its origin. A work-plane-based family's LocationPoint need not lie on its work plane: in a live test, two light families hosted on the same underside with "Offset from Host" 0 read +175 mm and -2044 mm. So:
 - on a face (`HostFace` readable, face not vertical): that face's Z under the origin, plus "Offset from Host" along the face normal (`host_face`)
 - on a ceiling with no face (a ceiling-hosted family): the ceiling's underside there (`ceiling_underside`)
-- a work-plane-based family on a level: the level plus "Offset from Host", or "Elevation from Level" (`level_offset`)
+- a work-plane-based or unhosted family on a level (or a horizontal work plane, or no host): that plane plus the offset parameter read back, "Offset from Host" first for a work-plane-based family and "Elevation from Level" first for an unhosted one (`level_offset`). The origin plays no part: a live test read a light's origin 2044 mm under a level offset that had taken.
 - anything else, a wall socket included: the LocationPoint's Z (`location`)
 
 **Placement by family:**
@@ -340,7 +340,7 @@ These points have no facing, so `facing_method` is `not_applicable`.
 
 **Height on a ceiling:** the host sets the height and `elevation_set_via` is `host`. The contact height is measured after placing. More than 20 mm off the target: a face-placed device is tried on the next face that looks down. If it is still off, or the family is ceiling-hosted, the point fails alone with `height_mismatch`, and its transaction is rolled back. The reason lists each try: the face's Z, the contact height and how it was read, and the origin's Z. It never falls back to a free-standing device at the level.
 
-**Height at the level** (no ceiling, or the face was refused): a work-plane-based family placed on a level has no "Elevation from Level", so "Offset from Host" (`INSTANCE_FREE_HOST_OFFSET_PARAM`) is set first, then "Elevation from Level" (`INSTANCE_ELEVATION_PARAM`). An unhosted family tries them the other way round, and keeps its insertion point if that is already right. Each is read back as a contact height. `elevation_set_via` is `insertion_point` or the parameter used. If neither takes, the point fails alone with `elevation_unset`. It is never left at the level.
+**Height at the level** (no ceiling, or the face was refused): a work-plane-based family placed on a level has no "Elevation from Level", so "Offset from Host" (`INSTANCE_FREE_HOST_OFFSET_PARAM`) is set first, then "Elevation from Level" (`INSTANCE_ELEVATION_PARAM`). An unhosted family tries them the other way round. Each is set to the target minus the level, and the first whose read-back value equals the value set (within 1 mm) wins. `elevation_set_via` is that parameter, or `insertion_point` for a family with neither parameter whose insertion point is already right. The point fails alone with `elevation_unset` only when every parameter is missing, read-only, refused, or reads back a different value; the reason says which. It is never left at the level. The height reported is the level plus the parameter, as in **Contact height**, never the origin.
 
 Each item also carries:
 - `z_mm`: the contact height, as placed

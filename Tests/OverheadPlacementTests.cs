@@ -56,6 +56,28 @@ namespace Tests
         }
 
         [Fact]
+        public void Level_contact_is_the_plane_plus_the_offset_read_back_not_the_origin()
+        {
+            // LIGHT-B on Level 2 at 3800, Offset from Host set to 3000: 6800, whatever its
+            // origin reads (4756, 2044 under).
+            Assert.Equal(6800, OverheadPlacement.LevelContactMm(3800, new double?[] { 3000, null })!.Value, 6);
+            // No Offset from Host: Elevation from Level.
+            Assert.Equal(6800, OverheadPlacement.LevelContactMm(3800, new double?[] { null, 3000 })!.Value, 6);
+            // The first that applies wins.
+            Assert.Equal(6800, OverheadPlacement.LevelContactMm(3800, new double?[] { 3000, 0 })!.Value, 6);
+            Assert.Null(OverheadPlacement.LevelContactMm(3800, new double?[] { null, null }));
+        }
+
+        [Fact]
+        public void A_parameter_has_taken_when_it_reads_back_the_value_set()
+        {
+            Assert.True(OverheadPlacement.ReadBackOk(3000, 3000));
+            Assert.True(OverheadPlacement.ReadBackOk(3000, 3000.4));
+            Assert.False(OverheadPlacement.ReadBackOk(3000, 0));
+            Assert.False(OverheadPlacement.ReadBackOk(3000, 956));
+        }
+
+        [Fact]
         public void Plane_z_follows_a_sloped_plane_and_refuses_a_vertical_one()
         {
             Assert.Equal(2700, OverheadPlacement.PlaneZAt(0, 0, 2700, 0, 0, -1, 500, 900)!.Value, 6);

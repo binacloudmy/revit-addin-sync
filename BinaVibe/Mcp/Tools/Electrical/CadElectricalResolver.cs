@@ -131,7 +131,8 @@ namespace BinaVibe.Mcp.Tools.Electrical
         ///   on a face (HostFace readable): that face's Z under the origin, plus the instance's
         ///     offset from it along the face normal;
         ///   on a ceiling with no face (a ceiling-hosted family): the ceiling's underside there;
-        ///   a work-plane-based family on a level: the level plus its offset parameter;
+        ///   on a level or a horizontal work plane (LevelBase): that plane plus the offset
+        ///     parameter read back (OffsetParams), work-plane-based and unhosted families alike;
         ///   anything else: the LocationPoint's Z, which an unhosted family's origin honours.
         /// </summary>
         internal static Contact ContactHeight(Document doc, FamilyInstance fi)
@@ -178,19 +179,81 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 }
             }
 
-            FamilyPlacementType placement;
-            try { placement = fi.Symbol.Family.FamilyPlacementType; } catch { placement = FamilyPlacementType.Invalid; }
-            if (placement == FamilyPlacementType.WorkPlaneBased)
+            // On a level (or a horizontal work plane): the plane plus the offset parameter read
+            // back, never the origin. A live test read a work-plane light's origin 2044 mm under
+            // a level + offset that had taken.
+            if (LevelBase(doc, fi, null, out double baseFt))
             {
-                Level? level = host as Level
-                               ?? (host == null ? doc.GetElement(fi.LevelId) as Level : null);
-                double? offset = DoubleParam(fi, BuiltInParameter.INSTANCE_FREE_HOST_OFFSET_PARAM)
-                                 ?? DoubleParam(fi, BuiltInParameter.INSTANCE_ELEVATION_PARAM);
-                if (level != null && offset.HasValue)
-                    return new Contact(level.Elevation + offset.Value, "level_offset", null);
+                double? contactMm = OverheadPlacement.LevelContactMm(
+                    baseFt * MmPerFoot,
+                    OffsetParams(fi).Select(b => DoubleParam(fi, b) * MmPerFoot).ToList());
+                if (contactMm.HasValue) return new Contact(contactMm.Value / MmPerFoot, "level_offset", null);
             }
 
             return new Contact(at.Z, "location", ceilingId);
+        }
+
+        /// <summary>The offset parameters of a device placed on a level, the one that applies
+        /// first: a work-plane-based family's is "Offset from Host", an unhosted one's
+        /// "Elevation from Level".</summary>
+        internal static BuiltInParameter[] OffsetParams(FamilyInstance fi)
+        {
+            bool workPlane;
+            try { workPlane = fi.Symbol.Family.FamilyPlacementType == FamilyPlacementType.WorkPlaneBased; }
+            catch { workPlane = false; }
+            return workPlane
+                ? new[] { BuiltInParameter.INSTANCE_FREE_HOST_OFFSET_PARAM, BuiltInParameter.INSTANCE_ELEVATION_PARAM }
+                : new[] { BuiltInParameter.INSTANCE_ELEVATION_PARAM, BuiltInParameter.INSTANCE_FREE_HOST_OFFSET_PARAM };
+        }
+
+        /// <summary>
+        /// The height, feet, that a device placed on a level measures its offset from: a level
+        /// host's elevation; a horizontal sketch or reference plane host's Z; with no host, the
+        /// instance's level (LevelId, then its schedule or reference level). False for a device
+        /// on a wall, floor, ceiling or other element (its offset is from that host's face, not
+        /// a level), or when no level is found and <paramref name="fallback"/> is null.
+        /// </summary>
+        internal static bool LevelBase(Document doc, FamilyInstance fi, Level? fallback, out double baseFt)
+        {
+            baseFt = 0;
+            FamilyPlacementType placement;
+            try { placement = fi.Symbol.Family.FamilyPlacementType; } catch { return false; }
+            if (placement != FamilyPlacementType.WorkPlaneBased && placement != FamilyPlacementType.OneLevelBased)
+                return false;
+
+            Element? host = null;
+            try { host = fi.Host; } catch { host = null; }
+            if (host is Level hostLevel) { baseFt = hostLevel.Elevation; return true; }
+            if (host is SketchPlane || host is ReferencePlane)
+            {
+                try
+                {
+                    Plane plane = host is SketchPlane sp ? sp.GetPlane() : ((ReferencePlane)host).GetPlane();
+                    if (Math.Abs(plane.Normal.Z) < 0.9) return false;
+                    baseFt = plane.Origin.Z;
+                    return true;
+                }
+                catch { return false; }
+            }
+            if (host != null) return false;
+
+            Level? level = doc.GetElement(fi.LevelId) as Level
+                           ?? LevelParam(doc, fi, BuiltInParameter.INSTANCE_SCHEDULE_ONLY_LEVEL_PARAM)
+                           ?? LevelParam(doc, fi, BuiltInParameter.INSTANCE_REFERENCE_LEVEL_PARAM)
+                           ?? fallback;
+            if (level == null) return false;
+            baseFt = level.Elevation;
+            return true;
+        }
+
+        private static Level? LevelParam(Document doc, Element el, BuiltInParameter bip)
+        {
+            try
+            {
+                Parameter? p = el.get_Parameter(bip);
+                return p != null && p.StorageType == StorageType.ElementId ? doc.GetElement(p.AsElementId()) as Level : null;
+            }
+            catch { return null; }
         }
 
         /// <summary>A face's Z over (x, y), feet: the plane's for a planar face, else where a
