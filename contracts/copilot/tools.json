@@ -83,6 +83,7 @@
               },
               "parameter": {
                 "type": "object",
+                "description": "Needs a category or a handle. A Mark or Comments value with no category: one query with the value as text and no category (one call over 39 common categories; 0 is none in the scope it reports); if found, filter that handle with this parameter before highlight or write.",
                 "additionalProperties": false,
                 "required": [
                   "name",
