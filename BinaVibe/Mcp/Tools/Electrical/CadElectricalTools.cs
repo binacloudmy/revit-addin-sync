@@ -117,9 +117,20 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 PlanCount = scan.Clusters.Count,
                 Levels = new HashSet<string>(model.Levels.Select(l => l.Name), StringComparer.Ordinal),
                 FamilyTypeMatches = model.FamilyTypeMatches,
+                ConduitTypeMatches = text => RunTypeInfo.Matches(model.ConduitTypes, text),
+                TrayTypeMatches = text => RunTypeInfo.Matches(model.TrayTypes, text),
+                ConduitSizesMm = name => model.ConduitTypes.FirstOrDefault(t => t.Name == name)?.SizesMm ?? new List<double>(),
             };
             mapping.Validate(facts, issues);
             if (issues.Count > 0) return MappingInvalid(dwgRef, issues);
+
+            // The run height for conduit layers whose rows give none (D5: never defaulted).
+            double? runHeightArg = ArgsHelp.GetDouble(args, "run_height_mm");
+            if (runHeightArg.HasValue && (runHeightArg.Value < CadElectricalMapping.MinRunHeightMm ||
+                                          runHeightArg.Value > CadElectricalMapping.MaxRunHeightMm))
+                return Failed(dwgRef, "bad_run_height",
+                    "run_height_mm must be " + CadElectricalMapping.MinRunHeightMm + " to " +
+                    CadElectricalMapping.MaxRunHeightMm + " mm above the level");
 
             if (scan.Clusters.Count == 0)
                 return Failed(dwgRef, "no_background",
@@ -332,6 +343,8 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 rows.TryGetValue(key, out SymbolRow? r) && CadElectricalMapping.IsPlaceable(r.Role);
 
             var points = new List<PlannedPoint>();
+            // Each point's drawn symbol on the model: a drawn run ends at the symbol, not the point.
+            var drawn = new Dictionary<int, (double X, double Y, double Half)>();
             var unmapped = new Dictionary<string, UnmappedClass>(StringComparer.Ordinal);
             var dropped = new List<object?>();
             int otherPlans = 0, outsideFootprint = 0;
@@ -405,15 +418,85 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     CadSymbolResolve.AddFlag(p, "family_host_mismatch");
                 if (CadSymbolResolve.NoCeiling(p, host, hosting))
                     CadSymbolResolve.AddFlag(p, "no_ceiling");
+                drawn[p.Index] = (mx, my, Math.Max(symbol.WidthMm, symbol.HeightMm) / 2);
                 points.Add(p);
             }
             McpProgress.Report(total, total);
             CadSymbolResolve.MarkDuplicates(points, options);
 
-            // 8. Store, then review.
+            // 8. Conduit and trunking runs on the run layers (phase 2). A run piece belongs to
+            // this plan by the symbols' rule: its midpoint, carried onto the model, inside the
+            // footprint (with no footprint, inside the cluster's box).
+            FitTransform transform = fit.Transform;
+            ModelFootprint? runFootprint = footprint;
+            Func<double, double, bool> keepPiece = runFootprint != null
+                ? (x, y) =>
+                {
+                    transform.Apply(x, y, out double px, out double py);
+                    return runFootprint.Contains(px, py);
+                }
+                : scan.InClusterBox(cluster);
+            List<LayerRow> runRows = mapping.Layers.Where(r => CadElectricalMapping.IsRunLayer(r.Role)).ToList();
+            var runs = new List<PlannedRun>();
+            var runOptions = new RunPlanOptions();
+            var chainOptions = new ChainOptions();
+            var unplannedLayers = new List<UnplannedLayer>();
+            int tooShort = 0, freeArcs = 0, piecesOutside = 0;
+            if (runRows.Count > 0)
+            {
+                // Devices of other levels are no drop targets: only those from this level up to the next.
+                double nextLevelZMm = model.Levels.Where(l => l.Elevation > level.Elevation)
+                    .Select(l => l.Elevation * MmPerFoot).DefaultIfEmpty(levelZMm + CadElectricalMapping.MaxRunHeightMm).Min();
+                List<DropTarget> targets = CadRunPlan.Targets(points, drawn,
+                    model.Devices.Where(d => d.Z >= levelZMm - 1000 && d.Z < nextLevelZMm));
+                var usedTargets = new HashSet<string>(StringComparer.Ordinal);
+
+                for (int i = 0; i < runRows.Count; i++)
+                {
+                    McpProgress.Report(i, runRows.Count);
+                    LayerRow row = runRows[i];
+                    List<Cad2Bim.Segment> pieces = scan.RunPieces(new[] { row.Layer }, keepPiece, out int left);
+                    piecesOutside += left;
+                    string? reason = CadElectricalMapping.UnplannedReason(row, runHeightArg);
+                    ChainResult? chain = null;
+                    if (reason == null)
+                    {
+                        List<ArcSpan> arcs = scan.RunArcs(new[] { row.Layer }, keepPiece, out _);
+                        chain = CadRunChain.Chain(pieces, arcs, chainOptions);
+                        reason = chain.Error;
+                    }
+                    if (reason != null || chain == null)
+                    {
+                        unplannedLayers.Add(new UnplannedLayer
+                        {
+                            Layer = row.Layer, Reason = reason ?? "", Pieces = pieces.Count, LengthMm = pieces.Sum(s => s.Length),
+                        });
+                        continue;
+                    }
+
+                    tooShort += chain.TooShort;
+                    freeArcs += chain.FreeArcs;
+                    var spec = new RunLayerSpec
+                    {
+                        Layer = row.Layer,
+                        Kind = row.Role == "trunking" ? "cable_tray" : "conduit",
+                        TypeName = row.Role == "trunking" ? row.TrayType : row.ConduitType,
+                        DiameterMm = row.DiameterMm,
+                        WidthMm = row.WidthMm,
+                        HeightMm = row.HeightMm,
+                        RunHeightMm = CadElectricalMapping.EffectiveRunHeight(row, runHeightArg),
+                    };
+                    runs.AddRange(CadRunPlan.Plan(chain.Runs, spec, transform, levelZMm, level.Name, targets, provisional,
+                                                  runOptions, runs.Count, usedTargets));
+                }
+                McpProgress.Report(runRows.Count, runRows.Count);
+            }
+
+            // 9. Store, then review.
             var plan = new SocketPlan
             {
                 Points = points,
+                Runs = runs,
                 Source = "cad",
                 SourceFile = Path.GetFileName(path),
                 Alignment = new PlanAlignment
@@ -448,16 +531,29 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     ["existing_mm"] = options.ExistingMm,
                     ["duplicate_mm"] = options.DuplicateMm,
                     ["wet_room_keywords"] = options.WetKeywords.Cast<object?>().ToList(),
+                    ["run_height_mm"] = runHeightArg,
+                    ["run_join_mm"] = chainOptions.JoinMm,
+                    ["min_run_mm"] = chainOptions.MinRunMm,
+                    ["drop_reach_mm"] = runOptions.DropReachMm,
+                    ["min_drop_mm"] = runOptions.MinDropMm,
+                    ["run_height_basis"] = "level",
                 },
             };
             string planId = SocketPlanCache.Store(plan, SocketCandidates.DocKey(doc));
 
             var notes = new List<string>(mapping.Notes);
             notes.AddRange(fitNotes);
-            if (ArgsHelp.GetDouble(args, "run_height_mm").HasValue)
-                notes.Add("run_height_mm is for conduit runs, which come in phase 2; it was not used");
+            if (runHeightArg.HasValue && runRows.Count == 0)
+                notes.Add("run_height_mm was given but the mapping has no conduit or trunking layer; it was not used");
             if (provisional)
                 notes.Add("the alignment is provisional (score under 0.80): check a few points before placing");
+
+            Dictionary<string, object?>? conduitBlock = null;
+            if (runRows.Count > 0)
+            {
+                string status = unplannedLayers.Any(u => u.Reason == "no_run_height") ? "needs_run_height" : "planned";
+                conduitBlock = CadElectricalReview.ConduitReview(plan, unplannedLayers, tooShort, freeArcs, status, piecesOutside);
+            }
 
             var result = new Dictionary<string, object?>
             {
@@ -466,7 +562,8 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 ["dwg_ref"] = dwgRef,
                 ["level"] = level.Name,
                 ["cluster"] = cluster,
-                ["review"] = CadElectricalReview.PlanReview(plan, unmapped.Values.ToList(), otherPlans, notes, outsideFootprint),
+                ["review"] = CadElectricalReview.PlanReview(plan, unmapped.Values.ToList(), otherPlans, notes, outsideFootprint,
+                                                            conduitBlock),
                 ["params_used"] = plan.ParamsUsed,
             };
 
@@ -487,9 +584,33 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 result["points_truncated"] = points.Count > MaxPointRows;
                 result["dropped"] = dropped.Take(MaxPointRows).ToList();
                 result["dropped_truncated"] = dropped.Count > MaxPointRows;
+                result["runs"] = runs.Take(MaxPointRows).Select(r => (object?)new Dictionary<string, object?>
+                {
+                    ["index"] = r.Index,
+                    ["layer"] = r.Layer,
+                    ["kind"] = r.Kind,
+                    ["points_mm"] = r.PointsMm.Select(p => (object?)new List<object?>
+                    {
+                        Math.Round(p[0], 1), Math.Round(p[1], 1), Math.Round(p[2], 1),
+                    }).ToList(),
+                    ["start"] = RunEndRow(r.Start),
+                    ["end"] = RunEndRow(r.End),
+                    ["length_mm"] = Math.Round(r.LengthMm, 1),
+                    ["flags"] = r.Flags.Cast<object?>().ToList(),
+                    ["excluded"] = r.Excluded,
+                }).ToList();
+                result["runs_truncated"] = runs.Count > MaxPointRows;
             }
             return result;
         }
+
+        private static Dictionary<string, object?> RunEndRow(RunEnd end) => new Dictionary<string, object?>
+        {
+            ["kind"] = end.Kind,
+            ["point_index"] = end.PointIndex,
+            ["element_id"] = end.ElementId,
+            ["drop_mm"] = Math.Round(end.DropMm, 1),
+        };
 
         // ─── dump_electrical_reference ─────────────────────────────────
         // The exit check's measuring tape (add-in only, not advertised): every device of
@@ -761,8 +882,25 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 }).ToList(),
                 ["family_types_total"] = types.Count,
                 ["family_types_truncated"] = types.Count > MaxFamilyTypes,
+                ["conduit_types"] = RunTypeRows(CadElectricalResolver.ConduitTypes(doc), withSizes: true),
+                ["cable_tray_types"] = RunTypeRows(CadElectricalResolver.TrayTypes(doc), withSizes: false),
             };
         }
+
+        private const int MaxRunTypes = 50;
+
+        /// <summary>Up to 50 conduit or cable tray types, with fittings and (conduit) trade sizes.</summary>
+        private static List<object?> RunTypeRows(List<RunTypeInfo> types, bool withSizes) =>
+            types.Take(MaxRunTypes).Select(t =>
+            {
+                var row = new Dictionary<string, object?>
+                {
+                    ["type"] = t.Name,
+                    ["with_fittings"] = t.WithFittings,
+                };
+                if (withSizes) row["sizes_mm"] = t.SizesMm.Select(mm => (object?)Math.Round(mm, 1)).ToList();
+                return (object?)row;
+            }).ToList();
 
         // ─── shared with plan_cad_electrical and place_socket_points ───
 

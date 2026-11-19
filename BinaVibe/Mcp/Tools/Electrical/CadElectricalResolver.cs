@@ -15,6 +15,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Architecture;
+using Autodesk.Revit.DB.Electrical;
 
 namespace BinaVibe.Mcp.Tools.Electrical
 {
@@ -30,6 +31,13 @@ namespace BinaVibe.Mcp.Tools.Electrical
         /// <summary>"Family : Type" to its hosting kind (CadElectricalTools.HostingKind).</summary>
         public Dictionary<string, string> HostingByType = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         public List<Level> Levels = new List<Level>();
+        /// <summary>Every device-category instance, with its id and contact height, mm: what a
+        /// conduit run's drop can reach.</summary>
+        public List<PresentDevice> Devices = new List<PresentDevice>();
+        /// <summary>The model's conduit types, "Family : Type", with fittings and trade sizes.</summary>
+        public List<RunTypeInfo> ConduitTypes = new List<RunTypeInfo>();
+        /// <summary>The model's cable tray types, "Family : Type", with fittings.</summary>
+        public List<RunTypeInfo> TrayTypes = new List<RunTypeInfo>();
     }
 
     internal static class CadElectricalResolver
@@ -63,7 +71,10 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 AddWalls(linkDoc, t, true, snapshot);
             }
 
-            snapshot.ExistingDevices = ExistingDevices(doc).Select(d => (d.X, d.Y, d.Z)).ToList();
+            snapshot.Devices = ExistingDevices(doc);
+            snapshot.ExistingDevices = snapshot.Devices.Select(d => (d.X, d.Y, d.Z)).ToList();
+            snapshot.ConduitTypes = ConduitTypes(doc);
+            snapshot.TrayTypes = TrayTypes(doc);
 
             var names = new FilteredElementCollector(doc).WhereElementIsElementType()
                 .OfClass(typeof(FamilySymbol)).Cast<FamilySymbol>()
@@ -108,9 +119,81 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     Y = lp.Point.Y * MmPerFoot,
                     Z = zFt * MmPerFoot,
                     CeilingId = ceilingId,
+                    Id = el.Id.Value,
                 });
             }
             return devices;
+        }
+
+        /// <summary>The model's conduit types with their trade sizes (ConduitSizesMm).</summary>
+        internal static List<RunTypeInfo> ConduitTypes(Document doc)
+        {
+            List<(string Standard, double Mm)> sizes = ConduitSizeTable(doc);
+            var types = new List<RunTypeInfo>();
+            foreach (ConduitType t in new FilteredElementCollector(doc).OfClass(typeof(ConduitType)).Cast<ConduitType>())
+            {
+                bool withFittings = false;
+                try { withFittings = t.IsWithFitting; } catch { withFittings = false; }
+                types.Add(new RunTypeInfo
+                {
+                    Name = t.FamilyName + " : " + t.Name,
+                    TypeName = t.Name,
+                    WithFittings = withFittings,
+                    SizesMm = ConduitSizesMm(t, sizes),
+                });
+            }
+            return types.OrderBy(t => t.Name, StringComparer.OrdinalIgnoreCase).ToList();
+        }
+
+        /// <summary>The model's cable tray types.</summary>
+        internal static List<RunTypeInfo> TrayTypes(Document doc)
+        {
+            var types = new List<RunTypeInfo>();
+            foreach (CableTrayType t in new FilteredElementCollector(doc).OfClass(typeof(CableTrayType)).Cast<CableTrayType>())
+            {
+                bool withFittings = false;
+                try { withFittings = t.IsWithFitting; } catch { withFittings = false; }
+                types.Add(new RunTypeInfo { Name = t.FamilyName + " : " + t.Name, TypeName = t.Name, WithFittings = withFittings });
+            }
+            return types.OrderBy(t => t.Name, StringComparer.OrdinalIgnoreCase).ToList();
+        }
+
+        /// <summary>Every conduit standard's trade sizes in the model's size settings, mm
+        /// (nominal diameter, the sizes offered in size lists). Empty when it cannot be read.</summary>
+        internal static List<(string Standard, double Mm)> ConduitSizeTable(Document doc)
+        {
+            var table = new List<(string Standard, double Mm)>();
+            try
+            {
+                ConduitSizeSettings settings = ConduitSizeSettings.GetConduitSizeSettings(doc);
+                foreach (KeyValuePair<string, ConduitSizes> standard in settings)
+                {
+                    foreach (ConduitSize size in standard.Value)
+                    {
+                        if (size.UsedInSizeLists) table.Add((standard.Key, size.NominalDiameter * MmPerFoot));
+                    }
+                }
+            }
+            catch { /* no size settings: the diameter is not checked */ }
+            return table;
+        }
+
+        /// <summary>A conduit type's sizes: its standard's when the standard can be read and is in
+        /// the table, else every standard's (a looser check, never a wrong refusal).</summary>
+        internal static List<double> ConduitSizesMm(ConduitType type, List<(string Standard, double Mm)> table)
+        {
+            string? standard = null;
+            try
+            {
+                Parameter? p = type.get_Parameter(BuiltInParameter.CONDUIT_STANDARD_TYPE_PARAM);
+                standard = p?.AsValueString() ?? p?.AsString();
+            }
+            catch { standard = null; }
+
+            List<double> own = table.Where(s => standard != null && string.Equals(s.Standard, standard, StringComparison.OrdinalIgnoreCase))
+                .Select(s => s.Mm).ToList();
+            List<double> sizes = own.Count > 0 ? own : table.Select(s => s.Mm).ToList();
+            return sizes.Select(mm => Math.Round(mm, 2)).Distinct().OrderBy(mm => mm).ToList();
         }
 
         /// <summary>Where a device meets its host, feet, how that was read, and the ceiling it is on.</summary>
