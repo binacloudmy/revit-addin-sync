@@ -11,7 +11,7 @@ namespace BinaVibe.Mcp.Tools
     public static class InstalledToolManifest
     {
         public const int ProtocolVersion = 2;
-        public const string Version = "78c1b6748c75";
+        public const string Version = "79c3628cdd96";
         public static readonly string[] Names = new string[]
         {
             "align_viewports",
@@ -70,6 +70,7 @@ namespace BinaVibe.Mcp.Tools
             "delete_unused_views",
             "dimension_grids",
             "draft_export",
+            "dump_electrical_reference",
             "duplicate_sheet",
             "duplicate_view",
             "dwg_open_attachment",

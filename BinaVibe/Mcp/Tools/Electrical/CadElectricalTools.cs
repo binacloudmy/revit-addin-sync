@@ -388,6 +388,172 @@ namespace BinaVibe.Mcp.Tools.Electrical
             return result;
         }
 
+        // ─── dump_electrical_reference ─────────────────────────────────
+        // The exit check's measuring tape (add-in only, not advertised): every device of
+        // the open model, its links' placements and, on request, the level's wall
+        // centrelines, written to a private file for PlacementCompare and the headless
+        // --fit. A real model's dump carries its project's names, so it is refused inside
+        // any git working tree. Read-only.
+
+        public static Dictionary<string, object?> DumpElectricalReference(Document doc, JsonElement args)
+        {
+            var outPath = ArgsHelp.GetString(args, "out_path")
+                ?? throw new ArgumentException("missing out_path");
+            string full = Path.GetFullPath(outPath);
+            if (InsideGitWorkTree(full))
+                throw new InvalidOperationException("refusing to write the reference inside a git working tree: " + full);
+            string? dir = Path.GetDirectoryName(full);
+            if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir))
+                throw new InvalidOperationException("no such folder: " + dir);
+
+            string? levelName = ArgsHelp.GetString(args, "level");
+            bool includeWalls = ArgsHelp.GetBool(args, "include_walls") ?? false;
+            Level? level = null;
+            if (levelName != null)
+            {
+                level = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
+                    .FirstOrDefault(l => string.Equals(l.Name, levelName, StringComparison.OrdinalIgnoreCase))
+                    ?? throw new ArgumentException("no level '" + levelName + "' in the model");
+            }
+
+            var devices = new List<object?>();
+            var filter = new ElementMulticategoryFilter(DeviceCategories.ToList());
+            foreach (Element el in new FilteredElementCollector(doc).WhereElementIsNotElementType().WherePasses(filter))
+            {
+                if (!(el.Location is LocationPoint lp)) continue;
+                var fi = el as FamilyInstance;
+                Level? on = DeviceLevel(doc, el);
+                if (level != null && (on == null || on.Id != level.Id)) continue;
+
+                XYZ? facing = null;
+                try { facing = fi?.FacingOrientation; } catch { facing = null; }
+                devices.Add(new Dictionary<string, object?>
+                {
+                    ["id"] = el.Id.Value,
+                    ["category"] = el.Category?.Name ?? "",
+                    ["family_type"] = fi?.Symbol != null ? FullName(fi.Symbol) : el.Name,
+                    ["level"] = on?.Name,
+                    ["xyz_mm"] = Mm(lp.Point),
+                    ["offset_mm"] = on != null ? Math.Round((lp.Point.Z - on.Elevation) * MmPerFoot, 1) : (double?)null,
+                    ["host_kind"] = HostKindOf(fi),
+                    ["facing"] = facing == null
+                        ? null
+                        : new List<object?> { Math.Round(facing.X, 4), Math.Round(facing.Y, 4) },
+                });
+            }
+
+            var links = new List<object?>();
+            foreach (RevitLinkInstance link in new FilteredElementCollector(doc).OfClass(typeof(RevitLinkInstance))
+                         .Cast<RevitLinkInstance>())
+            {
+                Transform t;
+                try { t = link.GetTotalTransform(); } catch { continue; }
+                links.Add(new Dictionary<string, object?>
+                {
+                    ["id"] = link.Id.Value,
+                    ["name"] = link.Name,
+                    ["loaded"] = link.GetLinkDocument() != null,
+                    ["origin_mm"] = Mm(t.Origin),
+                    ["basis_x"] = Unit(t.BasisX),
+                    ["basis_y"] = Unit(t.BasisY),
+                    ["basis_z"] = Unit(t.BasisZ),
+                });
+            }
+
+            var dump = new Dictionary<string, object?>
+            {
+                ["schema"] = "cad.electrical.reference/1",
+                ["level"] = level?.Name,
+                ["devices"] = devices,
+                ["links"] = links,
+            };
+
+            int wallCount = 0;
+            if (includeWalls)
+            {
+                ModelSnapshot model = CadElectricalResolver.Read(doc);
+                Func<List<ModelWall>, List<object?>> rows = walls => walls.Select(w => (object?)new Dictionary<string, object?>
+                {
+                    ["id"] = w.Id,
+                    ["x1"] = Math.Round(w.X1, 1),
+                    ["y1"] = Math.Round(w.Y1, 1),
+                    ["x2"] = Math.Round(w.X2, 1),
+                    ["y2"] = Math.Round(w.Y2, 1),
+                    ["thickness_mm"] = Math.Round(w.ThicknessMm, 1),
+                    ["linked"] = w.Linked,
+                }).ToList();
+
+                if (level != null)
+                {
+                    List<ModelWall> walls = model.WallsByLevel.TryGetValue(level.Name, out List<ModelWall>? w) ? w : new List<ModelWall>();
+                    dump["walls"] = rows(walls);
+                    wallCount = walls.Count;
+                }
+                else
+                {
+                    var byLevel = new Dictionary<string, object?>(StringComparer.Ordinal);
+                    foreach (var pair in model.WallsByLevel)
+                    {
+                        byLevel[pair.Key] = rows(pair.Value);
+                        wallCount += pair.Value.Count;
+                    }
+                    dump["walls_by_level"] = byLevel;
+                }
+            }
+
+            File.WriteAllText(full, JsonSerializer.Serialize(dump, new JsonSerializerOptions { WriteIndented = true }));
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["out_path"] = full,
+                ["devices"] = devices.Count,
+                ["links"] = links.Count,
+                ["walls"] = wallCount,
+            };
+        }
+
+        private static Level? DeviceLevel(Document doc, Element el)
+        {
+            if (doc.GetElement(el.LevelId) is Level own) return own;
+            try
+            {
+                Parameter? p = el.get_Parameter(BuiltInParameter.INSTANCE_SCHEDULE_ONLY_LEVEL_PARAM);
+                if (p != null && p.StorageType == StorageType.ElementId && doc.GetElement(p.AsElementId()) is Level scheduled)
+                    return scheduled;
+            }
+            catch { /* no schedule level */ }
+            return null;
+        }
+
+        private static string HostKindOf(FamilyInstance? fi)
+        {
+            if (fi == null) return "none";
+            Element? host = fi.Host;
+            if (host is Wall) return "wall";
+            if (host is Ceiling) return "ceiling";
+            if (fi.HostFace != null) return "face";
+            if (host == null) return "none";
+            return (host.Category?.Name ?? "other").ToLowerInvariant();
+        }
+
+        private static List<object?> Mm(XYZ p) =>
+            new List<object?> { Math.Round(p.X * MmPerFoot, 1), Math.Round(p.Y * MmPerFoot, 1), Math.Round(p.Z * MmPerFoot, 1) };
+
+        private static List<object?> Unit(XYZ v) =>
+            new List<object?> { Math.Round(v.X, 9), Math.Round(v.Y, 9), Math.Round(v.Z, 9) };
+
+        private static bool InsideGitWorkTree(string file)
+        {
+            DirectoryInfo? dir = new FileInfo(file).Directory;
+            while (dir != null)
+            {
+                string git = Path.Combine(dir.FullName, ".git");
+                if (Directory.Exists(git) || File.Exists(git)) return true;
+                dir = dir.Parent;
+            }
+            return false;
+        }
+
         private static void Drop(List<object?> dropped, string block, string reason, double x, double y, double z) =>
             dropped.Add(new Dictionary<string, object?>
             {

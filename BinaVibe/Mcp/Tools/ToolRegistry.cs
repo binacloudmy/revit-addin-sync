@@ -105,6 +105,9 @@ namespace BinaVibe.Mcp.Tools
                 // Mapping + drawing + model -> a cached device plan and its review card.
                 // Read-only, like suggest_socket_points; place_socket_points commits it.
                 "plan_cad_electrical"           => Electrical.CadElectricalTools.PlanCadElectrical(app, doc, args),
+                // Exit-check measuring tape: the model's devices, links and walls to a private
+                // file. Add-in only — the agent's catalog does not list it.
+                "dump_electrical_reference"     => Electrical.CadElectricalTools.DumpElectricalReference(doc, args),
                 // Pane-only: opens an attached DWG and hands back its ref +
                 // summary. Deliberately NOT advertised to the model (it takes a
                 // local file path), so it has no entry in the agent's catalog.

@@ -28,9 +28,15 @@ namespace Cad2Bim.Headless {
                     "  --ifc=out.ifc               write the result as an IFC model\n" +
                     "  --census                    electrical census: phase 0 summary on stdout, timings on stderr\n" +
                     "  --json                      with --census: print only the census JSON\n" +
-                    "  --census-out=census.json    with --census: also write the JSON there (outside the repo)");
+                    "  --census-out=census.json    with --census: also write the JSON there (outside the repo)\n" +
+                    "  --fit=walls.json [--cluster=N]  fit the drawing's walls to dump_electrical_reference walls\n" +
+                    "usage: cad2bim-headless --compare-devices <ref.json> <placed.json> [--plan=plan.json]\n" +
+                    "                        [--ref-types=text] [--ref-link=text] [--json]");
                 return 2;
             }
+
+            // The exit check's comparison reads two dumps, not a drawing.
+            if (args.Contains("--compare-devices")) return ElectricalCheckCommands.Compare(args);
 
             string path = args[0];
             if (!File.Exists(path)) {
@@ -40,6 +46,7 @@ namespace Cad2Bim.Headless {
 
             // The census is its own measurement: one walk, none of the wall/room pipeline below.
             if (args.Contains("--census")) return CensusCommand.Run(path, args);
+            if (args.Any(a => a.StartsWith("--fit=", StringComparison.Ordinal))) return ElectricalCheckCommands.Fit(path, args);
 
             var filter = new LayerFilter {
                 IncludeHatch = args.Contains("--hatch"),
