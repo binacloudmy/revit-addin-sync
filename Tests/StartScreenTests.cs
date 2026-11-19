@@ -196,6 +196,8 @@ namespace RevitWebAppSync.Tests
             Assert.Equal("Preset from the file name (AR).", s.DiscHint);
             Assert.Equal("Borang sections", s.SectionsLabel);
             Assert.Equal("61 checks", s.SectionsCount);
+            Assert.Equal(SpecCatalog.Checks.Count + " checks", s.SectionsCount);
+            Assert.Contains(SpecCatalog.Checks.Count + " checks from", s.Lead);
             Assert.Equal("Choose a level of development to run the audit.", s.ReadyHint);
             Assert.Equal("AR · Architect", s.DiscOptions[0].Label);
             core.SetLang("ms");
@@ -224,6 +226,8 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(new[] { "A", "B", "C", "D", "E" }, s.Sections.Select(x => x.Letter));
             Assert.Equal(new[] { "24 checks", "3 checks", "24 checks", "9 checks", "1 check" }, s.Sections.Select(x => x.CountLabel));
             Assert.Equal(61, s.Sections.Sum(x => x.Checks));
+            Assert.Equal(SpecCatalog.Checks.Count, s.Sections.Sum(x => x.Checks));   // counted, not typed
+            Assert.Equal(new[] { 24, 3, 24, 9, 1 }, s.Sections.Select(x => x.Checks));   // guard: the spec still has these
             Assert.Equal("Model integrity & quality", s.Sections[0].Name);
             core.SetLang("ms");
             Assert.Equal("Integriti & kualiti model", s.Sections[0].Name);

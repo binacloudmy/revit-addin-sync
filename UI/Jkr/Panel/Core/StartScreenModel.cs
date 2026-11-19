@@ -94,8 +94,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         {
             ["lodPick"] = ("— Pilih tahap LOD —", "— Select LOD level —"),
             ["setupTitle"] = ("Sediakan audit", "Set up the audit"),
-            ["setupLead"] = ("61 semakan daripada spesifikasi JKR Model Audit, disusun mengikut lima seksyen Borang BIM010.",
-                             "61 checks from the JKR Model Audit spec, laid out as the five sections of Borang BIM010."),
+            ["setupLead"] = ("{0} semakan daripada spesifikasi JKR Model Audit, disusun mengikut lima seksyen Borang BIM010.",
+                             "{0} checks from the JKR Model Audit spec, laid out as the five sections of Borang BIM010."),
             ["lodRequiredTag"] = ("Wajib", "Required"),
             ["lodHint"] = ("Menetapkan parameter yang mesti ada pada setiap family. Tiada nilai lalai.",
                            "Sets which parameters each family must carry. There is no default."),
@@ -121,8 +121,10 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         // the dropdown lose its selection (the Discipline box went blank).
         private IReadOnlyList<StartOption> _lodOptions, _discOptions;
 
-        /// <summary>Checks per Borang section (A–E), 61 in all (the JKR spec checklist).</summary>
-        private static readonly int[] SectionChecks = { 24, 3, 24, 9, 1 };
+        /// <summary>Checks per Borang section (A–E), counted from the JKR spec catalog.</summary>
+        private static readonly int[] SectionChecks =
+            PanelCore.Secs.Select(l => SpecCatalog.Checks.Count(c => c.Section == l)).ToArray();
+        private static int TotalChecks => SpecCatalog.Checks.Count;
         private readonly IReadOnlyList<StartSection> _sections =
             PanelCore.Secs.Select((l, i) => new StartSection(l, SectionChecks[i])).ToList();
 
@@ -190,12 +192,12 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public string RunLabel => T("run");
         public string RunHint => T("runHint");
         public string Title => T("setupTitle");
-        public string Lead => T("setupLead");
+        public string Lead => string.Format(T("setupLead"), TotalChecks);
         public string LodRequiredTag => T("lodRequiredTag");
         public string LodHint => T("lodHint");
         public string DiscHint => string.Format(T("discHint"), _detectedDisc);
         public string SectionsLabel => T("sectionsLabel");
-        public string SectionsCount => string.Format(T("checksMany"), SectionChecks.Sum());
+        public string SectionsCount => string.Format(T("checksMany"), TotalChecks);
         /// <summary>"Choose a level of development…", shown above Run until a LOD is chosen.</summary>
         public string ReadyHint => T("readyHint");
         public bool ReadyHintVisible => _core.LodMissing;
