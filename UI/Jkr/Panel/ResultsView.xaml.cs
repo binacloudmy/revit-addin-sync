@@ -32,7 +32,12 @@ namespace RevitWebAppSync.UI.Jkr.Panel
         private void FixAll_Click(object s, RoutedEventArgs e) => _model.FixAll();
         private void ClearCat_Click(object s, RoutedEventArgs e) => _model.ClearCat();
         private void Tab_Click(object s, RoutedEventArgs e) => _model.SelectTab((PanelTab)((FrameworkElement)s).Tag);
-        private void Row_Click(object s, RoutedEventArgs e) => _model.OpenRow((string)((FrameworkElement)s).Tag);
+        private void Row_Click(object s, RoutedEventArgs e)
+        {
+            var id = (string)((FrameworkElement)s).Tag;
+            JkrPaneLog.Write("ResultsView.Row_Click id=" + id);
+            _model.OpenRow(id);
+        }
         private void RowFix_Click(object s, RoutedEventArgs e) => _model.FixRow((string)((FrameworkElement)s).Tag);
         private void ClearQuery_Click(object s, RoutedEventArgs e) => _model.ClearQuery();
         private void Reset_Click(object s, RoutedEventArgs e) => _model.Reset();
@@ -90,10 +95,14 @@ namespace RevitWebAppSync.UI.Jkr.Panel
 
         private void OnBodyBringIntoView(object sender, RequestBringIntoViewEventArgs e)
         {
-            if (_bringingSelection) return;
+            if (_bringingSelection) { JkrPaneLog.Write("BodyScroll: bring into view let through (list keys) " + e.TargetObject?.GetType().Name); return; }
             if (InputManager.Current.MostRecentInputDevice is KeyboardDevice
                 && Mouse.LeftButton != MouseButtonState.Pressed && Mouse.RightButton != MouseButtonState.Pressed
-                && e.TargetObject is UIElement u && u.IsVisible) return;
+                && e.TargetObject is UIElement u && u.IsVisible)
+            {
+                JkrPaneLog.Write("BodyScroll: bring into view let through (keyboard) " + e.TargetObject.GetType().Name);
+                return;
+            }
             e.Handled = true;
         }
 

@@ -770,6 +770,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public void OpenRow(string id)
         {
             var i = _core.Filtered().FindIndex(x => x.Id == id);
+            JkrPaneLog.Write($"ResultsScreenModel.OpenRow id={id} index={i} listeners={(OpenRequested?.GetInvocationList().Length ?? 0)}");
             if (i >= 0) _core.SetSel(i);
             OpenRequested?.Invoke(id);
         }

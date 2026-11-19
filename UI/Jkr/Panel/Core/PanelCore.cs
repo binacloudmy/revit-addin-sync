@@ -89,7 +89,11 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             _basePass = Secs.ToDictionary(s => s, s => basePass != null && basePass.TryGetValue(s, out var n) ? n : 0);
             var count = Filtered().Count;
             if (Sel >= count) Sel = Math.Max(0, count - 1);
-            if (DetailId != null && Issues.All(x => x.Id != DetailId)) DetailId = null;
+            if (DetailId != null && Issues.All(x => x.Id != DetailId))
+            {
+                JkrPaneLog.Write("PanelCore.Replace: detail " + DetailId + " no longer among the issues, closed <- " + JkrPaneLog.Callers());
+                DetailId = null;
+            }
             Notify();
         }
 
@@ -387,7 +391,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         }
 
         // ── export ──
-        public void OpenExport() { ExportOpen = true; DetailId = null; Notify(); }
+        public void OpenExport() { if (DetailId != null) JkrPaneLog.Write("PanelCore.OpenExport closes detail " + DetailId); ExportOpen = true; DetailId = null; Notify(); }
         public void CloseExport() { ExportOpen = false; Notify(); }
 
         // ── detail ──
@@ -406,7 +410,12 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             OpenDetail(id, Math.Max(0, l.FindIndex(x => x.Id == id)));
         }
 
-        public void CloseDetail() { DetailId = null; Notify(); }
+        public void CloseDetail()
+        {
+            JkrPaneLog.Write("PanelCore.CloseDetail id=" + DetailId + " <- " + JkrPaneLog.Callers());
+            DetailId = null;
+            Notify();
+        }
 
         public PanelItem Current => DetailId == null ? null : Issues.FirstOrDefault(x => x.Id == DetailId);
 
@@ -428,7 +437,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             if (key == PanelKey.Escape)
             {
                 if (Confirm != null) { Confirm = null; Notify(); }
-                else if (DetailId != null) { DetailId = null; Notify(); }
+                else if (DetailId != null) { JkrPaneLog.Write("PanelCore.HandleKey Esc closes detail " + DetailId); DetailId = null; Notify(); }
                 else if (ExportOpen) { ExportOpen = false; Notify(); }
                 else if (typing) return KeyOutcome.Blur;
                 return KeyOutcome.None;

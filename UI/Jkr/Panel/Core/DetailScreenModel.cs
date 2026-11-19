@@ -163,8 +163,13 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// <summary>Open at this item, with the current filtered list to move through.</summary>
         public void Open(string id)
         {
-            if (string.IsNullOrEmpty(id) || _core.Issues.All(x => x.Id != id)) return;
+            if (string.IsNullOrEmpty(id) || _core.Issues.All(x => x.Id != id))
+            {
+                JkrPaneLog.Write($"DetailScreenModel.Open id={id}: early return ({(string.IsNullOrEmpty(id) ? "no id" : "not among the " + _core.Issues.Count + " issues")})");
+                return;
+            }
             _core.Open(id);
+            JkrPaneLog.Write($"DetailScreenModel.Open id={id}: core DetailId={_core.DetailId} IsOpen={IsOpen} listeners={(Opened?.GetInvocationList().Length ?? 0)}");
             Opened?.Invoke();
         }
 
@@ -173,6 +178,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         {
             var id = _core.DetailId;
             if (id == null) return;
+            JkrPaneLog.Write("DetailScreenModel.Close id=" + id + " <- " + JkrPaneLog.Callers());
             var i = _core.Filtered().FindIndex(x => x.Id == id);
             if (i >= 0) _core.SetSel(i);
             _core.CloseDetail();

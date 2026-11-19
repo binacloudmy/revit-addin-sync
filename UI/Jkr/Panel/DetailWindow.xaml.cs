@@ -32,6 +32,11 @@ namespace RevitWebAppSync.UI.Jkr.Panel
         private double _swipe;
         private DateTime _lastSwipe = DateTime.MinValue;
         private bool _closing;
+        /// <summary>Why it closes, for the pane log (scrim click, ×, model closed, Esc…).</summary>
+        private string _closeReason;
+        /// <summary>The scrim closes on a press AND release on it, not on a press alone: a press
+        /// that began before the window existed (the row click that opened it) never closes it.</summary>
+        private bool _scrimPressed;
 
         private DetailWindow(DetailScreenModel model)
         {
@@ -44,9 +49,14 @@ namespace RevitWebAppSync.UI.Jkr.Panel
             PreviewKeyDown += OnPreviewKeyDown;
             PreviewMouseWheel += OnPreviewMouseWheel;
             SourceInitialized += (_, __) => (PresentationSource.FromVisual(this) as HwndSource)?.AddHook(WndProc);
-            Loaded += (_, __) => { Activate(); CloseBtn.Focus(); };
+            Loaded += (_, __) => { JkrPaneLog.Write("DetailWindow loaded"); Activate(); CloseBtn.Focus(); };
+            Activated += (_, __) => JkrPaneLog.Write("DetailWindow activated");
+            Deactivated += (_, __) => JkrPaneLog.Write("DetailWindow deactivated");
+            Closing += (_, e) => JkrPaneLog.Write("DetailWindow closing: " + (_closeReason ?? "not by the pane (owner closed, system, or Close() elsewhere)")
+                                                   + (_closeReason == null ? " <- " + JkrPaneLog.Callers(1, 8) : "") + (e.Cancel ? " (cancelled)" : ""));
             Closed += (_, __) =>
             {
+                JkrPaneLog.Write("DetailWindow closed (model open=" + model.IsOpen + ")");
                 model.PropertyChanged -= OnModelChanged;
                 _closing = true;
                 if (model.IsOpen) model.Close();
@@ -62,8 +72,10 @@ namespace RevitWebAppSync.UI.Jkr.Panel
             {
                 return Place(w, anchor);
             }
-            catch
+            catch (Exception ex)
             {
+                JkrPaneLog.Write("DetailWindow.Open failed in Place: " + ex);
+                w._closeReason = "Place failed";
                 model.PropertyChanged -= w.OnModelChanged;
                 try { w.Close(); } catch { }
                 throw;
@@ -79,6 +91,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel
                 // A steady height while moving between short and long issues.
                 w.Card.MinHeight = Math.Min(room, 560);
             });
+            JkrPaneLog.Write("DetailWindow.Place: covered Revit's screen=" + covered);
             if (!covered)
             {
                 Window owner = null;
@@ -89,13 +102,20 @@ namespace RevitWebAppSync.UI.Jkr.Panel
                 w.Card.MaxHeight = w.Height - 48;
             }
             w.Show();
+            JkrPaneLog.Write($"DetailWindow.Place: Show called, IsVisible={w.IsVisible}");
             return w;
         }
 
         private void OnModelChanged(object sender, PropertyChangedEventArgs e)
         {
             if (_closing) return;
-            if (!_model.IsOpen) { _closing = true; Close(); return; }
+            if (!_model.IsOpen)
+            {
+                _closing = true;
+                _closeReason = "the model closed (DetailId gone) on " + (e.PropertyName ?? "all properties");
+                Close();
+                return;
+            }
             var id = _model.Card?.Id;
             if (id == _shownId) return;
             // No slide / fade: in this layered window owned by Revit, an animation's
@@ -114,9 +134,20 @@ namespace RevitWebAppSync.UI.Jkr.Panel
         }
 
         // ── clicks ──
-        private void Scrim_MouseDown(object sender, MouseButtonEventArgs e) => Close();
+        private void Scrim_MouseDown(object sender, MouseButtonEventArgs e)
+        {
+            _scrimPressed = true;
+            JkrPaneLog.Write("DetailWindow scrim pressed (" + e.ChangedButton + ")");
+        }
+        private void Scrim_MouseUp(object sender, MouseButtonEventArgs e)
+        {
+            if (!_scrimPressed) { JkrPaneLog.Write("DetailWindow scrim released without a press on it: ignored"); return; }
+            _scrimPressed = false;
+            _closeReason = "scrim click";
+            Close();
+        }
         private void Card_MouseDown(object sender, MouseButtonEventArgs e) => e.Handled = true;
-        private void Close_Click(object sender, RoutedEventArgs e) => Close();
+        private void Close_Click(object sender, RoutedEventArgs e) { _closeReason = "× button"; Close(); }
         private void Prev_Click(object sender, RoutedEventArgs e) => _model.Prev();
         private void Next_Click(object sender, RoutedEventArgs e) => _model.Next();
         private void Fix_Click(object sender, RoutedEventArgs e) => _model.Fix();

@@ -178,6 +178,7 @@
     <Compile Include="..\UI\Jkr\Panel\Core\PanelStrings.cs" Link="Panel\PanelStrings.cs" />
     <Compile Include="..\UI\Jkr\Panel\Core\PanelFixture.cs" Link="Panel\PanelFixture.cs" />
     <Compile Include="..\UI\Jkr\Panel\Core\PanelCore.cs" Link="Panel\PanelCore.cs" />
+    <Compile Include="..\UI\Jkr\Panel\Core\JkrPaneLog.cs" Link="Panel\JkrPaneLog.cs" />
     <Compile Include="..\UI\Jkr\Panel\Core\PaneShellModel.cs" Link="Panel\PaneShellModel.cs" />
     <Compile Include="..\UI\Jkr\Panel\Core\StartScreenModel.cs" Link="Panel\StartScreenModel.cs" />
     <Compile Include="..\UI\Jkr\Panel\Core\RunScreenModel.cs" Link="Panel\RunScreenModel.cs" />

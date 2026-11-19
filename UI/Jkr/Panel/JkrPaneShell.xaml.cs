@@ -49,6 +49,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel
         public JkrPaneShell(UIElement auditScreens)
         {
             InitializeComponent();
+            JkrPaneLog.Enabled = true;
+            JkrPaneLog.Write("JkrPaneShell created");
             DataContext = Model;
             _audit = auditScreens;
             EngineHost.Content = auditScreens;
@@ -120,13 +122,16 @@ namespace RevitWebAppSync.UI.Jkr.Panel
         /// <summary>The detail opened: show its window over Revit (one at a time).</summary>
         private void ShowDetail()
         {
+            JkrPaneLog.Write($"JkrPaneShell.ShowDetail entered id={Core.DetailId} window={(_detailWindow == null ? "none" : "already open (IsLoaded=" + _detailWindow.IsLoaded + ", IsVisible=" + _detailWindow.IsVisible + ")")}");
             if (_detailWindow != null) { _detailWindow.Activate(); return; }
             try
             {
                 var w = DetailWindow.Open(Detail, this);
                 _detailWindow = w;
+                JkrPaneLog.Write($"JkrPaneShell.ShowDetail window shown: IsVisible={w.IsVisible} IsLoaded={w.IsLoaded} at {w.Left:0},{w.Top:0} size {w.ActualWidth:0}x{w.ActualHeight:0} model open={Detail.IsOpen}");
                 w.Closed += (_, __) =>
                 {
+                    JkrPaneLog.Write("JkrPaneShell: detail window closed");
                     if (ReferenceEquals(_detailWindow, w)) _detailWindow = null;
                     // ⏎ reopens the last issue, J/K move the list: the list takes the keys.
                     if (ContentHost.Content is UIElement screen) screen.Focus();
@@ -141,6 +146,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel
             catch (Exception ex)
             {
                 _detailWindow = null;
+                JkrPaneLog.Write("JkrPaneShell.ShowDetail FAILED: " + ex);
                 Detail.Close();
                 System.Diagnostics.Debug.WriteLine($"[BINA] detail window failed: {ex}");
             }

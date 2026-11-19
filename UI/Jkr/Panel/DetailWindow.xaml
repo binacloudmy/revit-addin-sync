@@ -197,7 +197,7 @@
 
     <Grid>
         <!-- Scrim: covers Revit's window; a click on it closes -->
-        <Border x:Name="Scrim" Background="{StaticResource Bz.Scrim}" MouseDown="Scrim_MouseDown"/>
+        <Border x:Name="Scrim" Background="{StaticResource Bz.Scrim}" MouseDown="Scrim_MouseDown" MouseUp="Scrim_MouseUp"/>
 
         <!-- The card -->
         <Border x:Name="Card" MaxWidth="560" Margin="24" VerticalAlignment="Center" HorizontalAlignment="Stretch"

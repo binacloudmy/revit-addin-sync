@@ -601,6 +601,7 @@ namespace UiHarness
                     if (row == null) { Check("row " + i + " found", false); continue; }
                     Click(row, "row " + i);
                     Check("row " + i + " opens the detail on the first click", opened.Count == before + 1);
+                    Check("row " + i + ": the detail window is open and stays open", Application.Current.Windows.OfType<DetailWindow>().Any(w => w.IsVisible) && shell.Detail.IsOpen);
                     CloseDetail();
                 }
                 // 3. after deactivation, a row
