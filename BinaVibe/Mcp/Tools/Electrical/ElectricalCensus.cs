@@ -5,7 +5,11 @@
 // holds, and the drawing facts (units, AEC warning, wall-like layers, plan clusters, legend)
 // that decide whether the later phases can work on a drawing at all. It measures; it does not
 // decide what a block or a layer MEANS. That is the AI's job in later phases, so nothing here
-// guesses at meaning, and no instance coordinate leaves this file.
+// guesses at meaning, and no instance coordinate reaches the census or its wire shape.
+//
+// The same walk also returns an ElectricalScan (Scan, ScanFile): the instances and wall faces
+// with their coordinates, for the in-process phase 1 steps (fit, resolve). It never goes on
+// the wire.
 //
 // Revit-free and WPF-free: Cad2Bim.* (the CAD to BIM engine), CadSourceVerdict and System only,
 // so it is linked into Tests and the headless CLI as well as compiled into the add-in. It must
@@ -362,10 +366,144 @@ namespace BinaVibe.Mcp.Tools.Electrical
         }
     }
 
+    /// <summary>A plain 2D segment in millimetres: a wall centreline or face, drawing or model.</summary>
+    internal struct FitSegment
+    {
+        public double X1, Y1, X2, Y2;
+
+        public FitSegment(double x1, double y1, double x2, double y2)
+        {
+            X1 = x1; Y1 = y1; X2 = x2; Y2 = y2;
+        }
+
+        public double Length => Math.Sqrt(((X2 - X1) * (X2 - X1)) + ((Y2 - Y1) * (Y2 - Y1)));
+    }
+
+    /// <summary>One placed insert, with where and how it is drawn. In process only.</summary>
+    internal sealed class ScanSymbol
+    {
+        public string Key = "", Layer = "";
+        /// <summary>The drawn centre (see DrawnCentre), mm. Never the insert point.</summary>
+        public double X, Y;
+        public double RotationRad;
+        public bool Mirrored;
+        public double WidthMm, HeightMm;
+        public int Depth;
+        /// <summary>Index into <see cref="ElectricalScan.Symbols"/> of the insert holding this
+        /// one; -1 at depth 0.</summary>
+        public int Parent = -1;
+        /// <summary>The census plan this one is in; -1 when in none.</summary>
+        public int Cluster = -1;
+        public bool IsContainer;
+        /// <summary>False when the position is not finite: counted, never placed.</summary>
+        public bool Placed;
+        public IReadOnlyDictionary<string, string> Attributes = new Dictionary<string, string>();
+    }
+
+    /// <summary>One census plan's box on the sheet, mm. Same index as the census plans.</summary>
+    internal sealed class ScanCluster
+    {
+        public int Index;
+        public double MinX, MinY, MaxX, MaxY;
+        public List<string> Titles = new List<string>();
+    }
+
+    /// <summary>
+    /// What one census walk saw, with coordinates, for the in-process steps that follow it:
+    /// the census itself, every insert where it is drawn, the plan boxes, and each layer's
+    /// wall-face pieces (symbol linework left out, see IsInsideSymbol). Never on the wire.
+    /// </summary>
+    internal sealed class ElectricalScan
+    {
+        public ElectricalCensusResult Census;
+        public double MmPerUnit;
+        public List<ScanSymbol> Symbols;
+        public List<ScanCluster> Clusters;
+        public IReadOnlyCollection<string> LayerNames;
+        public IReadOnlyCollection<string> WallLikeLayers;
+
+        private readonly Dictionary<string, List<(double X1, double Y1, double X2, double Y2)>> _facePieces;
+        private readonly CensusOptions _options;
+
+        internal ElectricalScan(ElectricalCensusResult census, double mmPerUnit, List<ScanSymbol> symbols,
+                                List<ScanCluster> clusters, IReadOnlyCollection<string> layerNames,
+                                IReadOnlyCollection<string> wallLikeLayers,
+                                Dictionary<string, List<(double X1, double Y1, double X2, double Y2)>> facePieces,
+                                CensusOptions options)
+        {
+            Census = census;
+            MmPerUnit = mmPerUnit;
+            Symbols = symbols;
+            Clusters = clusters;
+            LayerNames = layerNames;
+            WallLikeLayers = wallLikeLayers;
+            _facePieces = facePieces;
+            _options = options;
+        }
+
+        /// <summary>The non-symbol straight pieces of these layers, mm, each tagged with its
+        /// layer. A name the drawing does not have adds nothing.</summary>
+        public List<Segment> FacePieces(IEnumerable<string> layers)
+        {
+            var segments = new List<Segment>();
+            foreach (string layer in layers.Distinct(StringComparer.Ordinal))
+            {
+                if (!_facePieces.TryGetValue(layer, out List<(double X1, double Y1, double X2, double Y2)>? pieces)) continue;
+                foreach (var p in pieces)
+                {
+                    segments.Add(new Segment(new Point(p.X1, p.Y1), new Point(p.X2, p.Y2)) { Layer = layer });
+                }
+            }
+            return segments;
+        }
+
+        /// <summary>
+        /// The wall centrelines of one plan, paired from these layers' faces the way the
+        /// census pairs them (MergeByDirection, then PairInTiles, never one merge of a whole
+        /// layer). Per layer unless <paramref name="pairAcrossLayers"/>, which pools the layers
+        /// so a wall whose two faces sit on two layers is found. Kept when the centreline's
+        /// midpoint is inside the plan's box grown by the near-wall distance.
+        /// </summary>
+        public List<FitSegment> WallCentrelines(int cluster, IReadOnlyCollection<string> layers, bool pairAcrossLayers)
+        {
+            if (cluster < 0 || cluster >= Clusters.Count) throw new ArgumentOutOfRangeException(nameof(cluster));
+            ScanCluster box = Clusters[cluster];
+            double sMin = Units.DefaultMinWallThicknessMm, sMax = Units.DefaultMaxWallThicknessMm;
+
+            IEnumerable<IEnumerable<string>> groups = pairAcrossLayers
+                ? new[] { (IEnumerable<string>)layers }
+                : layers.Select(layer => (IEnumerable<string>)new[] { layer });
+
+            var walls = new List<Wall>();
+            foreach (IEnumerable<string> group in groups)
+            {
+                List<Segment> faces = FacePieces(group);
+                if (faces.Count == 0) continue;
+                walls.AddRange(ElectricalCensus.PairInTiles(ElectricalCensus.MergeByDirection(faces), sMin, sMax,
+                                                            _options.MaxWallTestSegments, out _));
+            }
+
+            double margin = _options.NearWallMm;
+            var centrelines = new List<FitSegment>();
+            foreach (Wall wall in CadClassifier.DeduplicateWalls(walls))
+            {
+                Segment c = wall.Centerline;
+                double mx = (c.P1.x + c.P2.x) / 2, my = (c.P1.y + c.P2.y) / 2;
+                if (mx < box.MinX - margin || mx > box.MaxX + margin || my < box.MinY - margin || my > box.MaxY + margin) continue;
+                centrelines.Add(new FitSegment(c.P1.x, c.P1.y, c.P2.x, c.P2.y));
+            }
+            return centrelines;
+        }
+    }
+
     internal static class ElectricalCensus
     {
         /// <summary>Reads a DWG or DXF and takes its census.</summary>
-        public static ElectricalCensusResult Read(string path, CensusOptions? options = null)
+        public static ElectricalCensusResult Read(string path, CensusOptions? options = null) =>
+            ScanFile(path, options).Census;
+
+        /// <summary>Reads a DWG or DXF and scans it: the census plus the in-process scan.</summary>
+        public static ElectricalScan ScanFile(string path, CensusOptions? options = null)
         {
             var clock = Stopwatch.StartNew();
             // Read here rather than through CadRenderSource.Read so the reader is disposed and
@@ -381,12 +519,16 @@ namespace BinaVibe.Mcp.Tools.Electrical
             }
             double read = clock.Elapsed.TotalSeconds;
 
-            ElectricalCensusResult result = Build(document, options);
-            result.TimingsSeconds["read"] = read;
-            return result;
+            ElectricalScan scan = Scan(document, options);
+            scan.Census.TimingsSeconds["read"] = read;
+            return scan;
         }
 
-        public static ElectricalCensusResult Build(CadDocument document, CensusOptions? options = null)
+        public static ElectricalCensusResult Build(CadDocument document, CensusOptions? options = null) =>
+            Scan(document, options).Census;
+
+        /// <summary>One walk of the document: the census, and the scan the later steps work on.</summary>
+        public static ElectricalScan Scan(CadDocument document, CensusOptions? options = null)
         {
             CensusOptions o = options ?? new CensusOptions();
             var result = new ElectricalCensusResult();
@@ -416,7 +558,8 @@ namespace BinaVibe.Mcp.Tools.Electrical
             result.Drawing.AecWarning = aecWarning;
 
             clock.Restart();
-            List<Wall> walls = TestLayersForWalls(sink, o);
+            Dictionary<string, List<(double X1, double Y1, double X2, double Y2)>> facePieces = FacePiecesByLayer(sink, o);
+            List<Wall> walls = TestLayersForWalls(sink, facePieces, o);
             result.TimingsSeconds["walls"] = clock.Elapsed.TotalSeconds;
 
             clock.Restart();
@@ -446,7 +589,58 @@ namespace BinaVibe.Mcp.Tools.Electrical
             result.SymbolsAreExploded = !sink.Instances.Any(instance =>
                 instance.Block.NestedInserts == 0 && !sink.Layers[instance.Layer].PairsLikeWalls);
 
-            return result;
+            return new ElectricalScan(
+                result, scale, ScanSymbols(sink), ScanClusters(clusters, result),
+                sink.Layers.Keys.ToList(),
+                sink.Layers.Values.Where(tally => tally.PairsLikeWalls).Select(tally => tally.Name).ToList(),
+                facePieces, o);
+        }
+
+        private static List<ScanSymbol> ScanSymbols(CensusSink sink)
+        {
+            var index = new Dictionary<Instance, int>(sink.Instances.Count);
+            for (int i = 0; i < sink.Instances.Count; i++) index[sink.Instances[i]] = i;
+
+            var symbols = new List<ScanSymbol>(sink.Instances.Count);
+            foreach (Instance instance in sink.Instances)
+            {
+                symbols.Add(new ScanSymbol
+                {
+                    Key = instance.Key,
+                    Layer = instance.Layer,
+                    X = instance.X,
+                    Y = instance.Y,
+                    RotationRad = instance.RotationRad,
+                    Mirrored = instance.Mirrored,
+                    WidthMm = instance.WidthMm,
+                    HeightMm = instance.HeightMm,
+                    Depth = instance.Depth,
+                    Parent = instance.Parent != null && index.TryGetValue(instance.Parent, out int parent) ? parent : -1,
+                    Cluster = instance.Cluster,
+                    IsContainer = instance.Block.NestedInserts > 0,
+                    Placed = instance.Placed,
+                    Attributes = instance.Attributes,
+                });
+            }
+            return symbols;
+        }
+
+        private static List<ScanCluster> ScanClusters(List<PlanCluster> clusters, ElectricalCensusResult result)
+        {
+            var boxes = new List<ScanCluster>(clusters.Count);
+            for (int i = 0; i < clusters.Count; i++)
+            {
+                boxes.Add(new ScanCluster
+                {
+                    Index = i,
+                    MinX = clusters[i].MinX,
+                    MinY = clusters[i].MinY,
+                    MaxX = clusters[i].MaxX,
+                    MaxY = clusters[i].MaxY,
+                    Titles = result.Plans[i].Titles.ToList(),
+                });
+            }
+            return boxes;
         }
 
         // ---------------------------------------------------------------- AEC
@@ -486,20 +680,18 @@ namespace BinaVibe.Mcp.Tools.Electrical
         /// process (the add-in), and must neither see nor change the pane's settings. It still
         /// reads Wall.MinFaceLength/MinFaceAspect/MaxFaceUses, which nothing here changes.
         /// </summary>
-        private static List<Wall> TestLayersForWalls(CensusSink sink, CensusOptions o)
+        private static List<Wall> TestLayersForWalls(
+            CensusSink sink, Dictionary<string, List<(double X1, double Y1, double X2, double Y2)>> facePieces,
+            CensusOptions o)
         {
             var wallLike = new List<Wall>();
             double sMin = Units.DefaultMinWallThicknessMm, sMax = Units.DefaultMaxWallThicknessMm;
 
             foreach (LayerTally tally in sink.Layers.Values)
             {
-                // Only pieces that can be a wall face: loose ones, and ones inside a block that
-                // is not a symbol (see IsInsideSymbol). The share is taken over the same pieces.
-                var pieces = new List<(double X1, double Y1, double X2, double Y2)>(tally.Pieces.Count);
-                for (int i = 0; i < tally.Pieces.Count; i++)
-                {
-                    if (!IsInsideSymbol(tally.PieceOwners[i], o)) pieces.Add(tally.Pieces[i]);
-                }
+                // Only pieces that can be a wall face (see FacePiecesByLayer). The share is
+                // taken over the same pieces.
+                List<(double X1, double Y1, double X2, double Y2)> pieces = facePieces[tally.Name];
 
                 int faces = pieces.Count(p => PieceLength(p) >= Wall.MinFaceLength);
                 if (faces < o.MinWallTestSegments) continue;
@@ -521,6 +713,24 @@ namespace BinaVibe.Mcp.Tools.Electrical
             }
 
             return wallLike;
+        }
+
+        /// <summary>Per layer, the pieces that can be a wall face: loose ones, and ones inside a
+        /// block that is not a symbol (see IsInsideSymbol).</summary>
+        private static Dictionary<string, List<(double X1, double Y1, double X2, double Y2)>> FacePiecesByLayer(
+            CensusSink sink, CensusOptions o)
+        {
+            var byLayer = new Dictionary<string, List<(double X1, double Y1, double X2, double Y2)>>(StringComparer.Ordinal);
+            foreach (LayerTally tally in sink.Layers.Values)
+            {
+                var pieces = new List<(double X1, double Y1, double X2, double Y2)>(tally.Pieces.Count);
+                for (int i = 0; i < tally.Pieces.Count; i++)
+                {
+                    if (!IsInsideSymbol(tally.PieceOwners[i], o)) pieces.Add(tally.Pieces[i]);
+                }
+                byLayer[tally.Name] = pieces;
+            }
+            return byLayer;
         }
 
         /// <summary>
@@ -768,6 +978,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                         instance.Y < c.MinY - margin || instance.Y > c.MaxY + margin) continue;
                     result.Plans[i].Symbols++;
                     instance.InPlan = true;
+                    instance.Cluster = i;
                     break;
                 }
                 if (instance.InPlan) result.Totals.InsidePlans++;
@@ -1199,13 +1410,18 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
         // ---------------------------------------------------------------- the walk
 
-        /// <summary>One placed symbol, in millimetres once rescaled. Never leaves this file.</summary>
+        /// <summary>One placed symbol, in millimetres once rescaled. Leaves this file only as a
+        /// ScanSymbol.</summary>
         private sealed class Instance
         {
             public CadBlockInfo Block = null!;
             public string Key = "";
             public string Layer = "";
             public double X, Y;
+            public double RotationRad;
+            public bool Mirrored;
+            /// <summary>The plan it is in, -1 when in none: set where InPlan is.</summary>
+            public int Cluster = -1;
             public double WidthMm, HeightMm;
             public int Depth;
             public IReadOnlyDictionary<string, string> Attributes = null!;
@@ -1408,6 +1624,8 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     Layer = effective,
                     X = cx,
                     Y = cy,
+                    RotationRad = IsFinite(rotationRad) ? rotationRad : 0,
+                    Mirrored = mirrored,
                     Placed = IsFinite(cx, cy),
                     WidthMm = IsFinite(width) ? width : 0,
                     HeightMm = IsFinite(height) ? height : 0,
