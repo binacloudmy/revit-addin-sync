@@ -107,6 +107,12 @@ namespace UiHarness
             Shot(dir, "jkr-failing-other-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing); s.Results.OpenGroup("+"); }, 900);
             Shot(dir, "jkr-compliant-aspects-en.png", s => { s.Model.IsEn = true; ShowRun(s, Compliant); s.Results.ShowAspectsView(); }, 900);
             Shot(dir, "jkr-degraded-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing, backendDown: true); s.Core.SetLod("400"); }, 900);
+            // Clear Sheet issues (Task 13): 380 EN / 320 BM, a marked-manual row, an AI fixer row.
+            Shot(dir, "jkr-issues-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing, tweak: IssueSamples); s.Results.ShowIssues(); }, 900);
+            Shot(dir, "jkr-issues-320.png", s => { ShowRun(s, Failing, tweak: IssueSamples); s.Results.ShowIssues(); }, 900, (int)JkrPaneShell.MinimumWidth);
+            Shot(dir, "jkr-issues-320-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing, tweak: IssueSamples); s.Results.ShowIssues(); }, 900, (int)JkrPaneShell.MinimumWidth);
+            Shot(dir, "jkr-issues-resolved-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing, tweak: IssueSamples); s.Results.SelectTab(PanelTab.Resolved); }, 700);
+            Shot(dir, "jkr-issues-manual-tab.png", s => { ShowRun(s, Failing, tweak: IssueSamples); s.Results.SelectTab(PanelTab.Manual); }, 900, (int)JkrPaneShell.MinimumWidth);
             Shot(dir, "jkr-degraded-320.png", s => { ShowRun(s, Failing, backendDown: true); s.Core.SetLod("400"); }, 900, (int)JkrPaneShell.MinimumWidth);
 
             // The issue detail and the two fix modals (Direction C: Task, Verify).
@@ -205,7 +211,7 @@ namespace UiHarness
         /// <summary>A run as the panel builds it, then the Running → Results hand-off.
         /// <paramref name="backendDown"/>: the backend check failed, so the run has only
         /// the BIM010 checker records and the model results, and the report says so.</summary>
-        private static void ShowRun(JkrPaneShell shell, string file, bool backendDown = false)
+        private static void ShowRun(JkrPaneShell shell, string file, bool backendDown = false, Action<List<IssueVm>> tweak = null)
         {
             var json = JObject.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "data", file)));
             var response = backendDown ? null : json["response"].ToObject<ModelCheckResponse>(JsonSerializer.CreateDefault());
@@ -225,10 +231,29 @@ namespace UiHarness
             var spec = SpecReport.Build(IssueMapper.ToSpecResults(response, records, modelResults),
                                         backendDown ? BackendTimeout : null);
 
+            tweak?.Invoke(issues);
             shell.Core.SetLod("300");
             shell.Core.BeginExternalRun();
             shell.Results.Load(issues, summary, spec);
             shell.Core.FinishExternalRun();
+        }
+
+        /// <summary>Issue-list samples on top of a run: the first ready-made fix is marked as
+        /// manual (Mark as Manual, option b), the second is resolved, and the first issue with
+        /// no fix becomes an AI fixer candidate (a backend check on a real element) and is put
+        /// first, so the shots show a Manual tag, a Resolved row and the spark-bolt mark.</summary>
+        private static void IssueSamples(List<IssueVm> issues)
+        {
+            var fixes = issues.Where(i => !i.NeedsPerson && i.AutoFixable && i.Status == IssueStatus.Open).ToList();
+            if (fixes.Count > 0) fixes[0].Status = IssueStatus.ManualFixNeeded;
+            if (fixes.Count > 1) fixes[1].Status = IssueStatus.Fixed;
+            var ai = issues.FirstOrDefault(i => i.AiFixCandidate)
+                     ?? issues.FirstOrDefault(i => !i.NeedsPerson && !i.AutoFixable && i.Status == IssueStatus.Open);
+            if (ai == null) return;
+            if (!ai.AiFixCandidate) { ai.CheckId = "element.material.02"; ai.RevitElementId = 412907; }
+            issues.Remove(ai);
+            issues.Insert(0, ai);
+            if (fixes.Count > 0) { issues.Remove(fixes[0]); issues.Insert(1, fixes[0]); }
         }
 
         /// <summary>The sample's model snapshot through the add-in's spec evaluators. A
