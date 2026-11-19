@@ -59,8 +59,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             // Undone (by the card's button or Revit's own Undo): say so at the top, with what was removed and Redo.
             if (undone) root.Children.Add(UndoneBanner(card, lang, actions));
             // The section header: what the marks are, where, "Go to view" when they are in another view, "Hide marks" /
-            // "Show in model". A selection has no marks (Revit's selection is its mark).
-            if (card.Kind != ResultKind.Selection && MarksHeader(actions) is FrameworkElement header) root.Children.Add(header);
+            // "Show in model". A selection has none unless its rows carry ids (r12: Found marks); HasMarks decides.
+            if (MarksHeader(actions) is FrameworkElement header) root.Children.Add(header);
 
             switch (card.Kind)
             {

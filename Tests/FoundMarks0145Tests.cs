@@ -111,6 +111,11 @@ namespace RevitAddinSync.Tests
             var set = HighlightSet.From(card, new List<Envelope>());
             Assert.Equal(new long[] { 5, 6 }, set.Kinds.Single().Ids);
             Assert.Equal(MarkOutcome.Found, set.Kinds[0].Outcome);
+            // A preview or a write that did not commit lists rows too: they were not found, so no Found marks.
+            var write = new Envelope { Phase = "preview" };
+            Assert.True(HighlightSet.From(card, new List<Envelope> { write }).IsEmpty);
+            // The card's "Show in model" / "Hide marks" header is gated on HasMarks only, a Selection card too.
+            Assert.Contains("if (MarksHeader(actions) is FrameworkElement header) root.Children.Add(header);", Src("UI/Copilot/Controls/ResultCardView.cs"));
         }
     }
 }

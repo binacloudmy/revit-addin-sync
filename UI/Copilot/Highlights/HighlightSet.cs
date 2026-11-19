@@ -148,7 +148,8 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             if (card.Kind == ResultKind.None) return set;
             // r12 (live 19 Nov, 46d35bc5): a find's card with element rows draws Found marks on those rows' ids. A "Selection" card,
             // or a grouped answer that WithServerResult turned into a Created tally (Selected = 0), had no marks, no Show button.
-            if (card.Kind == ResultKind.Selection) { AddFoundRows(set, card); set.Rows = RowsOf(card, set.Kinds); return set; }
+            var readOnly = (envelopes ?? Array.Empty<Envelope>()).All(e => e == null || e.PhaseKind() == EnvelopePhaseKind.Read);
+            if (card.Kind == ResultKind.Selection) { if (readOnly) AddFoundRows(set, card); set.Rows = RowsOf(card, set.Kinds); return set; }
 
             var commits = (envelopes ?? Array.Empty<Envelope>()).Where(e => e != null && e.PhaseKind() == EnvelopePhaseKind.Commit
                 && (e.StatusKind() == EnvelopeStatusKind.Done || e.StatusKind() == EnvelopeStatusKind.Partial)).ToList();
@@ -238,8 +239,8 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             foreach (var f in card.Findings.Where(f => f.Ids.Count > 0))
                 set.Kinds.Add(new MarkGroup { Title = f.Title, Outcome = MarkOutcome.NeedsLook, Kind = MarkKind.Element, Ids = f.Ids.Distinct().ToList(), Count = f.Ids.Distinct().Count() });
 
-            // A read-only turn (no commit) with nothing else to mark: its card's element rows are what it found.
-            if (commits.Count == 0 && set.Kinds.Count == 0) AddFoundRows(set, card);
+            // A read-only turn (every call a read: no preview, no failed write) with nothing else to mark: its rows are what it found.
+            if (readOnly && set.Kinds.Count == 0) AddFoundRows(set, card);
 
             set.Rows = RowsOf(card, set.Kinds);
             return set;
