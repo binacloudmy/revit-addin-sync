@@ -238,6 +238,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             var sheet = row.Button == ItemButton.OpenSheet;
             var id = row.Ids[0];
             var busy = false;
+            OpenCue(line, ItemText.OpenCue(row.Button, lang));
             actions.Rows?.Button(line, async () =>
             {
                 if (busy || actions.OpenView == null) return;
@@ -251,6 +252,19 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] item open: " + ex.Message); }   // async void: nothing escapes
                 finally { busy = false; }
             }, sheet ? CardButtons.SheetRowTip : CardButtons.ViewRowTip);
+        }
+
+        /// <summary>r13 (0.0.148): the visible "Open ›" at the right end of a view or sheet row Revit vouched for (live fb713fc2: the made
+        /// view's row read as plain text). In the row's own grid, in accent; the row stays the one button.</summary>
+        private static void OpenCue(Border line, string text)
+        {
+            if (text.Length == 0 || !(line.Child is Grid grid)) return;
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var cue = CardKit.Text(text, 12, "Cp.Accent", FontWeights.SemiBold, wrap: false, margin: new Thickness(10, 0, 0, 0));
+            cue.VerticalAlignment = VerticalAlignment.Center;
+            Grid.SetColumn(cue, grid.ColumnDefinitions.Count - 1);
+            Grid.SetRowSpan(cue, System.Math.Max(1, grid.RowDefinitions.Count));
+            grid.Children.Add(cue);
         }
 
         private static FrameworkElement Row(ItemRow row, ReceiptLanguage lang, TurnEvidenceActions actions, List<(ItemRow Row, Border Line)> opens, bool table, bool top)

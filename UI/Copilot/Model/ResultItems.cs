@@ -155,6 +155,12 @@ namespace RevitWebAppSync.UI.Copilot.Model
             }
         }
 
+        /// <summary>r13 (0.0.148), live fb713fc2 (frame R7-18): the made view's row was the button (a click opened it) but looked like plain
+        /// text under "Copy list". A view or sheet row that Revit vouched for shows this cue at its right end: "Open ›" (BM "Buka ›"). It is
+        /// part of the row, not a second button (one way in); "" for any other row.</summary>
+        public static string OpenCue(ItemButton b, ReceiptLanguage lang) =>
+            b == ItemButton.OpenView || b == ItemButton.OpenSheet ? (lang == ReceiptLanguage.Ms ? "Buka ›" : "Open ›") : "";
+
         /// <summary>The section header: "Lighting plans · 3", the count being the rows' total.</summary>
         public static string SectionTitle(ItemSection s) =>
             (s.Name.Length == 0 ? "" : s.Name + " · ") + s.Total.ToString(CultureInfo.InvariantCulture);
