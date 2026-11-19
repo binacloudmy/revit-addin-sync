@@ -9,10 +9,13 @@ namespace Cad2Bim.Headless {
     /// The phase 1 exit check without Revit, on files dump_electrical_reference and
     /// plan_cad_electrical wrote:
     ///
-    /// `--compare-devices ref.json placed.json [--plan=plan.json] [--ref-types=text] [--ref-link=text] [--json]`
+    /// `--compare-devices ref.json placed.json [--plan=plan.json] [--ref-types=text] [--ref-link=text] [--role=socket] [--across=50] [--along=500] [--dz=150] [--json]`
     /// matches the reference devices to the placed ones (PlacementCompare). `--ref-types` keeps
     /// the devices of both dumps whose family type contains the text; `--ref-link` carries the
-    /// reference through the placed dump's link whose name contains the text.
+    /// reference through the placed dump's link whose name contains the text. Each match is
+    /// split across and along the wall; `--across`, `--along` and `--dz` (mm) set when it passes
+    /// (50, 500, 150). The shares are of the plan's points (`--role` keeps one role's), else of
+    /// the placed devices.
     ///
     /// `file.dwg --fit=walls.json [--cluster=N] [--min-wall=50]` fits the drawing's walls to a
     /// dump's walls (CadModelFit): one level's walls, or every level's when the dump has
@@ -25,7 +28,7 @@ namespace Cad2Bim.Headless {
         internal static int Compare(string[] args) {
             int at = Array.IndexOf(args, "--compare-devices");
             if (at < 0 || at + 2 >= args.Length) {
-                Console.Error.WriteLine("usage: --compare-devices <ref.json> <placed.json> [--plan=plan.json] [--ref-types=text] [--ref-link=text] [--json]");
+                Console.Error.WriteLine("usage: --compare-devices <ref.json> <placed.json> [--plan=plan.json] [--ref-types=text] [--ref-link=text] [--role=socket] [--across=50] [--along=500] [--dz=150] [--json]");
                 return 2;
             }
 
@@ -49,6 +52,11 @@ namespace Cad2Bim.Headless {
                 link = links[0];
             }
 
+            var limits = new PassLimits();
+            if (!TryMm(args, "--across=", ref limits.AcrossMm) || !TryMm(args, "--along=", ref limits.AlongMm) ||
+                !TryMm(args, "--dz=", ref limits.DzMm))
+                return 2;
+
             var points = new List<PlannedPoint>();
             var dropped = new List<DroppedInstance>();
             if (!string.IsNullOrEmpty(planPath)) {
@@ -56,7 +64,12 @@ namespace Cad2Bim.Headless {
                 PlacementCompare.ReadPlan(planDoc.RootElement, points, dropped);
             }
 
-            CompareResult result = PlacementCompare.Compare(reference, placed, points, dropped, 50, link);
+            CompareResult result = PlacementCompare.Compare(reference, placed, points, dropped, 50, link, limits);
+            // The denominator is the drawn sockets: every plan point (placed or excluded), of
+            // --role when given. With no plan, the placed devices stand in.
+            string? role = Value(args, "--role=");
+            if (!string.IsNullOrEmpty(planPath))
+                result.Drawn = points.Count(p => string.IsNullOrEmpty(role) || string.Equals(p.Role, role, StringComparison.OrdinalIgnoreCase));
             if (args.Contains("--json")) {
                 Console.WriteLine(JsonSerializer.Serialize(result.ToWire(), new JsonSerializerOptions {
                     WriteIndented = true,
@@ -66,6 +79,18 @@ namespace Cad2Bim.Headless {
                 Console.Write(PlacementCompare.Summary(result));
             }
             return 0;
+        }
+
+        /// <summary>Reads a non-negative mm value; false (after saying why) when it is not one.</summary>
+        private static bool TryMm(string[] args, string prefix, ref double value) {
+            string? text = Value(args, prefix);
+            if (text == null) return true;
+            if (double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out double mm) && mm >= 0) {
+                value = mm;
+                return true;
+            }
+            Console.Error.WriteLine($"{prefix}{text} is not a distance in mm");
+            return false;
         }
 
         internal static int Fit(string path, string[] args) {
