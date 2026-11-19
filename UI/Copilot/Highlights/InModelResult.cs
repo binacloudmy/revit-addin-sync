@@ -185,7 +185,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             if (uidoc == null || doc == null || k == null) return;
             try
             {
-                var ids = uidoc.Selection.GetElementIds().Select(i => i.Value).ToList();
+                var ids = uidoc.Selection.GetElementIds().Select(i => (long)i.Value).ToList();
                 k.Ids = ids; k.Count = ids.Count;
                 var cats = ids.Take(MaxMarks).Select(i => doc.GetElement(ElemIds.From(i))?.Category?.Name ?? "").Distinct().ToList();
                 if (cats.Count == 1 && cats[0].Length > 0) k.Category = cats[0];
