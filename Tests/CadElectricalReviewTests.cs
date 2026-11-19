@@ -309,5 +309,123 @@ namespace Tests
                          layer.Keys.OrderBy(k => k, StringComparer.Ordinal));
             Assert.Equal(false, slim["layers_truncated"]);
         }
+
+        // ---------------------------------------------------------------- conduit (phase 2)
+
+        private static PlannedRun Run(int index, double length, string start, string end, int drops, params string[] flags)
+        {
+            var run = new PlannedRun
+            {
+                Index = index, Layer = "E-CONDUIT", TypeName = "Conduit with Fittings : PVC", DiameterMm = 20, RunHeightMm = 2700,
+                LengthMm = length, Drops = drops,
+                Start = new RunEnd { Kind = start }, End = new RunEnd { Kind = end },
+                PointsMm = { new[] { 98765.4321, -43210.987, 3700.5 }, new[] { 98765.4321 + length, -43210.987, 3700.5 } },
+            };
+            run.Flags.AddRange(flags);
+            run.Excluded = flags.Contains("closed_loop");
+            return run;
+        }
+
+        private static SocketPlan RunPlan()
+        {
+            SocketPlan plan = Plan();
+            plan.Runs.Add(Run(0, 4000, "device", "device", 2));
+            plan.Runs.Add(Run(1, 2500, "open", "device", 1, "open_end"));
+            plan.Runs.Add(Run(2, 1500, "junction", "open", 0, "open_end", "junction"));
+            plan.Runs.Add(Run(3, 4000, "open", "open", 0, "closed_loop"));
+            return plan;
+        }
+
+        [Fact]
+        public void Conduit_block_counts_runs_length_drops_and_open_ends()
+        {
+            var unplanned = new List<UnplannedLayer>();
+            Dictionary<string, object?> block = CadElectricalReview.ConduitReview(RunPlan(), unplanned, 3, 7, "planned", 11);
+
+            Assert.Equal("planned", block["status"]);
+            Assert.Equal(4, block["runs"]);
+            Assert.Equal(3, block["will_route"]);
+            Assert.Equal(12.0, block["total_length_m"]);
+            Assert.Equal(3, block["drops"]);
+            Assert.Equal(2, block["open_ends"]);
+            Assert.Equal(1, block["junctions"]);
+            Assert.Equal(3, block["dropped_short"]);
+            Assert.Equal(7, block["free_arcs"]);
+            Assert.Equal(11, block["pieces_outside_footprint"]);
+
+            Dictionary<string, object?> layer = Row(Assert.Single((List<object?>)block["by_layer"]!));
+            Assert.Equal("E-CONDUIT", layer["layer"]);
+            Assert.Equal("conduit", layer["kind"]);
+            Assert.Equal("Conduit with Fittings : PVC", layer["type"]);
+            Assert.Equal(20.0, layer["diameter_mm"]);
+            Assert.Equal(4, layer["runs"]);
+
+            List<Dictionary<string, object?>> flagged = ((List<object?>)block["flagged"]!).Select(Row).ToList();
+            Dictionary<string, object?> open = flagged.Single(f => (string)f["flag"]! == "open_end");
+            Assert.Equal(2, open["count"]);
+            Assert.Equal("kept", open["default"]);
+            Assert.Equal(new object?[] { 1, 2 }, (List<object?>)open["runs"]!);
+            Assert.Equal("excluded", flagged.Single(f => (string)f["flag"]! == "closed_loop")["default"]);
+        }
+
+        [Fact]
+        public void Needs_run_height_lists_the_layers_and_no_runs()
+        {
+            var unplanned = new List<UnplannedLayer> { new UnplannedLayer { Layer = "E-CONDUIT", Reason = "no_run_height", Pieces = 40, LengthMm = 81234 } };
+            SocketPlan plan = Plan();
+            Dictionary<string, object?> block = CadElectricalReview.ConduitReview(plan, unplanned, 0, 0, "needs_run_height");
+
+            Assert.Equal("needs_run_height", block["status"]);
+            Assert.Equal(0, block["runs"]);
+            Dictionary<string, object?> row = Row(Assert.Single((List<object?>)block["unplanned_layers"]!));
+            Assert.Equal("E-CONDUIT", row["layer"]);
+            Assert.Equal("no_run_height", row["reason"]);
+
+            string headline = (string)CadElectricalReview.PlanReview(plan, Unmapped, 0, null, 0, block)["headline"]!;
+            Assert.EndsWith(" Conduit: run height needed for 1 layer.", headline);
+        }
+
+        [Fact]
+        public void Unplanned_layers_carry_their_reason()
+        {
+            var unplanned = new List<UnplannedLayer>
+            {
+                new UnplannedLayer { Layer = "E-CONDUIT-2", Reason = "no_diameter", Pieces = 3, LengthMm = 4500 },
+                new UnplannedLayer { Layer = "E-CONDUIT-1", Reason = "no_conduit_type", Pieces = 9, LengthMm = 12000 },
+            };
+            List<Dictionary<string, object?>> rows = ((List<object?>)CadElectricalReview.ConduitReview(
+                Plan(), unplanned, 0, 0, "none")["unplanned_layers"]!).Select(Row).ToList();
+
+            Assert.Equal(new[] { "E-CONDUIT-1", "E-CONDUIT-2" }, rows.Select(r => (string)r["layer"]!));
+            Assert.Equal("no_conduit_type", rows[0]["reason"]);
+            Assert.Equal(9, rows[0]["pieces"]);
+            Assert.Equal(12.0, rows[0]["length_m"]);
+        }
+
+        [Fact]
+        public void Conduit_block_carries_no_coordinates()
+        {
+            SocketPlan plan = RunPlan();
+            string json = Json(CadElectricalReview.PlanReview(plan, Unmapped, 0, null, 0,
+                CadElectricalReview.ConduitReview(plan, new List<UnplannedLayer>(), 0, 0, "planned")));
+
+            Assert.DoesNotContain("98765", json);
+            Assert.DoesNotContain("43210", json);
+            Assert.DoesNotContain("3700", json);
+            Assert.DoesNotContain("points", json);
+        }
+
+        [Fact]
+        public void Headline_adds_the_conduit_sentence()
+        {
+            SocketPlan plan = RunPlan();
+            Dictionary<string, object?> review = CadElectricalReview.PlanReview(plan, Unmapped, 0, null, 0,
+                CadElectricalReview.ConduitReview(plan, new List<UnplannedLayer>(), 0, 0, "planned"));
+
+            Assert.EndsWith(" Conduit: 4 runs, 12.0 m, 3 drops, 2 open ends.", (string)review["headline"]!);
+            Assert.True(review.ContainsKey("conduit"));
+            Assert.False(CadElectricalReview.PlanReview(plan, Unmapped, 0).ContainsKey("conduit"));
+            Assert.DoesNotContain("Conduit", (string)CadElectricalReview.PlanReview(plan, Unmapped, 0)["headline"]!);
+        }
     }
 }

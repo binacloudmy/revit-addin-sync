@@ -25,6 +25,16 @@ namespace BinaVibe.Mcp.Tools.Electrical
         public string Reason = "";
     }
 
+    /// <summary>A run layer the plan routes nothing on, and why.</summary>
+    internal sealed class UnplannedLayer
+    {
+        public string Layer = "";
+        /// <summary>no_conduit_type | no_tray_type | no_diameter | no_tray_size | no_run_height | too_many_pieces</summary>
+        public string Reason = "";
+        public int Pieces;
+        public double LengthMm;
+    }
+
     internal static class CadElectricalReview
     {
         /// <summary>Flagged items listed per flag; the count is always whole.</summary>
@@ -43,7 +53,8 @@ namespace BinaVibe.Mcp.Tools.Electrical
         /// </summary>
         public static Dictionary<string, object?> PlanReview(SocketPlan plan, IReadOnlyList<UnmappedClass> unmapped,
                                                              int otherPlanInstances, IEnumerable<string>? notes = null,
-                                                             int outsideFootprint = 0)
+                                                             int outsideFootprint = 0,
+                                                             Dictionary<string, object?>? conduit = null)
         {
             List<PlannedPoint> points = plan.Points;
             int drawn = points.Count;
@@ -54,6 +65,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                               Count(drawn) + " drawn, " + Count(place) + " will be placed, " +
                               Count(drawn - place) + " excluded.";
             if (plan.Alignment != null) headline += " Alignment " + Round2(plan.Alignment.Score) + ".";
+            if (conduit != null) headline += ConduitSentence(plan, conduit);
 
             var rooms = points
                 .GroupBy(p => (Room: p.RoomName.Length > 0 ? p.RoomName : NoRoom, p.Role))
@@ -115,7 +127,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                              "belongs to another plan");
             }
 
-            return new Dictionary<string, object?>
+            var review = new Dictionary<string, object?>
             {
                 ["headline"] = headline,
                 ["alignment"] = Alignment(plan.Alignment),
@@ -138,6 +150,114 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 ["family_types"] = familyTypes,
                 ["notes"] = allNotes,
             };
+            if (conduit != null) review["conduit"] = conduit;
+            return review;
+        }
+
+        /// <summary>
+        /// The conduit block of a plan's review: how many runs, how long, how many drops, and
+        /// what to look at (open ends, junctions, flagged runs by flag), per layer; the run
+        /// layers that plan nothing and why; short runs and free arcs left out. Counts, names and
+        /// indices only, never a coordinate.
+        /// <paramref name="status"/> is planned | needs_run_height | none.
+        /// </summary>
+        public static Dictionary<string, object?> ConduitReview(SocketPlan plan, IReadOnlyList<UnplannedLayer> unplanned,
+                                                                int tooShort, int freeArcs, string status,
+                                                                int piecesOutside = 0)
+        {
+            List<PlannedRun> runs = plan.Runs;
+            // A closed loop has no ends.
+            List<PlannedRun> conduit = runs.Where(r => r.Kind == "conduit" && !r.Flags.Contains("closed_loop")).ToList();
+
+            var byLayer = runs
+                .GroupBy(r => r.Layer, StringComparer.Ordinal)
+                .OrderBy(g => g.Key, StringComparer.Ordinal)
+                .Select(g =>
+                {
+                    PlannedRun first = g.First();
+                    return (object?)new Dictionary<string, object?>
+                    {
+                        ["layer"] = g.Key,
+                        ["kind"] = first.Kind,
+                        ["type"] = first.TypeName,
+                        ["diameter_mm"] = first.DiameterMm,
+                        ["width_mm"] = first.WidthMm,
+                        ["height_mm"] = first.HeightMm,
+                        ["run_height_mm"] = first.RunHeightMm,
+                        ["runs"] = g.Count(),
+                        ["will_route"] = g.Count(r => !r.Excluded),
+                        ["length_m"] = Math.Round(g.Sum(r => r.LengthMm) / 1000, 1),
+                    };
+                })
+                .ToList();
+
+            var flagged = runs
+                .SelectMany(r => r.Flags.Select(flag => (Flag: flag, Run: r)))
+                .GroupBy(x => x.Flag, StringComparer.Ordinal)
+                .OrderByDescending(g => g.Count())
+                .ThenBy(g => g.Key, StringComparer.Ordinal)
+                .Select(g => (object?)new Dictionary<string, object?>
+                {
+                    ["flag"] = g.Key,
+                    ["default"] = CadRunPlan.FlagExcludes.TryGetValue(g.Key, out bool excludes) && excludes ? "excluded" : "kept",
+                    ["count"] = g.Count(),
+                    ["runs"] = g.Take(MaxFlaggedItems).Select(x => (object?)x.Run.Index).ToList(),
+                    ["truncated"] = g.Count() > MaxFlaggedItems,
+                })
+                .ToList();
+
+            return new Dictionary<string, object?>
+            {
+                ["status"] = status,
+                ["runs"] = runs.Count,
+                ["will_route"] = runs.Count(r => !r.Excluded),
+                ["total_length_m"] = Math.Round(runs.Sum(r => r.LengthMm) / 1000, 1),
+                ["drops"] = runs.Sum(r => r.Drops),
+                ["open_ends"] = conduit.Count(r => r.Start.Kind == "open") + conduit.Count(r => r.End.Kind == "open"),
+                ["junctions"] = runs.Count(r => r.Start.Kind == "junction") + runs.Count(r => r.End.Kind == "junction"),
+                ["by_layer"] = byLayer,
+                ["flagged"] = flagged,
+                ["unplanned_layers"] = unplanned
+                    .OrderBy(u => u.Layer, StringComparer.Ordinal)
+                    .Select(u => (object?)new Dictionary<string, object?>
+                    {
+                        ["layer"] = u.Layer,
+                        ["reason"] = u.Reason,
+                        ["pieces"] = u.Pieces,
+                        ["length_m"] = Math.Round(u.LengthMm / 1000, 1),
+                    })
+                    .ToList(),
+                ["dropped_short"] = tooShort,
+                ["free_arcs"] = freeArcs,
+                ["pieces_outside_footprint"] = piecesOutside,
+            };
+        }
+
+        /// <summary>The headline's conduit sentence.</summary>
+        private static string ConduitSentence(SocketPlan plan, Dictionary<string, object?> conduit)
+        {
+            string status = conduit.TryGetValue("status", out object? s) ? s as string ?? "" : "";
+            if (status == "none") return "";
+            List<PlannedRun> runs = plan.Runs;
+            int needHeight = conduit.TryGetValue("unplanned_layers", out object? u) && u is List<object?> list
+                ? list.Count(row => row is Dictionary<string, object?> d && d.TryGetValue("reason", out object? r) &&
+                                    (r as string) == "no_run_height")
+                : 0;
+
+            string sentence = "";
+            if (runs.Count > 0 || needHeight == 0)
+            {
+                int openEnds = conduit.TryGetValue("open_ends", out object? o) && o is int n ? n : 0;
+                sentence = " Conduit: " + Count(runs.Count) + " runs, " +
+                           Math.Round(runs.Sum(r => r.LengthMm) / 1000, 1).ToString("0.0", CultureInfo.InvariantCulture) + " m, " +
+                           Count(runs.Sum(r => r.Drops)) + " drops, " + Count(openEnds) + " open ends.";
+            }
+            if (needHeight > 0)
+            {
+                sentence += (sentence.Length == 0 ? " Conduit: run" : " Run") + " height needed for " + Count(needHeight) +
+                            " layer" + (needHeight == 1 ? "" : "s") + ".";
+            }
+            return sentence;
         }
 
         /// <summary>What a placement leaves for the drafter to look at: points whose facing could
