@@ -20,8 +20,11 @@ namespace RevitWebAppSync.UI.Jkr.Export
         /// <summary>The issues the export writes: open ones and/or the rest (resolved or ignored).</summary>
         public static IssueVm[] Select(IEnumerable<IssueVm> issues, bool includeOpen, bool includeResolved) =>
             (issues ?? Enumerable.Empty<IssueVm>())
-                .Where(i => (includeOpen && i.IsOpen) || (includeResolved && !i.IsOpen))
+                .Where(i => { var open = IsInOpenBucket(i); return (includeOpen && open) || (includeResolved && !open); })
                 .ToArray();
+
+        /// <summary>Open, or marked as manual (a marked item stays in Open: spec 10a option b).</summary>
+        private static bool IsInOpenBucket(IssueVm i) => i.IsOpen || i.Status == IssueStatus.ManualFixNeeded;
 
         /// <summary>How many issues the export writes with the dialog's default options (Open and Resolved both on).</summary>
         public static int DefaultCount(IEnumerable<IssueVm> issues) => Select(issues, true, true).Length;

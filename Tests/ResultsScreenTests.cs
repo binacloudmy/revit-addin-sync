@@ -167,7 +167,7 @@ namespace RevitWebAppSync.Tests
             Assert.True(r.IsManualTab);
             Assert.StartsWith("Items the AI cannot judge.", r.ManualIntro);
             var row = Assert.Single(r.Rows);
-            Assert.Equal(("Manual review", "man", "why 2"), (row.SvLabel, row.SvKind, row.Reason));
+            Assert.Equal(("Semak manual", "man", "why 2"), (row.SvLabel, row.SvKind, row.Reason));
             Assert.False(row.ShowFix);
         }
 

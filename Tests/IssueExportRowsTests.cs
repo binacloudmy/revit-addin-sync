@@ -33,6 +33,16 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
+        public void Marked_manual_issue_is_written_under_Open_and_counts_match_rows()
+        {
+            var s = Sample().Concat(new[] { I("5", IssueStatus.ManualFixNeeded) }).ToArray();
+            Assert.Equal(new[] { "1", "2", "5" }, IssueExportRows.Select(s, true, false).Select(i => i.Id).ToArray());
+            Assert.Equal(new[] { "3", "4" }, IssueExportRows.Select(s, false, true).Select(i => i.Id).ToArray());
+            Assert.Equal(s.Length, IssueExportRows.Select(s, true, true).Length);
+            Assert.Empty(IssueExportRows.Select(s, false, false));
+        }
+
+        [Fact]
         public void Seven_columns_and_csv_quoting()
         {
             Assert.Equal(7, IssueExportRows.Header.Length);

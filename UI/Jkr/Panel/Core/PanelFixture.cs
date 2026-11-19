@@ -1,5 +1,5 @@
-// GENERATED from "Model Audit Prototype.dc.html" (const ISSUES, BASE_PASS,
-// FILE) — the prototype fixture, field for field. Regenerate rather than edit.
+// Originally generated from the yellow Model Audit prototype; now hand-maintained for the Clear Sheet design.
+// Do not regenerate: it would bring back removed strings (Generate, consent, Undo, 'Fixed · re-scan pending').
 
 using System.Collections.Generic;
 

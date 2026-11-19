@@ -145,7 +145,7 @@ namespace RevitWebAppSync.Tests
             results.SelectTab(PanelTab.Manual);
             var row = results.Rows.Single();
             Assert.True(row.IsManual);
-            Assert.Equal("Manual review", row.SvLabel);                    // never ✓ / ✗
+            Assert.Equal("Semak manual", row.SvLabel);                    // never ✓ / ✗
             Assert.StartsWith("✓ Reviewed · ", row.Meta);
             Assert.Equal(pctBefore, results.HeadPctLabel);                 // the % does not move
             Assert.Equal(pendBefore, results.PendTotal);                   // still needs a person on the Borang

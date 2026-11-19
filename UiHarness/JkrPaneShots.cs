@@ -116,7 +116,7 @@ namespace UiHarness
             Shot(dir, "jkr-issues-manual-tab.png", s => { ShowRun(s, Failing, tweak: IssueSamples); s.Results.SelectTab(PanelTab.Manual); }, 900, (int)JkrPaneShell.MinimumWidth);
             Shot(dir, "jkr-degraded-320.png", s => { ShowRun(s, Failing, backendDown: true); s.Core.SetLod("400"); }, 900, (int)JkrPaneShell.MinimumWidth);
 
-            // The issue detail and the two fix modals (Direction C: Task, Verify).
+            // The issue detail and the two fix modals (Task, Verify).
             // Clear Sheet: issue with a fix, with an AI fixer proposal, semak manual issue; plus
             // the states Clear Sheet does not draw (Reopen, Mark as Manual, fix failed, AI can propose).
             Func<PanelItem, bool> fix = i => !i.IsHuman && i.Status == ItemStatus.Open && i.Fix == FixKind.Fix && !i.MarkedManual;

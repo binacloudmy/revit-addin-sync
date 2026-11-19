@@ -77,7 +77,7 @@ namespace RevitWebAppSync.Tests
             Assert.Equal("91%", m.Rows[0].PctLabel);
             Assert.Equal("+2 manual", m.Rows[0].PendLabel);
             Assert.Equal("Auditing model…", m.Title);
-            Assert.Equal("Manual review collected · Human decides · not in %", m.LiveText);
+            Assert.Equal("Semak manual collected · Human decides · not in %", m.LiveText);
             Assert.Equal("The overall result appears when all five sections finish.", m.NoOverall);
         }
 

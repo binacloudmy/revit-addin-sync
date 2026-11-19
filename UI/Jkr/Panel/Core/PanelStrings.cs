@@ -1,5 +1,5 @@
-// GENERATED from "Model Audit Prototype.dc.html" (const T, SEVL) — the
-// prototype's BM / EN strings, word for word. Regenerate rather than edit.
+// Originally generated from the yellow Model Audit prototype; now hand-maintained for the Clear Sheet design.
+// Do not regenerate: it would bring back removed strings (Generate, consent, Undo, 'Fixed · re-scan pending').
 
 using System;
 using System.Collections.Generic;
@@ -228,7 +228,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             ["actualL"] = "Dalam model",
             ["suggested"] = "Cadangan pembetulan",
             ["sourceL"] = "Sumber",
-            ["manualRow"] = "Semakan manual",
+            ["manualRow"] = "Semak manual",
             ["resolvedRow"] = "Selesai",
             ["ignoredRow"] = "Diabaikan",
             ["needsAction"] = "perlu tindakan manual",
@@ -254,7 +254,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             ["running"] = "Auditing model…",
             ["waiting"] = "Waiting",
             ["checking"] = "Checking…",
-            ["pendingLive"] = "Manual review collected",
+            ["pendingLive"] = "Semak manual collected",
             ["noOverall"] = "Overall % is shown once every section completes.",
             ["heroPct"] = "Compliant, AI-verified",
             ["heroPctSub"] = "cells",
@@ -341,7 +341,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             ["actualL"] = "In model",
             ["suggested"] = "Suggested fix",
             ["sourceL"] = "Source",
-            ["manualRow"] = "Manual review",
+            ["manualRow"] = "Semak manual",
             ["resolvedRow"] = "Resolved",
             ["ignoredRow"] = "Ignored",
             ["needsAction"] = "needs manual action",

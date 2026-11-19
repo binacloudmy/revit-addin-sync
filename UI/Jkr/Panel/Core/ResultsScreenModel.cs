@@ -34,8 +34,6 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public string Key { get; set; } = "";
         public string Label { get; set; } = "";
         public int N { get; set; }
-        /// <summary>Dot colour (prototype SEV).</summary>
-        public string Color { get; set; } = "";
         /// <summary>The legend's words: "4 high" / "4 tinggi".</summary>
         public string Text { get; set; } = "";
     }
@@ -88,13 +86,6 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
     /// </summary>
     public sealed class ResultsScreenModel : INotifyPropertyChanged
     {
-        private static readonly Dictionary<string, string> SevColor = new Dictionary<string, string>
-        {
-            // Cp.Jkr.Dark.FailDot / WarnDot / ListedDot (UI/Copilot/CopilotTokens.xaml):
-            // the pane is always dark (Direction C).
-            ["High"] = "#ff6b5e", ["Med"] = "#f5b942", ["Low"] = "#8a94a6",
-        };
-
         private readonly PanelCore _core;
         private readonly StartScreenModel _start;
         private Bim010Summary _summary;
@@ -268,7 +259,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 var n = _core.SevCounts();
                 return new[] { "High", "Med", "Low" }.Select(k => new SevChip
                 {
-                    Key = k, Label = PanelStrings.Severity[k].In(_core.Lang), N = n[k], Color = SevColor[k],
+                    Key = k, Label = PanelStrings.Severity[k].In(_core.Lang), N = n[k],
                     Text = n[k] + " " + PanelStrings.Severity[k].In(_core.Lang).ToLowerInvariant(),
                 }).ToList();
             }

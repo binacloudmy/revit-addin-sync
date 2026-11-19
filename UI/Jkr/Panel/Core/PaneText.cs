@@ -127,7 +127,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 case "Fixed": label = L(lang, "Dibaiki", "Fixed"); break;
                 case "Ignored": label = L(lang, "Diabaikan", "Ignored"); break;
                 case "Approved": label = L(lang, "Diluluskan", "Approved"); break;
-                case "ManualFixNeeded": label = L(lang, "Baiki secara manual", "Manual fix"); break;
+                case "ManualFixNeeded": label = L(lang, "Ditanda manual", "Marked manual"); break;
                 default: label = L(lang, "Dibuka semula", "Reopened"); break;
             }
             return label + " · " + title;

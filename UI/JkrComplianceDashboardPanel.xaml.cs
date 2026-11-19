@@ -1395,7 +1395,7 @@ namespace RevitWebAppSync.UI
                         JkrAuditStore.Remove(_scannedDocPath, fixedVm.Id);
                     else
                     {
-                        fixedVm.FixVerified = true;   // absent from this scan: it passes now
+                        fixedVm.FixVerified = backendError == null;   // absent from a full scan: it passes now; a partial scan proves nothing
                         issues.Add(fixedVm);
                     }
                 }
@@ -1417,7 +1417,7 @@ namespace RevitWebAppSync.UI
                 {
                     if (string.IsNullOrEmpty(pf.Id) || !existingIds.Contains(pf.Id))
                     {
-                        if (pf.Status == IssueStatus.Fixed) pf.FixVerified = true;   // the re-check passed it
+                        if (pf.Status == IssueStatus.Fixed) pf.FixVerified = backendError == null;   // the re-check passed it (only if the scan was complete)
                         issues.Add(pf);
                     }
                 }

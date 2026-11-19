@@ -108,7 +108,6 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             ["idxIgnore"] = ("Isu {0} daripada {1} diabaikan", "Issue {0} of {1} ignored"),
             ["idxResolved"] = ("Isu {0} daripada {1} selesai", "Issue {0} of {1} resolved"),
             ["idxManual"] = ("Isu {0} daripada {1} dalam Manual", "Issue {0} of {1} in Manual"),
-            ["manualRow"] = ("Semak manual", "Semak manual"),
             ["manualNote"] = ("Item ini tidak dikira dalam peratus patuh dan tidak dikira gagal. Ia dicetak sebagai “semak manual” dalam Borang.",
                               "This item is not counted in the compliance % and not counted as a failure. It prints as “semak manual” on the Borang."),
             ["applyFix"] = ("Guna pembaikan", "Apply fix"),

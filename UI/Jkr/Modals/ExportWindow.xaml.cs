@@ -35,8 +35,10 @@ namespace RevitWebAppSync.UI.Jkr.Modals
             ExportBtn.Content = PaneText.ExportAction();
             CloseBtn.ToolTip = L("Tutup", "Close");
             System.Windows.Automation.AutomationProperties.SetName(CloseBtn, L("Tutup", "Close"));
-            CbOpen.Content = L($"Terbuka ({_vm.OpenCount})", $"Open ({_vm.OpenCount})");
-            CbResolved.Content = L($"Selesai ({_vm.ResolvedCount})", $"Resolved ({_vm.ResolvedCount})");
+            int openN = IssueExportRows.Select(_vm.Issues, true, false).Length;
+            int restN = IssueExportRows.Select(_vm.Issues, false, true).Length;
+            CbOpen.Content = L($"Terbuka ({openN})", $"Open ({openN})");
+            CbResolved.Content = L($"Diabaikan atau selesai ({restN})", $"Ignored or resolved ({restN})");
             SetFormat(format);
             UpdateCount();
             // Esc, x or a click on the backdrop closes without exporting.
