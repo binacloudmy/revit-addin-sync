@@ -35,6 +35,19 @@ namespace BinaVibe.Mcp.Tools.Electrical
         public double MaxFilletRadiusMm = 1000;
         /// <summary>More pieces than this is not a conduit layer: too_many_pieces.</summary>
         public int MaxPieces = 20000;
+        /// <summary>An isolated piece shorter than this, off the layer's main axes, is annotation
+        /// (a tick, an arrow) and is dropped before chaining: clutter.</summary>
+        public double ClutterMaxMm = 1000;
+        /// <summary>A piece within this of the layer's dominant axes (and the axis at 90 degrees to
+        /// them) is axis-aligned, and never clutter.</summary>
+        public double AxisToleranceDeg = 5;
+
+        /// <summary>Shortest run kept, by run kind: 300 mm of conduit, 1 m of cable tray (trunking
+        /// layers carry short annotation strokes that chain into sub-metre runs).</summary>
+        public static double MinRunMmFor(string kind) => kind == "cable_tray" ? 1000 : 300;
+
+        /// <summary>The defaults, with the minimum run of the given run kind.</summary>
+        public static ChainOptions ForKind(string kind) => new ChainOptions { MinRunMm = MinRunMmFor(kind) };
     }
 
     internal sealed class ChainedRun
@@ -61,6 +74,8 @@ namespace BinaVibe.Mcp.Tools.Electrical
         public int Bends;
         /// <summary>Nodes where three or more pieces meet.</summary>
         public int Junctions;
+        /// <summary>Isolated short pieces off the layer's axes, dropped as annotation.</summary>
+        public int ClutterDropped;
         public int Pieces;
         /// <summary>"too_many_pieces", else null.</summary>
         public string? Error;
@@ -90,6 +105,8 @@ namespace BinaVibe.Mcp.Tools.Electrical
             // 2. Merge along lines with a small gap, never the wall gap. If the merge moved an
             // end further than the join tolerance, chain the pieces as drawn instead.
             List<Segment> raw = pieces.Where(s => Finite(s.P1.x, s.P1.y) && Finite(s.P2.x, s.P2.y) && s.Length > 0).ToList();
+            raw = DropClutter(raw, o, out int clutter);
+            result.ClutterDropped = clutter;
             List<Segment> merged = ElectricalCensus.MergeByDirection(raw, o.JoinMm);
             if (!MergeKeepsEnds(raw, merged, o.JoinMm)) merged = raw;
 
@@ -186,6 +203,78 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 .ThenBy(r => Math.Round(r.LengthMm, 1))
                 .ToList();
             return result;
+        }
+
+        // ---------------------------------------------------------------- clutter
+
+        /// <summary>
+        /// Drops annotation drawn on a run layer: a piece shorter than ClutterMaxMm, with neither
+        /// end within JoinMm of another piece, and not within AxisToleranceDeg of the layer's
+        /// dominant axes. A short axis-aligned stub stays, and so does anything touching a run.
+        /// </summary>
+        internal static List<Segment> DropClutter(List<Segment> pieces, ChainOptions o, out int dropped)
+        {
+            dropped = 0;
+            if (pieces.Count == 0) return pieces;
+            double axis = DominantAxisRad(pieces);
+            double tol = o.AxisToleranceDeg * Math.PI / 180;
+
+            var index = new SegmentGrid(1000, o.JoinMm);
+            for (int i = 0; i < pieces.Count; i++) index.Add(i, pieces[i].P1.x, pieces[i].P1.y, pieces[i].P2.x, pieces[i].P2.y);
+
+            var kept = new List<Segment>(pieces.Count);
+            for (int i = 0; i < pieces.Count; i++)
+            {
+                Segment s = pieces[i];
+                if (s.Length >= o.ClutterMaxMm || OffAxisRad(s, axis) <= tol || Touches(i, pieces, index, o.JoinMm))
+                {
+                    kept.Add(s);
+                    continue;
+                }
+                dropped++;
+            }
+            return kept;
+        }
+
+        /// <summary>The direction, modulo 90 degrees, that most of the layer's length runs along:
+        /// a length-weighted histogram in 1 degree bins.</summary>
+        internal static double DominantAxisRad(IReadOnlyList<Segment> pieces)
+        {
+            var bins = new double[90];
+            foreach (Segment s in pieces)
+            {
+                double a = Math.Atan2(s.P2.y - s.P1.y, s.P2.x - s.P1.x) * 180 / Math.PI;
+                a = ((a % 90) + 90) % 90;
+                int bin = (int)Math.Floor(a + 0.5) % 90;
+                bins[bin] += s.Length;
+            }
+            int best = 0;
+            for (int i = 1; i < 90; i++) if (bins[i] > bins[best]) best = i;
+            return best * Math.PI / 180;
+        }
+
+        /// <summary>How far a piece turns from the nearest of the axes (axis, axis + 90 degrees).</summary>
+        private static double OffAxisRad(Segment s, double axis)
+        {
+            double a = Math.Atan2(s.P2.y - s.P1.y, s.P2.x - s.P1.x) - axis;
+            double quarter = Math.PI / 2;
+            a = ((a % quarter) + quarter) % quarter;
+            return Math.Min(a, quarter - a);
+        }
+
+        private static bool Touches(int i, List<Segment> pieces, SegmentGrid index, double joinMm)
+        {
+            Segment s = pieces[i];
+            foreach ((double x, double y) in new[] { (s.P1.x, s.P1.y), (s.P2.x, s.P2.y) })
+            {
+                foreach (int j in index.Near(x, y))
+                {
+                    if (j == i) continue;
+                    Segment t = pieces[j];
+                    if (DistanceToSegment(x, y, t.P1.x, t.P1.y, t.P2.x, t.P2.y, out _) <= joinMm) return true;
+                }
+            }
+            return false;
         }
 
         // ---------------------------------------------------------------- merge check

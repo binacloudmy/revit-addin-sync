@@ -33,7 +33,7 @@ namespace Cad2Bim.Headless {
                     "                              walls; prints each cluster's size, walls and largest empty bands first\n" +
                     "usage: cad2bim-headless --compare-devices <ref.json> <placed.json> [--plan=plan.json]\n" +
                     "                        [--ref-types=text] [--ref-link=text] [--role=socket] [--across=50] [--along=500] [--dz=150] [--json]\n" +
-                    "usage: cad2bim-headless <file.dwg> --runs --layers=E-CONDUIT[,E-TRUNK] [--cluster=N] [--points-out=runs.json]\n" +
+                    "usage: cad2bim-headless <file.dwg> --runs --layers=E-CONDUIT[,E-TRUNK] [--cluster=N] [--min-run=300] [--points-out=runs.json]\n" +
                     "usage: cad2bim-headless --compare-runs <ref.json> <placed.json> [--kind=conduit|cable_tray] [--tol=100] [--3d] [--json]");
                 return 2;
             }

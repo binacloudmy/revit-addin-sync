@@ -321,8 +321,8 @@ Both stay at the drawn centre, with no facing. The room is looked up there.
     "min_wall_mm": 50, "thin_walls_ignored": 3, "height_basis": "level",
     "reach_mm": 400, "axial_tolerance_mm": 150, "existing_mm": 150, "duplicate_mm": 20,
     "wet_room_keywords": ["…"],
-    "run_height_mm": 2700, "run_join_mm": 20, "min_run_mm": 300, "drop_reach_mm": 300,
-    "min_drop_mm": 300, "run_height_basis": "level"
+    "run_height_mm": 2700, "run_join_mm": 20, "min_run_mm": 300, "min_tray_run_mm": 1000,
+    "clutter_max_mm": 1000, "clutter_axis_tolerance_deg": 5, "drop_reach_mm": 300, "min_drop_mm": 300, "run_height_basis": "level"
   }
 }
 ```
@@ -450,11 +450,11 @@ cad2bim-headless file.dwg --fit=walls.json [--cluster=N] [--min-wall=50]
 cad2bim-headless --compare-devices <ref.json> <placed.json> [--plan=plan.json]
                  [--ref-types=text] [--ref-link=text] [--role=socket]
                  [--across=50] [--along=500] [--dz=150] [--json]
-cad2bim-headless file.dwg --runs --layers=E-CONDUIT[,E-TRUNK] [--cluster=N] [--points-out=runs.json]
+cad2bim-headless file.dwg --runs --layers=E-CONDUIT[,E-TRUNK] [--cluster=N] [--min-run=300] [--points-out=runs.json]
 cad2bim-headless --compare-runs <ref.json> <placed.json> [--kind=conduit|cable_tray] [--tol=100] [--3d] [--json]
 ```
 
-**`--runs`** chains each named layer as `plan_cad_electrical` does (section 7), without Revit or a fit, and prints per layer: pieces (and pieces outside the cluster), arcs, runs, length, open ends, junctions and junction ends, bends, free arcs, short runs dropped, closed loops and runs with short legs. `--cluster` keeps the pieces in that census plan's box; without it, the whole sheet. No coordinate is printed. `--points-out` writes the runs' points in drawing mm, and is refused inside a git working tree.
+**`--runs`** chains each named layer as `plan_cad_electrical` does (section 7), without Revit or a fit, and prints per layer: pieces (and pieces outside the cluster), arcs, runs, length, open ends, junctions and junction ends, bends, free arcs, short runs dropped, closed loops and runs with short legs. `--cluster` keeps the pieces in that census plan's box; without it, the whole sheet. Clutter is dropped and counted as in the plan. `--min-run` sets the shortest run kept (default 300, conduit); pass `--min-run=1000` for trunking layers, as the plan does. The first line prints the values used. No coordinate is printed. `--points-out` writes the runs' points in drawing mm, and is refused inside a git working tree.
 
 **`--compare-runs`** reads the `runs` of two `include_runs` dumps. Each segment is walked in 25 mm steps; a step is covered when it lies within `--tol` (100 mm) of a segment of the other dump, in plan unless `--3d`. It prints the reference length and the share covered by created runs, the created length along the reference, and the extra created length. `--kind` keeps one kind.
 
@@ -502,14 +502,20 @@ For each conduit or trunking row, in mapping order:
 
 1. **Unplanned rows.** A row without its type, its size or a run height plans nothing (section 2). The block's `status` is `needs_run_height` when a run height is missing, else `planned`.
 2. **Pieces.** The layer's straight pieces and arcs, without symbol linework (blocks up to 2000 mm across). A piece belongs to the plan by the symbols' rule: its midpoint, carried onto the model, lies inside the level's footprint. Without a footprint, it lies inside the cluster's box grown by 400 mm. The rest are counted as `pieces_outside_footprint`.
-3. **Chaining** (`CadRunChain`, drawing mm):
+3. **Clutter.** Run layers also carry annotation: ticks, arrows, short leaders. Before chaining, a piece is dropped as clutter when all three hold:
+   - it is shorter than 1000 mm
+   - neither of its ends is within 20 mm of another piece
+   - it is more than 5 degrees off the layer's main axes. These are the direction most of the layer's length runs along (1 degree bins, modulo 90) and the direction at 90 degrees to it.
+
+   A short axis-aligned stub stays, and so does a short piece touching a run. Dropped pieces are counted as `clutter_dropped`.
+4. **Chaining** (`CadRunChain`, drawing mm):
    - Pieces along one line join when their ends are within 20 mm. If that merge would move an end by more than 20 mm, the pieces are chained as drawn.
    - An arc of radius up to 1000 mm whose ends meet two pieces within 20 mm, each along the arc's tangent (within 5 degrees), is a bend. The two pieces are extended to their intersection, which becomes the corner. Any other arc is a free arc: counted, not chained.
    - Ends within 20 mm are one node. A node within 20 mm of another piece's interior splits that piece there, so a branch meets the run it touches. Two pieces that cross with no end at the crossing stay apart.
    - At a junction (three or more pieces at one node), the two pieces closest to opposite (within 10 degrees) carry on as one run. Every other piece ends there, as a `junction` end. There is no tee and no junction box.
-   - Vertices turning less than 1 degree are removed. A run under 300 mm is dropped and counted (`dropped_short`).
+   - Vertices turning less than 1 degree are removed. A run shorter than the kind's minimum is dropped and counted (`dropped_short`): 300 mm for conduit, 1000 mm for cable tray (trunking).
    - Runs are ordered by layer, then lowest x, then lowest y, so indices are the same from call to call.
-4. **Planning** (`CadRunPlan`, model mm):
+5. **Planning** (`CadRunPlan`, model mm):
    - Each point is carried onto the model by the fit. Z is the level plus the run height: the row's, else the call's.
    - **Drops (conduit only).** Each open end looks for a device within 300 mm. Devices are the plan's points that are not excluded, and the model's devices between this level and the next. Distance is to the device's point, or to its drawn symbol's edge, whichever is nearer. A drawn run stops at the symbol, while the point sits on the wall face.
    - The nearest device wins. Another within 50 mm of that distance flags `device_ambiguous`.
@@ -545,7 +551,8 @@ Present when the mapping has a conduit or trunking row. It carries counts, names
   "unplanned_layers": [{ "layer": "E-CONDUIT-2", "reason": "no_run_height", "pieces": 40, "length_m": 81.2 }],
   "dropped_short": 3,
   "free_arcs": 0,
-  "pieces_outside_footprint": 11
+  "pieces_outside_footprint": 11,
+  "clutter_dropped": 7
 }
 ```
 

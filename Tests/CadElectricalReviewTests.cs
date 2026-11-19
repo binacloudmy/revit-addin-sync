@@ -340,7 +340,7 @@ namespace Tests
         public void Conduit_block_counts_runs_length_drops_and_open_ends()
         {
             var unplanned = new List<UnplannedLayer>();
-            Dictionary<string, object?> block = CadElectricalReview.ConduitReview(RunPlan(), unplanned, 3, 7, "planned", 11);
+            Dictionary<string, object?> block = CadElectricalReview.ConduitReview(RunPlan(), unplanned, 3, 7, "planned", 11, 5);
 
             Assert.Equal("planned", block["status"]);
             Assert.Equal(4, block["runs"]);
@@ -352,6 +352,7 @@ namespace Tests
             Assert.Equal(3, block["dropped_short"]);
             Assert.Equal(7, block["free_arcs"]);
             Assert.Equal(11, block["pieces_outside_footprint"]);
+            Assert.Equal(5, block["clutter_dropped"]);
 
             Dictionary<string, object?> layer = Row(Assert.Single((List<object?>)block["by_layer"]!));
             Assert.Equal("E-CONDUIT", layer["layer"]);

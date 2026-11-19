@@ -163,7 +163,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
         /// </summary>
         public static Dictionary<string, object?> ConduitReview(SocketPlan plan, IReadOnlyList<UnplannedLayer> unplanned,
                                                                 int tooShort, int freeArcs, string status,
-                                                                int piecesOutside = 0)
+                                                                int piecesOutside = 0, int clutterDropped = 0)
         {
             List<PlannedRun> runs = plan.Runs;
             // A closed loop has no ends.
@@ -230,6 +230,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 ["dropped_short"] = tooShort,
                 ["free_arcs"] = freeArcs,
                 ["pieces_outside_footprint"] = piecesOutside,
+                ["clutter_dropped"] = clutterDropped,
             };
         }
 

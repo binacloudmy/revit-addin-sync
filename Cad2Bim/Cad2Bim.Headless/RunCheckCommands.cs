@@ -8,7 +8,7 @@ namespace Cad2Bim.Headless {
     /// <summary>
     /// The phase 2 (conduit) checks without Revit.
     ///
-    /// `file.dwg --runs --layers=E-CONDUIT[,E-TRUNK] [--cluster=N] [--points-out=runs.json]`
+    /// `file.dwg --runs --layers=E-CONDUIT[,E-TRUNK] [--cluster=N] [--min-run=300] [--points-out=runs.json]`
     /// chains each layer's pieces into runs (CadRunChain) and prints, per layer: pieces, runs,
     /// total length, open ends, junction ends, bends, free arcs and short runs dropped. No
     /// coordinates are printed; `--points-out` writes the runs' points (drawing mm) to a file,
@@ -22,7 +22,7 @@ namespace Cad2Bim.Headless {
         internal static int Runs(string path, string[] args) {
             string? layersText = Value(args, "--layers=");
             if (string.IsNullOrWhiteSpace(layersText)) {
-                Console.Error.WriteLine("usage: <file.dwg> --runs --layers=E-CONDUIT[,E-TRUNK] [--cluster=N] [--points-out=runs.json]");
+                Console.Error.WriteLine("usage: <file.dwg> --runs --layers=E-CONDUIT[,E-TRUNK] [--cluster=N] [--min-run=300] [--points-out=runs.json]");
                 return 2;
             }
             string[] layers = layersText.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries).Select(l => l.Trim()).ToArray();
@@ -44,9 +44,20 @@ namespace Cad2Bim.Headless {
                 keep = scan.InClusterBox(cluster);
             }
 
+            // The minimum run: 300 mm (conduit) unless --min-run says otherwise; pass
+            // --min-run=1000 for trunking layers, as plan_cad_electrical does for them.
             var options = new ChainOptions();
+            string? minRunText = Value(args, "--min-run=");
+            if (minRunText != null) {
+                if (!double.TryParse(minRunText, NumberStyles.Float, CultureInfo.InvariantCulture, out double minRun) || minRun < 0) {
+                    Console.Error.WriteLine($"--min-run={minRunText} is not a length in mm");
+                    return 2;
+                }
+                options.MinRunMm = minRun;
+            }
             var dump = new List<object?>();
-            Console.WriteLine($"join {options.JoinMm:0} mm, min run {options.MinRunMm:0} mm" +
+            Console.WriteLine($"join {options.JoinMm:0} mm, min run {options.MinRunMm:0} mm, clutter under {options.ClutterMaxMm:0} mm " +
+                              $"off axis by more than {options.AxisToleranceDeg:0} deg" +
                               (clusterText != null ? $", cluster {clusterText}" : ", whole sheet"));
             foreach (string layer in layers) {
                 if (!scan.LayerNames.Contains(layer)) {
@@ -65,10 +76,11 @@ namespace Cad2Bim.Headless {
                 double length = chain.Runs.Sum(r => r.LengthMm);
                 Console.WriteLine(string.Format(CultureInfo.InvariantCulture,
                     "{0}: pieces {1} (+{2} outside), arcs {3}, runs {4}, length {5:0.0} m, open ends {6}, junctions {7} " +
-                    "(junction ends {8}), bends {9}, free arcs {10}, short runs dropped {11}, closed loops {12}, short legs {13}",
+                    "(junction ends {8}), bends {9}, free arcs {10}, short runs dropped {11}, closed loops {12}, short legs {13}, " +
+                    "clutter dropped {14}",
                     layer, pieces.Count, left, arcs.Count, chain.Runs.Count, length / 1000, open, chain.Junctions, junctionEnds,
                     chain.Bends, chain.FreeArcs, chain.TooShort, chain.Runs.Count(r => r.Closed),
-                    chain.Runs.Count(r => r.Flags.Contains("short_leg"))));
+                    chain.Runs.Count(r => r.Flags.Contains("short_leg")), chain.ClutterDropped));
 
                 foreach (ChainedRun run in chain.Runs) {
                     dump.Add(new Dictionary<string, object?> {

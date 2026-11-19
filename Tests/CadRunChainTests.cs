@@ -225,6 +225,76 @@ namespace Tests
         }
 
         [Fact]
+        public void Short_diagonal_ticks_are_dropped_as_clutter()
+        {
+            // A trunking line along x and up, with loose 45-degree ticks and a short arrow stroke
+            // beside it, none touching the run.
+            var pieces = new List<Segment> { S(0, 0, 8000, 0), S(8000, 0, 8000, 5000) };
+            for (int i = 0; i < 6; i++) pieces.Add(S(500 + (i * 1000), 300, 800 + (i * 1000), 600));
+            pieces.Add(S(9000, 2000, 9400, 2300));
+
+            ChainResult r = CadRunChain.Chain(pieces, Array.Empty<ArcSpan>(), ChainOptions.ForKind("cable_tray"));
+
+            Assert.Equal(7, r.ClutterDropped);
+            ChainedRun run = Assert.Single(r.Runs);
+            Assert.Equal(13000, run.LengthMm, 3);
+            Assert.Equal(0, r.TooShort);
+        }
+
+        [Fact]
+        public void A_short_stub_touching_a_run_is_kept()
+        {
+            // A short diagonal touching the run is kept (it is joined to it); so is a short
+            // axis-aligned stub standing alone.
+            ChainResult r = CadRunChain.Chain(
+                new[] { S(0, 0, 4000, 0), S(2000, 0, 2300, 300), S(6000, 0, 6000, 400) }, Array.Empty<ArcSpan>());
+
+            Assert.Equal(0, r.ClutterDropped);
+            Assert.Equal(0, r.TooShort);
+            Assert.Contains(r.Runs, run => run.Points.Any(p => Math.Abs(p.X - 2300) < 1 && Math.Abs(p.Y - 300) < 1));
+            Assert.Contains(r.Runs, run => run.Points.Any(p => Math.Abs(p.X - 6000) < 1 && Math.Abs(p.Y - 400) < 1));
+        }
+
+        [Fact]
+        public void Clutter_axes_follow_a_turned_plan()
+        {
+            // The whole layer drawn at 30 degrees: a short isolated piece along the turned axes is
+            // no clutter, one at 15 degrees off them is.
+            double c = Math.Cos(Math.PI / 6), s = Math.Sin(Math.PI / 6);
+            Segment Turned(double x1, double y1, double x2, double y2) =>
+                S((x1 * c) - (y1 * s), (x1 * s) + (y1 * c), (x2 * c) - (y2 * s), (x2 * s) + (y2 * c));
+            double d = Math.Tan(Math.PI / 12) * 500;
+            ChainResult r = CadRunChain.Chain(
+                new[] { Turned(0, 0, 9000, 0), Turned(0, 2000, 500, 2000), Turned(0, 4000, 500, 4000 + d) }, Array.Empty<ArcSpan>());
+
+            Assert.Equal(1, r.ClutterDropped);
+            Assert.Equal(2, r.Runs.Count);
+        }
+
+        [Fact]
+        public void Tray_runs_under_one_metre_are_dropped_and_counted()
+        {
+            Segment[] pieces = { S(0, 0, 900, 0), S(5000, 0, 5000, 600), S(10000, 0, 13000, 0) };
+
+            ChainResult tray = CadRunChain.Chain(pieces, Array.Empty<ArcSpan>(), ChainOptions.ForKind("cable_tray"));
+            Assert.Equal(1000, ChainOptions.MinRunMmFor("cable_tray"));
+            Assert.Equal(2, tray.TooShort);
+            Assert.Equal(3000, Assert.Single(tray.Runs).LengthMm, 3);
+        }
+
+        [Fact]
+        public void Conduit_min_run_is_unchanged()
+        {
+            Segment[] pieces = { S(0, 0, 900, 0), S(5000, 0, 5000, 200), S(10000, 0, 13000, 0) };
+
+            Assert.Equal(300, ChainOptions.MinRunMmFor("conduit"));
+            Assert.Equal(300, new ChainOptions().MinRunMm);
+            ChainResult conduit = CadRunChain.Chain(pieces, Array.Empty<ArcSpan>(), ChainOptions.ForKind("conduit"));
+            Assert.Equal(1, conduit.TooShort);
+            Assert.Equal(2, conduit.Runs.Count);
+        }
+
+        [Fact]
         public void Too_many_pieces_is_an_error()
         {
             ChainResult r = CadRunChain.Chain(new[] { S(0, 0, 1000, 0), S(2000, 0, 3000, 0), S(4000, 0, 5000, 0) },

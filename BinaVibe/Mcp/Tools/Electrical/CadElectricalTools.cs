@@ -441,7 +441,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
             var runOptions = new RunPlanOptions();
             var chainOptions = new ChainOptions();
             var unplannedLayers = new List<UnplannedLayer>();
-            int tooShort = 0, freeArcs = 0, piecesOutside = 0;
+            int tooShort = 0, freeArcs = 0, piecesOutside = 0, clutter = 0;
             if (runRows.Count > 0)
             {
                 // Devices of other levels are no drop targets: only those from this level up to the next.
@@ -462,7 +462,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     if (reason == null)
                     {
                         List<ArcSpan> arcs = scan.RunArcs(new[] { row.Layer }, keepPiece, out _);
-                        chain = CadRunChain.Chain(pieces, arcs, chainOptions);
+                        chain = CadRunChain.Chain(pieces, arcs, ChainOptions.ForKind(row.Role == "trunking" ? "cable_tray" : "conduit"));
                         reason = chain.Error;
                     }
                     if (reason != null || chain == null)
@@ -476,6 +476,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
                     tooShort += chain.TooShort;
                     freeArcs += chain.FreeArcs;
+                    clutter += chain.ClutterDropped;
                     var spec = new RunLayerSpec
                     {
                         Layer = row.Layer,
@@ -533,7 +534,10 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     ["wet_room_keywords"] = options.WetKeywords.Cast<object?>().ToList(),
                     ["run_height_mm"] = runHeightArg,
                     ["run_join_mm"] = chainOptions.JoinMm,
-                    ["min_run_mm"] = chainOptions.MinRunMm,
+                    ["min_run_mm"] = ChainOptions.MinRunMmFor("conduit"),
+                    ["min_tray_run_mm"] = ChainOptions.MinRunMmFor("cable_tray"),
+                    ["clutter_max_mm"] = chainOptions.ClutterMaxMm,
+                    ["clutter_axis_tolerance_deg"] = chainOptions.AxisToleranceDeg,
                     ["drop_reach_mm"] = runOptions.DropReachMm,
                     ["min_drop_mm"] = runOptions.MinDropMm,
                     ["run_height_basis"] = "level",
@@ -552,7 +556,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
             if (runRows.Count > 0)
             {
                 string status = unplannedLayers.Any(u => u.Reason == "no_run_height") ? "needs_run_height" : "planned";
-                conduitBlock = CadElectricalReview.ConduitReview(plan, unplannedLayers, tooShort, freeArcs, status, piecesOutside);
+                conduitBlock = CadElectricalReview.ConduitReview(plan, unplannedLayers, tooShort, freeArcs, status, piecesOutside, clutter);
             }
 
             var result = new Dictionary<string, object?>
