@@ -31,6 +31,7 @@ namespace Tests
             "SocketPlanCache.cs",
             "SocketPlanSelect.cs",
             "CadSymbolResolve.cs",
+            "CadElectricalReview.cs",
         };
 
         private static string Src(string file) =>

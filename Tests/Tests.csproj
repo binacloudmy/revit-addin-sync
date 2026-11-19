@@ -306,6 +306,7 @@
     <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\CadModelFit.cs" Link="CadModelFit.cs" />
     <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\SocketPlanSelect.cs" Link="SocketPlanSelect.cs" />
     <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\CadSymbolResolve.cs" Link="CadSymbolResolve.cs" />
+    <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\CadElectricalReview.cs" Link="CadElectricalReview.cs" />
     <!-- read_schedule / write_schedule decision logic: which updates survive
          validation, where the row window falls, whether rows map 1:1 to
          elements. Split out of Schedules.cs (which needs a live Document) for
