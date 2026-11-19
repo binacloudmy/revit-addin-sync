@@ -446,11 +446,12 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             private FrameworkElement OptionsBody()
             {
                 var body = new StackPanel { Margin = new Thickness(14, 0, 14, 12) };
+                if (_m.ShowsMultiHint) body.Children.Add(MultiHintLine(new Thickness(2, 0, 0, 7)));   // r13: "Pick any"
                 for (var i = 0; i < _m.Options.Count; i++)
                 {
                     var o = _m.Options[i];
                     var hint = _m.Multi ? (i < 9 ? (i + 1).ToString(System.Globalization.CultureInfo.InvariantCulture) : "") : AskCardModel.OptionKeyHint(o, i);
-                    var tile = new Tile(o.Label, o.Meta, hint, big: true);
+                    var tile = new Tile(o.Label, o.Meta, hint, big: true, multi: _m.Multi);
                     tile.Button.Margin = new Thickness(0, 0, 0, 6);
                     if (_m.Multi)
                     {
@@ -591,6 +592,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 return frame;
             }
 
+            /// <summary>The small "Pick any" line under a multi question (r13).</summary>
+            private FrameworkElement MultiHintLine(Thickness margin) => CardKit.Text(_m.MultiHint, 11, "Cp.Faint", margin: margin);
+
             private FrameworkElement FieldName(AskFieldModel f, Thickness margin)
             {
                 var t = new TextBlock { TextWrapping = TextWrapping.Wrap, Margin = margin, FontSize = 12.5 };
@@ -657,12 +661,13 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             private FrameworkElement TilesField(AskFieldModel f)
             {
                 var sp = new StackPanel();
-                sp.Children.Add(FieldName(f, new Thickness(0, 0, 2, 7)));
+                sp.Children.Add(FieldName(f, new Thickness(0, 0, 2, AskCardModel.FieldShowsMultiHint(f) ? 2 : 7)));
+                if (AskCardModel.FieldShowsMultiHint(f)) sp.Children.Add(MultiHintLine(new Thickness(0, 0, 2, 7)));   // r13: "Pick any"
                 var choices = AskCardModel.PickChoices(f);
                 for (var i = 0; i < choices.Count; i++)
                 {
                     var c = choices[i];
-                    var tile = new Tile(c.Label, c.Meta, i < 9 ? (i + 1).ToString(System.Globalization.CultureInfo.InvariantCulture) : "", big: false);
+                    var tile = new Tile(c.Label, c.Meta, i < 9 ? (i + 1).ToString(System.Globalization.CultureInfo.InvariantCulture) : "", big: false, multi: f.Multi);
                     tile.Button.Margin = new Thickness(0, 0, 0, 6);
                     tile.Button.Click += (_, __) => { _m.Choose(f.Id, c.Id); Refresh(); };   // a multi field ticks (r12)
                     _refresh.Add(() => tile.Set(_m.IsTicked(f, c.Id)));
@@ -676,7 +681,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             private FrameworkElement ListField(AskFieldModel f)
             {
                 var sp = new StackPanel();
-                sp.Children.Add(FieldName(f, new Thickness(0, 0, 2, 7)));
+                sp.Children.Add(FieldName(f, new Thickness(0, 0, 2, AskCardModel.FieldShowsMultiHint(f) ? 2 : 7)));
+                if (AskCardModel.FieldShowsMultiHint(f)) sp.Children.Add(MultiHintLine(new Thickness(0, 0, 2, 7)));   // r13: "Pick any"
                 var (frame, box) = Input("", number: false, placeholder: AskCardModel.FilterHint, icon: SearchIcon);
                 frame.Margin = new Thickness(0, 0, 0, 6);
                 sp.Children.Add(frame);
@@ -703,7 +709,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     for (var i = 0; i < shown.Count; i++)
                     {
                         var c = shown[i];
-                        var row = new Tile(c.Label, c.Meta, i < 9 ? (i + 1).ToString(System.Globalization.CultureInfo.InvariantCulture) : "", big: false, flat: true);
+                        var row = new Tile(c.Label, c.Meta, i < 9 ? (i + 1).ToString(System.Globalization.CultureInfo.InvariantCulture) : "", big: false, flat: true, multi: f.Multi);
                         row.Button.Margin = new Thickness(0, 0, 0, 2);
                         row.Button.Click += (_, __) => { _m.Choose(f.Id, c.Id); Refresh(); };
                         rowRefresh.Add(() => row.Set(_m.IsTicked(f, c.Id)));
@@ -1219,17 +1225,38 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             private readonly FrameworkElement _key;
             private readonly FrameworkElement _tick;
             private readonly bool _flat;
+            private readonly bool _multi;
+            private readonly Border? _box;
+            private readonly FrameworkElement? _boxTick;
 
-            public Tile(string label, string? meta, string keyHint, bool big, bool flat = false)
+            /// <param name="multi">A multi choice (r13): a checkbox on the left (empty / ticked), the key hint stays, no disc.</param>
+            public Tile(string label, string? meta, string keyHint, bool big, bool flat = false, bool multi = false)
             {
                 _flat = flat;
+                _multi = multi;
                 var grid = new Grid();
+                if (multi) grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                 grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                var col = multi ? 1 : 0;
+                if (multi)
+                {
+                    // Box border Cp.Muted (a 3:1+ control edge in both themes), ticked: Cp.Accent fill, Cp.AccentContrast tick.
+                    var box = new Border { Width = 16, Height = 16, CornerRadius = new CornerRadius(4), BorderThickness = new Thickness(1.5),
+                        VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0) };
+                    var boxTick = Icon(TickIcon, "Cp.AccentContrast", 2, 10);
+                    boxTick.HorizontalAlignment = HorizontalAlignment.Center;
+                    boxTick.VerticalAlignment = VerticalAlignment.Center;
+                    box.Child = boxTick;
+                    _box = box;
+                    _boxTick = boxTick;
+                    grid.Children.Add(box);
+                }
                 var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
                 _name = CardKit.Text(label, big ? 13 : 12.5, "Cp.Ink", FontWeights.SemiBold);
                 text.Children.Add(_name);
                 if (!string.IsNullOrEmpty(meta)) text.Children.Add(CardKit.Text(meta!, 11.5, "Cp.Faint", margin: new Thickness(0, 1, 0, 0)));
+                Grid.SetColumn(text, col);
                 grid.Children.Add(text);
 
                 var right = new Grid { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0) };
@@ -1252,7 +1279,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 _tick = tick;
                 right.Children.Add(key);
                 right.Children.Add(tick);
-                Grid.SetColumn(right, 1);
+                Grid.SetColumn(right, col + 1);
                 grid.Children.Add(right);
 
                 Button = Pressable(grid, flat ? 8 : 10);
@@ -1280,8 +1307,18 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     else Button.SetResourceReference(Control.BorderBrushProperty, "Cp.Hair2");
                     _name.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Ink");
                 }
-                _key.Visibility = picked || ((_key as Border)?.Child as TextBlock)?.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
-                _tick.Visibility = picked ? Visibility.Visible : Visibility.Collapsed;
+                var mark = AskCardModel.TileMark(_multi, picked);
+                var noKey = ((_key as Border)?.Child as TextBlock)?.Text.Length == 0;
+                _key.Visibility = noKey || (picked && mark == AskTileMark.Disc) ? Visibility.Collapsed : Visibility.Visible;
+                _tick.Visibility = picked && mark == AskTileMark.Disc ? Visibility.Visible : Visibility.Collapsed;
+                if (_box != null && _boxTick != null)
+                {
+                    var ticked = mark == AskTileMark.BoxTicked;
+                    _box.SetResourceReference(Border.BorderBrushProperty, ticked ? "Cp.Accent" : "Cp.Muted");
+                    if (ticked) _box.SetResourceReference(Border.BackgroundProperty, "Cp.Accent");
+                    else _box.Background = Brushes.Transparent;
+                    _boxTick.Visibility = ticked ? Visibility.Visible : Visibility.Collapsed;
+                }
             }
         }
 

@@ -474,7 +474,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
         }
 
         /// <summary>The primary button: "Answer K more" (K = choice fields without a pick) until the card can be sent;
-        /// then "Make N sheets" / "Make 1 sheet" / "Make nothing" with a noun, "Continue" without.</summary>
+        /// then "Make N sheets" / "Make 1 sheet" / "Make nothing" with a noun, "Continue" without ("Send (N)" when a multi
+        /// field has N ticks). A multi options card: "Send", then "Send (N)".</summary>
         public string FooterLabel
         {
             get
@@ -483,10 +484,11 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 {
                     var open = Unanswered;
                     if (!CanSend) return open > 0 ? "Answer " + open.ToString(CultureInfo.InvariantCulture) + " more" : ContinueLabel;
-                    if (!KnowsTotal) return ContinueLabel;
+                    if (!KnowsTotal) return HasMulti && TickCount > 0 ? SendWithCount(TickCount) : ContinueLabel;   // r13: "Send (2)"
                     var n = MadeCount;
                     return n == 0 ? "Make nothing" : "Make " + CountOf(n, Noun!);
                 }
+                if (Kind == AskCardKind.Options && Multi) return SendWithCount(TickCount);                          // r13: "Send", "Send (2)"
                 return ContinueLabel;
             }
         }
