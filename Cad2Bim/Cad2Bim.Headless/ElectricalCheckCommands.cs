@@ -14,8 +14,12 @@ namespace Cad2Bim.Headless {
     /// the devices of both dumps whose family type contains the text; `--ref-link` carries the
     /// reference through the placed dump's link whose name contains the text.
     ///
-    /// `file.dwg --fit=walls.json [--cluster=N]` fits the drawing's walls to a dump's walls
-    /// (CadModelFit): one level's walls, or every level's when the dump has walls_by_level.
+    /// `file.dwg --fit=walls.json [--cluster=N] [--min-wall=50]` fits the drawing's walls to a
+    /// dump's walls (CadModelFit): one level's walls, or every level's when the dump has
+    /// walls_by_level. Model walls thinner than --min-wall (mm) are left out, as
+    /// plan_cad_electrical leaves them out. Each cluster's size, wall count and largest empty
+    /// bands are printed first: a band wider than the 5 m plan gap inside one cluster means
+    /// plans the one-pass clustering did not split.
     /// </summary>
     internal static class ElectricalCheckCommands {
         internal static int Compare(string[] args) {
@@ -67,6 +71,10 @@ namespace Cad2Bim.Headless {
         internal static int Fit(string path, string[] args) {
             string wallsPath = Value(args, "--fit=") ?? "";
             string? clusterText = Value(args, "--cluster=");
+            string? minWallText = Value(args, "--min-wall=");
+            double minWall = minWallText != null
+                ? double.Parse(minWallText, CultureInfo.InvariantCulture)
+                : CadSymbolResolve.MinStructuralWallMm;
 
             using JsonDocument wallsDoc = Load(wallsPath);
             var byLevel = new Dictionary<string, List<(FitSegment Centreline, double ThicknessMm)>>(StringComparer.Ordinal);
@@ -93,31 +101,106 @@ namespace Cad2Bim.Headless {
                 ? new[] { int.Parse(clusterText, CultureInfo.InvariantCulture) }
                 : Enumerable.Range(0, scan.Clusters.Count);
             var o = new FitOptions();
-            var model = byLevel.ToDictionary(pair => pair.Key,
+
+            // Structural walls only, as plan_cad_electrical takes them (fewer than four left on a
+            // level keeps them all).
+            var structural = new Dictionary<string, List<(FitSegment Centreline, double ThicknessMm)>>(StringComparer.Ordinal);
+            foreach (var pair in byLevel) {
+                List<ModelWall> kept = CadSymbolResolve.Structural(pair.Value.Select(w => new ModelWall {
+                    X1 = w.Centreline.X1, Y1 = w.Centreline.Y1, X2 = w.Centreline.X2, Y2 = w.Centreline.Y2, ThicknessMm = w.ThicknessMm,
+                }).ToList(), minWall);
+                structural[pair.Key] = kept.Select(w => (new FitSegment(w.X1, w.Y1, w.X2, w.Y2), w.ThicknessMm)).ToList();
+                Console.WriteLine($"model {pair.Key}: {pair.Value.Count} walls, {pair.Value.Count - kept.Count} under {minWall:0} mm ignored");
+            }
+            var model = structural.ToDictionary(pair => pair.Key,
                 pair => (IReadOnlyList<FitSegment>)pair.Value.Select(w => w.Centreline).ToList(), StringComparer.Ordinal);
 
-            foreach (int cluster in clusters) {
+            List<int> chosen = clusters.ToList();
+            foreach (int cluster in chosen) {
                 if (cluster < 0 || cluster >= scan.Clusters.Count) {
                     Console.Error.WriteLine($"no cluster {cluster}: the drawing has {scan.Clusters.Count}");
                     return 2;
                 }
-                List<FitSegment> cad = scan.WallCentrelines(cluster, background, false);
-                List<LevelFit> fits = CadModelFit.FitLevels(cad, model, o, out bool tie);
-                Console.WriteLine($"cluster {cluster}: {cad.Count} drawing walls{(tie ? "  (levels tie)" : "")}");
+            }
+
+            // Every cluster's shape first, so a cluster holding stacked plans shows before the fits.
+            Console.WriteLine($"drawing: {scan.Clusters.Count} clusters on {background.Count} wall-like layers");
+            var walls = new Dictionary<int, List<FitSegment>>();
+            foreach (int cluster in chosen) {
+                walls[cluster] = scan.WallCentrelines(cluster, background, false);
+                Console.WriteLine(ClusterLine(scan, cluster, walls[cluster]));
+            }
+
+            foreach (int cluster in chosen) {
+                List<FitSegment> cad = walls[cluster];
+                List<LevelFit> fits = CadModelFit.FitLevels(cad, model, o, out bool tie, out List<LevelFit> elsewhere);
+                string others = elsewhere.Count > 0 ? "  (also fits elsewhere: " + string.Join(", ", elsewhere.Select(e => e.Level)) + ")" : "";
+                Console.WriteLine($"cluster {cluster}: {cad.Count} drawing walls{(tie ? "  (levels tie)" : "")}{others}");
                 foreach (LevelFit fit in fits) {
                     Console.WriteLine("  " + Line(fit.Level, "fit", fit.Fit));
+                    Rivals(fit.Fit);
                     if (fit.Fit.Outcome != "failed") continue;
-                    FitResult faces = CadModelFit.Fit(Faces(scan, cluster, background, o), CadModelFit.ModelFaces(byLevel[fit.Level]), o);
+                    FitResult faces = CadModelFit.Fit(Faces(scan, cluster, background, o), CadModelFit.ModelFaces(structural[fit.Level]), o);
                     Console.WriteLine("  " + Line(fit.Level, "fit_faces", faces));
+                    Rivals(faces);
                 }
             }
             return 0;
         }
 
         private static string Line(string level, string method, FitResult f) =>
-            $"{level,-24} {method,-9} score {f.Score:0.000}  {f.Outcome,-11} rot {f.Transform.RotationRad * 180 / Math.PI:0.00}  " +
-            $"tx {f.Transform.TxMm:0}  ty {f.Transform.TyMm:0}  voters {f.Voters}  model cover {f.ModelCoverage:0.000}" +
+            $"{level,-24} {method,-9} score {f.Score:0.000}  uncropped {f.ScoreUncropped:0.000}  inside {f.InsideShare:0.000}  " +
+            $"{f.Outcome,-11} rot {f.Transform.RotationRad * 180 / Math.PI:0.00}  " +
+            $"tx {f.Transform.TxMm:0}  ty {f.Transform.TyMm:0}  voters {f.Voters}  model cover {f.ModelCoverage:0.000}  " +
+            $"rivals {f.Rivals.Count}" +
             (f.FailReason != null ? "  " + f.FailReason : "");
+
+        /// <summary>Each rival on its own line, in pick order (top to bottom of the drawing).</summary>
+        private static void Rivals(FitResult f) {
+            if (f.Rivals.Count == 0) return;
+            List<FitResult> places = CadModelFit.Places(f);
+            for (int i = 0; i < places.Count; i++) {
+                FitResult p = places[i];
+                Console.WriteLine($"      pick {i}{(ReferenceEquals(p, f) ? " (best)" : "")}  score {p.Score:0.000}  " +
+                                  $"covered {p.CoveredMm / 1000:0.0} m  tx {p.Transform.TxMm:0}  ty {p.Transform.TyMm:0}");
+            }
+        }
+
+        /// <summary>
+        /// `cluster N: W x H m, C census walls, D drawing walls, largest empty y band B m at A-Z m,
+        /// largest empty x band ...`: band positions from the cluster's bottom (y) or left (x)
+        /// edge. Bands are read off the drawing's wall centrelines in the cluster, each wall
+        /// spanning its full extent, as the plan clustering reads them.
+        /// </summary>
+        private static string ClusterLine(ElectricalScan scan, int cluster, List<FitSegment> walls) {
+            ScanCluster box = scan.Clusters[cluster];
+            CensusPlan? plan = cluster < scan.Census.Plans.Count ? scan.Census.Plans[cluster] : null;
+            (double yGap, double yAt) = LargestGap(walls.Select(w => (Math.Min(w.Y1, w.Y2), Math.Max(w.Y1, w.Y2))), box.MinY, box.MaxY);
+            (double xGap, double xAt) = LargestGap(walls.Select(w => (Math.Min(w.X1, w.X2), Math.Max(w.X1, w.X2))), box.MinX, box.MaxX);
+            string split = Math.Max(yGap, xGap) > CadClassifier.PlanGapMm ? "  (gap over the 5 m plan gap)" : "";
+            return $"cluster {cluster}: {(box.MaxX - box.MinX) / 1000:0.0} x {(box.MaxY - box.MinY) / 1000:0.0} m, " +
+                   $"{plan?.Walls ?? 0} census walls, {walls.Count} drawing walls, " +
+                   $"largest empty y band {yGap / 1000:0.0} m at {(yAt - box.MinY) / 1000:0.0}-{(yAt + yGap - box.MinY) / 1000:0.0} m, " +
+                   $"largest empty x band {xGap / 1000:0.0} m at {(xAt - box.MinX) / 1000:0.0}-{(xAt + xGap - box.MinX) / 1000:0.0} m" +
+                   split;
+        }
+
+        /// <summary>The widest stretch of [lo, hi] no span covers: its width and where it starts.</summary>
+        internal static (double Width, double At) LargestGap(IEnumerable<(double Lo, double Hi)> spans, double lo, double hi) {
+            double reach = lo, best = 0, at = lo;
+            foreach ((double a, double b) in spans.OrderBy(s => s.Lo)) {
+                if (a > reach && a - reach > best) {
+                    best = Math.Min(a, hi) - reach;
+                    at = reach;
+                }
+                reach = Math.Max(reach, b);
+            }
+            if (hi - reach > best) {
+                best = hi - reach;
+                at = reach;
+            }
+            return (Math.Max(0, best), at);
+        }
 
         /// <summary>The drawing's wall faces in one plan, as plan_cad_electrical's fallback takes them.</summary>
         private static List<FitSegment> Faces(ElectricalScan scan, int cluster, List<string> layers, FitOptions o) {

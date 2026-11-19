@@ -29,7 +29,8 @@ namespace Cad2Bim.Headless {
                     "  --census                    electrical census: phase 0 summary on stdout, timings on stderr\n" +
                     "  --json                      with --census: print only the census JSON\n" +
                     "  --census-out=census.json    with --census: also write the JSON there (outside the repo)\n" +
-                    "  --fit=walls.json [--cluster=N]  fit the drawing's walls to dump_electrical_reference walls\n" +
+                    "  --fit=walls.json [--cluster=N] [--min-wall=50]  fit the drawing's walls to dump_electrical_reference\n" +
+                    "                              walls; prints each cluster's size, walls and largest empty bands first\n" +
                     "usage: cad2bim-headless --compare-devices <ref.json> <placed.json> [--plan=plan.json]\n" +
                     "                        [--ref-types=text] [--ref-link=text] [--json]");
                 return 2;
