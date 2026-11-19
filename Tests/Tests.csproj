@@ -6,7 +6,7 @@
     <UseWPF>true</UseWPF>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
-    <!-- Same as RevitWebAppSync.csproj:35 — lets the macOS dev box compile this
+    <!-- Same as RevitWebAppSync.csproj:35 â€” lets the macOS dev box compile this
          net10.0-windows project as a gate. Tests still only RUN on Windows / CI. -->
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>
@@ -33,19 +33,19 @@
     -->
     <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="2027.*" />
     <!-- PdfPig: needed by the linked PdfReader source below, and used by the
-         tests themselves (PdfDocumentBuilder) to generate fixture PDFs — no
+         tests themselves (PdfDocumentBuilder) to generate fixture PDFs â€” no
          checked-in binaries, no SkiaSharp/native dependency in the test host. -->
     <PackageReference Include="PdfPig" Version="0.1.*" />
     <!-- ACadSharp: Geometry.cs (CadLoader), Units.cs (FromHeader/Resolve), ModelSource.cs
          and Services/CadRenderSource.cs take an ACadSharp CadDocument, and the linked
          CadFileReader reads DWG/DXF block names, text and attributes. Same version as
-         RevitWebAppSync.csproj — one pin, both consumers. -->
+         RevitWebAppSync.csproj â€” one pin, both consumers. -->
     <PackageReference Include="ACadSharp" Version="3.6.51" />
   </ItemGroup>
 
   <ItemGroup>
     <!--
-      Reference only the source files we need — avoids pulling in Revit SDK.
+      Reference only the source files we need â€” avoids pulling in Revit SDK.
       Pure logic classes with no Revit dependency.
     -->
     <!-- Generated installed-capability manifest (scripts/gen-tool-manifest.py); pinned by ToolManifestTests. -->
@@ -80,7 +80,7 @@
 
   <!-- Cad2Bim engine (CAD to BIM pane): pure geometry, System + Linq + ACadSharp + plain WPF,
        no Revit. Linked the same way RevitWebAppSync.csproj links them. Everything the pane
-       tests reach — the classifier files (Tasks 4-9), ModelSource/ClassificationService/
+       tests reach â€” the classifier files (Tasks 4-9), ModelSource/ClassificationService/
        CadRenderSource (LayerFilter, CadModel, the DWG read: Tasks 13, 15, 17), the view-model
        base + LayerViewModel + shapes + CadViewport (the overlay wrapper and the pane VM:
        Tasks 16, 17). Internal members are reachable from the tests because the source compiles
@@ -106,11 +106,11 @@
     <Compile Include="..\Cad2Bim\cad2bim\ViewModels\Shapes\SegmentShape.cs" Link="Cad2Bim\ViewModels\Shapes\SegmentShape.cs" />
     <Compile Include="..\Cad2Bim\cad2bim\ViewModels\Shapes\WallShape.cs" Link="Cad2Bim\ViewModels\Shapes\WallShape.cs" />
     <Compile Include="..\Cad2Bim\cad2bim\Views\Rendering\CadViewport.cs" Link="Cad2Bim\Views\Rendering\CadViewport.cs" />
-    <!-- CAD to BIM pane sources (Revit-free) — later tasks append here -->
+    <!-- CAD to BIM pane sources (Revit-free) â€” later tasks append here -->
     <Compile Include="..\Services\CadToBim\CadToBimSettings.cs" Link="CadToBim\CadToBimSettings.cs" />
-    <!-- CAD to BIM pane -> builder contract (spec 2026-09-08 §3, §5). Pure shapes:
+    <!-- CAD to BIM pane -> builder contract (spec 2026-09-08 Â§3, Â§5). Pure shapes:
          Cad2Bim.Wall/Opening/Space/Point are key/list/parameter types only; element ids
-         are longs — nothing Revit is declared. -->
+         are longs â€” nothing Revit is declared. -->
     <Compile Include="..\Services\CadToBim\BuildTypes.cs" Link="CadToBim\BuildTypes.cs" />
     <Compile Include="..\Services\CadToBim\BuildReport.cs" Link="CadToBim\BuildReport.cs" />
     <Compile Include="..\Services\CadToBim\BoxMm.cs" Link="CadToBim\BoxMm.cs" />
@@ -120,7 +120,7 @@
     <!-- Task 15: Cad2BimBrush (walls from drafter box selection; Revit-free) -->
     <Compile Include="..\Services\CadToBim\Cad2BimBrush.cs" Link="CadToBim\Cad2BimBrush.cs" />
     <!-- Pure AEC-refusal verdict (Civil 3D/Architecture/MEP CLASSES records vs readable
-         geometry; no ACadSharp types) — Revit-free and WPF-free. -->
+         geometry; no ACadSharp types) â€” Revit-free and WPF-free. -->
     <Compile Include="..\Services\CadToBim\CadSourceVerdict.cs" Link="CadToBim\CadSourceVerdict.cs" />
     <!-- CAD to BIM pane UI that carries no Revit type (WPF only; CadViewport + shapes +
          LayerViewModel are linked above by Task 4). -->
@@ -131,11 +131,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Revit-free document revision core (spec §8.4, namespace avoids Revit type names); the Revit adapter is DocumentRevisionTracker.cs. -->
+    <!-- Revit-free document revision core (spec Â§8.4, namespace avoids Revit type names); the Revit adapter is DocumentRevisionTracker.cs. -->
     <Compile Include="..\BinaVibe\DocState\RevisionLedger.cs" Link="RevisionLedger.cs" />
-    <!-- Revit-free operation receipt assembly (spec §8.5). -->
+    <!-- Revit-free operation receipt assembly (spec Â§8.5). -->
     <Compile Include="..\Services\ReceiptShape.cs" Link="ReceiptShape.cs" />
-    <!-- Per-key execution ledger for reconnect reconciliation (spec §8.5). -->
+    <!-- Per-key execution ledger for reconnect reconciliation (spec Â§8.5). -->
     <Compile Include="..\BinaVibe\DocState\OperationLedger.cs" Link="OperationLedger.cs" />
     <!-- Pure {ok:false} verdict + non-throwing error lookup (AI-55): the handler
          itself is Revit-bound, so its ledger failure policy is split out here. -->
@@ -159,7 +159,7 @@
     <Compile Include="..\UI\Jkr\JkrTheme.cs" Link="JkrTheme.cs" />
     <!-- JkrTheme.cs calls Helpers.WpfAppBootstrap.Ensure(). This project uses
          explicit Compile items (no default globs), so a file added to the addin
-         is invisible here until it is linked — and WpfAppBootstrap never was.
+         is invisible here until it is linked â€” and WpfAppBootstrap never was.
          Every `test` job since it landed failed at compile with
          "CS0234: 'WpfAppBootstrap' does not exist in the namespace
          'RevitWebAppSync.Helpers'", so NO test in this project actually ran;
@@ -169,7 +169,7 @@
     <Compile Include="..\Helpers\WpfAppBootstrap.cs" Link="WpfAppBootstrap.cs" />
     <Compile Include="..\Services\JkrCodeParser.cs" Link="JkrCodeParser.cs" />
     <!-- CostUnitRules: pure (System only). 3a6ed6f added it WITH
-         CostUnitRulesTests.cs but never linked it — the WpfAppBootstrap trap
+         CostUnitRulesTests.cs but never linked it â€” the WpfAppBootstrap trap
          again: 28 CS0103s, no test in this project ran. -->
     <Compile Include="..\Services\CostUnitRules.cs" Link="CostUnitRules.cs" />
     <!-- TableCsv: pure CSV serializer + filename slug for the Download-CSV
@@ -185,12 +185,12 @@
     <Compile Include="..\Services\AiUrl.cs" Link="AiUrl.cs" />
     <Compile Include="..\Services\UrlResolution.cs" Link="UrlResolution.cs" />
     <!-- EngineBootManifest: the add-in -> engine-boot.ps1 handoff contract.
-         Pure (System + Newtonsoft) — split out of EngineManager.cs, which can't
+         Pure (System + Newtonsoft) â€” split out of EngineManager.cs, which can't
          be linked here (Process/HttpClient lifecycle), precisely so the
          "no credential ever lands in the manifest" guarantee is testable. -->
     <Compile Include="..\Services\EngineBootManifest.cs" Link="EngineBootManifest.cs" />
     <!-- EnginePreflight: the pure "make the engine healthy" planner behind
-         ToolLoopService.EnsureEngineReadyAsync. System only — the decision
+         ToolLoopService.EnsureEngineReadyAsync. System only â€” the decision
          table and every drafter-facing message are pinned here, including the
          invariant that null is returned ONLY for "healthy". -->
     <Compile Include="..\Services\EnginePreflight.cs" Link="EnginePreflight.cs" />
@@ -199,13 +199,13 @@
          own parsing rules instead of a copy that can drift. -->
     <Compile Include="..\Services\EnvFile.cs" Link="EnvFile.cs" />
     <!-- BombaSystemClassifier: pure category-scoped name classifier (System +
-         Regex only, no Revit) — phase-2 §A.5 truth table tests run here. -->
+         Regex only, no Revit) â€” phase-2 Â§A.5 truth table tests run here. -->
     <Compile Include="..\Services\BombaSystemClassifier.cs" Link="BombaSystemClassifier.cs" />
     <Compile Include="..\Services\DirectLoadCleanup.cs" Link="DirectLoadCleanup.cs" />
     <Compile Include="..\Services\TelemetryEvent.cs" Link="TelemetryEvent.cs" />
     <Compile Include="..\Services\AIServiceStreamParser.cs" Link="AIServiceStreamParser.cs" />
     <!-- SelfHeal: pure retry policy (using System only). ExecutionResult is its
-         return type — a dependency-free DTO split out of CodeExecutor.cs, which
+         return type â€” a dependency-free DTO split out of CodeExecutor.cs, which
          can't be linked here because it references Revit + Roslyn. -->
     <Compile Include="..\Services\SelfHeal.cs" Link="SelfHeal.cs" />
     <Compile Include="..\Services\ExecutionResult.cs" Link="ExecutionResult.cs" />
@@ -218,7 +218,7 @@
     <Compile Include="..\Services\ConfirmGate.cs" Link="ConfirmGate.cs" />
     <Compile Include="..\Models\AIResponse.cs" Link="AIResponse.cs" />
     <!-- AttachmentGate: pure file-type/size gate (System + System.IO only).
-         a3d74b6 added it WITH AttachmentGateTests.cs but never linked it —
+         a3d74b6 added it WITH AttachmentGateTests.cs but never linked it â€”
          the exact WpfAppBootstrap trap above, red check and all: 19 CS0103s,
          no test in this project ran. -->
     <Compile Include="..\UI\Copilot\Model\AttachmentGate.cs" Link="AttachmentGate.cs" />
@@ -248,46 +248,46 @@
     <Compile Include="..\UI\Copilot\Model\CopilotCatalog.cs" Link="CopilotCatalog.cs" />
     <Compile Include="..\UI\Copilot\Model\ProgressStep.cs" Link="ProgressStep.cs" />
     <!-- ReasoningStep + ReasoningReducer/ReasoningTrail (2026-08-02 spec): pure
-         (System only), same split as ProgressStep — CopilotModels.ChatMessage
+         (System only), same split as ProgressStep â€” CopilotModels.ChatMessage
          references ReasoningStep, so this must be linked wherever that is. -->
     <Compile Include="..\UI\Copilot\Model\ReasoningStep.cs" Link="ReasoningStep.cs" />
     <!-- TurnBlock + TurnBlocks (stream v2 segmented turn body): pure reducer,
-         same split rationale as ReasoningStep — ChatMessage references
+         same split rationale as ReasoningStep â€” ChatMessage references
          TurnBlock, so it must be linked wherever CopilotModels is. -->
     <Compile Include="..\UI\Copilot\Model\TurnBlock.cs" Link="TurnBlock.cs" />
     <Compile Include="..\BinaVibe\Mcp\Tools\BatchRefResolver.cs" Link="BatchRefResolver.cs" />
     <!-- CadCenterlineSolver: pure 2D double math (System only, no Revit) behind
-         cad_walls_to_centerlines — split from the Revit-facing tool precisely so
+         cad_walls_to_centerlines â€” split from the Revit-facing tool precisely so
          the pairing/thickness/snap logic runs here (the tool itself needs a live
          ImportInstance and cannot). -->
     <Compile Include="..\BinaVibe\Mcp\Tools\CadCenterlineSolver.cs" Link="CadCenterlineSolver.cs" />
-    <!-- CadWallBanding: pure thickness→type selection for the create mode (System
-         only, no Revit) — the Wall.Create loop that consumes it is not testable here. -->
+    <!-- CadWallBanding: pure thicknessâ†’type selection for the create mode (System
+         only, no Revit) â€” the Wall.Create loop that consumes it is not testable here. -->
     <Compile Include="..\BinaVibe\Mcp\Tools\CadWallBanding.cs" Link="CadWallBanding.cs" />
-    <!-- CadFileReader: DWG/DXF reading via ACadSharp — extracts block names, text
-         content, attributes. Pure (ACadSharp + System), no Revit — testable here
+    <!-- CadFileReader: DWG/DXF reading via ACadSharp â€” extracts block names, text
+         content, attributes. Pure (ACadSharp + System), no Revit â€” testable here
          against sample DWG/DXF files. -->
     <Compile Include="..\BinaVibe\Mcp\Tools\CadFileReader.cs" Link="CadFileReader.cs" />
     <!-- PDF attachment reading: PdfPig + System only, no Revit and no WPF, so
-         the extractor and its caps are testable here. (DwgReader is not — it
+         the extractor and its caps are testable here. (DwgReader is not â€” it
          needs live Revit Document/ImportInstance objects.) -->
     <Compile Include="..\BinaVibe\Mcp\Tools\PdfReader.cs" Link="PdfReader.cs" />
     <Compile Include="..\BinaVibe\Mcp\Tools\PdfAttachmentCache.cs" Link="PdfAttachmentCache.cs" />
     <!-- Audit form parsing: the row/column extraction and its data model are
-         PdfPig + System only (the checkers and the tools are not — they need a
+         PdfPig + System only (the checkers and the tools are not â€” they need a
          live Revit Document), so the row banding is testable against a real
          form here. -->
     <Compile Include="..\BinaVibe\Mcp\Tools\Audit\AuditModels.cs" Link="AuditModels.cs" />
     <Compile Include="..\BinaVibe\Mcp\Tools\Audit\AuditFormParser.cs" Link="AuditFormParser.cs" />
-    <!-- Rename suggestion transform: System only, no Revit — unit-tested here. -->
+    <!-- Rename suggestion transform: System only, no Revit â€” unit-tested here. -->
     <Compile Include="..\BinaVibe\Mcp\Tools\Audit\AuditNaming.cs" Link="AuditNaming.cs" />
-    <!-- Row → checker decision (keyword scoring): System only, split out of
+    <!-- Row â†’ checker decision (keyword scoring): System only, split out of
          AuditCheckers precisely so AuditCoverageTests can pin which form rows
          fall through to not_verifiable. The checkers themselves need a live
          Document and stay out. -->
     <Compile Include="..\BinaVibe\Mcp\Tools\Audit\AuditMatching.cs" Link="AuditMatching.cs" />
     <!-- Template-availability partition (actionable vs "no template of that
-         ViewType exists"): System only — ViewType travels as its enum name. -->
+         ViewType exists"): System only â€” ViewType travels as its enum name. -->
     <Compile Include="..\BinaVibe\Mcp\Tools\Audit\AuditTemplateAvailability.cs" Link="AuditTemplateAvailability.cs" />
     <!-- Socket placement layout math + plan cache: System only, mm throughout.
          Split out of SocketCandidates.cs/SocketPlacement.cs (which need a live
@@ -309,6 +309,8 @@
     <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\CadElectricalReview.cs" Link="CadElectricalReview.cs" />
     <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\PlacementCompare.cs" Link="PlacementCompare.cs" />
     <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\OverheadPlacement.cs" Link="OverheadPlacement.cs" />
+    <!-- CAD electrical phase 2 (conduit runs): chaining, run planning and the run comparison. -->
+    <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\CadRunChain.cs" Link="CadRunChain.cs" />
     <!-- The DWG read's dialog guard: which Revit dialog it answers (ImportDialogGuardTests).
          App passes the dialog's id and text in, so the file holds no Revit type. -->
     <Compile Include="..\BinaVibe\Mcp\Tools\ImportDialogGuard.cs" Link="ImportDialogGuard.cs" />
@@ -323,7 +325,7 @@
     <!--
       DocumentChangedIndexer: included for BuildBulkPayload / SnapshotDoc /
       SnapshotPayload (pure logic, no Revit refs). BulkIndexAsync and the
-      constructor reference Autodesk.Revit.DB — this source link therefore
+      constructor reference Autodesk.Revit.DB â€” this source link therefore
       requires Revit SDK assemblies to compile. Build succeeds on Windows
       with Revit installed; expected to fail on macOS (no Revit DLLs).
       On a machine without the Revit assemblies, skip it (and its tests) with:
