@@ -93,7 +93,8 @@ namespace RevitAddinSync.Tests
             var result = JsonSerializer.Deserialize<TurnResultDto>(FireDoors)!;
             var card = new ResultCardModel { Kind = ResultKind.Selection, Selected = 6 }.WithServerResult(result);
             Assert.Equal(ResultKind.Created, card.Kind);   // the tally turn, as live
-            var set = HighlightSet.From(card, new List<Envelope>());
+            var find = new List<Envelope> { new Envelope { Ok = true, Status = "done", Phase = "read" } };
+            var set = HighlightSet.From(card, find);
             Assert.False(set.IsEmpty);                      // HasMarks: the card's Show marks button, and the turn-end marks
             var g = Assert.Single(set.Kinds);
             Assert.Equal(MarkOutcome.Found, g.Outcome);
@@ -108,12 +109,18 @@ namespace RevitAddinSync.Tests
         {
             var card = new ResultCardModel { Kind = ResultKind.Selection, Selected = 2 };
             card.Items = new ResultItems { Sections = { new ItemSection { Rows = { new ItemRow { Kind = ResultItemKinds.Element, Title = "FD1", Ids = { 5, 6 } } } } } };
-            var set = HighlightSet.From(card, new List<Envelope>());
+            var set = HighlightSet.From(card, new List<Envelope> { new Envelope { Ok = true, Status = "done", Phase = "read" } });
             Assert.Equal(new long[] { 5, 6 }, set.Kinds.Single().Ids);
             Assert.Equal(MarkOutcome.Found, set.Kinds[0].Outcome);
             // A preview or a write that did not commit lists rows too: they were not found, so no Found marks.
             var write = new Envelope { Phase = "preview" };
             Assert.True(HighlightSet.From(card, new List<Envelope> { write }).IsEmpty);
+            // r12 audit: no calls at all, a failed write's validation and a read-only rejection (both phase read), a failed turn.
+            Assert.True(HighlightSet.From(card, new List<Envelope>()).IsEmpty);
+            Assert.True(HighlightSet.From(card, new List<Envelope> { new Envelope { Ok = false, Status = "failed", Phase = "read" } }).IsEmpty);
+            Assert.True(HighlightSet.From(card, new List<Envelope> { new Envelope { Ok = true, Status = "done", Phase = "read" }, new Envelope { Ok = false, Status = "rejected", Phase = "read" } }).IsEmpty);
+            card.Failed = true;
+            Assert.True(HighlightSet.From(card, new List<Envelope> { new Envelope { Ok = true, Status = "done", Phase = "read" } }).IsEmpty);
             // The card's "Show in model" / "Hide marks" header is gated on HasMarks only, a Selection card too.
             Assert.Contains("if (MarksHeader(actions) is FrameworkElement header) root.Children.Add(header);", Src("UI/Copilot/Controls/ResultCardView.cs"));
         }

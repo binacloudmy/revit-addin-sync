@@ -148,7 +148,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             if (card.Kind == ResultKind.None) return set;
             // r12 (live 19 Nov, 46d35bc5): a find's card with element rows draws Found marks on those rows' ids. A "Selection" card,
             // or a grouped answer that WithServerResult turned into a Created tally (Selected = 0), had no marks, no Show button.
-            var readOnly = (envelopes ?? Array.Empty<Envelope>()).All(e => e == null || e.PhaseKind() == EnvelopePhaseKind.Read);
+            var readOnly = ReadOnlyTurn(envelopes);
             if (card.Kind == ResultKind.Selection) { if (readOnly) AddFoundRows(set, card); set.Rows = RowsOf(card, set.Kinds); return set; }
 
             var commits = (envelopes ?? Array.Empty<Envelope>()).Where(e => e != null && e.PhaseKind() == EnvelopePhaseKind.Commit
@@ -246,11 +246,21 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             return set;
         }
 
+        /// <summary>r12 audit: a turn that only read. At least one envelope, and every one ok, done (or partial) and phase read: a failed
+        /// write's validation (ToolContracts.Failure) and a "changed the model although classified read-only" rejection both carry
+        /// phase read, and must never pass for a find.</summary>
+        internal static bool ReadOnlyTurn(IReadOnlyList<Envelope>? envelopes)
+        {
+            var list = (envelopes ?? Array.Empty<Envelope>()).Where(e => e != null).ToList();
+            return list.Count > 0 && list.All(e => e.Ok && e.PhaseKind() == EnvelopePhaseKind.Read
+                && (e.StatusKind() == EnvelopeStatusKind.Done || e.StatusKind() == EnvelopeStatusKind.Partial));
+        }
+
         /// <summary>r12: Found groups for the ids of a card's element and tag rows (what a find listed), at most one group per mark kind.
         /// No transaction, no Undo entry; the turn's find selected them already, so the set never reselects (SelectsAtTheEnd).</summary>
         private static void AddFoundRows(HighlightSet set, ResultCardModel card)
         {
-            if (card.NoChange) return;   // a write that changed nothing lists the element it looked at: nothing was found, nothing to mark
+            if (card.NoChange || card.Failed) return;   // a failed turn found nothing to show   // a write that changed nothing lists the element it looked at: nothing was found, nothing to mark
             var rows = (card.Items?.Sections ?? new List<ItemSection>()).SelectMany(s => s.Rows).Where(r => r.Button == ItemButton.Select).ToList();
             foreach (var kind in new[] { MarkKind.Element, MarkKind.Annotation })
             {

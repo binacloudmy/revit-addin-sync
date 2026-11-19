@@ -1285,12 +1285,13 @@ namespace RevitWebAppSync.UI.Copilot
                 {
                     reply.ResultCard = ResultCardModel.From(rr.Evidence, cardLang, AttachmentName(routeText)).WithServerResult(serverResult);
                     reply.ResultCard.DocKey = _turnDocKey;
+                    reply.ResultCard.Failed = reply.Failed;   // r12 audit: no Found marks, no green disc for a failed turn
                     reply.ResultCard.Elapsed = ProgressTrail.TotalElapsedText(ProgressTrail.UserVisible(rr.Steps));
                     if (reply.ResultCard.Kind != ResultKind.None && rr.Evidence != null)
                     {
                         highlights = HL.HighlightSet.From(reply.ResultCard, rr.Evidence.Calls.Select(c => c.Env).ToList());
                         // r12: a find that selected its results (highlight) gets Found marks too, from Revit's selection as it is.
-                        if (highlights.IsEmpty && reply.ResultCard.Kind == ResultKind.Selection && reply.ResultCard.Selected > 0)
+                        if (highlights.IsEmpty && !reply.Failed && reply.ResultCard.Kind == ResultKind.Selection && reply.ResultCard.Selected > 0)
                             highlights = HL.HighlightSet.FoundInSelection();
                         highlights.TurnId = reply.TurnId ?? ""; highlights.Time = reply.Time ?? "";
                     }
