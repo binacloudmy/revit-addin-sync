@@ -251,7 +251,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         public static string Title(IReadOnlyList<MarkGroup> kinds)
         {
             int Sum(MarkOutcome o) => kinds.Where(k => k.Outcome == o).Sum(k => k.Count);
-            var made = Sum(MarkOutcome.Made); var changed = Sum(MarkOutcome.Changed); var look = Sum(MarkOutcome.NeedsLook);
+            var made = Sum(MarkOutcome.Made); var changed = Sum(MarkOutcome.Changed); var look = Sum(MarkOutcome.NeedsLook); var found = Sum(MarkOutcome.Found);
             string What(MarkOutcome o, int n)
             {
                 var ks = kinds.Where(k => k.Outcome == o && k.Kind != MarkKind.TypeInstances).ToList();
@@ -264,6 +264,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             if (made > 0) return What(MarkOutcome.Made, made) + " made";
             if (changed > 0) return What(MarkOutcome.Changed, changed) + " changed";
             if (look > 0) return N(look) + (look == 1 ? " element needs a look" : " elements need a look");
+            if (found > 0) return What(MarkOutcome.Found, found) + " found";
             return "Nothing to mark";
         }
 
@@ -280,12 +281,21 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                     if (k.Named) return "Changed " + ShortChange(k.Title, MaxLineChars - "Changed ".Length);
                     return "Changed " + Lower(Singular(k.Category.Length > 0 ? k.Category : "Elements"));
                 case MarkOutcome.NeedsLook: return k.Title.Length > 0 ? Trim(k.Title, 48) : "Needs a look";
+                case MarkOutcome.Found: return "Found " + Lower(Singular(k.Category.Length > 0 ? k.Category : "Elements"));
                 default: return "Skipped " + Lower(Singular(k.Category.Length > 0 ? k.Category : "Elements"));
             }
         }
 
         /// <summary>A dot's diameter in DIP: one size for every element, whatever the zoom (the display scale multiplies it).</summary>
         public const double DotDip = 10;
+
+        /// <summary>The drawn marker's diameter in DIP (r12: the 10 DIP dot was hard to find on a busy plan): a ring in the outcome's
+        /// colour, a white halo inside it and a solid dot in the middle, so it reads on a white and on a dark canvas. Dots still
+        /// group into a count badge by <see cref="DotDip"/>.</summary>
+        public const double MarkerDip = 30;
+        /// <summary>The marker's outer ring and its white halo, in DIP.</summary>
+        public const double MarkerRing = 3.5;
+        public const double MarkerHalo = 3.5;
 
         /// <summary>A badge's height in DIP (a count or a number); numbered badges that come closer than this go together.</summary>
         public const double BadgeDip = 18;

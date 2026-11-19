@@ -50,7 +50,8 @@ namespace RevitAddinSync.Tests
             Assert.Equal((byte)'B', bmp[0]); Assert.Equal((byte)'M', bmp[1]);
             Assert.Equal(24, BitConverter.ToInt16(bmp, 28));
             var (w, h) = Size(bmp);
-            Assert.Equal((int)Math.Round((MarkKey.DotDip + 2 * MarkImages.Halo) * scale), w);   // 10 DIP across, a 1 DIP halo
+            Assert.Equal((int)Math.Round(MarkKey.MarkerDip * scale), w);   // r12: a 30 DIP marker (ring, white halo, solid dot)
+            Assert.Equal((255, 255, 255), At(bmp, w / 2, (int)Math.Round((MarkKey.MarkerRing + MarkKey.MarkerHalo / 2) * scale)));   // the white halo
             Assert.Equal(w, h);
             Assert.Equal(Rgb(HighlightSet.TokenOf(o), dark), At(bmp, w / 2, h / 2));
             Assert.Equal(Clear, At(bmp, 0, 0));

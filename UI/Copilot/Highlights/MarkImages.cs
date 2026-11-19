@@ -35,7 +35,8 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
 
         /// <summary>A dot's image (written on first use).</summary>
         public static string DotPath(MarkOutcome outcome, bool darkCanvas, double dpiScale, MarkTone tone = MarkTone.Normal) =>
-            Cached("dot-" + Key(outcome), darkCanvas, dpiScale, tone, s => RenderDot(outcome, s, darkCanvas, tone));
+            // "marker-": a new file name, so a PC that cached 0.0.144's small dots draws the new marker (files are written once).
+            Cached("marker-" + Key(outcome), darkCanvas, dpiScale, tone, s => RenderDot(outcome, s, darkCanvas, tone));
 
         /// <summary>A frame's image at a size step (DIP, <see cref="MarkKey.Sizes"/>).</summary>
         public static string FramePath(MarkOutcome outcome, int size, bool darkCanvas, double dpiScale, MarkTone tone = MarkTone.Normal) =>
@@ -61,17 +62,24 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             return path;
         }
 
-        /// <summary>A dot as a .bmp file's bytes: the halo, then the filled circle in the outcome's colour.</summary>
+        /// <summary>A marker as a .bmp file's bytes (r12): a ring in the outcome's colour, a white halo inside it, then a solid dot
+        /// in the outcome's colour, <see cref="MarkKey.MarkerDip"/> across. The white halo stands out on a dark canvas, the
+        /// coloured ring on a white one. A dim marker has no halo (the gap is clear) and the duller colour.</summary>
         public static byte[] RenderDot(MarkOutcome outcome, double scale, bool darkCanvas, MarkTone tone = MarkTone.Normal)
         {
             scale = scale <= 0 ? 1 : scale;
-            var (color, halo) = Colours(outcome, darkCanvas, tone);
-            var px = Math.Max(6, (int)Math.Round((MarkKey.DotDip + 2 * Halo) * scale));
+            var (color, _) = Colours(outcome, darkCanvas, tone);
+            var px = Math.Max(12, (int)Math.Round(MarkKey.MarkerDip * scale));
             return Draw(px, px, dc =>
             {
                 var c = new Point(px / 2.0, px / 2.0);
-                dc.DrawEllipse(new SolidColorBrush(halo), null, c, px / 2.0, px / 2.0);
-                var r = MarkKey.DotDip / 2.0 * scale;
+                var outer = px / 2.0;
+                var ring = MarkKey.MarkerRing * scale;
+                var halo = MarkKey.MarkerHalo * scale;
+                // The white halo inside the ring (none on a dim marker: the gap stays clear).
+                if (tone != MarkTone.Dim) dc.DrawEllipse(Brushes.White, null, c, outer - ring / 2, outer - ring / 2);
+                dc.DrawEllipse(null, new Pen(new SolidColorBrush(color), ring), c, outer - ring / 2, outer - ring / 2);
+                var r = outer - ring - halo;
                 dc.DrawEllipse(new SolidColorBrush(color), null, c, r, r);
             });
         }

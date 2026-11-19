@@ -1289,6 +1289,9 @@ namespace RevitWebAppSync.UI.Copilot
                     if (reply.ResultCard.Kind != ResultKind.None && rr.Evidence != null)
                     {
                         highlights = HL.HighlightSet.From(reply.ResultCard, rr.Evidence.Calls.Select(c => c.Env).ToList());
+                        // r12: a find that selected its results (highlight) gets Found marks too, from Revit's selection as it is.
+                        if (highlights.IsEmpty && reply.ResultCard.Kind == ResultKind.Selection && reply.ResultCard.Selected > 0)
+                            highlights = HL.HighlightSet.FoundInSelection();
                         highlights.TurnId = reply.TurnId ?? ""; highlights.Time = reply.Time ?? "";
                     }
                 }
@@ -1391,6 +1394,15 @@ namespace RevitWebAppSync.UI.Copilot
         {
             try { UndoNotices.Record(change, Thread.Count, DateTime.Now); }
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] undo notice: " + ex.Message); }
+        }
+
+        /// <summary>r12: a card's Show / "Highlight in model" also draws Found marks on those elements (the selection itself is
+        /// PaneTools.SelectElements). No transaction, no Undo entry; at most InModelResult.MaxMarks drawn.</summary>
+        public void MarkFoundInModel(long[] ids)
+        {
+            if (ids == null || ids.Length == 0 || InModel == null) return;
+            try { Revit.ShowMarks(HL.HighlightSet.Found(ids), null, () => false); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] found marks: " + ex.Message); }
         }
 
         /// <summary>Undo the turn's BINA entries (W3's UndoService; one per batch).</summary>

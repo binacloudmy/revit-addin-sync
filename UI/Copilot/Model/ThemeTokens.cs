@@ -201,6 +201,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 ["Cp.Mark.Changed"]  = ("#7C3AED", "#B69CFF"),
                 ["Cp.Mark.Attn"]     = ("#C27803", "#F5B841"),
                 ["Cp.Mark.Skip"]     = ("#7D8595", "#8A91A0"),
+                ["Cp.Mark.Found"]    = ("#D61F69", "#FF5FA2"),   // r12: find / Show marks (magenta: not selection blue, not the clear teal)
                 ["Cp.Mark.Halo"]     = ("#F2FFFFFF", "#D9080A0E"),
                 ["Cp.Mark.PrimaryInk"] = ("#06120B", "#06120B"),
                 // The number on a badge: white on the deeper colours of a white canvas, near black on the light ones of a dark canvas.

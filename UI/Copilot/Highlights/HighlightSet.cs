@@ -25,8 +25,9 @@ using RevitWebAppSync.UI.Copilot.Model;
 
 namespace RevitWebAppSync.UI.Copilot.Highlights
 {
-    /// <summary>Why a mark is there; the colour says it and the key names the colour.</summary>
-    public enum MarkOutcome { Made, Changed, NeedsLook, Skipped }
+    /// <summary>Why a mark is there; the colour says it and the key names the colour. Found (r12): a find's results and a card's
+    /// Show, in magenta (never Revit's selection blue, never the bitmap's teal clear colour).</summary>
+    public enum MarkOutcome { Made, Changed, NeedsLook, Skipped, Found }
 
     /// <summary>What the mark is drawn on: an annotation gets a frame, an element a ring, a type its instances.</summary>
     public enum MarkKind { Element, Annotation, Dimension, TypeInstances }
@@ -63,7 +64,29 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         /// <summary>True when the counts came from the add-in's own full lists (CommitIds).</summary>
         public bool FullLists;
 
-        public bool IsEmpty => Kinds.All(g => g.Ids.Count == 0);
+        /// <summary>r12: the marks are Revit's selection when the set is drawn (a find with highlight:true selected its results; the
+        /// envelope carries no ids). InModelResult reads the selection in Revit's context and fills the one Found group.</summary>
+        public bool FromSelection;
+
+        public bool IsEmpty => !FromSelection && Kinds.All(g => g.Ids.Count == 0);
+
+        /// <summary>Found marks for these element ids (a card's Show / "Highlight in model"): no transaction, no Undo entry.</summary>
+        public static HighlightSet Found(IEnumerable<long> ids, string turnId = "")
+        {
+            var list = (ids ?? Array.Empty<long>()).Where(id => id > 0).Distinct().ToList();
+            var set = new HighlightSet { TurnId = turnId ?? "" };
+            set.Kinds.Add(new MarkGroup { Title = "Found", Outcome = MarkOutcome.Found, Kind = MarkKind.Element, Ids = list, Count = list.Count });
+            set.Headline = MarkKey.Title(set.Kinds);
+            return set;
+        }
+
+        /// <summary>Found marks for what Revit holds selected when the set is drawn (a find's highlight at the end of its turn).</summary>
+        public static HighlightSet FoundInSelection(string turnId = "")
+        {
+            var set = Found(Array.Empty<long>(), turnId);
+            set.FromSelection = true;
+            return set;
+        }
 
         /// <summary>The turn changed or made elements: it ends with them selected in Revit (the "Gabung" view, G1). A check's
         /// findings alone do not (nothing was changed), nor a find (it selected already and has no marks).</summary>
@@ -79,6 +102,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                 case MarkOutcome.Made: return "Cp.Mark.Made";
                 case MarkOutcome.Changed: return "Cp.Mark.Changed";
                 case MarkOutcome.NeedsLook: return "Cp.Mark.Attn";
+                case MarkOutcome.Found: return "Cp.Mark.Found";
                 default: return "Cp.Mark.Skip";
             }
         }
@@ -90,7 +114,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         public static bool Dashed(MarkOutcome o) => o == MarkOutcome.NeedsLook || o == MarkOutcome.Skipped;
 
         /// <summary>Which outcome a point shows when its element is in several groups: a question first, then a change.</summary>
-        public static int Priority(MarkOutcome o) => o == MarkOutcome.NeedsLook ? 3 : o == MarkOutcome.Changed ? 2 : o == MarkOutcome.Made ? 1 : 0;
+        public static int Priority(MarkOutcome o) => o == MarkOutcome.NeedsLook ? 3 : o == MarkOutcome.Changed ? 2 : o == MarkOutcome.Made || o == MarkOutcome.Found ? 1 : 0;
 
         /// <summary>The mark an element of this category gets.</summary>
         public static MarkKind KindOf(string? category)

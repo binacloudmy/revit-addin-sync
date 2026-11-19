@@ -251,6 +251,7 @@
     <SolidColorBrush x:Key="Cp.Mark.Changed"          Color="#7C3AED"/>
     <SolidColorBrush x:Key="Cp.Mark.Attn"             Color="#C27803"/>
     <SolidColorBrush x:Key="Cp.Mark.Skip"             Color="#7D8595"/>
+    <SolidColorBrush x:Key="Cp.Mark.Found"            Color="#D61F69"/>
     <SolidColorBrush x:Key="Cp.Mark.Halo"             Color="#F2FFFFFF"/>
     <SolidColorBrush x:Key="Cp.Mark.PrimaryInk"       Color="#06120B"/>
     <SolidColorBrush x:Key="Cp.Mark.BadgeInk"         Color="#FFFFFF"/>

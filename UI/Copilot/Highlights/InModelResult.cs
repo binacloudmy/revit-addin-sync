@@ -163,15 +163,35 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             var selectAll = select && set.SelectsAtTheEnd;
             Run("show-in-model", set.Kinds.Sum(k => k.Ids.Count), app =>
             {
+                if (set.FromSelection) FillFromSelection(app, set);   // r12: a find's highlight, read as Revit holds it now
                 Resolve(app, set); AddMarks(app); StartIdling(app);
                 if (selectAll && _resultIds.Count > 0) Select(app, _resultIds.Select(ElemIds.From).ToList(), "turn-end", generation);
             }, () =>
             {
                 if (generation != _generation) return;   // a newer result, or a clear, came first
+                if (set.FromSelection && set.Kinds.All(k => k.Ids.Count == 0)) { Clear(); return; }   // nothing was selected after all
                 var app = _app();
                 if (app != null) Draw(app);
                 RaiseChanged();
             });
+        }
+
+        /// <summary>r12: the Found group of a <see cref="HighlightSet.FromSelection"/> set takes Revit's selection of the open model (at
+        /// most <see cref="MaxMarks"/> are drawn, as for any result), and its category when they share one. No transaction.</summary>
+        private static void FillFromSelection(UIApplication app, HighlightSet set)
+        {
+            var uidoc = app.ActiveUIDocument; var doc = uidoc?.Document;
+            var k = set.Kinds.FirstOrDefault();
+            if (uidoc == null || doc == null || k == null) return;
+            try
+            {
+                var ids = uidoc.Selection.GetElementIds().Select(i => i.Value).ToList();
+                k.Ids = ids; k.Count = ids.Count;
+                var cats = ids.Take(MaxMarks).Select(i => doc.GetElement(ElemIds.From(i))?.Category?.Name ?? "").Distinct().ToList();
+                if (cats.Count == 1 && cats[0].Length > 0) k.Category = cats[0];
+                set.Headline = MarkKey.Title(set.Kinds);
+            }
+            catch (Exception ex) { Debug.WriteLine("[BINA] marks from selection: " + ex.Message); }
         }
 
         /// <summary>The bar's Hide (or the card's "Hide marks"): the marks and the bar go, the pill stays.</summary>
