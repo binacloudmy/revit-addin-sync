@@ -208,16 +208,20 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         }
 
         // ── failure ──
-        /// <summary>The scan failed: unfinished sections can't be read; say why.</summary>
-        public void Fail(string message)
+        /// <summary>The scan failed: unfinished sections can't be read; say why. The scan
+        /// reads the whole model in one pass, so an error is normally not tied to a section
+        /// (<paramref name="stoppedIn"/> null): the screen then says the audit couldn't
+        /// finish and no section is marked stopped. Pass a section letter only when the
+        /// scan really reports where it stopped.</summary>
+        public void Fail(string message, string stoppedIn = null)
         {
             _timer?.Dispose();
             _timer = null;
             _error = string.IsNullOrWhiteSpace(message) ? "" : message.Trim();
             foreach (var r in Rows) r.IsStopped = false;
             foreach (var r in Rows.Where(r => r.State != RunRowState.Done)) r.State = RunRowState.Failed;
-            var first = Rows.FirstOrDefault(r => r.IsFailed);
-            if (first != null) first.IsStopped = true;
+            var at = Rows.FirstOrDefault(r => r.IsFailed && r.Key == stoppedIn);
+            if (at != null) at.IsStopped = true;
             Raise();
         }
 
@@ -279,9 +283,11 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         // ── failure, Clear Sheet ──
         /// <summary>The section the run stopped in ("" when it has not failed).</summary>
         public string StoppedLetter => Rows.FirstOrDefault(r => r.IsStopped)?.Key ?? "";
-        public string FailHeading => string.Format(T("failHeading"), StoppedLetter);
+        /// <summary>"The audit stopped in section C" when a section is known, else "The audit couldn't finish."</summary>
+        public string FailHeading => StoppedLetter == "" ? T("failTitle") : string.Format(T("failHeading"), StoppedLetter);
         public string FailDetail => HasErrorText ? string.Format(T("failDetail"), _error) : "";
-        public string StoppedIn => string.Format(T("stoppedIn"), StoppedLetter);
+        /// <summary>"Stopped in C"; empty when no section is known.</summary>
+        public string StoppedIn => StoppedLetter == "" ? "" : string.Format(T("stoppedIn"), StoppedLetter);
         public string RowStoppedLabel => T("rowStopped");
         public string RowNotRunLabel => T("rowNotRun");
 

@@ -204,7 +204,27 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void A_failure_names_the_section_it_stopped_in()
+        public void A_scan_error_without_a_section_says_the_audit_could_not_finish()
+        {
+            var m = new RunScreenModel(new ManualClock());
+            m.SetLang("en");
+            m.Begin("300", "AR");                               // the production path: no Complete() before Fail()
+            m.Fail("Scan failed: 502 Bad Gateway");
+            Assert.Equal("F,F,F,F,F", States(m));
+            Assert.Equal("", m.StoppedLetter);
+            Assert.Equal("The audit couldn’t finish.", m.FailHeading);
+            Assert.Equal("", m.StoppedIn);
+            Assert.Equal("Revit returned: Scan failed: 502 Bad Gateway", m.FailDetail);
+            Assert.All(m.Rows, r => { Assert.False(r.IsStopped); Assert.True(r.IsNotRun); });
+            Assert.Equal(0, m.ChecksDone);
+            Assert.Equal("0 of " + SpecCatalog.Checks.Count + " checks done", m.ChecksDoneLabel);
+            Assert.False(m.IsRunning);
+            m.SetLang("ms");
+            Assert.Equal("Audit tidak dapat diselesaikan.", m.FailHeading);
+        }
+
+        [Fact]
+        public void A_known_section_is_named_when_the_scan_reports_one()
         {
             var clock = new ManualClock();
             var m = new RunScreenModel(clock);
@@ -212,15 +232,15 @@ namespace RevitWebAppSync.Tests
             m.Begin("300", "AR");
             m.Complete(Numbers());
             clock.AdvanceMs(1500);                              // A, B done, C checking
-            m.Fail("the model is synchronising with central.");
+            m.Fail("the model is synchronising with central.", "C");
             Assert.Equal("D,D,F,F,F", States(m));
             Assert.Equal("C", m.StoppedLetter);
             Assert.Equal("The audit stopped in section C", m.FailHeading);
             Assert.Equal("Revit returned: the model is synchronising with central.", m.FailDetail);
             Assert.Equal("Stopped in C", m.StoppedIn);
-            Assert.False(m.IsRunning);
             Assert.Equal(new[] { false, false, true, false, false }, m.Rows.Select(r => r.IsStopped));
             Assert.Equal(new[] { false, false, false, true, true }, m.Rows.Select(r => r.IsNotRun));
+            Assert.Equal(m.Rows[0].Checks + m.Rows[1].Checks, m.ChecksDone);
             Assert.Equal(("Stopped", "Not run"), (m.RowStoppedLabel, m.RowNotRunLabel));
             m.SetLang("ms");
             Assert.Equal("Audit terhenti di seksyen C", m.FailHeading);
@@ -233,7 +253,7 @@ namespace RevitWebAppSync.Tests
         {
             var m = new RunScreenModel(new ManualClock());
             m.Begin("300", "AR");
-            m.Fail("x");
+            m.Fail("x", "A");
             Assert.Equal("A", m.StoppedLetter);
             m.Begin("300", "AR");
             Assert.Equal("", m.StoppedLetter);
