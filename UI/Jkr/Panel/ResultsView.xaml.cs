@@ -21,6 +21,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel
             PreviewKeyDown += OnPreviewKeyDown;
             SizeChanged += (_, __) => QueueFitTools();
             Loaded += (_, __) => { UpdateSearchHint(); Focus(); };
+            BodyContent.RequestBringIntoView += OnBodyBringIntoView;
         }
 
         // ── clicks ──
@@ -77,6 +78,25 @@ namespace RevitWebAppSync.UI.Jkr.Panel
             }), System.Windows.Threading.DispatcherPriority.Loaded);
         }
 
+        // ── live R1 / R2: a click must never move the content under the mouse ──
+        // A mouse press gives the button keyboard focus, and the pane being activated again
+        // (Revit's dock restores keyboard focus to the element focused last, often one now
+        // scrolled away or hidden) does the same to another element. Each raises
+        // RequestBringIntoView; in the one scroll it moved the content between press and
+        // release, so the release landed elsewhere and the click was lost (rows never opened,
+        // tabs and the pill × needed two clicks). Only the list keys (J / K, selection) and
+        // keyboard navigation (Tab) may scroll to an element.
+        private bool _bringingSelection;
+
+        private void OnBodyBringIntoView(object sender, RequestBringIntoViewEventArgs e)
+        {
+            if (_bringingSelection) return;
+            if (InputManager.Current.MostRecentInputDevice is KeyboardDevice
+                && Mouse.LeftButton != MouseButtonState.Pressed && Mouse.RightButton != MouseButtonState.Pressed
+                && e.TargetObject is UIElement u && u.IsVisible) return;
+            e.Handled = true;
+        }
+
         // ── tools bar: Re-scan keeps only its icon when its word would not fit (320 px, BM) ──
         // The bar or a dropdown changed size (the pane, a new selection, BM / EN): check after layout.
         private void Tools_SizeChanged(object s, SizeChangedEventArgs e) => QueueFitTools();
@@ -94,7 +114,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel
             // Room: the pane's width less the bar's padding. Need: both dropdowns (their own
             // widths, Auto columns) and Re-scan with its word: icon 16 + gap 4 + word + 2 × 4 + 2 × 8
             // padding + 2 border. Nothing is re-measured here, so the check cannot feed the layout.
-            var room = ActualWidth - 24;
+            var room = ToolsGrid.ActualWidth;          // inside the scroll: its scrollbar takes width too
             if (room <= 0 || LodBox.ActualWidth <= 0) return;
             var word = new FormattedText(RescanText.Text ?? "", System.Globalization.CultureInfo.CurrentUICulture, FlowDirection.LeftToRight,
                 new Typeface(RescanText.FontFamily, RescanText.FontStyle, RescanText.FontWeight, RescanText.FontStretch),
@@ -183,7 +203,11 @@ namespace RevitWebAppSync.UI.Jkr.Panel
             {
                 var sel = _model.Core.Sel;
                 if (RowsList.ItemContainerGenerator.ContainerFromIndex(sel) is FrameworkElement row)
-                    row.BringIntoView();
+                {
+                    _bringingSelection = true;
+                    try { row.BringIntoView(); }
+                    finally { _bringingSelection = false; }
+                }
             }), System.Windows.Threading.DispatcherPriority.Loaded);
         }
     }

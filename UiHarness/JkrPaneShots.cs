@@ -5,6 +5,7 @@ using System.Linq;
 using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
@@ -130,6 +131,16 @@ namespace UiHarness
             Shot(dir, "jkr-live-section-d-issues-815-320.png", s => { ShowRun(s, Failing, backendDown: true); s.Results.OpenGroup("D"); s.Results.ShowSectionIssues(); }, 815, (int)JkrPaneShell.MinimumWidth);
             Shot(dir, "jkr-live-manual-tab-815-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing, backendDown: true); s.Results.SelectTab(PanelTab.Manual); }, 815);
             Shot(dir, "jkr-live-issues-scrolled-815-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing, backendDown: true); s.Results.ShowIssues(); Settle(300); ScrollTo(s, "BodyScroll", 900); }, 815);
+            // Live retest (R5): the pane at Revit's 652 px (125 % scaling, 524 px wide) with the banner:
+            // Issues at least 4 rows at rest, the Checklist at least 3 section rows at rest.
+            Shot(dir, "jkr-live-issues-652-524-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing, backendDown: true); s.Results.ShowIssues(); }, 652, 524);
+            Shot(dir, "jkr-live-issues-652-524.png", s => { ShowRun(s, Failing, backendDown: true); s.Results.ShowIssues(); }, 652, 524);
+            Shot(dir, "jkr-live-section-d-issues-652-524-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing, backendDown: true); s.Results.OpenGroup("D"); s.Results.ShowSectionIssues(); }, 652, 524);
+            Shot(dir, "jkr-live-checklist-652-524-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing, backendDown: true); }, 652, 524);
+            Shot(dir, "jkr-live-checklist-652-524.png", s => ShowRun(s, Failing, backendDown: true), 652, 524);
+            Shot(dir, "jkr-live-issues-652-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing, backendDown: true); s.Results.ShowIssues(); }, 652);
+            Shot(dir, "jkr-live-checklist-652-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing, backendDown: true); }, 652);
+            Shot(dir, "jkr-live-issues-search-652-524-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing, backendDown: true); s.Results.ShowIssues(); s.Results.Query = "door"; }, 652, 524);
             Shot(dir, "jkr-live-checklist-815-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing, backendDown: true); }, 815);
             Shot(dir, "jkr-live-checklist-815.png", s => ShowRun(s, Failing, backendDown: true), 815);
             Shot(dir, "jkr-live-checklist-end-815.png", s => { ShowRun(s, Failing, backendDown: true); Settle(300); ScrollTo(s, "BodyScroll", double.MaxValue); }, 815);
@@ -514,6 +525,181 @@ namespace UiHarness
             Save(shell, Path.Combine(dir, file), height);
             win.Close();
             Console.WriteLine("wrote " + file);
+        }
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool SetCursorPos(int x, int y);
+        [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool GetCursorPos(out POINT p);
+        [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
+        [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extra);
+        private struct POINT { public int X, Y; }
+
+        /// <summary>Real mouse clicks (SetCursorPos + mouse_event) on the pane, shown on screen
+        /// at 652 px: an issue row must open the detail on the first click, the tabs and the
+        /// pill × must act on the first click, also after the content was scrolled and after
+        /// the window was deactivated. The cursor is put back afterwards.</summary>
+        public static bool ClickCheck()
+        {
+            GetCursorPos(out var saved);
+            ActiveModelSource.Set(new ActiveModelInfo(Title, @"C:\Projects\Dewan\" + Title + ".rvt", false));
+            var shell = new JkrPaneShell(new Grid());
+            var win = new Window
+            {
+                Width = JkrPaneShell.DesignWidth, Height = 652, WindowStyle = WindowStyle.None, ShowInTaskbar = false,
+                Left = 40, Top = 40, ResizeMode = ResizeMode.NoResize, Topmost = true, Content = shell,
+            };
+            var other = new Window { Width = 200, Height = 120, Left = 500, Top = 40, Topmost = true, ShowInTaskbar = false, WindowStyle = WindowStyle.None };
+            var ok = true;
+            void Check(string what, bool pass) { Console.WriteLine((pass ? "PASS " : "FAIL ") + what); ok &= pass; }
+            try
+            {
+                win.Show(); win.Activate(); Settle(300);
+                shell.Model.IsEn = true;
+                ShowRun(shell, Failing, backendDown: true);
+                Settle(500);
+                shell.UpdateLayout();
+                var body = Find<ScrollViewer>(shell, "BodyScroll");
+                Console.WriteLine($"stage {shell.Core.Stage}, scrollviewers {string.Join(",", FindAll<ScrollViewer>(shell).Select(v => v.Name))}");
+                body.ScrollChanged += (_, e) => { if (e.VerticalChange != 0) Console.WriteLine($"  scroll {e.VerticalOffset - e.VerticalChange:0} -> {e.VerticalOffset:0}"); };
+                var opened = new List<string>();
+                shell.Results.OpenRequested += id => opened.Add(id);
+                shell.Detail.Opened += () => { };
+
+                void Click(FrameworkElement el, string what)
+                {
+                    // the test's own scroll, before the mouse goes down (BringIntoView is the pane's to refuse)
+                    if (body.IsAncestorOf(el))
+                    {
+                        var top = el.TransformToAncestor(body).Transform(new Point(0, 0)).Y;
+                        if (top < 0 || top + el.ActualHeight > body.ViewportHeight) { body.ScrollToVerticalOffset(body.VerticalOffset + top - 40); Settle(200); }
+                    }
+                    el.UpdateLayout();
+                    var p = el.PointToScreen(new Point(Math.Min(40, el.ActualWidth / 2), el.ActualHeight / 2));
+                    Console.WriteLine($"click {what} at {p.X:0},{p.Y:0} (offset {body.VerticalOffset:0}, focus {Keyboard.FocusedElement?.GetType().Name})");
+                    SetCursorPos((int)p.X, (int)p.Y); Settle(80);
+                    mouse_event(0x0002, 0, 0, 0, UIntPtr.Zero); Settle(80);
+                    SetCursorPos((int)p.X + 1, (int)p.Y); Settle(40);   // a hand moves a pixel while pressing
+                    mouse_event(0x0004, 0, 0, 0, UIntPtr.Zero); Settle(400);
+                }
+                Button TabButton(string label) => FindAll<Button>(shell).FirstOrDefault(b => (System.Windows.Automation.AutomationProperties.GetName(b) ?? "") == label && b.IsVisible);
+                Button RowButton(int i)
+                {
+                    var list = Find<ItemsControl>(shell, "RowsList");
+                    var c = list?.ItemContainerGenerator.ContainerFromIndex(i) as DependencyObject;
+                    return c == null ? null : FindAll<Button>(c).FirstOrDefault();
+                }
+                void CloseDetail() { foreach (var w in Application.Current.Windows.OfType<DetailWindow>().ToList()) w.Close(); Settle(300); win.Activate(); Settle(200); }
+
+                // 1. Issues tab, first click
+                Click(TabButton(shell.Results.IssuesTabLabel), "Issues tab");
+                Check("Issues tab opens the issues on the first click", shell.Results.ShowList);
+                Settle(300);
+                // 2. a row, first click → detail
+                for (var i = 0; i < 3; i++)
+                {
+                    var before = opened.Count;
+                    var row = RowButton(i);
+                    if (row == null) { Check("row " + i + " found", false); continue; }
+                    Click(row, "row " + i);
+                    Check("row " + i + " opens the detail on the first click", opened.Count == before + 1);
+                    CloseDetail();
+                }
+                // 3. after deactivation, a row
+                other.Show(); other.Activate(); Settle(300);
+                var n = opened.Count;
+                Click(RowButton(1), "row 1 after the pane lost focus");
+                Check("row opens after the pane lost focus (first click)", opened.Count == n + 1);
+                CloseDetail();
+                // 4. Checklist tab, then scroll the overview, then Issues tab
+                Click(TabButton(shell.Results.ChecklistTabLabel), "Checklist tab");
+                Check("Checklist tab on the first click", shell.Results.ShowChecklist);
+                body.ScrollToVerticalOffset(250); Settle(300);
+                Click(TabButton(shell.Results.IssuesTabLabel), "Issues tab after scrolling the overview");
+                Check("Issues tab after scrolling, first click", shell.Results.ShowList);
+                // 5. as in the live retest, every step by a click and the pane losing focus in
+                //    between (Revit takes it back): section D row, "n issues in this section",
+                //    the pill ×, then a row.
+                void Away() { other.Activate(); Settle(250); }
+                Click(TabButton(shell.Results.ChecklistTabLabel), "Checklist tab");
+                Away();
+                Click(FindAll<Button>(shell).First(b => b.IsVisible && (b.Tag as string) == "D"), "section D row");
+                Check("section D opens on the first click", shell.Results.IsFocused);
+                Away();
+                Click(FindAll<Button>(shell).First(b => b.IsVisible && (System.Windows.Automation.AutomationProperties.GetName(b) ?? "") == shell.Results.SectionIssuesLabel), "n issues in this section");
+                Check("the section's issues open on the first click", shell.Results.ShowList && shell.Results.HasCat);
+                Away();
+                Click(Find<Button>(shell, "ClearCatX"), "pill ×");
+                Check("pill × clears the filter on the first click", !shell.Results.HasCat);
+                Away();
+                n = opened.Count;
+                Click(RowButton(0), "row 0 after the pill");
+                Check("row opens on the first click after the pill", opened.Count == n + 1);
+                CloseDetail();
+                Away();
+                n = opened.Count;
+                Click(RowButton(2), "row 2 after the detail closed");
+                Check("row opens on the first click after the detail closed", opened.Count == n + 1);
+                // 6. live R2: the pane activated again restores keyboard focus to an element now out
+                //    of view (here the Checklist tab, the list scrolled down). That must not scroll
+                //    the content: the press would land on one row and the release on another.
+                body.ScrollToVerticalOffset(900); Settle(300);
+                var before6 = body.VerticalOffset;
+                Click(RowButton(RowIndexAtTop(shell, body)), "a row (mouse input)");
+                CloseDetail();
+                body.ScrollToVerticalOffset(900); Settle(300);
+                before6 = body.VerticalOffset;
+                Keyboard.Focus(TabButton(shell.Results.ChecklistTabLabel)); Settle(300);
+                Check($"a focus restore after a click does not scroll ({before6:0} -> {body.VerticalOffset:0})", Math.Abs(body.VerticalOffset - before6) < 0.5);
+                // 6b. the same as it happens in Revit: the press activates the pane, the dock gives
+                //     keyboard focus back to the element focused last (out of view), then the button
+                //     takes it. The row must still open on this first click (live R1).
+                body.ScrollToVerticalOffset(900); Settle(300);
+                Keyboard.Focus(FindAll<ResultsView>(shell).First()); Settle(100);
+                MouseButtonEventHandler restore = null;
+                restore = (_, __) => { shell.PreviewMouseLeftButtonDown -= restore; Keyboard.Focus(TabButton(shell.Results.ChecklistTabLabel)); shell.UpdateLayout(); };
+                shell.PreviewMouseLeftButtonDown += restore;
+                n = opened.Count;
+                Click(RowButton(RowIndexAtTop(shell, body) + 1), "a row while focus is restored to the Checklist tab");
+                Check("the row opens on the first click while the pane gets focus back", opened.Count == n + 1);
+                CloseDetail();
+                // 7. the list keys still bring the selection into view
+                var rv = FindAll<ResultsView>(shell).First();
+                body.ScrollToVerticalOffset(0); Settle(200);
+                Keyboard.Focus(rv); Settle(200);
+                for (var k = 0; k < 9; k++) { keybd_event(0x4A, 0, 0, UIntPtr.Zero); keybd_event(0x4A, 0, 2, UIntPtr.Zero); Settle(120); }
+                Settle(300);
+                var selRow = Find<ItemsControl>(shell, "RowsList").ItemContainerGenerator.ContainerFromIndex(shell.Core.Sel) as FrameworkElement;
+                var y = selRow.TransformToAncestor(body).Transform(new Point(0, 0)).Y;
+                Check($"J moves the selection ({shell.Core.Sel}) and keeps it in view (top {y:0}, viewport {body.ViewportHeight:0})",
+                      shell.Core.Sel >= 8 && y >= 0 && y + selRow.ActualHeight <= body.ViewportHeight + 1);
+            }
+            catch (Exception ex) { Console.WriteLine("click check failed — " + ex); ok = false; }
+            finally
+            {
+                SetCursorPos(saved.X, saved.Y);
+                other.Close(); win.Close();
+            }
+            Console.WriteLine(ok ? "CLICK CHECK PASSED" : "CLICK CHECK FAILED");
+            return ok;
+        }
+
+        /// <summary>Index of the first issue row whose top is in the viewport.</summary>
+        private static int RowIndexAtTop(DependencyObject shell, ScrollViewer body)
+        {
+            var list = Find<ItemsControl>(shell, "RowsList");
+            for (var i = 0; i < list.Items.Count; i++)
+                if (list.ItemContainerGenerator.ContainerFromIndex(i) is FrameworkElement c && c.TransformToAncestor(body).Transform(new Point(0, 0)).Y >= 0) return i;
+            return 0;
+        }
+
+        private static IEnumerable<T> FindAll<T>(DependencyObject root) where T : DependencyObject
+        {
+            if (root == null) yield break;
+            for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+            {
+                var c = VisualTreeHelper.GetChild(root, i);
+                if (c is T t) yield return t;
+                foreach (var d in FindAll<T>(c)) yield return d;
+            }
         }
 
         /// <summary>Scroll the named ScrollViewer of the shown screen (double.MaxValue = to the end).</summary>

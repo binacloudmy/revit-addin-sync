@@ -51,6 +51,35 @@ namespace RevitWebAppSync.UI.Jkr.Modals
         [return: MarshalAs(UnmanagedType.Bool)]
         private static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int cx, int cy, uint flags);
 
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool SetForegroundWindow(IntPtr hwnd);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool IsWindow(IntPtr hwnd);
+
+        /// <summary>
+        /// As <paramref name="w"/> closes, activate the window that owns it (Revit, or the
+        /// Borang preview for the export dialog) while <paramref name="w"/> is still the
+        /// active window. Left to Windows, closing it could bring another app to the front
+        /// (live R3: after the preview had owned the modal export dialog).
+        /// </summary>
+        public static void ReturnToOwnerOnClose(Window w)
+        {
+            if (w == null) return;
+            w.Closing += (_, e) =>
+            {
+                if (e.Cancel) return;
+                try
+                {
+                    var owner = new WindowInteropHelper(w).Owner;
+                    if (owner != IntPtr.Zero && IsWindow(owner)) SetForegroundWindow(owner);
+                }
+                catch { /* best effort */ }
+            };
+        }
+
         /// <summary>Revit's top-level window: the root of the window holding the pane.</summary>
         public static IntPtr RevitWindow(FrameworkElement anchor)
         {

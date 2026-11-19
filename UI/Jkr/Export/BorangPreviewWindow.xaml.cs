@@ -162,6 +162,7 @@ namespace RevitWebAppSync.UI.Jkr.Export
             var (pdf, pages) = await Task.Run(() => (BorangPdf.Pdf(doc), (IReadOnlyList<byte[]>)BorangPdf.Pages(doc, dpi: 200)));
             var w = new BorangPreviewWindow(pdf, pages, folder, fileName, doc.Header?.File, issueCount, issuesExport, setLanguage);
             if (!RevitWindowCover.Cover(w, anchor)) RevitWindowCover.CenterOnRevit(w, anchor);
+            RevitWindowCover.ReturnToOwnerOnClose(w);
             w.Show();
             return w;
         }

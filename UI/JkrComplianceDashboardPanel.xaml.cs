@@ -2020,7 +2020,9 @@ namespace RevitWebAppSync.UI
 
         private void OpenExportWindow()
         {
-            if (_exportWindow != null && _exportWindow.IsLoaded) { _exportWindow.Activate(); return; }
+            // One dialog at a time: OpenExport opens it directly, and the RenderAll that
+            // ExportOpen queues runs inside its ShowDialog, before it is loaded (live R4).
+            if (_exportWindow != null) { try { _exportWindow.Activate(); } catch { } return; }
             // The preview's Excel / CSV choice applies to this opening only: the pane's own
             // Export button then opens the dialog with the Excel default.
             var format = _exportFormat;
@@ -2038,7 +2040,13 @@ namespace RevitWebAppSync.UI
                 try { new System.Windows.Interop.WindowInteropHelper(w).Owner = new System.Windows.Interop.WindowInteropHelper(owner).Handle; }
                 catch { /* stays owned by Revit's window */ }
             }
-            w.ShowDialog();
+            Jkr.Modals.RevitWindowCover.ReturnToOwnerOnClose(w);
+            try { w.ShowDialog(); }
+            finally
+            {
+                // never left set by a dialog that did not open (the guard above would block every later one)
+                if (ReferenceEquals(_exportWindow, w)) { _exportWindow = null; _vm.ExportOpen = false; }
+            }
             // The file it wrote, or why not (live F14).
             _exportOutcome = w.Outcome;
             if (w.Outcome != null) _vm.ShowToast(w.Outcome);

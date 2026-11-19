@@ -340,8 +340,41 @@
             <RowDefinition Height="Auto"/>  <!-- footer -->
         </Grid.RowDefinitions>
 
-        <!-- Tools bar (48 px): LOD, discipline, Re-scan. Hidden inside a section (its back bar instead). -->
-        <Border Grid.Row="0" BorderBrush="{StaticResource Bz.Line}" BorderThickness="0,0,0,1" Padding="12,8,12,8">
+        <!-- Back bar inside a section: "‹ Checklist" and "Section 4 of 5" -->
+        <Border Grid.Row="0" BorderBrush="{StaticResource Bz.Line}" BorderThickness="0,0,0,1" Padding="10,8,16,8"
+                Visibility="{Binding IsFocused, Converter={StaticResource B2V}}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Button Style="{StaticResource TextBtn}" Click="Back_Click" Foreground="{StaticResource Bz.Text}" FontWeight="Medium" Padding="6,0,10,0"
+                        AutomationProperties.Name="{Binding BackLabel}">
+                    <StackPanel Orientation="Horizontal">
+                        <Path Style="{StaticResource Icon16}" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" Data="M9.5,4.5 L6,8 L9.5,11.5"/>
+                        <TextBlock Text="{Binding BackLabel}" Margin="4,0,0,0" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
+                <TextBlock Grid.Column="1" Text="{Binding FocusPosition}" FontSize="12" Foreground="{StaticResource Bz.Text2}" HorizontalAlignment="Right" VerticalAlignment="Center"
+                           TextWrapping="Wrap" TextAlignment="Right" Margin="8,0,0,0"/>
+            </Grid>
+        </Border>
+
+        <!-- busy: a fix batch is being written -->
+        <Border Grid.Row="1" Background="{StaticResource Bz.BrandTint}" BorderBrush="{StaticResource Bz.BrandTintLine}" BorderThickness="0,0,0,1" Padding="16,8,16,8"
+                Visibility="{Binding IsBusy, Converter={StaticResource B2V}}">
+            <TextBlock Text="{Binding BusyText}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource Bz.BrandTintText}" TextWrapping="Wrap"/>
+        </Border>
+
+        <!-- One scroll for everything under the tools bar (live F1 / F5): the banner, the head,
+             the tabs and the issue toolbar scroll away with the list, so the rows can take the
+             pane's height. Opening the Issues tab scrolls the banner and verdict out of view
+             (they stay above, a scroll away); the list keys bring the selected row into view. -->
+        <ScrollViewer x:Name="BodyScroll" Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel x:Name="BodyContent">
+        <!-- Tools bar (48 px): LOD, discipline, Re-scan. Hidden inside a section (its back bar instead).
+             It scrolls with the rest, so on the Issues view it starts a scroll above (live R5). -->
+        <Border BorderBrush="{StaticResource Bz.Line}" BorderThickness="0,0,0,1" Padding="12,8,12,8">
             <Border.Style>
                 <Style TargetType="Border">
                     <Style.Triggers>
@@ -376,38 +409,6 @@
             </Grid>
         </Border>
 
-        <!-- Back bar inside a section: "‹ Checklist" and "Section 4 of 5" -->
-        <Border Grid.Row="0" BorderBrush="{StaticResource Bz.Line}" BorderThickness="0,0,0,1" Padding="10,8,16,8"
-                Visibility="{Binding IsFocused, Converter={StaticResource B2V}}">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
-                <Button Style="{StaticResource TextBtn}" Click="Back_Click" Foreground="{StaticResource Bz.Text}" FontWeight="Medium" Padding="6,0,10,0"
-                        AutomationProperties.Name="{Binding BackLabel}">
-                    <StackPanel Orientation="Horizontal">
-                        <Path Style="{StaticResource Icon16}" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" Data="M9.5,4.5 L6,8 L9.5,11.5"/>
-                        <TextBlock Text="{Binding BackLabel}" Margin="4,0,0,0" VerticalAlignment="Center"/>
-                    </StackPanel>
-                </Button>
-                <TextBlock Grid.Column="1" Text="{Binding FocusPosition}" FontSize="12" Foreground="{StaticResource Bz.Text2}" HorizontalAlignment="Right" VerticalAlignment="Center"
-                           TextWrapping="Wrap" TextAlignment="Right" Margin="8,0,0,0"/>
-            </Grid>
-        </Border>
-
-        <!-- busy: a fix batch is being written -->
-        <Border Grid.Row="1" Background="{StaticResource Bz.BrandTint}" BorderBrush="{StaticResource Bz.BrandTintLine}" BorderThickness="0,0,0,1" Padding="16,8,16,8"
-                Visibility="{Binding IsBusy, Converter={StaticResource B2V}}">
-            <TextBlock Text="{Binding BusyText}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource Bz.BrandTintText}" TextWrapping="Wrap"/>
-        </Border>
-
-        <!-- One scroll for everything under the tools bar (live F1 / F5): the banner, the head,
-             the tabs and the issue toolbar scroll away with the list, so the rows can take the
-             pane's height. Opening the Issues tab scrolls the banner and verdict out of view
-             (they stay above, a scroll away); the list keys bring the selected row into view. -->
-        <ScrollViewer x:Name="BodyScroll" Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-        <StackPanel x:Name="BodyContent">
         <!-- Split banner (edge states, refined): "This result is for LOD 300. Re-scan …" and
              "BINA backend unavailable. B1.2 needs it, so it shows as not checked, never as passed." -->
         <Border Margin="16,12,16,0" CornerRadius="10" Background="{StaticResource Bz.Tone.WarnBg}" BorderBrush="{StaticResource Bz.Tone.WarnLine}" BorderThickness="1"
@@ -569,6 +570,9 @@
                     </Style.Triggers>
                 </Style>
             </Border.Style>
+            <!-- the "Borang sections | Aspects" toggle sits at the right of the tabs when it fits,
+                 else on its own line under them (live R5: one line less above the rows) -->
+            <local:SplitRowPanel Gap="12" RowGap="0" WrapAlignment="Left">
             <StackPanel Orientation="Horizontal" Height="44">
                 <Button Style="{StaticResource Bare}" Click="Checklist_Click" Margin="0,0,20,0"
                         Visibility="{Binding HasSpec, Converter={StaticResource B2V}}" AutomationProperties.Name="{Binding ChecklistTabLabel}">
@@ -618,6 +622,31 @@
                     </Border>
                 </Button>
             </StackPanel>
+                    <Border HorizontalAlignment="Left" Margin="0,6,0,6" Padding="2" CornerRadius="8" Background="{StaticResource Bz.Sunken2}"
+                            Visibility="{Binding ShowOverview, Converter={StaticResource B2V}}"
+                            AutomationProperties.Name="{Binding GroupToggleAria}">
+                        <StackPanel Orientation="Horizontal">
+                            <Button Click="ShowSections_Click" Content="{Binding SectionsToggleLabel}" AutomationProperties.Name="{Binding SectionsToggleLabel}">
+                                <Button.Style>
+                                    <Style TargetType="Button" BasedOn="{StaticResource Seg}">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding ShowSections}" Value="True"><Setter Property="Tag" Value="on"/></DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+                            <Button Click="ShowAspects_Click" Content="{Binding AspectsToggleLabel}" AutomationProperties.Name="{Binding AspectsToggleLabel}">
+                                <Button.Style>
+                                    <Style TargetType="Button" BasedOn="{StaticResource Seg}">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding ShowAspects}" Value="True"><Setter Property="Tag" Value="on"/></DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+                        </StackPanel>
+                    </Border>
+            </local:SplitRowPanel>
         </Border>
 
         <!-- Issue toolbar (Clear Sheet issues): state tabs Open / Ignored / Resolved / Manual with
@@ -688,16 +717,23 @@
                                  GotKeyboardFocus="Search_Focus" LostKeyboardFocus="Search_Blur"/>
                         <TextBlock Grid.Column="1" Text="{Binding SearchPlaceholder}" FontSize="13" Foreground="{StaticResource Bz.Text2}"
                                    Margin="8,0,8,0" VerticalAlignment="Center" IsHitTestVisible="False" x:Name="SearchHint"/>
-                        <Border Grid.Column="2" Style="{StaticResource Bz.Kbd}" Background="Transparent" BorderBrush="{StaticResource Bz.Line2}">
-                            <TextBlock Text="/" Style="{StaticResource KeyCap}"/>
-                        </Border>
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                            <!-- "8 shown" while a search narrows the list (else the tab's count says it) -->
+                            <TextBlock Text="{Binding ShownLabel}" FontSize="12" Foreground="{StaticResource Bz.Text2}" VerticalAlignment="Center" Margin="0,0,8,0"
+                                       Visibility="{Binding HasQ, Converter={StaticResource B2V}}"/>
+                            <Border Style="{StaticResource Bz.Kbd}" Background="Transparent" BorderBrush="{StaticResource Bz.Line2}">
+                                <TextBlock Text="/" Style="{StaticResource KeyCap}"/>
+                            </Border>
+                        </StackPanel>
                     </Grid>
                 </Border>
 
-                <!-- "0 of 99 resolved" … "4 high · 94 medium · 1 low" (the row's pip), then the bar -->
-                <local:SplitRowPanel Margin="0,8,0,0" Gap="8" RowGap="4" WrapAlignment="Left">
-                    <TextBlock Text="{Binding ProgressLabel}" FontSize="12" LineHeight="18" Foreground="{StaticResource Bz.TextBody}" TextWrapping="Wrap" VerticalAlignment="Center"/>
-                    <ItemsControl ItemsSource="{Binding SevChips}" VerticalAlignment="Center" Focusable="False" Margin="-8,0,0,0">
+                <!-- "0 of 99 resolved" · "4 high · 94 medium · 1 low" (the row's pip) … Ignore all · Fix all n
+                     on one line when they fit (the buttons drop under it when the pane is narrow), then the bar -->
+                <local:SplitRowPanel Margin="0,8,0,0" Gap="8" RowGap="4" WrapAlignment="Right">
+                <WrapPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding ProgressLabel}" FontSize="12" LineHeight="18" Foreground="{StaticResource Bz.TextBody}" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                    <ItemsControl ItemsSource="{Binding SevChips}" VerticalAlignment="Center" Focusable="False" Margin="-4,0,0,0">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate><WrapPanel Orientation="Horizontal"/></ItemsPanelTemplate>
                         </ItemsControl.ItemsPanel>
@@ -710,8 +746,24 @@
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
+                </WrapPanel>
+                <StackPanel Orientation="Horizontal">
+                    <Button Content="{Binding IgnoreAllLabel}" Style="{StaticResource TextBtn}" Click="IgnoreAll_Click" Padding="10,0,10,0" MinHeight="32"
+                            IsEnabled="{Binding CanAct}" Margin="0,0,8,0" AutomationProperties.Name="{Binding IgnoreAllLabel}"/>
+                    <Button Style="{StaticResource Bz.Btn.Primary}" Click="FixAll_Click" IsEnabled="{Binding CanFixAll}" Padding="12,0,12,0" MinHeight="32" FontSize="13"
+                            AutomationProperties.Name="{Binding FixAllLabel}">
+                        <StackPanel Orientation="Horizontal">
+                            <Viewbox Width="14" Height="14" VerticalAlignment="Center">
+                                <Canvas Width="16" Height="16">
+                                    <Path Style="{StaticResource Ico}" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" Data="{StaticResource BoltGeo}"/>
+                                </Canvas>
+                            </Viewbox>
+                            <TextBlock Text="{Binding FixAllLabel}" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
                 </local:SplitRowPanel>
-                <Grid Height="3" Margin="0,5,0,0">
+                <Grid Height="3" Margin="0,6,0,0">
                     <Border Background="{StaticResource Bz.Track}" CornerRadius="2"/>
                     <Border Background="{StaticResource Bz.Ink}" CornerRadius="2" RenderTransformOrigin="0,0.5">
                         <Border.RenderTransform>
@@ -746,27 +798,9 @@
                         </Button.Template>
                     </Button>
                 </Grid>
+                <Border Height="8"/>
             </StackPanel>
 
-            <!-- "99 shown" · Ignore all · Fix all n (the buttons drop under it when the pane is narrow) -->
-            <local:SplitRowPanel Margin="16,8,16,8" Gap="8" RowGap="8" WrapAlignment="Right">
-                <TextBlock Text="{Binding ShownLabel}" FontSize="12" Foreground="{StaticResource Bz.Text2}" VerticalAlignment="Center" TextWrapping="Wrap"/>
-                <StackPanel Orientation="Horizontal">
-                    <Button Content="{Binding IgnoreAllLabel}" Style="{StaticResource TextBtn}" Click="IgnoreAll_Click" Padding="10,0,10,0" MinHeight="32"
-                            IsEnabled="{Binding CanAct}" Margin="0,0,8,0" AutomationProperties.Name="{Binding IgnoreAllLabel}"/>
-                    <Button Style="{StaticResource Bz.Btn.Primary}" Click="FixAll_Click" IsEnabled="{Binding CanFixAll}" Padding="12,0,12,0" MinHeight="32" FontSize="13"
-                            AutomationProperties.Name="{Binding FixAllLabel}">
-                        <StackPanel Orientation="Horizontal">
-                            <Viewbox Width="14" Height="14" VerticalAlignment="Center">
-                                <Canvas Width="16" Height="16">
-                                    <Path Style="{StaticResource Ico}" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" Data="{StaticResource BoltGeo}"/>
-                                </Canvas>
-                            </Viewbox>
-                            <TextBlock Text="{Binding FixAllLabel}" Margin="6,0,0,0" VerticalAlignment="Center"/>
-                        </StackPanel>
-                    </Button>
-                </StackPanel>
-            </local:SplitRowPanel>
         </StackPanel>
 
 
@@ -775,31 +809,8 @@
         <Border Visibility="{Binding ShowOverview, Converter={StaticResource B2V}}">
             <!-- the legend ends the scroll with at least the footer's height under it (live F2) -->
             <StackPanel Margin="0,0,0,64">
-                <Border HorizontalAlignment="Left" Margin="16,10,16,10" Padding="2" CornerRadius="8" Background="{StaticResource Bz.Sunken2}"
-                        AutomationProperties.Name="{Binding GroupToggleAria}">
-                    <StackPanel Orientation="Horizontal">
-                        <Button Click="ShowSections_Click" Content="{Binding SectionsToggleLabel}" AutomationProperties.Name="{Binding SectionsToggleLabel}">
-                            <Button.Style>
-                                <Style TargetType="Button" BasedOn="{StaticResource Seg}">
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding ShowSections}" Value="True"><Setter Property="Tag" Value="on"/></DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </Button.Style>
-                        </Button>
-                        <Button Click="ShowAspects_Click" Content="{Binding AspectsToggleLabel}" AutomationProperties.Name="{Binding AspectsToggleLabel}">
-                            <Button.Style>
-                                <Style TargetType="Button" BasedOn="{StaticResource Seg}">
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding ShowAspects}" Value="True"><Setter Property="Tag" Value="on"/></DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </Button.Style>
-                        </Button>
-                    </StackPanel>
-                </Border>
 
-                <ItemsControl ItemsSource="{Binding GroupRows}" Focusable="False">
+                <ItemsControl ItemsSource="{Binding GroupRows}" Focusable="False" Margin="0,-1,0,0">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
                             <Button Style="{StaticResource RowBtn}" Tag="{Binding Key}" Click="Group_Click" Padding="0"
