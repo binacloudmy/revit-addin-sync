@@ -118,6 +118,16 @@ namespace BinaVibe.Mcp.Tools.Electrical
         /// practice; 1 mm is far below any real socket tolerance.</summary>
         public const double JoinTolMm = 1.0;
 
+        /// <summary>Linguistic fallback only, for suggest_socket_points and
+        /// plan_cad_electrical alike: a room whose name holds one is wet. A
+        /// bare call must not silently place sockets in a bathroom.</summary>
+        internal static readonly string[] DefaultWetKeywords =
+        {
+            "bilik air", "bilik mandi", "tandas", "jamban",
+            "bathroom", "toilet", "washroom", "wc", "shower",
+            "dapur", "kitchen", "pantri", "pantry", "basuh", "laundry",
+        };
+
         // ── loops ────────────────────────────────────────────────────────
 
         /// <summary>Shoelace signed area in mm². Positive = counter-clockwise.
