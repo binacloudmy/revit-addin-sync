@@ -14,7 +14,15 @@
 //     group with a unit larger than mm ("2,700 m": 2.7 m or 2700 m?) and a dot
 //     group in mm ("2.700 mm": 2.7 mm or 2700 mm?);
 //   - anything that is not exactly one value ("2700 x 300", "about 2700",
-//     "2700-3000") is refused with a reason.
+//     "2700-3000") is refused with a reason;
+//   - imperial lengths (plan 1.5): inch fractions and mixed numbers ("3/4\"",
+//     "1 1/2 in", "1-1/2\"", "1½\""), feet-inches ("2'-6\"", "2' 6 1/2\"",
+//     "2 kaki 6 inci"); a bare fraction ("3/4") only where the display unit is
+//     inches, else it is refused as having no unit;
+//   - a Measured parameter shown in a length unit (a pipe, duct or conduit
+//     size) takes those length forms too, converted to the display unit, so
+//     "3/4\"" binds the same value as the bare "0.75" in an inch project; one
+//     shown in any other unit never reads a length.
 // Arithmetic is decimal, so "2.7 m" and "2,700 mm" give the identical value.
 // Lengths come out in mm, areas in m², volumes in m³, angles in degrees; the
 // Revit side converts those to internal units.
@@ -171,7 +179,6 @@ namespace BinaVibe.Copilot.Writes
     public static class ValueParser
     {
         private static readonly Regex Grammar = new(@"^(?<sign>[+-])?(?<num>\d[\d.,\s]*|[.,]\d+)(?<unit>.*)$", RegexOptions.CultureInvariant | RegexOptions.Singleline);
-        private static readonly Regex FeetInches = new(@"^(?<ft>\d+(?:\.\d+)?)\s*'\s*(?:(?<in>\d+(?:\.\d+)?)\s*""?)?$", RegexOptions.CultureInvariant);
         private static readonly Regex SpaceGroups = new(@"^\d{1,3}(?: \d{3})+(?:[.,]\d+)?$", RegexOptions.CultureInvariant);
         // A slope written as a ratio, "1:100" (AI-334): rise over run, sent on as a percentage.
         private static readonly Regex Ratio = new(@"^(?<rise>\d+(?:\.\d+)?)\s*:\s*(?<run>\d+(?:\.\d+)?)$", RegexOptions.CultureInvariant);
@@ -221,16 +228,21 @@ namespace BinaVibe.Copilot.Writes
                 return ParsedValue.Fail(kind, "'" + s + "' is not yes or no (ya / tidak)");
             }
 
-            if (kind == ValueKind.Length)
+            // Imperial lengths (plan 1.5): fractions, mixed numbers and feet-inches, before Grammar, which
+            // would read "1 1/2" as two numbers and "1-1/2" as a range.
+            var lengthDisplay = LengthUnitOf(displayUnit);
+            if (kind == ValueKind.Length || (kind == ValueKind.Measured && lengthDisplay != null))
             {
-                var fi = FeetInches.Match(s);
-                if (fi.Success)
-                {
-                    var ft = decimal.Parse(fi.Groups["ft"].Value, CultureInfo.InvariantCulture);
-                    var inch = fi.Groups["in"].Success ? decimal.Parse(fi.Groups["in"].Value, CultureInfo.InvariantCulture) : 0m;
-                    return ParsedValue.OfNumber(ValueKind.Length, ft * 304.8m + inch * 25.4m);
-                }
+                var imperial = Imperial(s, displayUnit, out var imperialError);
+                if (imperialError != null) return ParsedValue.Fail(kind, "'" + s + "' " + imperialError);
+                if (imperial != null)
+                    return kind == ValueKind.Length
+                        ? ParsedValue.OfNumber(ValueKind.Length, imperial.Value)
+                        : ParsedValue.OfNumber(ValueKind.Measured, ToDisplay(imperial.Value, lengthDisplay!.Value));
             }
+            if (kind == ValueKind.Measured && lengthDisplay == null && Imperial(s, null, out _) != null)
+                return ParsedValue.Fail(kind, "'" + s + "' is a length, but this parameter is not shown in a length unit; give a bare number in its display unit" +
+                                              (string.IsNullOrEmpty(displayUnit) ? "" : " (" + displayUnit + ")"));
 
             if (kind == ValueKind.Measured)
             {
@@ -267,6 +279,7 @@ namespace BinaVibe.Copilot.Writes
             // Resolve the unit first: whether "2,700" is ambiguous depends on it.
             string? unitKey = null;
             string? measuredUnit = null;
+            decimal? lengthToBase = null; // a length unit given for a Measured parameter shown in a length unit (a pipe size)
             if (unitText.Length > 0 && kind == ValueKind.Measured && MeasuredSynonyms.TryGetValue(NormaliseUnit(unitText), out var mu))
                 measuredUnit = mu;
             else if (unitText.Length > 0)
@@ -276,9 +289,11 @@ namespace BinaVibe.Copilot.Writes
                     return ParsedValue.Fail(kind, "'" + unitText + "' in '" + s + "' is not a unit this parameter takes" + Example(kind));
                 if (kind is ValueKind.Number or ValueKind.Integer)
                     return ParsedValue.Fail(kind, "this parameter is a plain " + (kind == ValueKind.Integer ? "whole number" : "number") + " with no unit; give '" + numText + "' alone");
-                if (kind == ValueKind.Measured)
+                if (kind == ValueKind.Measured && u.kind == ValueKind.Length && lengthDisplay != null)
+                    lengthToBase = u.toBase;
+                else if (kind == ValueKind.Measured)
                     return ParsedValue.Fail(kind, "give a bare number in the parameter's display unit" + (string.IsNullOrEmpty(displayUnit) ? "" : " (" + displayUnit + ")"));
-                if (u.kind != kind)
+                if (lengthToBase == null && u.kind != kind)
                     return ParsedValue.Fail(kind, "'" + unitText + "' is " + Article(Describe(u.kind)) + " unit, but this parameter is " + Article(Describe(kind)));
             }
 
@@ -290,7 +305,90 @@ namespace BinaVibe.Copilot.Writes
             if (number == null) return ParsedValue.Fail(kind, "'" + s + "' " + error + Example(kind));
             var value = negative ? -number.Value : number.Value;
             if (measuredUnit != null) return ParsedValue.OfMeasured(value, measuredUnit);
+            if (lengthToBase != null) return ParsedValue.OfNumber(ValueKind.Measured, ToDisplay(value * lengthToBase.Value, lengthDisplay!.Value));
             return FromNumber(value, unitKey, kind, displayUnit);
+        }
+
+        /// <summary>The mm factor of a length display unit ("in" gives 25.4), or null when the display
+        /// unit is unknown or not a length: then no length text is read, never guessed.</summary>
+        private static decimal? LengthUnitOf(string? displayUnit)
+        {
+            if (string.IsNullOrWhiteSpace(displayUnit)) return null;
+            return Units.TryGetValue(NormaliseUnit(displayUnit!), out var u) && u.kind == ValueKind.Length ? u.toBase : (decimal?)null;
+        }
+
+        /// <summary>mm to the display unit, so a pipe size written as 3/4" binds the same value as the
+        /// bare number the drafter sees in Properties (0.75 in an inch project).</summary>
+        private static decimal ToDisplay(decimal mm, decimal toBase) => Math.Round(mm / toBase, 9, MidpointRounding.AwayFromZero);
+
+        private const string Ft = @"(?:feet|foot|kaki|ft|')";
+        private const string In = @"(?:inches|inch|inci|in|"")";
+        // A whole or decimal number, optionally followed by a fraction ("1 1/2", "1-1/2"), or a fraction alone.
+        private const string Mixed = @"(?:\d+(?:\.\d+)?(?:\s*-\s*|\s+)\d+\s*/\s*\d+|\d+\s*/\s*\d+|\d+(?:\.\d+)?)";
+        private static readonly Regex ImperialFeet = new(@"^(?<ft>\d+(?:\.\d+)?)\s*" + Ft + @"(?:\s*-?\s*(?<in>" + Mixed + @")\s*" + In + @"?)?$", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+        private static readonly Regex ImperialInches = new(@"^(?<in>" + Mixed + @")\s*" + In + "$", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+        private static readonly Regex BareFraction = new(@"^(?<in>" + Mixed + ")$", RegexOptions.CultureInvariant);
+        private static readonly Regex MixedParts = new(@"^(?:(?<whole>\d+(?:\.\d+)?)(?:\s*-\s*|\s+))?(?<num>\d+)\s*/\s*(?<den>\d+)$|^(?<whole>\d+(?:\.\d+)?)$", RegexOptions.CultureInvariant);
+
+        /// <summary>Feet-inches ("2'-6\"", "2' 6 1/2\"", "2 kaki 6 inci") and inch fractions ("3/4\"",
+        /// "1 1/2 in", "1-1/2\""), in mm. Null with no error when the text is none of these (Grammar reads
+        /// it); an error when it holds a fraction that cannot be read as one length.</summary>
+        private static decimal? Imperial(string raw, string? displayUnit, out string? error)
+        {
+            error = null;
+            var s = NormaliseImperial(raw);
+            var feet = ImperialFeet.Match(s);
+            if (feet.Success)
+            {
+                var ft = decimal.Parse(feet.Groups["ft"].Value, CultureInfo.InvariantCulture);
+                var inch = feet.Groups["in"].Success ? Inches(feet.Groups["in"].Value, out error) : 0m;
+                return inch == null ? null : ft * 304.8m + inch.Value * 25.4m;
+            }
+            if (s.IndexOf('/') < 0) return null; // plain decimals with a unit stay with Grammar, unchanged
+            var inches = ImperialInches.Match(s);
+            if (inches.Success)
+            {
+                var v = Inches(inches.Groups["in"].Value, out error);
+                return v == null ? null : v.Value * 25.4m;
+            }
+            if (BareFraction.IsMatch(s))
+            {
+                if (displayUnit != null && NormaliseUnit(displayUnit) == "in")
+                {
+                    var v = Inches(s, out error);
+                    return v == null ? null : v.Value * 25.4m;
+                }
+                error = "has no unit and this parameter is not shown in inches; give the unit, for example '" + s + "\"' or a value in mm";
+                return null;
+            }
+            error = "is not one length; fractions are read in inches or feet-inches only (for example '3/4\"', '1 1/2\"' or '2'-6\"'); give other units as a decimal";
+            return null;
+        }
+
+        private static decimal? Inches(string text, out string? error)
+        {
+            error = null;
+            var m = MixedParts.Match(text.Trim());
+            if (!m.Success) { error = "is not one length"; return null; }
+            var whole = m.Groups["whole"].Success ? decimal.Parse(m.Groups["whole"].Value, CultureInfo.InvariantCulture) : 0m;
+            if (!m.Groups["den"].Success) return whole;
+            var num = decimal.Parse(m.Groups["num"].Value, CultureInfo.InvariantCulture);
+            var den = decimal.Parse(m.Groups["den"].Value, CultureInfo.InvariantCulture);
+            if (den == 0) { error = "has a fraction with a zero denominator"; return null; }
+            if (m.Groups["whole"].Success && num >= den) { error = "has a fraction of " + m.Groups["num"].Value + "/" + m.Groups["den"].Value + " after a whole number; write it as one fraction or a decimal"; return null; }
+            return whole + num / den;
+        }
+
+        private static readonly (string from, string to)[] ImperialMarks =
+        {
+            ("′′", "\""), ("''", "\""), ("″", "\""), ("”", "\""), ("“", "\""), ("′", "'"), ("’", "'"), ("‘", "'"), ("`", "'"),
+            ("½", " 1/2"), ("¼", " 1/4"), ("¾", " 3/4"), ("⅛", " 1/8"), ("⅜", " 3/8"), ("⅝", " 5/8"), ("⅞", " 7/8"), ("⁄", "/"),
+        };
+
+        private static string NormaliseImperial(string s)
+        {
+            foreach (var (from, to) in ImperialMarks) s = s.Replace(from, to);
+            return Regex.Replace(s, @"\s+", " ").Trim();
         }
 
         private static ParsedValue FromNumber(decimal value, string? unitKey, ValueKind kind, string? displayUnit)
