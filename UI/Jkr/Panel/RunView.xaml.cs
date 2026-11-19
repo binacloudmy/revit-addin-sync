@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -81,6 +82,14 @@ namespace RevitWebAppSync.UI.Jkr.Panel
         private void Spinner_Unloaded(object sender, RoutedEventArgs e)
         {
             if (sender is FrameworkElement el && el.Tag is RotateTransform turn) _spinners.Remove(turn);
+        }
+
+        /// <summary>The A-E strip: a column per section as wide as its checks (min 14 px).</summary>
+        private void StripGrid_Loaded(object sender, RoutedEventArgs e)
+        {
+            if (!(sender is Grid g) || g.ColumnDefinitions.Count > 0) return;
+            foreach (var r in _model.Rows.OrderBy(r => r.Index))
+                g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(Math.Max(1, r.Checks), GridUnitType.Star), MinWidth = 14 });
         }
 
         private void Retry_Click(object sender, RoutedEventArgs e) => _model.Retry();

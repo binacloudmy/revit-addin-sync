@@ -52,6 +52,16 @@ namespace UiHarness
             Shot(dir, "jkr-start-en.png", s => s.Model.IsEn = true);
             Shot(dir, "jkr-start-lod300-en.png", s => { s.Model.IsEn = true; s.Start.LodValue = "300"; });
             Shot(dir, "jkr-start-lod100.png", s => s.Start.LodValue = "100");
+            // Running (r-a, r-mid, r-done, r-fail): the sections complete every 750 ms on the
+            // shell's real clock, so each frame waits for the time it needs (Shot adds 600 ms).
+            Shot(dir, "jkr-run-scan.png", s => RunFrame(s, 0, false), 800);
+            Shot(dir, "jkr-run-scan-en.png", s => { s.Model.IsEn = true; RunFrame(s, 0, false); }, 800);
+            Shot(dir, "jkr-run-a-en.png", s => { s.Model.IsEn = true; RunFrame(s, 20, true); }, 800);
+            Shot(dir, "jkr-run-mid.png", s => RunFrame(s, 1000, true), 800);
+            Shot(dir, "jkr-run-mid-en.png", s => { s.Model.IsEn = true; RunFrame(s, 1000, true); }, 800);
+            Shot(dir, "jkr-run-done-en.png", s => { s.Model.IsEn = true; RunFrame(s, 3500, true); }, 800);
+            Shot(dir, "jkr-run-fail.png", s => RunFrame(s, 1500, true, fail: true), 800);
+            Shot(dir, "jkr-run-fail-en.png", s => { s.Model.IsEn = true; RunFrame(s, 1500, true, fail: true); }, 800);
             Shot(dir, "jkr-login-required.png", s => s.Model.LoginRequired = true);
             Shot(dir, "jkr-login-required-en.png", s => { s.Model.IsEn = true; s.Model.LoginRequired = true; }, 800);
             Shot(dir, "jkr-no-model.png", s => s.Model.Model = ActiveModelInfo.None, 800);
@@ -269,6 +279,21 @@ namespace UiHarness
                     else Console.WriteLine($"fontcheck {key} {w}: NO glyph typeface (fallback)");
                 }
             }
+        }
+
+        /// <summary>The Running screen: scan started, then (reveal) the sections with
+        /// numbers, waiting <paramref name="waitMs"/>; optionally the scan fails there.</summary>
+        private static void RunFrame(JkrPaneShell s, int waitMs, bool reveal, bool fail = false)
+        {
+            s.Core.SetLod("300");
+            s.Core.BeginExternalRun();
+            s.Running.Begin("300", "AR");
+            if (reveal) s.Running.Complete(new Dictionary<string, (int? Pct, int Pend)>
+            {
+                ["A"] = (44, 5), ["B"] = (0, 0), ["C"] = (21, 6), ["D"] = (20, 2), ["E"] = (60, 0),
+            });
+            if (waitMs > 0) Settle(waitMs);
+            if (fail) s.Running.Fail("the model is synchronising with central. Run again when it finishes.");
         }
 
         private static void Shot(string dir, string file, Action<JkrPaneShell> configure, int height = 1100)

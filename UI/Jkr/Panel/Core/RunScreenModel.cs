@@ -17,8 +17,23 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         private string _name = "";
         private string _manualShort = "manual";
 
+        private bool _stopped;
+
         public string Key { get; }
-        public RunRow(string key) { Key = key; }
+        /// <summary>The Borang letter (the chip on the row).</summary>
+        public string Letter => Key;
+        /// <summary>Column of the section in the A-E strip.</summary>
+        public int Index => System.Array.IndexOf(PanelCore.Secs.ToArray(), Key);
+        /// <summary>Checks in this section, counted from the JKR spec catalog.</summary>
+        public int Checks { get; }
+        /// <summary>One tick per check (Clear Sheet draws them under the row).</summary>
+        public IReadOnlyList<int> Ticks { get; }
+        public RunRow(string key)
+        {
+            Key = key;
+            Checks = SpecCatalog.Checks.Count(c => c.Section == key);
+            Ticks = Enumerable.Range(0, Checks).ToList();
+        }
 
         public string Name { get => _name; internal set { _name = value; Raise(); } }
         public RunRowState State { get => _state; internal set { _state = value; Raise(); } }
@@ -27,6 +42,10 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// <summary>Manual-review cells in the section (never in the %).</summary>
         public int Pend { get => _pend; internal set { _pend = value; Raise(); } }
         internal string ManualShort { set { _manualShort = value; Raise(); } }
+        /// <summary>The first section the scan did not finish (failed run only).</summary>
+        public bool IsStopped { get => _stopped; internal set { _stopped = value; Raise(); } }
+        /// <summary>A section after the one that stopped: never started.</summary>
+        public bool IsNotRun => _state == RunRowState.Failed && !_stopped;
 
         public bool IsWaiting => _state == RunRowState.Waiting;
         public bool IsChecking => _state == RunRowState.Checking;
@@ -62,6 +81,24 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             ["failTitle"] = ("Audit tidak dapat diselesaikan.", "The audit couldn’t finish."),
             ["retry"] = ("Cuba semula", "Retry"),
             ["back"] = ("Kembali ke mula", "Back to start"),
+            // Clear Sheet copy
+            ["checksDoneOf"] = ("{0} daripada {1} semakan selesai", "{0} of {1} checks done"),
+            ["headingSection"] = ("Menyemak seksyen {0}", "Checking section {0}"),
+            ["headingDone"] = ("Audit selesai", "Audit finished"),
+            ["subScan"] = ("Menyemak lima seksyen terhadap LOD {0} untuk {1}.", "Checking the five sections against LOD {0} for {1}."),
+            ["subSection"] = ("Seksyen {0} daripada 5, terhadap LOD {1} untuk {2}.", "Section {0} of 5, against LOD {1} for {2}."),
+            ["subDone"] = ("Kelima-lima seksyen telah selesai.", "All five sections are done."),
+            ["backendNote"] = ("Semakan peraturan bahagian belakang BINA berjalan bersama lima seksyen.",
+                               "BINA backend rule checks run alongside the five sections."),
+            ["noOverall"] = ("Keputusan keseluruhan dipaparkan apabila kelima-lima seksyen selesai.",
+                             "The overall result appears when all five sections finish."),
+            ["failHeading"] = ("Audit terhenti di seksyen {0}", "The audit stopped in section {0}"),
+            ["failDetail"] = ("Revit memulangkan: {0}", "Revit returned: {0}"),
+            ["stoppedIn"] = ("Terhenti di {0}", "Stopped in {0}"),
+            ["rowStopped"] = ("Terhenti", "Stopped"),
+            ["rowNotRun"] = ("Tidak dijalankan", "Not run"),
+            ["discAR"] = ("AR · Arkitek", "AR · Architect"),
+            ["discNameAR"] = ("Arkitek", "Architect"),
         };
 
         private readonly IPanelClock _clock;
@@ -118,7 +155,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             _runDone = 0;
             _pendLive = 0;
             _error = null;
-            foreach (var r in Rows) { r.State = RunRowState.Checking; r.Pct = null; r.Pend = 0; }
+            foreach (var r in Rows) { r.IsStopped = false; r.State = RunRowState.Checking; r.Pct = null; r.Pend = 0; }
             Raise();
         }
 
@@ -177,7 +214,10 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             _timer?.Dispose();
             _timer = null;
             _error = string.IsNullOrWhiteSpace(message) ? "" : message.Trim();
+            foreach (var r in Rows) r.IsStopped = false;
             foreach (var r in Rows.Where(r => r.State != RunRowState.Done)) r.State = RunRowState.Failed;
+            var first = Rows.FirstOrDefault(r => r.IsFailed);
+            if (first != null) first.IsStopped = true;
             Raise();
         }
 
@@ -204,6 +244,46 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// <summary>"Semak manual dikumpul · Keputusan manusia · tiada dalam %".</summary>
         public string LiveText => T("pendingLive") + " · " + T("heroPendSub");
         public string NoOverall => T("noOverall");
+
+        // ── Clear Sheet: context strip, heading, check counts ──
+        /// <summary>The scan or the reveal is under way (the heading spinner).</summary>
+        public bool IsRunning => _error == null && !AllDone;
+        /// <summary>The run has not failed (the progress bar and tick rows show).</summary>
+        public bool IsOk => _error == null;
+        public string LodValue => _lod;
+        /// <summary>"AR · Architect" for AR, the code for the others.</summary>
+        public string DiscName => _disc == "AR" ? T("discAR") : _disc;
+        private string DiscWord => _disc == "AR" ? T("discNameAR") : _disc;
+        public string LodLabel => T("lod");
+        public string RescanLabel => T("rescan");
+        public string BackendNote => T("backendNote");
+
+        /// <summary>Every check in the JKR spec catalog.</summary>
+        public int ChecksTotal => SpecCatalog.Checks.Count;
+        /// <summary>The scan has no per-check progress: this is the checks of the
+        /// sections that are done, so it moves a section at a time.</summary>
+        public int ChecksDone => Rows.Where(r => r.IsDone).Sum(r => r.Checks);
+        public string ChecksDoneLabel => string.Format(T("checksDoneOf"), ChecksDone, ChecksTotal);
+
+        private RunRow Current => Rows.FirstOrDefault(r => r.IsChecking);
+        private bool AllDone => Rows.All(r => r.IsDone);
+        public string Heading =>
+            AllDone ? T("headingDone")
+            : RunDone > 0 && Current != null ? string.Format(T("headingSection"), Current.Key)
+            : Title;
+        public string Sub =>
+            AllDone ? T("subDone")
+            : RunDone > 0 && Current != null ? string.Format(T("subSection"), Current.Key, _lod, DiscWord)
+            : string.Format(T("subScan"), _lod, DiscWord);
+
+        // ── failure, Clear Sheet ──
+        /// <summary>The section the run stopped in ("" when it has not failed).</summary>
+        public string StoppedLetter => Rows.FirstOrDefault(r => r.IsStopped)?.Key ?? "";
+        public string FailHeading => string.Format(T("failHeading"), StoppedLetter);
+        public string FailDetail => HasErrorText ? string.Format(T("failDetail"), _error) : "";
+        public string StoppedIn => string.Format(T("stoppedIn"), StoppedLetter);
+        public string RowStoppedLabel => T("rowStopped");
+        public string RowNotRunLabel => T("rowNotRun");
 
         private void Raise() => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(null));
     }
