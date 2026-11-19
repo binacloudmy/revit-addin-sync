@@ -63,7 +63,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 AddWalls(linkDoc, t, true, snapshot);
             }
 
-            snapshot.ExistingDevices = ExistingDevices(doc);
+            snapshot.ExistingDevices = ExistingDevices(doc).Select(d => (d.X, d.Y, d.Z)).ToList();
 
             var names = new FilteredElementCollector(doc).WhereElementIsElementType()
                 .OfClass(typeof(FamilySymbol)).Cast<FamilySymbol>()
@@ -84,17 +84,150 @@ namespace BinaVibe.Mcp.Tools.Electrical
             return snapshot;
         }
 
-        /// <summary>Every device-category instance with a location point, in mm.</summary>
-        internal static List<(double X, double Y, double Z)> ExistingDevices(Document doc)
+        /// <summary>Every device-category instance with a location point, in mm: plan position
+        /// from the location point, Z its contact height (<see cref="ContactHeight"/>), and the
+        /// ceiling it is hosted on.</summary>
+        internal static List<PresentDevice> ExistingDevices(Document doc)
         {
-            var devices = new List<(double X, double Y, double Z)>();
+            var devices = new List<PresentDevice>();
             var filter = new ElementMulticategoryFilter(CadElectricalTools.DeviceCategories.ToList());
             foreach (Element el in new FilteredElementCollector(doc).WhereElementIsNotElementType().WherePasses(filter))
             {
-                if (el.Location is LocationPoint lp)
-                    devices.Add((lp.Point.X * MmPerFoot, lp.Point.Y * MmPerFoot, lp.Point.Z * MmPerFoot));
+                if (!(el.Location is LocationPoint lp)) continue;
+                double zFt = lp.Point.Z;
+                long? ceilingId = null;
+                if (el is FamilyInstance fi)
+                {
+                    Contact c = ContactHeight(doc, fi);
+                    zFt = c.ZFt;
+                    ceilingId = c.CeilingId;
+                }
+                devices.Add(new PresentDevice
+                {
+                    X = lp.Point.X * MmPerFoot,
+                    Y = lp.Point.Y * MmPerFoot,
+                    Z = zFt * MmPerFoot,
+                    CeilingId = ceilingId,
+                });
             }
             return devices;
+        }
+
+        /// <summary>Where a device meets its host, feet, how that was read, and the ceiling it is on.</summary>
+        internal readonly struct Contact
+        {
+            public readonly double ZFt;
+            /// <summary>host_face | ceiling_underside | level_offset | location</summary>
+            public readonly string Via;
+            public readonly long? CeilingId;
+            public Contact(double zFt, string via, long? ceilingId) { ZFt = zFt; Via = via; CeilingId = ceilingId; }
+        }
+
+        /// <summary>
+        /// A device's contact height: where it meets its host, under its origin. Not the
+        /// LocationPoint's Z, because a work-plane-based family's origin can sit off its work
+        /// plane by a per-family amount (a live test read +175 mm for one fitting and -2044 mm for
+        /// another, both hosted on the same underside with "Offset from Host" 0).
+        ///   on a face (HostFace readable): that face's Z under the origin, plus the instance's
+        ///     offset from it along the face normal;
+        ///   on a ceiling with no face (a ceiling-hosted family): the ceiling's underside there;
+        ///   a work-plane-based family on a level: the level plus its offset parameter;
+        ///   anything else: the LocationPoint's Z, which an unhosted family's origin honours.
+        /// </summary>
+        internal static Contact ContactHeight(Document doc, FamilyInstance fi)
+        {
+            XYZ? at = (fi.Location as LocationPoint)?.Point;
+            if (at == null)
+            {
+                BoundingBoxXYZ? bb = null;
+                try { bb = fi.get_BoundingBox(null); } catch { bb = null; }
+                return new Contact(bb != null ? (bb.Min.Z + bb.Max.Z) / 2 : 0, "location", null);
+            }
+
+            Element? host = null;
+            try { host = fi.Host; } catch { host = null; }
+            long? ceilingId = host is Ceiling ? host.Id.Value : (long?)null;
+
+            // On a face: the face's Z under the origin, moved by the instance's own offset.
+            try
+            {
+                Reference? r = fi.HostFace;
+                if (host != null && r != null && host.GetGeometryObjectFromReference(r) is Face face)
+                {
+                    // A wall's side face is vertical: it has no Z under the origin, and a
+                    // device on it keeps its location Z (below).
+                    double? z = FaceZAt(face, host, at.X, at.Y);
+                    double? nz = z.HasValue ? NormalZ(face, at.X, at.Y, z.Value) : null;
+                    if (z.HasValue && nz.HasValue && Math.Abs(nz.Value) >= 0.1)
+                    {
+                        double offset = DoubleParam(fi, BuiltInParameter.INSTANCE_FREE_HOST_OFFSET_PARAM) ?? 0;
+                        return new Contact(z.Value + (offset * nz.Value), "host_face", ceilingId);
+                    }
+                }
+            }
+            catch { /* a host face that cannot be read (in a link, gone after an edit) */ }
+
+            if (host is Ceiling ceiling)
+            {
+                BoundingBoxXYZ? bb = null;
+                try { bb = ceiling.get_BoundingBox(null); } catch { bb = null; }
+                if (bb != null)
+                {
+                    double? z = UndersideAt(BottomFaces(ceiling), at.X, at.Y, bb.Min.Z - 1, bb.Max.Z + 1);
+                    if (z.HasValue) return new Contact(z.Value, "ceiling_underside", ceilingId);
+                }
+            }
+
+            FamilyPlacementType placement;
+            try { placement = fi.Symbol.Family.FamilyPlacementType; } catch { placement = FamilyPlacementType.Invalid; }
+            if (placement == FamilyPlacementType.WorkPlaneBased)
+            {
+                Level? level = host as Level
+                               ?? (host == null ? doc.GetElement(fi.LevelId) as Level : null);
+                double? offset = DoubleParam(fi, BuiltInParameter.INSTANCE_FREE_HOST_OFFSET_PARAM)
+                                 ?? DoubleParam(fi, BuiltInParameter.INSTANCE_ELEVATION_PARAM);
+                if (level != null && offset.HasValue)
+                    return new Contact(level.Elevation + offset.Value, "level_offset", null);
+            }
+
+            return new Contact(at.Z, "location", ceilingId);
+        }
+
+        /// <summary>A face's Z over (x, y), feet: the plane's for a planar face, else where a
+        /// vertical through the point crosses it within the host's box.</summary>
+        private static double? FaceZAt(Face face, Element host, double x, double y)
+        {
+            if (face is PlanarFace pf)
+            {
+                XYZ o = pf.Origin, n = pf.FaceNormal;
+                return OverheadPlacement.PlaneZAt(o.X, o.Y, o.Z, n.X, n.Y, n.Z, x, y);
+            }
+            BoundingBoxXYZ? bb = null;
+            try { bb = host.get_BoundingBox(null); } catch { bb = null; }
+            if (bb == null) return null;
+            return UndersideAt(new[] { face }, x, y, bb.Min.Z - 1, bb.Max.Z + 1);
+        }
+
+        /// <summary>The Z of a face's normal at a point on it; null when it cannot be read.</summary>
+        internal static double? NormalZ(Face face, double x, double y, double z)
+        {
+            try
+            {
+                if (face is PlanarFace pf) return pf.FaceNormal.Z;
+                IntersectionResult? hit = face.Project(new XYZ(x, y, z));
+                return hit == null ? (double?)null : face.ComputeNormal(hit.UVPoint).Normalize().Z;
+            }
+            catch { return null; }
+        }
+
+        private static double? DoubleParam(Element el, BuiltInParameter bip)
+        {
+            try
+            {
+                Parameter? p = el.get_Parameter(bip);
+                return p != null && p.HasValue && p.StorageType == StorageType.Double ? p.AsDouble() : (double?)null;
+            }
+            catch { return null; }
         }
 
         /// <summary>

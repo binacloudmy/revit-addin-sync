@@ -234,7 +234,7 @@ Both stay at the drawn centre, with no facing. The room is looked up there.
 | `no_wall_in_reach` | excluded |
 | `no_room` | kept |
 | `wet_room` (room name contains a wet keyword) | kept |
-| `already_present` (an existing device within 150 mm in 3D) | excluded |
+| `already_present` (an existing device within 150 mm in 3D, at its contact height; see **Contact height** below) | excluded |
 | `linked_wall` | kept, unhosted |
 | `provisional_alignment` | kept |
 | `side_ambiguous` | kept |
@@ -311,7 +311,13 @@ The review carries no coordinates.
 
 **Transactions:** one `TransactionGroup` with one transaction per point, then `Assimilate`. The whole run is a single undo, and a refused point fails alone.
 
-**No doubling:** before each point, devices that exist *now* within 150 mm (3D) skip the point under `skipped_already_present`. A point picked by index keeps its place. A ceiling point is compared at the ceiling's underside, so a socket on the wall under a light is a different device.
+**No doubling:** before each point, devices that exist *now* within 150 mm (3D) skip the point under `skipped_already_present`. A point picked by index keeps its place. Existing devices are compared at their contact height (below), not their LocationPoint Z. A ceiling point is compared at the ceiling's underside, so a socket on the wall under a light is a different device. A ceiling point also counts a device hosted on the same ceiling within 150 mm in plan, whatever its height reads, so a second run skips every light the first one placed.
+
+**Contact height:** where a device meets its host, under its origin. A work-plane-based family's LocationPoint need not lie on its work plane: in a live test, two light families hosted on the same underside with "Offset from Host" 0 read +175 mm and -2044 mm. So:
+- on a face (`HostFace` readable, face not vertical): that face's Z under the origin, plus "Offset from Host" along the face normal (`host_face`)
+- on a ceiling with no face (a ceiling-hosted family): the ceiling's underside there (`ceiling_underside`)
+- a work-plane-based family on a level: the level plus "Offset from Host", or "Elevation from Level" (`level_offset`)
+- anything else, a wall socket included: the LocationPoint's Z (`location`)
 
 **Placement by family:**
 
@@ -326,22 +332,35 @@ The review carries no coordinates.
 | Family | How it is placed |
 |---|---|
 | Ceiling-hosted (or another host-based kind) | `NewFamilyInstance(point, symbol, ceiling, level, NonStructural)` on the plan's ceiling. With no ceiling, the point fails alone with `no_ceiling` and is never placed free-standing. |
-| Face-based or work-plane-based | On the ceiling's bottom face over the point, through the face-reference overload, with the reference direction along X. With no ceiling, or if Revit refuses the face, the level overload is used. |
+| Face-based or work-plane-based | On a bottom face of the ceiling, through the face-reference overload, at the point where a vertical through the target crosses that face, with the reference direction along X. Faces that look down are tried, the one holding the target (within 5 mm) first, two at most. Each try is measured (below) and rolled back if it is off. With no ceiling, or if Revit refuses every face, the level overload is used. |
 | Wall-hosted | Fails alone, because there is no wall. |
-| Unhosted | Level overload, then the elevation is set from the level. |
+| Unhosted | Level overload, then the height is set from the level. |
 
-These points have no facing, so `facing_method` is `not_applicable`. On a ceiling the host sets the height. It is read back, and `elevation_set_via` is `insertion_point` when it matches the plan, else `host`. Each item also carries `z_mm` (as placed), `target_z_mm` and `host_ceiling_id`.
+These points have no facing, so `facing_method` is `not_applicable`.
+
+**Height on a ceiling:** the host sets the height and `elevation_set_via` is `host`. The contact height is measured after placing. More than 20 mm off the target: a face-placed device is tried on the next face that looks down. If it is still off, or the family is ceiling-hosted, the point fails alone with `height_mismatch`, and its transaction is rolled back. The reason lists each try: the face's Z, the contact height and how it was read, and the origin's Z. It never falls back to a free-standing device at the level.
+
+**Height at the level** (no ceiling, or the face was refused): a work-plane-based family placed on a level has no "Elevation from Level", so "Offset from Host" (`INSTANCE_FREE_HOST_OFFSET_PARAM`) is set first, then "Elevation from Level" (`INSTANCE_ELEVATION_PARAM`). An unhosted family tries them the other way round, and keeps its insertion point if that is already right. Each is read back as a contact height. `elevation_set_via` is `insertion_point` or the parameter used. If neither takes, the point fails alone with `elevation_unset`. It is never left at the level.
+
+Each item also carries:
+- `z_mm`: the contact height, as placed
+- `height_via`: how it was read (`host_face`, `ceiling_underside`, `level_offset` or `location`)
+- `origin_z_mm`: the raw LocationPoint Z
+- `target_z_mm` and `host_ceiling_id`
+- `geometry_z_mm`: the instance's bounding box, bottom and top
+- `geometry_touches_host`: whether that box comes within 50 mm of the contact height. A recessed fitting spans it, and a surface or pendant one hangs from it. `false` means the family draws the fitting well away from where it is hosted. Those indices are listed in `geometry_off_host_indices`.
 
 **Facing readback:**
 - **Wall-hosted and unhosted:** `FacingOrientation`, corrected by flip, then by rotation. A correction that fails is reported as `uncorrectable`.
 - **Face-hosted:** the host face's outward normal at the point. If the face cannot be read, the instance's work-plane normal (`GetTotalTransform().BasisZ`) is used. `FacingOrientation` lies in the face, so it is not used. These instances are measured and never flipped or rotated, so they report `as_placed` or `uncorrectable`.
 
-**Height:** the height is read back. If it is wrong, it is set through the elevation parameters. `elevation_set_via` is `insertion_point`, the parameter used, or `unset`.
+**Height (wall points):** the height is read back. If it is wrong, it is set through the elevation parameters. `elevation_set_via` is `insertion_point`, the parameter used, or `unset`.
 
 **Result:**
 - Every existing key is kept: `ok`, `plan_id`, `count`, `created[]`, `failed[]`, `facing_uncorrected(_indices)`.
 - Each `created` item has `index`, `created_id`, `host` (`wall_face`, `wall`, `ceiling`, `ceiling_face` or `unhosted`), `facing`, `facing_target`, `facing_error_deg`, `facing_method` and `family_type`.
-- New keys: `by_role`, `by_family_type`, `skipped_excluded`, `skipped_already_present` and `review`.
+- New keys: `by_role`, `by_family_type`, `skipped_excluded`, `skipped_already_present`, `geometry_off_host_indices` and `review`.
+- A `failed` item's `reason` starts with a code where one applies: `no_ceiling`, `height_mismatch` (a ceiling device did not land within 20 mm of the underside) or `elevation_unset` (a device placed at the level could not be given its height).
 - `review` is `PlaceReview`: a headline and `needs_review` counts of `facing_uncorrected`, `elevation_unset`, `no_room`, `wet_room` and `provisional_alignment`.
 
 ## 5. Import dialog guard

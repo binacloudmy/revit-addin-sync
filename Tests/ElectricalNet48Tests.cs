@@ -33,6 +33,7 @@ namespace Tests
             "CadSymbolResolve.cs",
             "CadElectricalReview.cs",
             "PlacementCompare.cs",
+            "OverheadPlacement.cs",
         };
 
         /// <summary>The phase 1 files on the Revit side: not linked into the tests, but held to

@@ -170,6 +170,11 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 .Select(r => r.TryGetValue("index", out var i) ? i : null)
                 .ToList();
             int elevationUnset = rows.Count(r => (r.TryGetValue("elevation_set_via", out var v) ? v as string : null) == "unset");
+            // Hosted at the right height, but the family draws the fitting well away from it.
+            var geometryOff = rows
+                .Where(r => r.TryGetValue("geometry_touches_host", out var g) && g is bool b && !b)
+                .Select(r => r.TryGetValue("index", out var i) ? i : null)
+                .ToList();
 
             return new Dictionary<string, object?>
             {
@@ -182,6 +187,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 ["failed"] = failed,
                 ["facing_uncorrected"] = uncorrected.Count,
                 ["facing_uncorrected_indices"] = uncorrected,
+                ["geometry_off_host_indices"] = geometryOff,
                 ["by_role"] = byRole,
                 ["by_family_type"] = byType,
                 ["skipped_excluded"] = skippedExcluded,
@@ -190,14 +196,20 @@ namespace BinaVibe.Mcp.Tools.Electrical
             };
         }
 
-        /// <summary>A device of the model already stands within ExistingMm (3D) of where this
-        /// point would go: the resolver's already_present rule, against the model as it is now.</summary>
-        private static bool AlreadyPresent(PlannedPoint p, double? mountOverrideMm,
-                                           List<(double X, double Y, double Z)> present)
+        /// <summary>A device of the model already stands where this point would go, against the
+        /// model as it is now. Existing devices are at their contact height, not their
+        /// LocationPoint Z. Within ExistingMm in 3D; a ceiling point also counts a device hosted
+        /// on its own ceiling within ExistingMm in plan (OverheadPlacement.IsPresent).</summary>
+        private static bool AlreadyPresent(PlannedPoint p, double? mountOverrideMm, List<PresentDevice> present)
         {
-            return CadSymbolResolve.IsPresent(p.XMm, p.YMm, CadSymbolResolve.TargetZMm(p, mountOverrideMm),
-                                              present, new ResolveOptions().ExistingMm);
+            return OverheadPlacement.IsPresent(p.XMm, p.YMm, CadSymbolResolve.TargetZMm(p, mountOverrideMm),
+                                               IsOverhead(p) ? p.HostCeilingId : null,
+                                               present, new ResolveOptions().ExistingMm);
         }
+
+        /// <summary>A point that is not on a wall (a ceiling device, a host "none" one): no facing.</summary>
+        private static bool IsOverhead(PlannedPoint p) =>
+            !p.HostWallId.HasValue && p.FacingDx == 0 && p.FacingDy == 0;
 
         private static Dictionary<string, object?> PlaceOne(
             Document doc, FamilySymbol symbol, FamilyPlacementType placement,
@@ -206,7 +218,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
         {
             // A point that is not on a wall (a ceiling device, a host "none" one) has no facing
             // and goes its own way, by how the family hosts.
-            if (!p.HostWallId.HasValue && p.FacingDx == 0 && p.FacingDy == 0)
+            if (IsOverhead(p))
                 return PlaceOverhead(doc, symbol, p, levelOverride, mountOverrideMm);
 
             double mountMm = mountOverrideMm ?? p.MountHeightMm;
@@ -299,11 +311,18 @@ namespace BinaVibe.Mcp.Tools.Electrical
         /// FAMILY_HOSTING_BEHAVIOR (CadElectricalTools.HostingKind):
         ///   ceiling, or another host-based kind: the host overload on the plan's ceiling; with
         ///     no ceiling the point fails alone (no_ceiling), never placed free-standing;
-        ///   face or work plane: on the ceiling's bottom face over the point, reference direction
-        ///     along X; with no ceiling, or when Revit refuses the face, the level overload;
+        ///   face or work plane: on a bottom face of the ceiling over the point, reference
+        ///     direction along X (TryOnBottomFace); with no ceiling, or when Revit refuses every
+        ///     face, the level overload;
         ///   wall: fails alone, there is no wall here;
-        ///   anything else (unhosted): the level overload, then the elevation from the level.
-        /// One Transaction, as for a wall point, so a refusal leaves nothing behind.
+        ///   anything else (unhosted): the level overload, then the height from the level.
+        ///
+        /// Every height is a contact height (CadElectricalResolver.ContactHeight), never the
+        /// raw LocationPoint Z: a work-plane-based family's origin can sit off its work plane by
+        /// a per-family amount. A hosted point whose contact height ends up more than 20 mm off
+        /// the target fails alone (height_mismatch); an unhosted point whose height cannot be set
+        /// fails alone (elevation_unset). One Transaction, as for a wall point, so a refusal
+        /// leaves nothing behind.
         /// </summary>
         private static Dictionary<string, object?> PlaceOverhead(
             Document doc, FamilySymbol symbol, PlannedPoint p, string? levelOverride, double? mountOverrideMm)
@@ -334,49 +353,52 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
                 Level? level = ResolveLevel(doc, levelOverride ?? p.LevelName, null)
                                ?? (ceiling != null ? doc.GetElement(ceiling.LevelId) as Level : null);
-                FamilyInstance? fi = null;
+                FamilyInstance? fi;
                 string placedOn;
+                // On a ceiling the host sets the height; it is measured, never pushed off the ceiling.
+                string elevationVia = "host";
 
                 if (needsHost)
                 {
                     var hostLevel = doc.GetElement(ceiling!.LevelId) as Level ?? level;
                     fi = doc.Create.NewFamilyInstance(pt, symbol, ceiling, hostLevel, StructuralType.NonStructural);
+                    doc.Regenerate();
                     placedOn = "ceiling";
+                    if (!OverheadPlacement.HeightOk(ContactMm(doc, fi), zMm))
+                        throw HeightMismatch(p, zMm, new List<Dictionary<string, object?>> { Attempt(doc, fi, null) });
                 }
                 else
                 {
                     bool faceKind = hosting == "face" || hosting == "work_plane";
-                    if (faceKind && ceiling != null) fi = TryOnBottomFace(doc, symbol, ceiling, pt);
+                    var misses = new List<Dictionary<string, object?>>();
+                    fi = faceKind && ceiling != null ? TryOnBottomFace(doc, symbol, ceiling, pt, zMm, misses) : null;
                     if (fi != null)
                     {
                         placedOn = "ceiling_face";
+                    }
+                    else if (misses.Count > 0)
+                    {
+                        // Revit took the face but the device did not land on the underside:
+                        // never fall back to a free-standing one at the level.
+                        throw HeightMismatch(p, zMm, misses);
                     }
                     else
                     {
                         fi = level != null
                             ? doc.Create.NewFamilyInstance(pt, symbol, level, StructuralType.NonStructural)
                             : doc.Create.NewFamilyInstance(pt, symbol, StructuralType.NonStructural);
+                        doc.Regenerate();
                         placedOn = "unhosted";
+                        elevationVia = SetLevelHeight(doc, fi, level, pt.Z, p.Index);
                     }
                 }
 
-                // On a ceiling the host sets the height: read it back, never push it off the
-                // ceiling. Unhosted: set the elevation from the level when the point was not honoured.
-                doc.Regenerate();
-                string elevationVia;
-                if (placedOn == "unhosted")
-                {
-                    double levelZFt = level?.Elevation ?? 0;
-                    elevationVia = EnsureMountHeight(doc, fi, pt.Z, (pt.Z - levelZFt) * MmPerFoot);
-                }
-                else
-                {
-                    elevationVia = ActualZ(fi, out double z) && Math.Abs(z - pt.Z) <= ZTolFt ? "insertion_point" : "host";
-                }
                 TxGuard.CommitOrThrow(tx);
 
-                ActualZ(fi, out double actualZ);
-                return new Dictionary<string, object?>
+                var contact = CadElectricalResolver.ContactHeight(doc, fi);
+                double contactMm = contact.ZFt * MmPerFoot;
+                ActualZ(fi, out double originZ);
+                var row = new Dictionary<string, object?>
                 {
                     ["index"] = p.Index,
                     ["room_id"] = p.RoomId,
@@ -385,17 +407,36 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     ["host"] = placedOn,
                     ["facing_method"] = "not_applicable",
                     ["elevation_set_via"] = elevationVia,
-                    ["z_mm"] = Math.Round(actualZ * MmPerFoot, 1),
+                    ["z_mm"] = Math.Round(contactMm, 1),
+                    ["height_via"] = contact.Via,
+                    ["origin_z_mm"] = Math.Round(originZ * MmPerFoot, 1),
                     ["target_z_mm"] = Math.Round(zMm, 1),
                 };
+                BoundingBoxXYZ? bb = null;
+                try { bb = fi.get_BoundingBox(null); } catch { bb = null; }
+                if (bb != null)
+                {
+                    double minMm = bb.Min.Z * MmPerFoot, maxMm = bb.Max.Z * MmPerFoot;
+                    row["geometry_z_mm"] = new List<object> { Math.Round(minMm, 1), Math.Round(maxMm, 1) };
+                    row["geometry_touches_host"] = OverheadPlacement.GeometryTouches(minMm, maxMm, contactMm);
+                }
+                return row;
             }
             catch { tx.RollBack(); throw; }
         }
 
-        /// <summary>Place a face-based or work-plane-based family on the ceiling's bottom face
-        /// over the point, reference direction along X, in a SubTransaction so a refusal leaves
-        /// nothing behind. Null when no bottom face lies over the point or Revit refuses.</summary>
-        private static FamilyInstance? TryOnBottomFace(Document doc, FamilySymbol symbol, Ceiling ceiling, XYZ pt)
+        /// <summary>
+        /// Place a face-based or work-plane-based family on a bottom face of the ceiling over the
+        /// point, reference direction along X, at the point where a vertical through the target
+        /// crosses that face. The faces are tried in OverheadPlacement.FaceOrder: looking down,
+        /// the one holding the target first. Each try is a SubTransaction and is measured: its
+        /// contact height must be within 20 mm of the target, else it is rolled back, recorded in
+        /// <paramref name="misses"/>, and the next face is tried, two at most. Null when no face
+        /// took the device at the right height; <paramref name="misses"/> empty then means no
+        /// face lay over the point or Revit refused them all.
+        /// </summary>
+        private static FamilyInstance? TryOnBottomFace(Document doc, FamilySymbol symbol, Ceiling ceiling, XYZ pt,
+                                                       double targetZMm, List<Dictionary<string, object?>> misses)
         {
             IList<Reference> refs;
             try { refs = HostObjectUtils.GetBottomFaces(ceiling); } catch { return null; }
@@ -403,36 +444,126 @@ namespace BinaVibe.Mcp.Tools.Electrical
             try { bb = ceiling.get_BoundingBox(null); } catch { bb = null; }
             if (bb == null) return null;
 
-            Reference? best = null;
-            double bestZ = double.MaxValue;
+            var candidates = new List<(Reference Ref, double ZFt)>();
+            var keys = new List<(double NormalZ, double? ZMm)>();
             foreach (var r in refs)
             {
+                double? z = null, nz = null;
                 try
                 {
-                    if (!(ceiling.GetGeometryObjectFromReference(r) is Face face)) continue;
-                    double? z = CadElectricalResolver.UndersideAt(new[] { face }, pt.X, pt.Y, bb.Min.Z - 1, bb.Max.Z + 1);
-                    if (!z.HasValue || z.Value >= bestZ) continue;
-                    best = r;
-                    bestZ = z.Value;
+                    if (ceiling.GetGeometryObjectFromReference(r) is Face face)
+                    {
+                        z = CadElectricalResolver.UndersideAt(new[] { face }, pt.X, pt.Y, bb.Min.Z - 1, bb.Max.Z + 1);
+                        // GetBottomFaces names them bottom faces: one whose normal cannot be read
+                        // is taken to look down.
+                        if (z.HasValue) nz = CadElectricalResolver.NormalZ(face, pt.X, pt.Y, z.Value) ?? -1;
+                    }
                 }
-                catch { /* a face that cannot be read is not a candidate */ }
+                catch { z = null; /* a face that cannot be read is not a candidate */ }
+                candidates.Add((r, z ?? 0));
+                keys.Add((nz ?? 0, z.HasValue ? z.Value * MmPerFoot : (double?)null));
             }
-            if (best == null) return null;
 
-            using var st = new SubTransaction(doc);
-            st.Start();
-            try
+            foreach (int i in OverheadPlacement.FaceOrder(keys, targetZMm).Take(2))
             {
-                var fi = doc.Create.NewFamilyInstance(best, new XYZ(pt.X, pt.Y, bestZ), XYZ.BasisX, symbol);
-                doc.Regenerate();
-                st.Commit();
-                return fi;
+                var faceZ = candidates[i].ZFt;
+                using var st = new SubTransaction(doc);
+                st.Start();
+                try
+                {
+                    var fi = doc.Create.NewFamilyInstance(candidates[i].Ref, new XYZ(pt.X, pt.Y, faceZ), XYZ.BasisX, symbol);
+                    doc.Regenerate();
+                    if (OverheadPlacement.HeightOk(ContactMm(doc, fi), targetZMm))
+                    {
+                        st.Commit();
+                        return fi;
+                    }
+                    misses.Add(Attempt(doc, fi, faceZ));
+                    st.RollBack();
+                }
+                catch
+                {
+                    // Refused by Revit: not a height miss; the next face is tried.
+                    if (st.HasStarted() && !st.HasEnded()) st.RollBack();
+                }
             }
-            catch
+            return null;
+        }
+
+        private static double ContactMm(Document doc, FamilyInstance fi) =>
+            CadElectricalResolver.ContactHeight(doc, fi).ZFt * MmPerFoot;
+
+        /// <summary>One placement as measured, for a height_mismatch report.</summary>
+        private static Dictionary<string, object?> Attempt(Document doc, FamilyInstance fi, double? faceZFt)
+        {
+            var contact = CadElectricalResolver.ContactHeight(doc, fi);
+            ActualZ(fi, out double originZ);
+            return new Dictionary<string, object?>
             {
-                st.RollBack();
-                return null;
+                ["face_z_mm"] = faceZFt.HasValue ? Math.Round(faceZFt.Value * MmPerFoot, 1) : (double?)null,
+                ["z_mm"] = Math.Round(contact.ZFt * MmPerFoot, 1),
+                ["height_via"] = contact.Via,
+                ["origin_z_mm"] = Math.Round(originZ * MmPerFoot, 1),
+            };
+        }
+
+        private static InvalidOperationException HeightMismatch(
+            PlannedPoint p, double targetZMm, List<Dictionary<string, object?>> tries)
+        {
+            string tried = string.Join("; ", tries.Select(t =>
+                (t["face_z_mm"] != null ? $"face at {t["face_z_mm"]} mm: " : "") +
+                $"contact {t["z_mm"]} mm ({t["height_via"]}), origin {t["origin_z_mm"]} mm"));
+            return new InvalidOperationException(
+                $"height_mismatch: candidate {p.Index} did not land on the ceiling's underside at " +
+                $"{Math.Round(targetZMm, 1)} mm (more than {OverheadPlacement.HeightTolMm} mm off). Tried {tried}.");
+        }
+
+        /// <summary>
+        /// Put an overhead device placed with the level overload at its target height, and read
+        /// it back as a contact height. A work-plane-based family on a level has no
+        /// INSTANCE_ELEVATION_PARAM: its height is the level plus "Offset from Host"
+        /// (INSTANCE_FREE_HOST_OFFSET_PARAM), and its LocationPoint need not show it. An unhosted
+        /// family takes "Elevation from Level" (INSTANCE_ELEVATION_PARAM) and its LocationPoint
+        /// does show it. Each parameter that applies is set, measured, and kept when the contact
+        /// height is the target. None works: elevation_unset, and the point fails alone; it is
+        /// never left at the level.
+        /// </summary>
+        private static string SetLevelHeight(Document doc, FamilyInstance fi, Level? level, double targetZFt, int index)
+        {
+            bool workPlane;
+            try { workPlane = fi.Symbol.Family.FamilyPlacementType == FamilyPlacementType.WorkPlaneBased; }
+            catch { workPlane = false; }
+            bool AtTarget() => Math.Abs(CadElectricalResolver.ContactHeight(doc, fi).ZFt - targetZFt) <= ZTolFt;
+
+            if (!workPlane && AtTarget()) return "insertion_point";
+
+            Level? hostLevel = null;
+            try { hostLevel = fi.Host as Level; } catch { hostLevel = null; }
+            Level? ownLevel = doc.GetElement(fi.LevelId) as Level;
+            Level? from = (workPlane ? hostLevel ?? ownLevel : ownLevel ?? hostLevel) ?? level;
+            double want = targetZFt - (from?.Elevation ?? 0);
+
+            var order = workPlane
+                ? new[] { BuiltInParameter.INSTANCE_FREE_HOST_OFFSET_PARAM, BuiltInParameter.INSTANCE_ELEVATION_PARAM }
+                : new[] { BuiltInParameter.INSTANCE_ELEVATION_PARAM, BuiltInParameter.INSTANCE_FREE_HOST_OFFSET_PARAM };
+            foreach (var bip in order)
+            {
+                var prm = fi.get_Parameter(bip);
+                if (prm == null || prm.IsReadOnly || prm.StorageType != StorageType.Double) continue;
+                try
+                {
+                    prm.Set(want);
+                    doc.Regenerate();
+                }
+                catch { continue; }
+                if (AtTarget()) return bip.ToString();
             }
+
+            if (AtTarget()) return "insertion_point";
+            throw new InvalidOperationException(
+                $"elevation_unset: candidate {index} was placed at the level but its height could not be set to " +
+                $"{Math.Round(targetZFt * MmPerFoot, 1)} mm (contact {Math.Round(CadElectricalResolver.ContactHeight(doc, fi).ZFt * MmPerFoot, 1)} mm): " +
+                "neither Offset from Host nor Elevation from Level took. Use a ceiling, face-based or unhosted family for it.");
         }
 
         // ─── place_socket_on_wall ───────────────────────────────────────
