@@ -34,6 +34,13 @@ namespace Tests
             "CadElectricalReview.cs",
         };
 
+        /// <summary>The phase 1 files on the Revit side: not linked into the tests, but held to
+        /// the same net48 rules.</summary>
+        private static readonly string[] RevitFiles =
+        {
+            "CadElectricalTools.cs",
+        };
+
         private static string Src(string file) =>
             File.ReadAllText(Path.Combine(RepoRoot(), "BinaVibe", "Mcp", "Tools", "Electrical", file));
 
@@ -57,7 +64,7 @@ namespace Tests
         [Fact]
         public void Pure_electrical_files_use_no_api_that_net48_lacks()
         {
-            foreach (string file in Files)
+            foreach (string file in Files.Concat(RevitFiles))
             {
                 string src = Src(file);
                 foreach ((string pattern, string why) in Banned)
@@ -71,7 +78,7 @@ namespace Tests
         [Fact]
         public void Pure_electrical_files_enable_nullable_and_carry_their_usings()
         {
-            foreach (string file in Files)
+            foreach (string file in Files.Concat(RevitFiles))
             {
                 string src = Src(file);
                 Assert.StartsWith("#nullable enable", src.TrimStart('﻿'), StringComparison.Ordinal);

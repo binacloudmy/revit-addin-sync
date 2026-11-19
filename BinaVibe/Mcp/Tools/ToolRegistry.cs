@@ -99,6 +99,9 @@ namespace BinaVibe.Mcp.Tools
                 // has no local file to read. Returns error for model refs.
                 "get_dwg_block_names"           => DwgBlockNames(args),
                 "get_dwg_texts"                 => DwgTexts(args),
+                // CAD electrical (phase 1): the drawing's census plus the model facts the
+                // mapping step needs. Read-only: reads the DWG by path, no Transaction.
+                "read_cad_electrical"           => Electrical.CadElectricalTools.ReadCadElectrical(app, doc, args),
                 // Pane-only: opens an attached DWG and hands back its ref +
                 // summary. Deliberately NOT advertised to the model (it takes a
                 // local file path), so it has no entry in the agent's catalog.

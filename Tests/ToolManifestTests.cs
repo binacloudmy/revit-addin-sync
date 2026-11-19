@@ -54,6 +54,15 @@ namespace RevitAddinSync.Tests
                          InstalledToolManifest.Names.OrderBy(n => n, StringComparer.Ordinal));
         }
 
+        /// <summary>The CAD electrical tools (phase 1); bina-ai calls them by these names.</summary>
+        [Theory]
+        [InlineData("read_cad_electrical")]
+        public void Manifest_ListsTheCadElectricalTools(string name)
+        {
+            Assert.Contains(name, InstalledToolManifest.Names);
+            Assert.Contains(name, ArmsFromSource());
+        }
+
         [Fact]
         public void Manifest_HasNoDuplicates_AndIsSorted()
         {

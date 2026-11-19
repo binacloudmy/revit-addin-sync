@@ -11,7 +11,7 @@ namespace BinaVibe.Mcp.Tools
     public static class InstalledToolManifest
     {
         public const int ProtocolVersion = 2;
-        public const string Version = "3a46bc01a01e";
+        public const string Version = "e1cb60c5ce71";
         public static readonly string[] Names = new string[]
         {
             "align_viewports",
@@ -154,6 +154,7 @@ namespace BinaVibe.Mcp.Tools
             "purge_unused",
             "query_data",
             "query_geometry",
+            "read_cad_electrical",
             "read_schedule",
             "reconcile",
             "rename_elements",
