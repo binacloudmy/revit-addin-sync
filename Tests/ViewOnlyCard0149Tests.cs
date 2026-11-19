@@ -91,6 +91,44 @@ namespace RevitAddinSync.Tests
             Assert.False(HighlightSet.OnlyAlongBesideListed(null, listed));
         }
 
+        private const long Sheet = 8001, TitleBlock = 8002, Viewport = 8003;
+        private const string SheetListed = "{\"mode\":\"write\",\"created\":[{\"id\":8001,\"category\":\"Sheets\",\"name\":\"A-101 - Aras 01\"}],\"created_count\":1}";
+        private const string SheetResult = "{\"kind\":\"created\",\"lang\":\"en\",\"reply\":\"Sheet made.\",\"items\":[{\"ids\":[8001],\"kind\":\"sheet\",\"title\":\"A-101 - Aras 01\"}],\"counts\":{\"created\":1}}";
+
+        private static Dictionary<long, string> SheetAdded() => new Dictionary<long, string>
+        {
+            [Sheet] = "Sheets", [TitleBlock] = "Title Blocks", [Viewport] = "Viewports", [8004] = "class:Element", [8005] = "class:SketchPlane",
+            [8006] = "Schedule Graphics", [8007] = "class:GraphicsStyle",
+        };
+
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]   // reopened from history: no full id lists, the title block and viewport come back with no category
+        public void ASheetRun_WithItsTitleBlockAndViewport_HasNoMarks(bool keepFull)
+        {
+            // Audit P2: a sheet turn also adds a title block (Round7 live C1/C5); it is part of the sheet, not "1 title block made".
+            var (card, set) = Run(SheetAdded(), SheetListed, SheetResult, keepFull);
+            Assert.Equal(new long[] { Sheet }, set.Kinds.Where(k => k.Outcome == MarkOutcome.Made).SelectMany(k => k.Ids));
+            Assert.DoesNotContain(set.Kinds, k => k.Ids.Contains(TitleBlock) || k.Ids.Contains(Viewport));
+            Assert.True(set.OnlyViewsMade);
+            Assert.False(set.Drawable);
+            Assert.True(card.CreatedBy!.OnlyViews);
+            Assert.Equal(new[] { "Sheets 1" }, card.CreatedBy.Groups.Select(g => g.Category + " " + g.Count));
+        }
+
+        [Fact]
+        public void ASheetRunThatAlsoTaggedDoors_KeepsTheTagMarks()
+        {
+            var added = SheetAdded();
+            added[500001] = "Door Tags";
+            foreach (var keepFull in new[] { true, false })
+            {
+                var (_, set) = Run(added, SheetListed, SheetResult, keepFull);
+                Assert.True(set.Drawable);
+                Assert.Contains(500001L, set.Kinds.Where(k => k.Outcome == MarkOutcome.Made).SelectMany(k => k.Ids));
+            }
+        }
+
         [Fact]
         public void ASheetOrScheduleOnly_IsViewLikeToo()
         {

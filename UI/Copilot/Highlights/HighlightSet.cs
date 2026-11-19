@@ -334,6 +334,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         private static readonly HashSet<string> AlongWithCreated = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             "Cameras", "Section Boxes", "Viewports", "Elevations", "Sections", "Crop Boundaries",
+            "Title Blocks",   // r13 (0.0.149), audit P2: a made sheet's title block (Round7 live C1/C5) is part of the sheet, no mark of its own
         };
 
         /// <summary>r12 audit: a turn that only read. At least one envelope, and every one ok, done (or partial) and phase read: a failed
