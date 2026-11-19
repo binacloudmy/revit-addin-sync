@@ -111,5 +111,94 @@ namespace RevitWebAppSync.Tests
             var back = SocketPlanCache.Get(id, "m.rvt");
             Assert.Equal(3500.0, back.ParamsUsed["spacing_mm"]);
         }
+
+        [Fact]
+        public void Get_on_an_unknown_id_also_names_the_drawing_tool()
+        {
+            var ex = Assert.Throws<InvalidOperationException>(
+                () => SocketPlanCache.Get("socket_plan:nope", "m.rvt"));
+            Assert.Contains("run suggest_socket_points again (plans expire after 2 hours)", ex.Message);
+            Assert.Contains("; for a drawing plan, run plan_cad_electrical again", ex.Message);
+        }
+
+        [Fact]
+        public void Old_style_points_default_to_rule_source_and_no_flags()
+        {
+            var back = SocketPlanCache.Get(SocketPlanCache.Store(Plan(), "m.rvt"), "m.rvt");
+
+            Assert.Equal("rule", back.Source);
+            Assert.Equal("", back.SourceFile);
+            Assert.Null(back.Alignment);
+            foreach (var p in back.Points)
+            {
+                Assert.Equal("rule", p.Source);
+                Assert.Equal("", p.Role);
+                Assert.Equal("", p.SymbolKey);
+                Assert.Null(p.FamilyType);
+                Assert.Empty(p.Flags);
+                Assert.False(p.Excluded);
+                Assert.Null(p.HostCeilingId);
+                Assert.Equal("unhosted", p.Host);
+            }
+        }
+
+        [Fact]
+        public void Cad_fields_survive_the_round_trip()
+        {
+            var plan = new SocketPlan { Source = "cad" };
+            plan.Points.Add(new PlannedPoint
+            {
+                Index = 0, Role = "light", SymbolKey = "LIGHT-A", FamilyType = "Downlight : 12W",
+                Flags = new List<string> { "no_room", "provisional_alignment" }, Source = "cad", Excluded = true,
+                Host = "ceiling", HostCeilingId = 4242,
+            });
+
+            var back = SocketPlanCache.Get(SocketPlanCache.Store(plan, "m.rvt"), "m.rvt");
+
+            var p = Assert.Single(back.Points);
+            Assert.Equal("light", p.Role);
+            Assert.Equal("LIGHT-A", p.SymbolKey);
+            Assert.Equal("Downlight : 12W", p.FamilyType);
+            Assert.Equal(new[] { "no_room", "provisional_alignment" }, p.Flags);
+            Assert.Equal("cad", p.Source);
+            Assert.True(p.Excluded);
+            Assert.Equal("ceiling", p.Host);
+            Assert.Equal(4242, p.HostCeilingId);
+        }
+
+        [Fact]
+        public void Alignment_and_source_file_survive()
+        {
+            var plan = Plan();
+            plan.Source = "cad";
+            plan.SourceFile = @"C:\drawings\E-01.dwg";
+            plan.Alignment = new PlanAlignment
+            {
+                Level = "Level 1", Cluster = 2, RotationDeg = 90, TxMm = 12345, TyMm = -6780,
+                Score = 0.93, Outcome = "accepted", Method = "fit",
+            };
+
+            var back = SocketPlanCache.Get(SocketPlanCache.Store(plan, "m.rvt"), "m.rvt");
+
+            Assert.Equal("cad", back.Source);
+            Assert.Equal(@"C:\drawings\E-01.dwg", back.SourceFile);
+            Assert.NotNull(back.Alignment);
+            Assert.Equal("Level 1", back.Alignment!.Level);
+            Assert.Equal(2, back.Alignment.Cluster);
+            Assert.Equal(90, back.Alignment.RotationDeg);
+            Assert.Equal(12345, back.Alignment.TxMm);
+            Assert.Equal(-6780, back.Alignment.TyMm);
+            Assert.Equal(0.93, back.Alignment.Score);
+            Assert.Equal("accepted", back.Alignment.Outcome);
+            Assert.Equal("fit", back.Alignment.Method);
+        }
+
+        [Fact]
+        public void Runs_default_to_empty()
+        {
+            var back = SocketPlanCache.Get(SocketPlanCache.Store(Plan(), "m.rvt"), "m.rvt");
+            Assert.NotNull(back.Runs);
+            Assert.Empty(back.Runs);
+        }
     }
 }

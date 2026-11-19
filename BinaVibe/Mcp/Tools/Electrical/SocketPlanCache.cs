@@ -1,3 +1,4 @@
+#nullable enable
 // Socket plan cache — pure, Revit-free, MILLIMETRES ONLY.
 //
 // One SocketPlan per suggest_socket_points call, cached under
@@ -13,6 +14,10 @@
 //      an audit record is merely wrong.
 //   2. CloseAll() is actually wired up (App.cs). AuditResultCache.CloseAll is
 //      dead code — never called — and that leak should not be inherited.
+//
+// plan_cad_electrical stores its plans here too (Source "cad"): each point then carries its
+// role, block class, family type and flags, and the plan its drawing alignment. Every field
+// it added defaults to what a suggest_socket_points plan means, so those plans read as before.
 
 using System;
 using System.Collections.Generic;
@@ -31,7 +36,9 @@ namespace BinaVibe.Mcp.Tools.Electrical
         /// <summary>Local wall to host on; null when the boundary came from a
         /// Revit link and there is nothing local to host against.</summary>
         public long? HostWallId;
-        /// <summary>"wall" | "unhosted"</summary>
+        /// <summary>Local ceiling to host on, for a ceiling device; null otherwise.</summary>
+        public long? HostCeilingId;
+        /// <summary>"wall" | "ceiling" | "unhosted"</summary>
         public string Host = "unhosted";
         public double XMm;
         public double YMm;
@@ -48,9 +55,44 @@ namespace BinaVibe.Mcp.Tools.Electrical
         public double StationMm;
         public double WallLengthMm;
         public int LoopIndex;
+
+        /// <summary>The mapping's role ("socket", "switch", ...); empty on a rule plan,
+        /// whose points are all sockets.</summary>
+        public string Role = "";
+        /// <summary>The drawing's block class key; empty on a rule plan.</summary>
+        public string SymbolKey = "";
+        /// <summary>"Family : Type" from the mapping; null when the caller names it.</summary>
+        public string? FamilyType;
+        /// <summary>Review flags (no_room, wet_room, already_present, ...).</summary>
+        public List<string> Flags = new();
+        /// <summary>"rule" (suggest_socket_points) | "cad" (plan_cad_electrical).</summary>
+        public string Source = "rule";
+        /// <summary>Left out of a default placement because of a flag; explicit indices
+        /// still place it.</summary>
+        public bool Excluded;
     }
 
-    /// <summary>Everything one suggest_socket_points run produced.</summary>
+    /// <summary>Where a drawing was found to sit on the model, for a drawing plan.</summary>
+    public sealed class PlanAlignment
+    {
+        public string Level = "";
+        public int Cluster;
+        public double RotationDeg;
+        public double TxMm;
+        public double TyMm;
+        public double Score;
+        /// <summary>"accepted" | "provisional"</summary>
+        public string Outcome = "";
+        /// <summary>"fit" | "fit_faces" | "linked_instance"</summary>
+        public string Method = "";
+    }
+
+    /// <summary>A conduit run between devices. Phase 2; no plan carries one yet.</summary>
+    public sealed class PlannedRun
+    {
+    }
+
+    /// <summary>Everything one suggest_socket_points or plan_cad_electrical run produced.</summary>
     public sealed class SocketPlan
     {
         public string PlanId = "";
@@ -62,6 +104,12 @@ namespace BinaVibe.Mcp.Tools.Electrical
         /// <summary>The effective rule values this plan was built with, echoed
         /// back on the wire so any answer is auditable.</summary>
         public Dictionary<string, object?> ParamsUsed = new();
+        /// <summary>"rule" | "cad"</summary>
+        public string Source = "rule";
+        /// <summary>The drawing a "cad" plan was read from; empty on a rule plan.</summary>
+        public string SourceFile = "";
+        public PlanAlignment? Alignment;
+        public List<PlannedRun> Runs = new();
     }
 
     public static class SocketPlanCache
@@ -95,7 +143,8 @@ namespace BinaVibe.Mcp.Tools.Electrical
             if (string.IsNullOrWhiteSpace(planId) || !_entries.TryGetValue(planId, out var e))
                 throw new InvalidOperationException(
                     "unknown plan_id " + planId +
-                    " — run suggest_socket_points again (plans expire after 2 hours)");
+                    " — run suggest_socket_points again (plans expire after 2 hours)" +
+                    "; for a drawing plan, run plan_cad_electrical again");
 
             if (!string.Equals(e.Plan.DocKey, docKey ?? "", StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException(

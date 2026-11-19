@@ -28,6 +28,8 @@ namespace Tests
             "ElectricalCensus.cs",
             "CadElectricalMapping.cs",
             "CadModelFit.cs",
+            "SocketPlanCache.cs",
+            "SocketPlanSelect.cs",
         };
 
         private static string Src(string file) =>
