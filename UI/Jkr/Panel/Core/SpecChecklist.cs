@@ -305,7 +305,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             ["searchIssues"] = ("Cari isu", "Search issues"),
             ["progResolved"] = ("{0} daripada {1} selesai", "{0} of {1} resolved"),
             ["fixAllN"] = ("Baiki semua {0}", "Fix all {0}"),
+            // The AI fixer mark: "proposal" only when a proposed value exists on the row.
             ["aiProposal"] = ("Cadangan pembaiki AI", "AI fixer proposal"),
+            ["aiCanMeta"] = ("Pembaiki AI boleh mencadangkan", "AI fixer can propose"),
             ["noFix"] = ("Tiada pembaikan sedia. Perlu tindakan manual.", "No ready-made fix. Needs manual action."),
             ["noFixReads"] = ("Masih tertulis “{0}”. Perlu tindakan manual.", "Still reads “{0}”. Needs manual action."),
             // An AI fixer candidate before the fixer has proposed anything: no value is claimed.

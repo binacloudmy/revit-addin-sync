@@ -56,8 +56,11 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public bool HasNoFixText => !string.IsNullOrEmpty(NoFixText);
         /// <summary>"High" | "Med" | "Low": the pip beside the row.</summary>
         public string Sev { get; set; } = "";
-        /// <summary>An open AI fixer candidate: the spark-bolt mark, "· AI fixer proposal" in the meta.</summary>
-        public bool IsAiProposal { get; set; }
+        /// <summary>An open AI fixer item: the spark-bolt mark and <see cref="AiMarkLabel"/> ending the meta.</summary>
+        public bool IsAiFixer { get; set; }
+        /// <summary>"AI fixer proposal" only when the row has a proposed value; else
+        /// "AI fixer can propose" (no proposal is claimed before one exists). "" when not AI.</summary>
+        public string AiMarkLabel { get; set; } = "";
         public bool IsManual { get; set; }
         public string Reason { get; set; } = "";
         public string SvLabel { get; set; } = "";
@@ -291,8 +294,6 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         }
         public string SearchPlaceholder => S("searchIssues");
         public string StateTabsAria => S("stateTabs");
-        /// <summary>The spark-bolt mark's name on an AI fixer row: "AI fixer proposal".</summary>
-        public string AiProposalLabel => S("aiProposal");
         public bool HasCat => _core.Cat != PanelCore.AllSections;
         public string CatLabel => HasCat ? T("secShort") + " " + _core.Cat + " · " + SectionName(_core.Cat) : "";
         public string ClearCatLabel => T("clearF");
@@ -331,8 +332,10 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             else if (x.Status == ItemStatus.Resolved) { sv = T("resolvedRow"); kind = "ok"; }
             else if (x.Status == ItemStatus.Ignored) { sv = T("ignoredRow"); kind = "ign"; }
             else { sv = PanelStrings.Severity[x.Sev].In(_core.Lang); kind = x.Sev; }
-            // An AI fixer candidate has no proposed value yet: the row says so and claims none.
-            var ai = !man && x.AiFix && x.Prop == null && x.Status == ItemStatus.Open && !x.MarkedManual;
+            // An open AI fixer item. Without a proposed value (today's only case: the fixer proposes
+            // during Fix all) the row says the fixer can propose one and claims none.
+            var ai = !man && x.AiFix && x.Status == ItemStatus.Open && !x.MarkedManual;
+            var aiMark = !ai ? "" : x.Prop != null ? S("aiProposal") : S("aiCanMeta");
             var hasAct = !string.IsNullOrEmpty(a) && a != "—";
             // Clear Sheet's meta line: severity (or state) · element · section, then the cited
             // document. The section is left out when the element already names it ("Project
@@ -344,7 +347,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             if (sec.Length > 0 && !string.Equals(sec, el, StringComparison.OrdinalIgnoreCase)) meta.Add(sec);
             if (!string.IsNullOrEmpty(x.Cite) && x.Cite != "—")
                 meta.AddRange(x.Cite.Split(new[] { " · " }, StringSplitOptions.RemoveEmptyEntries).Where(c => c != "Borang " + x.Row));
-            if (ai) meta.Add(S("aiProposal"));
+            if (ai) meta.Add(aiMark);
             var change = !man && x.Prop != null;
             return new ResultRow
             {
@@ -358,7 +361,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                           : ai ? (hasAct ? string.Format(S("aiCanReads"), a) : S("aiCan"))
                           : hasAct ? string.Format(S("noFixReads"), a) : S("noFix"),
                 Sev = x.Sev,
-                IsAiProposal = ai,
+                IsAiFixer = ai,
+                AiMarkLabel = aiMark,
                 IsManual = man,
                 Reason = man ? x.Reason?.In(_core.Lang) ?? "" : "",
                 SvLabel = sv,

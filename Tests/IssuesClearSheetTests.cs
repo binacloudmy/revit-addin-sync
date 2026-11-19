@@ -89,7 +89,7 @@ namespace RevitWebAppSync.Tests
             Assert.Equal("High", row.Sev);
             // The Borang key leads the title, so the meta does not repeat "Borang D10".
             Assert.Equal("High · Doors [204511] PT2p600a · Architectural families", row.Meta);
-            Assert.False(row.IsAiProposal);
+            Assert.False(row.IsAiFixer);
             Assert.True(row.ShowFix);
         }
 
@@ -110,23 +110,26 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void An_AI_fixer_row_carries_the_mark_and_ends_its_meta_with_AI_fixer_proposal_but_claims_no_value()
+        public void An_AI_fixer_row_without_a_proposal_says_the_fixer_can_propose_and_claims_no_value()
         {
             var (r, core) = New();
             r.Load(new[] { Ai("1", "D11"), Ai("2", "D11", actual: "") }, Summary());
             core.SetLang(PanelStrings.En);
             var row = r.Rows.Single(x => x.Id == "1");
-            Assert.True(row.IsAiProposal);
+            Assert.True(row.IsAiFixer);
             Assert.False(row.ShowFix);                      // the row's bolt is for ready-made fixes
             Assert.False(row.HasChange);                    // no value until the AI fixer proposes one
-            Assert.EndsWith(" · AI fixer proposal", row.Meta);
-            Assert.Equal("AI fixer proposal", r.AiProposalLabel);
+            // No proposal exists yet: never "AI fixer proposal" (spec §3 honesty).
+            Assert.EndsWith(" · AI fixer can propose", row.Meta);
+            Assert.DoesNotContain("AI fixer proposal", row.Meta);
+            Assert.Equal("AI fixer can propose", row.AiMarkLabel);
             Assert.StartsWith("Medium · ", row.Meta);
             Assert.Equal("Still reads “Metal White”. The AI fixer can propose a fix.", row.NoFixText);
             Assert.Equal("No ready-made fix. The AI fixer can propose one.", r.Rows.Single(x => x.Id == "2").NoFixText);
             core.SetLang(PanelStrings.Ms);
             row = r.Rows.Single(x => x.Id == "1");
-            Assert.EndsWith(" · Cadangan pembaiki AI", row.Meta);
+            Assert.EndsWith(" · Pembaiki AI boleh mencadangkan", row.Meta);
+            Assert.Equal("Pembaiki AI boleh mencadangkan", row.AiMarkLabel);
             Assert.Equal("Masih tertulis “Metal White”. Pembaiki AI boleh mencadangkan pembaikan.", row.NoFixText);
         }
 
@@ -136,10 +139,10 @@ namespace RevitWebAppSync.Tests
             var (r, _) = New();
             Assert.True(ResultsAdapter.FromIssue(WithStatus(Ai("3", "D11"), IssueStatus.ManualFixNeeded)).AiFix);   // still a candidate
             r.Load(new[] { WithStatus(Ai("1", "D11"), IssueStatus.ManualFixNeeded), WithStatus(Ai("2", "D11"), IssueStatus.Ignored) }, Summary());
-            Assert.False(r.Rows.Single(x => x.Id == "1").IsAiProposal);
+            Assert.False(r.Rows.Single(x => x.Id == "1").IsAiFixer);
             Assert.DoesNotContain("AI", r.Rows.Single(x => x.Id == "1").Meta);
             r.SelectTab(PanelTab.Ignore);
-            Assert.False(r.Rows.Single(x => x.Id == "2").IsAiProposal);
+            Assert.False(r.Rows.Single(x => x.Id == "2").IsAiFixer);
         }
 
         [Fact]
@@ -153,6 +156,32 @@ namespace RevitWebAppSync.Tests
             core.SetLang(PanelStrings.En);
             var meta = r.Rows.Single().Meta;
             Assert.Equal("Medium · Project Information · Doc 09 · 5.4.1", meta);
+        }
+
+        [Fact]
+        public void An_AI_fixer_row_with_a_proposed_value_shows_it_and_reads_AI_fixer_proposal()
+        {
+            // The adapter cannot produce this state yet (the fixer proposes during Fix all);
+            // the row is ready for it.
+            var item = new PanelItem
+            {
+                Id = "1", Row = "Db.2", Sec = "D", Sev = "Med", Title = Text.Same("Material not JKR-coded"),
+                El = "Railings · 9 elements", Act = Text.Same("Metal White"), Prop = "jkrMT_ST_Putih", AiFix = true,
+            };
+            var core = new PanelCore(new[] { item }, null, new ManualClock());
+            var r = new ResultsScreenModel(core, new StartScreenModel(core));
+            core.SetLang(PanelStrings.En);
+            var row = r.Rows.Single();
+            Assert.True(row.IsAiFixer);
+            Assert.True(row.HasChange);
+            Assert.Equal(("Metal White", "jkrMT_ST_Putih"), (row.OldValue, row.NewValue));
+            Assert.Equal("", row.NoFixText);
+            Assert.EndsWith(" · AI fixer proposal", row.Meta);
+            Assert.Equal("AI fixer proposal", row.AiMarkLabel);
+            core.SetLang(PanelStrings.Ms);
+            row = r.Rows.Single();
+            Assert.EndsWith(" · Cadangan pembaiki AI", row.Meta);
+            Assert.Equal("Cadangan pembaiki AI", row.AiMarkLabel);
         }
 
         private static IssueVm WithStatus(IssueVm i, IssueStatus s) { i.Status = s; return i; }

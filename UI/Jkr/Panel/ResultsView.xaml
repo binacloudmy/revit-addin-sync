@@ -952,9 +952,8 @@
                                     </Button>
                                     <!-- an AI fixer candidate: the spark-bolt mark (Clear Sheet "AI fix mark", option 1) -->
                                     <Grid Grid.Column="1" Width="32" Height="32" Margin="12,11,8,0" VerticalAlignment="Top" Background="Transparent"
-                                          Visibility="{Binding IsAiProposal, Converter={StaticResource B2V}}"
-                                          ToolTip="{Binding DataContext.AiProposalLabel, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
-                                          AutomationProperties.Name="{Binding DataContext.AiProposalLabel, RelativeSource={RelativeSource AncestorType=ItemsControl}}">
+                                          Visibility="{Binding IsAiFixer, Converter={StaticResource B2V}}"
+                                          ToolTip="{Binding AiMarkLabel}" AutomationProperties.Name="{Binding AiMarkLabel}">
                                         <Viewbox Width="14" Height="14" HorizontalAlignment="Center" VerticalAlignment="Center">
                                             <Canvas Width="16" Height="16">
                                                 <Path Style="{StaticResource Ico}" Stroke="{StaticResource Bz.TextBody}" Data="{StaticResource SparkBoltGeo}"/>
