@@ -437,6 +437,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     ["pair_across_layers"] = pairAcross,
                     ["min_wall_mm"] = CadSymbolResolve.MinStructuralWallMm,
                     ["thin_walls_ignored"] = thinIgnored,
+                    ["height_basis"] = "level",
                     ["reach_mm"] = options.ReachMm,
                     ["axial_tolerance_mm"] = options.AxialTolMm,
                     ["existing_mm"] = options.ExistingMm,

@@ -3,7 +3,8 @@
 //
 // One drawn symbol, already carried into model coordinates by the fit, becomes one plan
 // point: snapped to the face of the wall it is drawn against, facing into the room, at the
-// mapping's height above that room's floor, with the review flags that apply. The pure core:
+// mapping's height above the level (a drawing's legend heights are from finished floor level,
+// which is the level, not a room's lower offset), with the review flags that apply. The pure core:
 // walls, rooms and existing devices come in as plain data and a "room at this point"
 // delegate, so the Revit side (CadElectricalResolver) only reads the model.
 //
@@ -33,6 +34,8 @@ namespace BinaVibe.Mcp.Tools.Electrical
     {
         public long Id;
         public string Name = "";
+        /// <summary>The room's floor (level plus lower offset). Reported only: a drawing point's
+        /// height comes from the target level.</summary>
         public double FloorZMm;
         public bool Linked;
     }
@@ -155,14 +158,17 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 if (IsWet(room.Name, o.WetKeywords)) AddFlag(p, "wet_room");
             }
 
+            // 6. Height from the target level, never the room's floor: the legend measures from
+            // finished floor level, and a room's lower offset (or its being on a link's level)
+            // would move every socket by that much. The room is for naming and the wet check.
             if (s.MountHeightMm.HasValue)
             {
                 p.MountHeightMm = s.MountHeightMm.Value;
-                p.ZMm = (room != null ? room.FloorZMm : levelZMm) + s.MountHeightMm.Value;
+                p.ZMm = levelZMm + s.MountHeightMm.Value;
             }
             else
             {
-                p.ZMm = room != null ? room.FloorZMm : levelZMm;
+                p.ZMm = levelZMm;
                 AddFlag(p, "no_height");
             }
 

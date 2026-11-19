@@ -127,14 +127,38 @@ namespace Tests
         }
 
         [Fact]
-        public void Height_is_room_floor_plus_mount_height()
+        public void Height_is_level_plus_mount_height()
         {
-            var raised = new RoomHit { Id = 13, Name = "Stage", FloorZMm = 3450 };
+            var room = new RoomHit { Id = 13, Name = "Office", FloorZMm = 3000 };
 
-            PlannedPoint p = Run(2000, 120, roomAt: (x, y) => y > 75 ? raised : null, levelZ: 3000);
+            PlannedPoint p = Run(2000, 120, roomAt: (x, y) => y > 75 ? room : null, levelZ: 3000);
 
-            Assert.Equal(3750, p.ZMm, 6);
+            Assert.Equal(3300, p.ZMm, 6);
             Assert.Equal(300, p.MountHeightMm, 6);
+            Assert.Equal(13, p.RoomId);
+        }
+
+        [Fact]
+        public void A_room_lower_offset_does_not_move_the_height()
+        {
+            // The room's floor sits 100 mm under its level; legend heights are from the level.
+            var sunk = new RoomHit { Id = 13, Name = "Office", FloorZMm = 2900 };
+
+            PlannedPoint p = Run(2000, 120, roomAt: (x, y) => y > 75 ? sunk : null, levelZ: 3000);
+
+            Assert.Equal(3300, p.ZMm, 6);
+            Assert.Equal("Office", p.RoomName);
+        }
+
+        [Fact]
+        public void A_room_on_another_level_still_uses_the_target_level()
+        {
+            // e.g. a linked model's room whose floor is at a different elevation.
+            var other = new RoomHit { Id = 13, Name = "Office", FloorZMm = 6450, Linked = true };
+
+            PlannedPoint p = Run(2000, 120, roomAt: (x, y) => y > 75 ? other : null, levelZ: 3000);
+
+            Assert.Equal(3300, p.ZMm, 6);
         }
 
         [Fact]

@@ -99,7 +99,8 @@ namespace BinaVibe.Mcp.Tools.Electrical
         /// <summary>
         /// The room at a plan point on this level, mm in and out: the model's own rooms
         /// first, then each loaded link's, through the inverse of its transform. Looked for at
-        /// 1000 mm above the level. Floor Z is the room's level plus its base offset.
+        /// 1000 mm above the level. Floor Z is the room's level plus its base offset; it is not the
+        /// height basis for a drawing plan (CadSymbolResolve measures from the target level).
         /// </summary>
         public static Func<double, double, RoomHit?> RoomLookup(Document doc, Level level)
         {
