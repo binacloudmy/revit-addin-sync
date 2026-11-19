@@ -35,6 +35,30 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public bool CanFix { get; set; }
         public string Prop { get; set; } = "";
 
+        /// <summary>"Proposed by the AI fixer": an open AI fixer item with a proposed value.</summary>
+        public bool IsAiProposal { get; set; }
+        /// <summary>The fixer's reason line for <see cref="Prop"/>, or empty.</summary>
+        public string AiReason { get; set; } = "";
+        public bool HasAiReason => !string.IsNullOrEmpty(AiReason);
+        /// <summary>An open AI fixer item with no proposed value yet: the detail says the fixer
+        /// can propose one and claims no value (the same rule as the row's AI mark).</summary>
+        public bool IsAiCanPropose { get; set; }
+
+        /// <summary>The action bar's primary button: Apply fix (F) / Apply AI fix (F).</summary>
+        public bool HasApply => CanFix || IsAiProposal;
+        /// <summary>The diff block's head: "Suggested fix" / "Proposed by the AI fixer".</summary>
+        public string DiffLabel { get; set; } = "";
+        public string ApplyLabel { get; set; } = "";
+
+        /// <summary>The user marked it "Mark as Manual": still open and a fail, with the Manual tag.</summary>
+        public bool IsMarkedManual { get; set; }
+        public string ManualTag { get; set; } = "";
+        /// <summary>Mark as Manual (text button beside Ignore): an open AI item, not marked yet,
+        /// that <see cref="PanelItem.CanMarkManual"/> allows.</summary>
+        public bool CanMarkManual { get; set; }
+        /// <summary>Reopen replaces Ignore / Apply: an Ignored or marked-manual item.</summary>
+        public bool CanReopen { get; set; }
+
         /// <summary>The last auto-fix failed: it stays open with the reason.</summary>
         public string FixError { get; set; } = "";
         public bool HasFixError => !string.IsNullOrEmpty(FixError);
@@ -48,6 +72,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public bool CanIgnore { get; set; }
         public string Cite { get; set; } = "";
         public bool HasCite => !string.IsNullOrEmpty(Cite) && Cite != "—";
+        /// <summary>"Source: Borang A5, Doc 09 §5.4.1".</summary>
+        public string SourceText { get; set; } = "";
         /// <summary>The cited spec has a PDF the source line can open.</summary>
         public bool CanOpenSource { get; set; }
     }
@@ -77,6 +103,24 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         {
             ["fixFailed"] = ("Auto-fix gagal", "Auto-fix failed"),
             ["howToFix"] = ("Cara membaiki secara manual", "How to fix manually"),
+            // Clear Sheet detail: "Issue 1 of 99 open" / "Issue 1 of 17 in Manual".
+            ["idxOpen"] = ("Isu {0} daripada {1} terbuka", "Issue {0} of {1} open"),
+            ["idxIgnore"] = ("Isu {0} daripada {1} diabaikan", "Issue {0} of {1} ignored"),
+            ["idxResolved"] = ("Isu {0} daripada {1} selesai", "Issue {0} of {1} resolved"),
+            ["idxManual"] = ("Isu {0} daripada {1} dalam Manual", "Issue {0} of {1} in Manual"),
+            ["manualRow"] = ("Semak manual", "Semak manual"),
+            ["manualNote"] = ("Item ini tidak dikira dalam peratus patuh dan tidak dikira gagal. Ia dicetak sebagai “semak manual” dalam Borang.",
+                              "This item is not counted in the compliance % and not counted as a failure. It prints as “semak manual” on the Borang."),
+            ["applyFix"] = ("Guna pembaikan", "Apply fix"),
+            ["applyAiFix"] = ("Guna pembaikan AI", "Apply AI fix"),
+            ["seeAgain"] = ("Anda melihat setiap perubahan sekali lagi sebelum apa-apa ditulis.",
+                            "You see every change again before anything is written."),
+            ["aiProposed"] = ("Dicadangkan oleh pembaiki AI", "Proposed by the AI fixer"),
+            ["aiCaution"] = ("Ini padanan terbaik pembaiki AI, bukan peraturan sedia. Semak sebelum anda guna; anda melihatnya sekali lagi sebelum apa-apa ditulis.",
+                             "This is the AI fixer's best match, not a ready-made rule. Check it before you apply; you see it again before anything is written."),
+            ["aiCanTitle"] = ("Pembaiki AI boleh mencadangkan", "AI fixer can propose"),
+            ["aiCanText"] = ("Belum ada pembaikan sedia. Baiki semua meminta pembaiki AI mencadangkannya; anda melihat cadangannya sebelum apa-apa ditulis.",
+                             "No ready-made fix yet. Fix all asks the AI fixer for one; you see its proposal before anything is written."),
         };
 
         private readonly PanelCore _core;
@@ -138,7 +182,11 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
 
         public int Index => Math.Max(0, Ids.IndexOf(_core.DetailId ?? ""));
         public int Count => Ids.Count;
-        public string IdxLabel => T("idx") + " " + (Index + 1) + " " + T("of") + " " + Count;
+        /// <summary>"Issue 1 of 99 open": the list it opened with is the current tab's.</summary>
+        public string IdxLabel => string.Format(T(IdxKey(_core.Tab)), Index + 1, Count);
+
+        private static string IdxKey(PanelTab tab) =>
+            tab == PanelTab.Ignore ? "idxIgnore" : tab == PanelTab.Resolved ? "idxResolved" : tab == PanelTab.Manual ? "idxManual" : "idxOpen";
         public double ProgFraction => Count == 0 ? 0 : (Index + 1) / (double)Count;
         public bool AtStart => Index == 0;
         public bool AtEnd => Index >= Count - 1;
@@ -190,11 +238,18 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public string WhyManualLabel => T("whyManual");
         public string ManualNote => T("manualNote");
         public string SuggestedLabel => T("suggested");
-        public string AiFixSub => T("aiFixSub");
-        public string ApplyFixLabel => T("applyFix");
+        public string SeeAgainNote => T("seeAgain");
+        public string AiProposedLabel => T("aiProposed");
+        public string AiCaution => T("aiCaution");
+        public string AiCanTitle => T("aiCanTitle");
+        public string AiCanText => T("aiCanText");
+        public string MarkManualLabel => T("markManual");
+        public string ReopenLabel => T("reopen");
         public string LocateLabel => T("locate");
         public string IgnoreLabel => T("ignore");
         public string SourceLabel => T("sourceL");
+        /// <summary>Clear Sheet's one source line: "Source: Borang A5, Doc 09 §5.4.1".</summary>
+        public string SourceLine(string cite) => T("sourceL") + ": " + (cite ?? "").Replace(" · ", ", ");
         public string FixFailedLabel => T("fixFailed");
         public string HowToFixLabel => T("howToFix");
         /// <summary>Writes are off while a fix batch runs.</summary>
@@ -210,10 +265,14 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             else if (c.Status == ItemStatus.Ignored) { sv = T("ignoredRow"); kind = "ign"; }
             else { sv = PanelStrings.Severity[c.Sev].In(lang); kind = c.Sev; }
             var open = !man && c.Status == ItemStatus.Open;
+            // Marked as manual (option b): still open and a fail, but out of every fix request.
+            var marked = open && c.MarkedManual;
+            var act = open && !marked;
+            var aiProposal = act && c.AiFix && c.Prop != null;
             var where = new List<string>();
             if (!string.IsNullOrEmpty(c.Row) && c.Row != "—") where.Add("Borang " + c.Row);
             if (!string.IsNullOrEmpty(c.Sec)) where.Add(SectionName(c.Sec));
-            var steps = open && c.Fix == FixKind.None ? (StepsOf(c.Id) ?? Array.Empty<string>()) : Array.Empty<string>();
+            var steps = open && c.Fix == FixKind.None && !aiProposal ? (StepsOf(c.Id) ?? Array.Empty<string>()) : Array.Empty<string>();
             return new DetailCard
             {
                 Id = c.Id,
@@ -232,13 +291,23 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 Reason = man ? c.Reason?.In(lang) ?? "" : "",
                 IsReviewed = man && c.Status == ItemStatus.Reviewed,
                 ReviewLabel = c.Status == ItemStatus.Reviewed ? T("reviewed") : T("markReviewed"),
-                CanFix = open && c.Fix == FixKind.Fix,
+                CanFix = act && c.Fix == FixKind.Fix,
                 Prop = c.Prop ?? "",
+                IsAiProposal = aiProposal,
+                AiReason = aiProposal ? c.AiReason?.In(lang) ?? "" : "",
+                IsAiCanPropose = act && c.AiFix && c.Prop == null,
+                ApplyLabel = aiProposal ? T("applyAiFix") : T("applyFix"),
+                DiffLabel = aiProposal ? T("aiProposed") : T("suggested"),
+                IsMarkedManual = marked,
+                ManualTag = marked ? T("manualTag") : "",
+                CanMarkManual = act && c.CanMarkManual,
+                CanReopen = !man && (c.Status == ItemStatus.Ignored || marked),
                 FixError = open ? c.FixError ?? "" : "",
                 Steps = steps,
                 CanLocate = IsLocatable(c.Id),
-                CanIgnore = open,
+                CanIgnore = act,
                 Cite = c.Cite ?? "",
+                SourceText = SourceLine(c.Cite),
                 CanOpenSource = HasSourcePdf(c.Id),
             };
         }
@@ -247,11 +316,12 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             Bim010Form.SectionNames.TryGetValue(s, out var n) ? (_core.Lang == PanelStrings.En ? n.En : n.Ms) : s;
 
         // ── actions ──
-        /// <summary>Apply auto-fix (F): the host confirms, writes, and the card turns "Fixed".</summary>
+        /// <summary>Apply fix / Apply AI fix (F): the host confirms and writes; the issue moves to Resolved.</summary>
         public void Fix()
         {
             var c = Current;
-            if (c == null || c.IsHuman || c.Status != ItemStatus.Open || c.Fix == FixKind.None) return;
+            if (c == null || c.IsHuman || c.Status != ItemStatus.Open || c.MarkedManual) return;
+            if (c.Fix == FixKind.None && !(c.AiFix && c.Prop != null)) return;
             _results.FixRow(c.Id);
         }
 
@@ -259,8 +329,22 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public void Ignore()
         {
             var c = Current;
-            if (c == null || c.IsHuman || c.Status != ItemStatus.Open) return;
+            if (c == null || c.IsHuman || c.Status != ItemStatus.Open || c.MarkedManual) return;
             _results.IgnoreRow(c.Id);
+        }
+
+        /// <summary>Mark as Manual: it stays open, gets the Manual tag, and leaves every fix request.</summary>
+        public void MarkManual()
+        {
+            var c = Current;
+            if (c != null) _results.MarkManual(c.Id);
+        }
+
+        /// <summary>Reopen an Ignored or marked-manual issue (status only; the model is not touched).</summary>
+        public void Reopen()
+        {
+            var c = Current;
+            if (c != null) _results.Reopen(c.Id);
         }
 
         /// <summary>Mark as reviewed ↔ back to open (items that need a person).</summary>

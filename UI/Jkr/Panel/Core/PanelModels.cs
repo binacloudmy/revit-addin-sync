@@ -57,6 +57,10 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// <summary>No ready-made fix, but Fix all can ask the backend AI fixer for one.</summary>
         public bool AiFix;
 
+        /// <summary>Why the AI fixer proposed <see cref="Prop"/> ("Closest match in the JKR material
+        /// list…"). Only with a proposal; today the fixer proposes during Fix all, so it stays null.</summary>
+        public Text AiReason;
+
         public ItemStatus Status = ItemStatus.Open;
         /// <summary>Confirmed compliant by a re-scan: drops out of every list and
         /// counts as a passing cell.</summary>
