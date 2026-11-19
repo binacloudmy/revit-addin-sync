@@ -219,12 +219,15 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                 if (listed != null)
                 {
                     var listedIds = new HashSet<long>(listed.Select(c => c.Id));
+                    // r13 (0.0.149): a turn reloaded from history has no full lists, so an id's category is "" when several were added. When
+                    // every category the commit added beside the listed ones is one Revit makes along with a view, an unknown id is one of them.
+                    var alongOnly = full == null && OnlyAlongBesideListed(env.Changes?.TouchedByCategory?.AddedByCategory, listed);
                     var rest = new List<long>();
                     foreach (var id in added)
                     {
                         if (listedIds.Contains(id)) continue;
                         var cat = CategoryOf(id, env.Changes?.TouchedByCategory?.AddedByCategory);
-                        if (MadeAlongWithCreated(cat)) madeAlong.Add(id); else rest.Add(id);
+                        if (MadeAlongWithCreated(cat) || (alongOnly && cat.Length == 0)) madeAlong.Add(id); else rest.Add(id);
                     }
                     foreach (var (id, listedCat) in listed)
                     {
@@ -310,6 +313,22 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             // Only a KNOWN category: a card from history has no full id lists, so a mixed commit's ids come back with no category (""),
             // and a wall made alongside the listed view must keep its Made mark there.
             return c.Length > 0 && (CreatedSummary.IsByProduct(c) || AlongWithCreated.Contains(c));
+        }
+
+        /// <summary>r13 (0.0.149): the commit's added categories, less what data.created lists, are all ones Revit makes along with a view
+        /// (camera, section box, sun path, by-products). A category with more added than listed, or any other category (walls, tags), is not.</summary>
+        internal static bool OnlyAlongBesideListed(Dictionary<string, int>? addedByCategory, IReadOnlyCollection<(long Id, string Category)> listed)
+        {
+            if (addedByCategory == null || listed == null || listed.Count == 0) return false;
+            var listedCount = listed.GroupBy(c => (c.Category ?? "").Trim(), StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
+            foreach (var kv in addedByCategory)
+            {
+                if (kv.Value <= 0) continue;
+                var cat = (kv.Key ?? "").Trim();
+                if (listedCount.TryGetValue(cat, out var n)) { if (kv.Value > n) return false; continue; }
+                if (!MadeAlongWithCreated(cat)) return false;
+            }
+            return true;
         }
 
         private static readonly HashSet<string> AlongWithCreated = new HashSet<string>(StringComparer.OrdinalIgnoreCase)

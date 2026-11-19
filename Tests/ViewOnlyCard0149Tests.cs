@@ -19,7 +19,7 @@ namespace RevitAddinSync.Tests
     {
         private const long View = 3431003, Camera = 3431001, Box = 3431002;
 
-        private static (ResultCardModel Card, HighlightSet Set) Run(Dictionary<long, string> added, string data, string result)
+        private static (ResultCardModel Card, HighlightSet Set) Run(Dictionary<long, string> added, string data, string result, bool keepFull = true)
         {
             var env = new Envelope
             {
@@ -32,7 +32,7 @@ namespace RevitAddinSync.Tests
                 },
             };
             foreach (var g in added.GroupBy(kv => kv.Value)) env.Changes.TouchedByCategory.AddedByCategory[g.Key] = g.Count();
-            CommitIds.Remember(env, new ChangesDto { Added = added.Keys.Select(i => new ElementRef(i, null)).ToList() }, added);
+            if (keepFull) CommitIds.Remember(env, new ChangesDto { Added = added.Keys.Select(i => new ElementRef(i, null)).ToList() }, added);
             var call = new ToolCallDto { CallId = "c1", IdempotencyKey = "k", Tool = ToolNames.RunRevitCode, Args = JsonDocument.Parse("{\"intent\":\"x\"}").RootElement.Clone() };
             var ev = new TurnEvidence();
             ev.Add(new ToolRequestDto { RequestId = "r1", Kind = ToolRequestKinds.Write, Calls = { call } }, new[] { env });
@@ -67,6 +67,28 @@ namespace RevitAddinSync.Tests
             var row = card.Items!.Sections.SelectMany(s => s.Rows).Single();
             Assert.Equal(ItemButton.OpenView, row.Button);
             Assert.Equal("Open ›", ItemText.OpenCue(row.Button, ReceiptLanguage.En));
+        }
+
+        [Fact]
+        public void TheSectionBoxRun_ReopenedFromHistory_StillHasNoMarks()
+        {
+            // No full id lists: the camera, section box and by-products come back with no category. Every category added beside the
+            // listed view is one Revit makes along with it, so they are no Made marks and the card stays as on the live turn.
+            var (card, set) = Run(SectionBoxAdded(), Listed, ViewResult, keepFull: false);
+            Assert.Equal(new long[] { View }, set.Kinds.Where(k => k.Outcome == MarkOutcome.Made).SelectMany(k => k.Ids));
+            Assert.True(set.OnlyViewsMade);
+            Assert.False(set.Drawable);
+            Assert.True(card.CreatedBy!.OnlyViews);
+        }
+
+        [Fact]
+        public void OnlyAlongBesideListed_NeedsEveryOtherCategoryToBeAViewByProduct()
+        {
+            var listed = new List<(long, string)> { (View, "Views") };
+            Assert.True(HighlightSet.OnlyAlongBesideListed(new Dictionary<string, int> { ["Views"] = 1, ["Cameras"] = 1, ["Section Boxes"] = 1, ["class:Element"] = 3 }, listed));
+            Assert.False(HighlightSet.OnlyAlongBesideListed(new Dictionary<string, int> { ["Views"] = 1, ["Cameras"] = 1, ["Walls"] = 2 }, listed));
+            Assert.False(HighlightSet.OnlyAlongBesideListed(new Dictionary<string, int> { ["Views"] = 2, ["Cameras"] = 1 }, listed));   // a view not listed
+            Assert.False(HighlightSet.OnlyAlongBesideListed(null, listed));
         }
 
         [Fact]

@@ -1471,7 +1471,7 @@ namespace RevitWebAppSync.UI.Copilot
         /// <summary>The card's A (and the bar's Select all): every element of this reply's result is Revit's selection again.</summary>
         public void SelectAllInModel(ChatMessage m)
         {
-            if (InModel == null) return;
+            if (InModel == null || !HasMarks(m)) return;   // r13 (0.0.149): the card's key too; a made view only has no marks to act on
             try
             {
                 if (MarksStateOf(m) == HL.MarksState.None) ShowResultInModel(m);
@@ -1483,7 +1483,7 @@ namespace RevitWebAppSync.UI.Copilot
         /// <summary>The card's "Zoom to all": the view fits every mark of this reply's result (shown again first when they were hidden).</summary>
         public void ZoomAllInModel(ChatMessage m)
         {
-            if (InModel == null) return;
+            if (InModel == null || !HasMarks(m)) return;   // r13 (0.0.149): the card's key too; a made view only has no marks to act on
             try
             {
                 if (MarksStateOf(m) == HL.MarksState.None) ShowResultInModel(m);
