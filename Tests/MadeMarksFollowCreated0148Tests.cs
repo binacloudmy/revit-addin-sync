@@ -57,6 +57,7 @@ namespace RevitAddinSync.Tests
             var made = set.Kinds.Where(k => k.Outcome == MarkOutcome.Made).ToList();
             Assert.Equal(new long[] { View }, made.SelectMany(k => k.Ids));
             Assert.DoesNotContain(set.Kinds, k => k.Ids.Contains(Camera) || k.Ids.Contains(Box));   // neither made nor changed
+            Assert.Equal("1 view made", MarkKey.Title(set.Kinds));                                    // the header, as the card counts it
         }
 
         [Fact]
@@ -65,6 +66,7 @@ namespace RevitAddinSync.Tests
             var set = Run(SectionBoxAdded(), "{\"mode\":\"write\"}");
             var made = set.Kinds.Where(k => k.Outcome == MarkOutcome.Made).SelectMany(k => k.Ids).OrderBy(i => i).ToList();
             Assert.Equal(new long[] { Camera, Box, View }, made);
+            Assert.Equal("3 elements made", MarkKey.Title(set.Kinds));                                // the 0.0.147 header
         }
 
         [Fact]
