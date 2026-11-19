@@ -203,7 +203,7 @@
     <Compile Include="..\UI\Jkr\Export\BorangDoc.cs" Link="Export\BorangDoc.cs" />
     <Compile Include="..\UI\Jkr\Export\BorangPdf.cs" Link="Export\BorangPdf.cs" />
     <Compile Include="..\Services\JkrDisciplineDetector.cs" Link="JkrDisciplineDetector.cs" />
-    <!-- Rules of the confirm dialog before every model write (consent for the paid action, 500-element pause warning); the window is UI\Jkr\Modals\JkrConfirmWindow.xaml. -->
+    <!-- Rules of the confirm dialog before every model write (500-element pause warning); the window is UI\Jkr\Modals\JkrConfirmWindow.xaml. -->
     <Compile Include="..\UI\Jkr\ViewModels\JkrConfirmModel.cs" Link="JkrConfirmModel.cs" />
     <!-- "Locate in 3D" outcome messages (type issues, hidden in view, no view shows it); the Revit side is the panel's LocateInRevitAsync. -->
     <Compile Include="..\UI\Jkr\ViewModels\JkrLocateResult.cs" Link="JkrLocateResult.cs" />

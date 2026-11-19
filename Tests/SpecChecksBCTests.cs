@@ -555,15 +555,16 @@ namespace RevitWebAppSync.Tests
         // ─── C1.6 room schedule ───
 
         [Fact]
-        public void C1_6_1_no_room_schedule_fails_and_offers_to_generate_one()
+        public void C1_6_1_fails_without_a_room_schedule_and_offers_no_paid_action()
         {
             Assert.Equal("pass", Assert.Single(Run("C1.6.1", Compliant())).Status);
             var m = Compliant();
             m.Schedules.RemoveAll(s => s.Category == "Rooms");
             var f = Assert.Single(Run("C1.6.1", m));
             Assert.Equal("fail", f.Status);
-            Assert.Contains("Jana jadual ruang", f.Note);
-            Assert.Contains("berbayar", f.Note);
+            Assert.Equal("Tiada jadual ruang (room schedule)", f.Note);
+            Assert.Equal("No room schedule", f.NoteEn);
+            Assert.DoesNotContain("berbayar", f.Note);
         }
 
         [Fact]

@@ -63,7 +63,6 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public string DetailId { get; private set; }
         public List<string> DetailIds { get; private set; } = new List<string>();
         public ConfirmRequest Confirm { get; private set; }
-        public bool Consent { get; private set; }
         public bool ExportOpen { get; private set; }
         public string Toast { get; private set; }
         public string Located { get; private set; }
@@ -264,7 +263,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         }
 
         /// <summary>Fix all scope: open AI items with a plain fix in the current
-        /// section (Generate is never part of Fix all).</summary>
+        /// section .</summary>
         public List<PanelItem> FixableOpen() =>
             InCat.Where(x => !x.IsHuman && x.Status == ItemStatus.Open && x.Fix == FixKind.Fix).ToList();
 
@@ -302,7 +301,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         }
 
         /// <summary>prototype askFix: confirm dialog for the items that have a fix;
-        /// kind from the first ("generate" needs consent). Consent starts unticked.</summary>
+        /// </summary>
         public void AskFix(IEnumerable<string> ids)
         {
             var set = new HashSet<string>(ids ?? Enumerable.Empty<string>());
@@ -310,23 +309,19 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             if (its.Count == 0) return;
             Confirm = new ConfirmRequest
             {
-                Kind = its[0].Fix == FixKind.Generate ? FixKind.Generate : FixKind.Fix,
+                Kind = FixKind.Fix,
                 Ids = its.Select(x => x.Id).ToList(),
             };
-            Consent = false;
             Notify();
         }
 
-        public void ToggleConsent() { Consent = !Consent; Notify(); }
         public void CancelConfirm() { Confirm = null; Notify(); }
-        public bool ConfirmDisabled => Confirm != null && Confirm.Kind == FixKind.Generate && !Consent;
 
-        /// <summary>prototype doConfirm. Generate without consent does nothing.</summary>
+        /// <summary>prototype doConfirm.</summary>
         public void DoConfirm()
         {
             var c = Confirm;
             if (c == null) return;
-            if (c.Kind == FixKind.Generate && !Consent) return;
             Confirm = null;
             if (DeferWrites)
             {
@@ -335,7 +330,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 return;
             }
             SetStatus(c.Ids, ItemStatus.Resolved);
-            ShowToast(c.Kind == FixKind.Generate ? T("toastGen") : c.Ids.Count + " " + T("toastFix"));
+            ShowToast(c.Ids.Count + " " + T("toastFix"));
         }
 
         /// <summary>Host side of DeferWrites: the fixes that were written.</summary>

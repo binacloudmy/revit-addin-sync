@@ -34,7 +34,6 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// <summary>Suggested fix block: open AI item with a ready-made fix.</summary>
         public bool CanFix { get; set; }
         public string Prop { get; set; } = "";
-        public bool CanGen { get; set; }
 
         /// <summary>The last auto-fix failed: it stays open with the reason.</summary>
         public string FixError { get; set; } = "";
@@ -195,9 +194,6 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public string SuggestedLabel => T("suggested");
         public string AiFixSub => T("aiFixSub");
         public string ApplyFixLabel => T("applyFix");
-        public string GenTitle => T("genTitle");
-        public string GenSub => T("genSub");
-        public string GenBtn => T("genBtn");
         public string LocateLabel => T("locate");
         public string IgnoreLabel => T("ignore");
         public string SourceLabel => T("sourceL");
@@ -240,7 +236,6 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 ReviewLabel = c.Status == ItemStatus.Reviewed ? T("reviewed") : T("markReviewed"),
                 CanFix = open && c.Fix == FixKind.Fix,
                 Prop = c.Prop ?? "",
-                CanGen = open && c.Fix == FixKind.Generate,
                 FixError = open ? c.FixError ?? "" : "",
                 Steps = steps,
                 IsDone = !man && c.Status != ItemStatus.Open,

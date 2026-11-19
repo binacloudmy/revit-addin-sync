@@ -343,22 +343,6 @@
                             </StackPanel>
                         </Border>
 
-                        <!-- Generate: paid room schedule -->
-                        <Border Style="{StaticResource Blk}" Background="{StaticResource Bz.Sunken}"
-                                Visibility="{Binding Card.CanGen, Converter={StaticResource B2V}}">
-                            <StackPanel>
-                                <StackPanel Orientation="Horizontal">
-                                    <Path Data="M13,2 L3,14 L12,14 L11,22 L21,10 L12,10 Z" Stroke="{StaticResource Bz.Brand}" StrokeThickness="2"
-                                          StrokeLineJoin="Round" Width="13" Height="13" Stretch="Uniform" VerticalAlignment="Center"/>
-                                    <TextBlock Text="{Binding GenTitle}" Style="{StaticResource BlkHead}" Foreground="{StaticResource Bz.Brand}" Margin="7,0,0,0"/>
-                                </StackPanel>
-                                <TextBlock Text="{Binding GenSub}" FontSize="12.5" LineHeight="19.4" Foreground="{StaticResource Bz.TextBody}"
-                                           TextWrapping="Wrap" Margin="0,8,0,0"/>
-                                <Button Content="{Binding GenBtn}" Style="{StaticResource Bz.Btn.Primary}" Margin="0,12,0,0" Height="40" Padding="14,0,14,0"
-                                        FontSize="13" HorizontalAlignment="Stretch" IsEnabled="{Binding CanAct}" Click="Fix_Click"/>
-                            </StackPanel>
-                        </Border>
-
                         <!-- How to fix by hand (open AI items without a ready-made fix) -->
                         <Border Style="{StaticResource Blk}" Background="{StaticResource Bz.Sunken}"
                                 Visibility="{Binding Card.HasSteps, Converter={StaticResource B2V}}">

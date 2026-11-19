@@ -11,8 +11,6 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
     {
         /// <summary>Write fixes to the model (Fix all, or one auto-fix).</summary>
         Fix,
-        /// <summary>Paid "Generate room schedule": needs the consent checkbox.</summary>
-        Generate,
     }
 
     /// <summary>One change listed in the confirm dialog: "item · title" over
@@ -48,8 +46,6 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
     /// The confirm dialog shown before every model write (prototype askFix /
     /// doConfirm). Revit- and WPF-free so its rules are unit-tested:
     ///  - nothing is written unless the user confirms;
-    ///  - the paid Generate action stays disabled until the consent box is ticked,
-    ///    and the box starts unticked every time the dialog opens;
     ///  - from JkrFixBatch.PauseWarningElementCount affected elements (instances of
     ///    renamed types included) it warns that Revit may pause.
     /// Strings are the prototype's T.ms / T.en; the pause line is new.
@@ -64,10 +60,6 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     ["confirmFixT"] = "Ubah model?",
                     ["confirmFixS"] = "Perubahan berikut akan ditulis ke model Revit. Anda boleh undo dalam Revit.",
                     ["confirmFixB"] = "Sahkan & ubah",
-                    ["confirmGenT"] = "Tindakan berbayar",
-                    ["confirmGenS"] = "Jadual ruang akan dijana dan ditambah ke model. Setiap klik jana dicaj.",
-                    ["confirmGenB"] = "Jana",
-                    ["consent"] = "Saya faham tindakan ini dicaj ke akaun saya.",
                     ["cancel"] = "Batal",
                     ["pause"] = "Ini melibatkan {0} elemen atau lebih. Revit mungkin terhenti seketika semasa perubahan ditulis.",
                 },
@@ -76,16 +68,10 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     ["confirmFixT"] = "Modify the model?",
                     ["confirmFixS"] = "These changes will be written to the Revit model. You can undo in Revit.",
                     ["confirmFixB"] = "Confirm & modify",
-                    ["confirmGenT"] = "Paid action",
-                    ["confirmGenS"] = "A room schedule will be generated and added to the model. Each generate click is charged.",
-                    ["confirmGenB"] = "Generate",
-                    ["consent"] = "I understand this action is charged to my account.",
                     ["cancel"] = "Cancel",
                     ["pause"] = "This touches {0} or more elements. Revit may pause for a moment while the changes are written.",
                 },
             };
-
-        private bool _consent;
 
         public JkrConfirmKind Kind { get; }
         public IReadOnlyList<JkrConfirmRow> Rows { get; }
@@ -105,37 +91,19 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
 
         private string S(string key) => T[Lang][key];
 
-        public string Title => S(Kind == JkrConfirmKind.Generate ? "confirmGenT" : "confirmFixT");
-        public string Sub => S(Kind == JkrConfirmKind.Generate ? "confirmGenS" : "confirmFixS");
+        public string Title => S("confirmFixT");
+        public string Sub => S("confirmFixS");
 
-        /// <summary>"Confirm & modify (n)"; Generate has no count (prototype).</summary>
-        public string ConfirmLabel => Kind == JkrConfirmKind.Generate
-            ? S("confirmGenB")
-            : $"{S("confirmFixB")} ({Rows.Count})";
+        /// <summary>"Confirm & modify (n)".</summary>
+        public string ConfirmLabel => $"{S("confirmFixB")} ({Rows.Count})";
 
         public string CancelLabel => S("cancel");
-        public string ConsentText => S("consent");
-        public bool NeedsConsent => Kind == JkrConfirmKind.Generate;
 
-        public bool ShowPauseWarning => Kind != JkrConfirmKind.Generate && JkrFixBatch.MayPauseRevit(AffectedElements);
+        public bool ShowPauseWarning => JkrFixBatch.MayPauseRevit(AffectedElements);
         public string PauseWarning => ShowPauseWarning ? string.Format(S("pause"), JkrFixBatch.PauseWarningElementCount) : "";
 
-        /// <summary>Starts unticked every time the dialog opens.</summary>
-        public bool Consent
-        {
-            get => _consent;
-            set
-            {
-                if (_consent == value) return;
-                _consent = value;
-                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Consent)));
-                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanConfirm)));
-            }
-        }
-
-        /// <summary>The confirm button is enabled: there is something to confirm, and
-        /// for the paid action the consent box is ticked.</summary>
-        public bool CanConfirm => Rows.Count > 0 && (!NeedsConsent || Consent);
+        /// <summary>The confirm button is enabled: there is something to confirm.</summary>
+        public bool CanConfirm => Rows.Count > 0;
 
         /// <summary>Set when the user confirmed; the caller writes only when true.</summary>
         public bool Confirmed { get; private set; }

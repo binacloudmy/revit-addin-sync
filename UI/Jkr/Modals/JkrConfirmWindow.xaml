@@ -8,7 +8,7 @@
         Foreground="{DynamicResource Bz.Text}" TextOptions.TextFormattingMode="Display">
     <!-- Confirm before a write: Direction C "Verify", step confirm. The dark card,
          a 44 px header over a hairline, the change rows on soft dividers (old value
-         struck in fail tone, new value in pass tone), the pause and consent panels
+         struck in fail tone, new value in pass tone), the pause panel
          flat, and Cancel / Confirm on the sunken bar. No animation. -->
     <Window.Resources>
         <ResourceDictionary>
@@ -16,42 +16,6 @@
                 <ResourceDictionary Source="pack://application:,,,/RevitWebAppSync;component/UI/Jkr/Panel/PanelTokens.xaml"/>
             </ResourceDictionary.MergedDictionaries>
 
-            <!-- Consent tick: a 16 px box on the blue tint, amber when ticked -->
-            <Style x:Key="ConsentBoxStyle" TargetType="CheckBox">
-                <Setter Property="Foreground" Value="{StaticResource Bz.TextBody}"/>
-                <Setter Property="Cursor" Value="Hand"/>
-                <Setter Property="MinHeight" Value="28"/>
-                <Setter Property="FocusVisualStyle" Value="{StaticResource Bz.FocusRing}"/>
-                <Setter Property="Template">
-                    <Setter.Value>
-                        <ControlTemplate TargetType="CheckBox">
-                            <Grid Background="Transparent">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="*"/>
-                                </Grid.ColumnDefinitions>
-                                <Border x:Name="Box" Width="16" Height="16" CornerRadius="4" Margin="0,1,8,0" VerticalAlignment="Top"
-                                        Background="{StaticResource Bz.Sunken}" BorderBrush="{StaticResource Bz.Line2}" BorderThickness="1" SnapsToDevicePixels="True">
-                                    <Path x:Name="Tick" Data="M5,12 L10,17 L19,7" Stroke="{StaticResource Bz.OnBrand}" StrokeThickness="3"
-                                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
-                                          Width="10" Height="10" Stretch="Uniform" Visibility="Collapsed"/>
-                                </Border>
-                                <ContentPresenter Grid.Column="1" VerticalAlignment="Top"/>
-                            </Grid>
-                            <ControlTemplate.Triggers>
-                                <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="Box" Property="BorderBrush" Value="{StaticResource Bz.Brand}"/>
-                                </Trigger>
-                                <Trigger Property="IsChecked" Value="True">
-                                    <Setter TargetName="Box" Property="Background" Value="{StaticResource Bz.Brand}"/>
-                                    <Setter TargetName="Box" Property="BorderBrush" Value="{StaticResource Bz.Brand}"/>
-                                    <Setter TargetName="Tick" Property="Visibility" Value="Visible"/>
-                                </Trigger>
-                            </ControlTemplate.Triggers>
-                        </ControlTemplate>
-                    </Setter.Value>
-                </Setter>
-            </Style>
         </ResourceDictionary>
     </Window.Resources>
 
@@ -74,7 +38,6 @@
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
-                    <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
@@ -117,18 +80,8 @@
                     <TextBlock x:Name="PauseText" FontSize="12" LineHeight="18" TextWrapping="Wrap" Foreground="{StaticResource Bz.MedText}"/>
                 </Border>
 
-                <!-- Paid action consent on the blue info tint; starts unticked -->
-                <Border Grid.Row="4" x:Name="ConsentBox" Visibility="Collapsed" Margin="18,12,18,0" Background="{StaticResource Bz.BrandTint}"
-                        CornerRadius="10" Padding="14,10,14,10" Cursor="Hand">
-                    <CheckBox x:Name="ConsentCheck" Style="{StaticResource ConsentBoxStyle}" VerticalContentAlignment="Top"
-                              Checked="Consent_Changed" Unchecked="Consent_Changed">
-                        <TextBlock x:Name="ConsentText" FontSize="12" LineHeight="18" TextWrapping="Wrap"
-                                   Foreground="{StaticResource Bz.TextBody}"/>
-                    </CheckBox>
-                </Border>
-
                 <!-- Footer: Cancel and Confirm, right-aligned, on the sunken bar -->
-                <Border Grid.Row="5" Margin="0,18,0,0" Background="{StaticResource Bz.Sunken}" BorderBrush="{StaticResource Bz.Line}"
+                <Border Grid.Row="4" Margin="0,18,0,0" Background="{StaticResource Bz.Sunken}" BorderBrush="{StaticResource Bz.Line}"
                         BorderThickness="0,1,0,0" CornerRadius="0,0,11,11" Padding="18,10,18,10">
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                         <Button x:Name="CancelBtn" Style="{StaticResource Bz.Btn.Ghost}" Height="36" Padding="14,0,14,0" FontSize="12.5"

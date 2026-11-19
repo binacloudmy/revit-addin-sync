@@ -73,7 +73,7 @@ namespace RevitWebAppSync.Tests
         {
             Assert.Equal(19, PanelFixture.Issues().Count);
             Assert.Equal(5, PanelFixture.Issues().Count(x => x.IsHuman));
-            Assert.Equal(117, PanelStrings.Keys.Count);
+            Assert.Equal(109, PanelStrings.Keys.Count);
             Assert.Equal("Jalankan audit", PanelStrings.Get("ms", "run"));
             Assert.Equal("Run audit", PanelStrings.Get("en", "run"));
             Assert.Equal("Semak manual", PanelStrings.Get("ms", "heroPend"));
@@ -236,10 +236,10 @@ namespace RevitWebAppSync.Tests
             Assert.All(core.Issues.Where(x => x.Sec != "D"), x => Assert.Equal(ItemStatus.Open, x.Status));
         }
 
-        // ── Fix all scope, confirm, consent ──
+        // ── Fix all scope, confirm ──
 
         [Fact]
-        public void Fix_all_asks_for_the_plain_fixes_in_the_section_and_never_generate()
+        public void Fix_all_asks_for_the_plain_fixes_in_the_section()
         {
             var (core, _) = AtResults();
             Assert.Equal(new[] { "4", "6", "8", "11", "16", "17", "19" }, Ids(core.FixableOpen()));
@@ -249,23 +249,6 @@ namespace RevitWebAppSync.Tests
             core.CancelConfirm();
             core.SetCat("C");
             Assert.Equal(new[] { "8", "11" }, Ids(core.FixableOpen()));
-        }
-
-        [Fact]
-        public void Generate_needs_consent_which_starts_unticked_every_time()
-        {
-            var (core, _) = AtResults();
-            core.AskFix(new[] { "10" });
-            Assert.Equal(FixKind.Generate, core.Confirm.Kind);
-            Assert.True(core.ConfirmDisabled);
-            core.DoConfirm();                            // ignored without consent
-            Assert.NotNull(core.Confirm);
-            core.ToggleConsent();
-            core.DoConfirm();
-            Assert.Equal(ItemStatus.Resolved, core.Issues.First(x => x.Id == "10").Status);
-            Assert.Equal("Jadual ruang dijana", core.Toast);
-            core.AskFix(new[] { "10" });
-            Assert.False(core.Consent);
         }
 
         [Fact]

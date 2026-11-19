@@ -129,7 +129,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 Desc = new Text("Schedule of Accommodation mesti dijana dari model. JKR menolak serahan tanpa jadual ruang.", "The Schedule of Accommodation must be generated from the model. JKR rejects submissions without one."),
                 El = "Schedules · Room", Req = "Jadual ruang wujud & lengkap", Act = new Text("tiada", "none"),
                 Prop = "Jadual Ruang (PB p.37)", Cite = "Borang C1.6 · NS §3.1 · PB p.36–37",
-                Fix = FixKind.Generate, Hash = "e07a9c3b1d58",
+                Fix = FixKind.None, Hash = "e07a9c3b1d58",
                 Reason = null,
             },
             new PanelItem

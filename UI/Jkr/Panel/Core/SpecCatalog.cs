@@ -432,8 +432,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             {
                 Comply = T("Room schedule / Schedule of Accommodation wujud dalam projek",
                            "A room schedule / Schedule of Accommodation exists in the project"),
-                NotComply = T("Tiada jadual ruang → ✗ (tawarkan 'Jana jadual ruang' — berbayar)",
-                              "No room schedule → ✗ (offer 'Generate room schedule' — paid)"),
+                NotComply = T("Tiada jadual ruang → ✗",
+                              "No room schedule → ✗"),
                 Manual = Dash,
             },
             new SpecCheck("C1.6.2", "C1.6", T("Setiap room hadir dalam jadual",

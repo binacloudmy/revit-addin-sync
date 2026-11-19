@@ -25,7 +25,6 @@ namespace RevitWebAppSync.Tests
             Assert.Equal("These changes will be written to the Revit model. You can undo in Revit.", m.Sub);
             Assert.Equal("Confirm & modify (3)", m.ConfirmLabel);
             Assert.Equal("Cancel", m.CancelLabel);
-            Assert.False(m.NeedsConsent);
         }
 
         [Fact]
@@ -44,7 +43,7 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void Fix_can_be_confirmed_without_consent()
+        public void Fix_can_be_confirmed()
         {
             var m = new JkrConfirmModel(JkrConfirmKind.Fix, Rows(1), 1);
             Assert.True(m.CanConfirm);
@@ -67,66 +66,6 @@ namespace RevitWebAppSync.Tests
             Assert.False(m.Confirmed);
         }
 
-        // ── Paid Generate: consent ──
-
-        [Fact]
-        public void Generate_uses_the_paid_strings_without_a_count()
-        {
-            var m = new JkrConfirmModel(JkrConfirmKind.Generate, Rows(1), 0);
-            Assert.Equal("Paid action", m.Title);
-            Assert.Equal("A room schedule will be generated and added to the model. Each generate click is charged.", m.Sub);
-            Assert.Equal("Generate", m.ConfirmLabel);
-            Assert.Equal("I understand this action is charged to my account.", m.ConsentText);
-            Assert.True(m.NeedsConsent);
-        }
-
-        [Fact]
-        public void Generate_starts_unticked_and_disabled()
-        {
-            var m = new JkrConfirmModel(JkrConfirmKind.Generate, Rows(1), 0);
-            Assert.False(m.Consent);
-            Assert.False(m.CanConfirm);
-            Assert.False(m.TryConfirm());
-            Assert.False(m.Confirmed);
-        }
-
-        [Fact]
-        public void Ticking_consent_enables_generate()
-        {
-            var m = new JkrConfirmModel(JkrConfirmKind.Generate, Rows(1), 0);
-            var changed = new List<string>();
-            m.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
-
-            m.Consent = true;
-            Assert.True(m.CanConfirm);
-            Assert.Contains(nameof(JkrConfirmModel.CanConfirm), changed);
-            Assert.True(m.TryConfirm());
-            Assert.True(m.Confirmed);
-        }
-
-        [Fact]
-        public void Unticking_consent_disables_generate_again()
-        {
-            var m = new JkrConfirmModel(JkrConfirmKind.Generate, Rows(1), 0) { Consent = true };
-            m.Consent = false;
-            Assert.False(m.TryConfirm());
-        }
-
-        [Fact]
-        public void Each_dialog_starts_unticked_even_after_an_earlier_consent()
-        {
-            new JkrConfirmModel(JkrConfirmKind.Generate, Rows(1), 0) { Consent = true }.TryConfirm();
-            Assert.False(new JkrConfirmModel(JkrConfirmKind.Generate, Rows(1), 0).Consent);
-        }
-
-        [Fact]
-        public void Generate_consent_in_bm()
-        {
-            var m = new JkrConfirmModel(JkrConfirmKind.Generate, Rows(1), 0, lang: "ms");
-            Assert.Equal("Tindakan berbayar", m.Title);
-            Assert.Equal("Jana", m.ConfirmLabel);
-            Assert.Equal("Saya faham tindakan ini dicaj ke akaun saya.", m.ConsentText);
-        }
 
         // ── "Revit may pause" ──
 

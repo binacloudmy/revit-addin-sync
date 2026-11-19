@@ -21,8 +21,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
     /// <summary>prototype status. Reviewed is only used on items that need a person.</summary>
     public enum ItemStatus { Open, Ignored, Resolved, Reviewed }
 
-    /// <summary>prototype fix: null | 'fix' | 'generate'.</summary>
-    public enum FixKind { None, Fix, Generate }
+    /// <summary>prototype fix: null | 'fix'.</summary>
+    public enum FixKind { None, Fix }
 
     public enum PanelStage { Start, Running, Results }
 
@@ -79,7 +79,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
 
     public sealed class ConfirmRequest
     {
-        /// <summary>"fix" or "generate" (prototype confirm.kind).</summary>
+        /// <summary>"fix" (prototype confirm.kind).</summary>
         public FixKind Kind;
         public List<string> Ids = new List<string>();
     }

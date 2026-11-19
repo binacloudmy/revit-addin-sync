@@ -7,9 +7,8 @@ using RevitWebAppSync.UI.Jkr.ViewModels;
 namespace RevitWebAppSync.UI.Jkr.Modals
 {
     /// <summary>
-    /// Confirm dialog before every model write (prototype .cf, frames f-confirm and
-    /// f-paid). Lists each change as "item · title / actual → proposed". The paid
-    /// Generate action also needs the consent box, which starts unticked. From 500
+    /// Confirm dialog before every model write (prototype .cf, frame f-confirm).
+    /// Lists each change as "item · title / actual → proposed". From 500
     /// affected elements it says Revit may pause.
     ///
     /// Esc, Cancel and a click on the scrim cancel; Enter confirms when the confirm
@@ -29,9 +28,6 @@ namespace RevitWebAppSync.UI.Jkr.Modals
             RowsList.ItemsSource = model.Rows;
             PauseBox.Visibility = model.ShowPauseWarning ? Visibility.Visible : Visibility.Collapsed;
             PauseText.Text = model.PauseWarning;
-            ConsentBox.Visibility = model.NeedsConsent ? Visibility.Visible : Visibility.Collapsed;
-            ConsentText.Text = model.ConsentText;
-            ConsentCheck.IsChecked = model.Consent;
             CancelBtn.Content = model.CancelLabel;
             ConfirmBtn.Content = model.ConfirmLabel;
             AutomationPropertiesHelper(model.Title);
@@ -40,9 +36,7 @@ namespace RevitWebAppSync.UI.Jkr.Modals
             PreviewKeyDown += OnPreviewKeyDown;
             Loaded += (_, __) =>
             {
-                // Paid action: focus the consent box first, so Enter can't skip it.
-                if (model.NeedsConsent) ConsentCheck.Focus();
-                else ConfirmBtn.Focus();
+                ConfirmBtn.Focus();
             };
         }
 
@@ -80,12 +74,6 @@ namespace RevitWebAppSync.UI.Jkr.Modals
         }
 
         private void Refresh() => ConfirmBtn.IsEnabled = _model.CanConfirm;
-
-        private void Consent_Changed(object sender, RoutedEventArgs e)
-        {
-            _model.Consent = ConsentCheck.IsChecked == true;
-            Refresh();
-        }
 
         private void Confirm_Click(object sender, RoutedEventArgs e)
         {
