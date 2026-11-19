@@ -279,6 +279,9 @@ namespace BinaVibe.Mcp.Tools
                 "trace_connections"             => MutatorsMepRouting.TraceConnections(doc, args),
                 "route_duct"                    => MutatorsMepRouting.RouteDuct(doc, args),
                 "route_pipe"                    => MutatorsMepRouting.RoutePipe(doc, args),
+                // Conduit runs: points_mm (one run, one Transaction, like route_pipe) or plan_id
+                // (a drawing plan's runs: one TransactionGroup, one Transaction per run).
+                "route_conduit"                 => MutatorsMepRouting.RouteConduit(doc, args),
                 "tap_branch"                    => MutatorsMepRouting.TapBranch(doc, args),
 
                 // Generic OSS-compatible wrappers — dispatch to typed tools.

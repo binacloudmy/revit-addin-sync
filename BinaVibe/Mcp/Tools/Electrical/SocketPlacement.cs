@@ -144,6 +144,9 @@ namespace BinaVibe.Mcp.Tools.Electrical
                         row["family_type"] = t;
                         created.Add(row);
                         placedPoints.Add(p);
+                        // route_conduit's drop finds the device by this id.
+                        if (row.TryGetValue("created_id", out var createdId) && createdId != null)
+                            p.PlacedId = Convert.ToInt64(createdId, System.Globalization.CultureInfo.InvariantCulture);
                         string role = p.Role.Length == 0 ? "socket" : p.Role;
                         byRole[role] = (byRole.TryGetValue(role, out var nr) ? (int)nr! : 0) + 1;
                         byType[t!] = (byType.TryGetValue(t!, out var nt) ? (int)nt! : 0) + 1;

@@ -71,6 +71,7 @@ namespace RevitWebAppSync.Services
             ["plan_cad_electrical"]        = "Planning devices from the drawing",
             ["place_socket_points"]        = "Placing sockets",
             ["place_socket_on_wall"]       = "Placing a socket on the wall",
+            ["route_conduit"]              = "Routing conduit",
             ["place_view_on_sheet"]        = "Placing the view on the sheet",
             ["place_text_note"]            = "Placing a text note",
             ["tag_all_in_view"]            = "Tagging elements in the view",
