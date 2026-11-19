@@ -49,6 +49,10 @@ namespace UiHarness
 
             Shot(dir, "jkr-start.png", s => { });
             Shot(dir, "jkr-login-required.png", s => s.Model.LoginRequired = true);
+            Shot(dir, "jkr-login-required-en.png", s => { s.Model.IsEn = true; s.Model.LoginRequired = true; }, 800);
+            Shot(dir, "jkr-no-model.png", s => s.Model.Model = ActiveModelInfo.None, 800);
+            Shot(dir, "jkr-no-model-en.png", s => { s.Model.IsEn = true; s.Model.Model = ActiveModelInfo.None; }, 800);
+            Shot(dir, "jkr-toast-en.png", s => { s.Model.IsEn = true; s.ShowToast("Copied the issue list to the clipboard."); }, 800);
             Shot(dir, "jkr-failing.png", s => ShowRun(s, Failing));
             Shot(dir, "jkr-failing-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing); });
             // The pane at a typical docked height: the Checklist must start above the fold.

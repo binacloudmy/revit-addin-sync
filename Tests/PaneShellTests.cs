@@ -35,6 +35,8 @@ namespace RevitWebAppSync.Tests
             var m = new PaneShellModel { Model = Project };
             Assert.Equal(ShellState.Content, m.State);
             Assert.Equal("Copy of jkrAR24_5a.rvt", m.FileLabel);
+            Assert.Equal("Copy of jkrAR24_5a.rvt", m.HeaderSubtitle);
+            Assert.True(m.HeaderIsFile);
         }
 
         [Theory]
@@ -74,16 +76,23 @@ namespace RevitWebAppSync.Tests
             var m = new PaneShellModel { Model = Project };
             Assert.True(m.IsBm);
             Assert.Equal("Projek", m.ProjectLabel);
-            Assert.Equal("Tiada model dibuka", m.NoModelTitle);
+            Assert.Equal("Buka model Revit untuk mengauditnya", m.NoModelTitle);
+            Assert.Equal("Menunggu model", new PaneShellModel().HeaderSubtitle);
+            Assert.Equal("Cuba semula", m.LoginRetry);
             Assert.Equal("JKR Compliance", m.PanelTitle);
 
             m.IsEn = true;
             Assert.True(m.IsEn);
             Assert.False(m.IsBm);
             Assert.Equal("Project", m.ProjectLabel);
-            Assert.Equal("No model open", m.NoModelTitle);
-            Assert.Equal("Open an AR model in Revit to audit it. Family files and templates can’t be audited.", m.NoModelText);
-            Assert.Equal("Sign-in required", m.LoginTitle);
+            Assert.Equal("Open a Revit model to audit it", m.NoModelTitle);
+            Assert.Equal("The pane picks up the active model as soon as one is open.", m.NoModelText);
+            var empty = new PaneShellModel { IsEn = true };
+            Assert.Equal("Waiting for a model", empty.HeaderSubtitle);
+            Assert.False(empty.HeaderIsFile);
+            Assert.Equal("Log in to BINA to run the audit", m.LoginTitle);
+            Assert.Equal("Some checks run on the BINA backend. Log in from the Bina tab on the Revit ribbon, then retry.", m.LoginText);
+            Assert.Equal("Retry", m.LoginRetry);
             Assert.Equal("Close", m.CloseLabel);
         }
 
