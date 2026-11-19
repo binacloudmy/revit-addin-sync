@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
+using BinaVibe.Mcp.Tools.Audit;
 
 namespace RevitWebAppSync.UI.Jkr.Panel.Core
 {
@@ -20,6 +21,21 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public StartOption(string value, string label) { Value = value; _label = label; }
         public override string ToString() => Label;
         public event PropertyChangedEventHandler PropertyChanged;
+    }
+
+    /// <summary>One Borang section row on the Start screen: letter, name, check count.</summary>
+    public sealed class StartSection : INotifyPropertyChanged
+    {
+        private string _name = "", _countLabel = "";
+        public string Letter { get; }
+        public int Checks { get; }
+        /// <summary>One tick per check (Clear Sheet draws them grey before a run).</summary>
+        public IReadOnlyList<int> Ticks { get; }
+        public string Name { get => _name; internal set { if (_name == value) return; _name = value; Raise(); } }
+        public string CountLabel { get => _countLabel; internal set { if (_countLabel == value) return; _countLabel = value; Raise(); } }
+        public StartSection(string letter, int checks) { Letter = letter; Checks = checks; Ticks = Enumerable.Range(0, checks).ToList(); }
+        public event PropertyChangedEventHandler PropertyChanged;
+        private void Raise() => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(null));
     }
 
     /// <summary>
@@ -77,6 +93,18 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         private static readonly Dictionary<string, (string Ms, string En)> Extra = new Dictionary<string, (string, string)>
         {
             ["lodPick"] = ("— Pilih tahap LOD —", "— Select LOD level —"),
+            ["setupTitle"] = ("Sediakan audit", "Set up the audit"),
+            ["setupLead"] = ("61 semakan daripada spesifikasi JKR Model Audit, disusun mengikut lima seksyen Borang BIM010.",
+                             "61 checks from the JKR Model Audit spec, laid out as the five sections of Borang BIM010."),
+            ["lodRequiredTag"] = ("Wajib", "Required"),
+            ["lodHint"] = ("Menetapkan parameter yang mesti ada pada setiap family. Tiada nilai lalai.",
+                           "Sets which parameters each family must carry. There is no default."),
+            ["discHint"] = ("Pratetap daripada nama fail ({0}).", "Preset from the file name ({0})."),
+            ["sectionsLabel"] = ("Seksyen Borang", "Borang sections"),
+            ["checksMany"] = ("{0} semakan", "{0} checks"),
+            ["checksOne"] = ("{0} semakan", "{0} check"),
+            ["readyHint"] = ("Pilih tahap LOD untuk menjalankan audit.", "Choose a level of development to run the audit."),
+            ["discAR"] = ("AR · Arkitek", "AR · Architect"),
         };
 
         private string T(string key) =>
@@ -93,6 +121,25 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         // the dropdown lose its selection (the Discipline box went blank).
         private IReadOnlyList<StartOption> _lodOptions, _discOptions;
 
+        /// <summary>Checks per Borang section (A–E), 61 in all (the JKR spec checklist).</summary>
+        private static readonly int[] SectionChecks = { 24, 3, 24, 9, 1 };
+        private readonly IReadOnlyList<StartSection> _sections =
+            PanelCore.Secs.Select((l, i) => new StartSection(l, SectionChecks[i])).ToList();
+
+        /// <summary>The five Borang sections with their check counts (names follow BM / EN).</summary>
+        public IReadOnlyList<StartSection> Sections { get { RelabelSections(); return _sections; } }
+
+        private void RelabelSections()
+        {
+            var en = _core.Lang == PanelStrings.En;
+            foreach (var sec in _sections)
+            {
+                var n = Bim010Form.SectionNames[sec.Letter];
+                sec.Name = en ? n.En : n.Ms;
+                sec.CountLabel = string.Format(T(sec.Checks == 1 ? "checksOne" : "checksMany"), sec.Checks);
+            }
+        }
+
         private void EnsureOptions()
         {
             if (_lodOptions == null)
@@ -103,6 +150,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             }
             _lodOptions[0].Label = T("lodPick");
             _discOptions[0].Label = T("discAR");
+            RelabelSections();
         }
 
         /// <summary>The chosen LOD ("" = none yet). Bound by value, so the option
@@ -141,6 +189,16 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public string Lod100Note => T("lod100");
         public string RunLabel => T("run");
         public string RunHint => T("runHint");
+        public string Title => T("setupTitle");
+        public string Lead => T("setupLead");
+        public string LodRequiredTag => T("lodRequiredTag");
+        public string LodHint => T("lodHint");
+        public string DiscHint => string.Format(T("discHint"), _detectedDisc);
+        public string SectionsLabel => T("sectionsLabel");
+        public string SectionsCount => string.Format(T("checksMany"), SectionChecks.Sum());
+        /// <summary>"Choose a level of development…", shown above Run until a LOD is chosen.</summary>
+        public string ReadyHint => T("readyHint");
+        public bool ReadyHintVisible => _core.LodMissing;
 
         /// <summary>Run audit: nothing without an LOD (the button is disabled too).</summary>
         public bool Run()

@@ -49,6 +49,9 @@ namespace UiHarness
             ActiveModelSource.Set(new ActiveModelInfo(Title, @"C:\Projects\Dewan\" + Title + ".rvt", false));
 
             Shot(dir, "jkr-start.png", s => { });
+            Shot(dir, "jkr-start-en.png", s => s.Model.IsEn = true);
+            Shot(dir, "jkr-start-lod300-en.png", s => { s.Model.IsEn = true; s.Start.LodValue = "300"; });
+            Shot(dir, "jkr-start-lod100.png", s => s.Start.LodValue = "100");
             Shot(dir, "jkr-login-required.png", s => s.Model.LoginRequired = true);
             Shot(dir, "jkr-login-required-en.png", s => { s.Model.IsEn = true; s.Model.LoginRequired = true; }, 800);
             Shot(dir, "jkr-no-model.png", s => s.Model.Model = ActiveModelInfo.None, 800);
