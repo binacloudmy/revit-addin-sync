@@ -100,9 +100,14 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             return set;
         }
 
-        /// <summary>The turn changed or made elements: it ends with them selected in Revit (the "Gabung" view, G1). A check's
-        /// findings alone do not (nothing was changed), nor a find (it selected already and has no marks).</summary>
-        public bool SelectsAtTheEnd => Kinds.Any(k => (k.Outcome == MarkOutcome.Made || k.Outcome == MarkOutcome.Changed) && k.Ids.Count > 0);
+        /// <summary>r13 (0.0.148): no result set selects at the end of its turn. Live fb713fc2 on 0.0.147 (frame R7-18): after the section
+        /// box was made, 3 of its elements stayed selected in the new view ("Modify | Multi-Select"); a write turn draws its Made and Changes
+        /// marks only. A find selects through its own tool (FindExecutor, read path) and a run whose code asks to select does so through its
+        /// UI requests, so what the drafter asked for is still selected. Select all on the card, a row click and a mark click still select.</summary>
+        public bool SelectsAtTheEnd => false;
+
+        /// <summary>The turn changed or made elements (Made or Changes marks with ids): what G1 used to select at the end.</summary>
+        public bool HasWriteMarks => Kinds.Any(k => (k.Outcome == MarkOutcome.Made || k.Outcome == MarkOutcome.Changed) && k.Ids.Count > 0);
 
         public int Total(MarkOutcome o) => Kinds.Where(g => g.Outcome == o).Sum(g => g.Count);
 

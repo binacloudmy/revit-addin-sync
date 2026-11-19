@@ -147,9 +147,9 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         // ─── Public ───────────────────────────────────────────────────────────
 
         /// <summary>Draw a turn's result in the model. <paramref name="undo"/> runs the turn's Undo; the bar offers it
-        /// while <paramref name="canUndo"/> says it can run. <paramref name="select"/> (the turn just ended and changed or
-        /// made something; G1): every element of the result that exists becomes Revit's selection, as after Paste, in one
-        /// call through <see cref="Select"/>; no zoom, no view change. Not when an old turn's result is shown again.</summary>
+        /// while <paramref name="canUndo"/> says it can run. <paramref name="select"/> is the turn that just ended; r13 (0.0.148, live
+        /// fb713fc2): it draws marks only and selects nothing (HighlightSet.SelectsAtTheEnd), so a write turn leaves Revit's selection as the
+        /// drafter or the run's own select request left it. No zoom, no view change.</summary>
         public void Show(HighlightSet set, Action? undo, Func<bool>? canUndo = null, bool select = false)
         {
             Clear();
@@ -165,7 +165,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             {
                 if (set.FromSelection) FillFromSelection(app, set);   // r12: a find's highlight, read as Revit holds it now
                 Resolve(app, set); AddMarks(app); StartIdling(app);
-                if (selectAll && _resultIds.Count > 0) Select(app, _resultIds.Select(ElemIds.From).ToList(), "turn-end", generation);
+                if (selectAll && _resultIds.Count > 0) Select(app, _resultIds.Select(ElemIds.From).ToList(), "turn-end", generation);   // never since r13: markers only
             }, () =>
             {
                 if (generation != _generation) return;   // a newer result, or a clear, came first

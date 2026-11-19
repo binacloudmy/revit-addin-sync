@@ -602,10 +602,12 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void AtTheEndOfATurnThatChangedOrMadeElements_RevitsSelectionBecomesThem_WithNoZoom()
+        public void AtTheEndOfATurnThatChangedOrMadeElements_NothingIsSelected_AndNothingZooms()
         {
-            // Gabung, G1: as after Paste in Revit.
-            Assert.True(Set().SelectsAtTheEnd);                                                      // 58 door tags made
+            // Gabung, G1 was "as after Paste in Revit"; r13 (0.0.148, live fb713fc2, frame R7-18): a write turn draws marks only, it never
+            // leaves elements selected (WriteTurnSelection0148Tests pins the engine side).
+            Assert.True(Set().HasWriteMarks);                                                        // 58 door tags made
+            Assert.False(Set().SelectsAtTheEnd);                                                     // ... and none of them selected
             var look = new HighlightSet { Kinds = { new MarkGroup { Title = "Read back different", Outcome = MarkOutcome.NeedsLook, Ids = { 1, 2 }, Count = 2 } } };
             Assert.False(look.SelectsAtTheEnd);                                                      // a check's findings alone
             Assert.False(new HighlightSet().SelectsAtTheEnd);                                        // a find: no marks, it selected already

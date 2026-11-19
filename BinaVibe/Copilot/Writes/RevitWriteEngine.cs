@@ -463,7 +463,9 @@ namespace BinaVibe.Copilot.Writes
             if (queued && AfterCommitRunner.ShouldRun(CommitKind.Committed, undoEntry: !noop))
                 foreach (var f in AfterCommitRunner.Run(contexts.Select(c => (IReadOnlyList<Action>)c.AfterCommit).ToList()))
                     AddWarning(envelopes[f.Call], AfterCommitRunner.WarningText(f));
-            if (!noop) Highlight(uidoc!, doc!, envelopes, builder.AddedIds, select: !queued);
+            // r13 (0.0.148), live fb713fc2: the commit no longer selects what it touched (it left 10 elements selected after a section box);
+            // the highlight is only measured. A run's own select request (queued UI work) still sets the selection before this.
+            if (!noop) Highlight(uidoc!, doc!, envelopes, builder.AddedIds, select: false);
             foreach (var e in envelopes.Where(e => e != null)) EnvelopeChanges.Recheck(e);
             return new CommitOutcome { Kind = CommitKind.Committed, Envelopes = envelopes, UndoEntry = !noop };
         }
