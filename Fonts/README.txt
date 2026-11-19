@@ -55,3 +55,4 @@ Public Sans 400/500/600/700 (UI) and IBM Plex Mono 400/500 (values, ids) are bun
 for Bz.Font.Sans / Bz.Font.Mono in UI/Jkr/Panel/PanelTokens.xaml (OFL-1.1; licences in
 PublicSans-LICENSE.txt, IBMPlexMono-LICENSE.txt). Public Sans is static instances cut from
 the Google Fonts variable TTF (fontTools instancer), since WPF ignores variable axes.
+The Medium / SemiBold instances are renamed so nameID1 = the family ("Public Sans", "IBM Plex Mono") and nameID2 = the style, because WPF keys on the legacy family name and otherwise FontWeight 500/600 falls back to Regular/Bold. Tests/ClearSheetFontResolutionTests.cs guards this.
