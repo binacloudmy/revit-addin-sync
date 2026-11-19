@@ -32,6 +32,9 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
     /// <summary>What the mark is drawn on: an annotation gets a frame, an element a ring, a type its instances.</summary>
     public enum MarkKind { Element, Annotation, Dimension, TypeInstances }
 
+    /// <summary>What a card's Show click draws (<see cref="HighlightSet.FoundClickFor"/>).</summary>
+    public enum FoundClick { KeepTurnMarks, ShowTurnResult, ShowFound }
+
     public sealed class MarkGroup
     {
         /// <summary>The kind's category ("Door Tags") or the card row's title ("(PTh300a) 750 x 2100 sd-d").</summary>
@@ -78,6 +81,15 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             set.Kinds.Add(new MarkGroup { Title = "Found", Outcome = MarkOutcome.Found, Kind = MarkKind.Element, Ids = list, Count = list.Count });
             set.Headline = MarkKey.Title(set.Kinds);
             return set;
+        }
+
+        /// <summary>What a card's Show / "Highlight in model" click draws (r12 audit): a turn with its own result marks keeps them
+        /// (shown: left as they are, the click only selects; not shown: that result is drawn, with its Undo); only a turn with
+        /// nothing of its own to mark gets Found marks, under its own turn id so the card's Hide / Show follows them.</summary>
+        public static FoundClick FoundClickFor(bool turnHasOwnMarks, MarksState turnState)
+        {
+            if (!turnHasOwnMarks) return FoundClick.ShowFound;
+            return turnState == MarksState.None ? FoundClick.ShowTurnResult : FoundClick.KeepTurnMarks;
         }
 
         /// <summary>Found marks for what Revit holds selected when the set is drawn (a find's highlight at the end of its turn).</summary>

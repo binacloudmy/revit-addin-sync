@@ -32,6 +32,17 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void AShowClick_NeverWipesAWriteTurnsOwnMarks()
+        {
+            // r12 audit: the Warnings row's Show on a write card cleared that turn's Made/Changed marks and the bar's Undo.
+            Assert.Equal(FoundClick.KeepTurnMarks, HighlightSet.FoundClickFor(true, MarksState.Shown));
+            Assert.Equal(FoundClick.KeepTurnMarks, HighlightSet.FoundClickFor(true, MarksState.Hidden));
+            Assert.Equal(FoundClick.ShowTurnResult, HighlightSet.FoundClickFor(true, MarksState.None));
+            Assert.Equal(FoundClick.ShowFound, HighlightSet.FoundClickFor(false, MarksState.None));
+            Assert.Equal(FoundClick.ShowFound, HighlightSet.FoundClickFor(false, MarksState.Shown));
+        }
+
+        [Fact]
         public void FoundInSelection_IsNotEmpty_UntilRevitIsAsked()
         {
             var set = HighlightSet.FoundInSelection("t1");
@@ -54,9 +65,10 @@ namespace RevitAddinSync.Tests
         {
             var vm = Src("UI/Copilot/CopilotViewModel.cs");
             Assert.Contains("highlights = HL.HighlightSet.FoundInSelection();", vm);
-            Assert.Contains("Revit.ShowMarks(HL.HighlightSet.Found(ids), null, () => false);", vm);
+            Assert.Contains("var set = HL.HighlightSet.Found(ids, m?.TurnId ?? \"\");", vm);
+            Assert.Contains("Revit.ShowMarks(set, () => UndoTurn(m), () => CanUndoTurn(m));", vm);
             var view = Src("UI/Copilot/Screens/ChatView.xaml.cs");
-            Assert.Contains("ShowElements = ids => { SelectElements(ids); Vm?.MarkFoundInModel(ids); }", view);
+            Assert.Contains("ShowElements = ids => { SelectElements(ids); Vm?.MarkFoundInModel(m, ids); }", view);
             var inModel = Src("UI/Copilot/Highlights/InModelResult.cs");
             Assert.Contains("if (set.FromSelection) FillFromSelection(app, set);", inModel);
             Assert.Contains("public const int MaxMarks = 400;", inModel);

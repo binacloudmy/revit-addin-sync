@@ -1398,10 +1398,22 @@ namespace RevitWebAppSync.UI.Copilot
 
         /// <summary>r12: a card's Show / "Highlight in model" also draws Found marks on those elements (the selection itself is
         /// PaneTools.SelectElements). No transaction, no Undo entry; at most InModelResult.MaxMarks drawn.</summary>
-        public void MarkFoundInModel(long[] ids)
+        public void MarkFoundInModel(ChatMessage m, long[] ids)
         {
             if (ids == null || ids.Length == 0 || InModel == null) return;
-            try { Revit.ShowMarks(HL.HighlightSet.Found(ids), null, () => false); }
+            try
+            {
+                // A write turn's own Made/Changed marks and the bar's Undo are never wiped by a Show click (r12 audit).
+                switch (HL.HighlightSet.FoundClickFor(HasMarks(m), m != null ? MarksStateOf(m) : HL.MarksState.None))
+                {
+                    case HL.FoundClick.KeepTurnMarks: return;
+                    case HL.FoundClick.ShowTurnResult: ShowResultInModel(m); return;
+                }
+                var set = HL.HighlightSet.Found(ids, m?.TurnId ?? "");
+                set.Time = m?.Time ?? "";
+                if (m != null) Revit.ShowMarks(set, () => UndoTurn(m), () => CanUndoTurn(m));
+                else Revit.ShowMarks(set, null, () => false);
+            }
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] found marks: " + ex.Message); }
         }
 

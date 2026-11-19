@@ -889,7 +889,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             {
                 var elementIds = RevitWebAppSync.Helpers.MarkdownRenderer.ExtractElementIds(m.Text);
                 if (elementIds.Count >= 2 && !(m.ResultCard != null && m.ResultCard.NoChange))
-                    col.Children.Add(HighlightRow(elementIds));
+                    col.Children.Add(HighlightRow(m, elementIds));
             }
 
             switch (m.Kind)
@@ -1592,7 +1592,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             SelectGroup = g => Vm?.Revit?.SelectGroup(g),
             ZoomGroup = g => Vm?.Revit?.ZoomGroup(g),
             OpenTypeProperties = g => Vm?.Revit?.OpenTypeProperties(g),
-            ShowElements = ids => { SelectElements(ids); Vm?.MarkFoundInModel(ids); },   // r12: marks too, not only Revit's blue
+            ShowElements = ids => { SelectElements(ids); Vm?.MarkFoundInModel(m, ids); },   // r12: marks too, not only Revit's blue
             SourcePageWords = (att, page) => Vm != null ? Vm.SourcePageWordsAsync(att, page) : System.Threading.Tasks.Task.FromResult<System.Collections.Generic.IReadOnlyList<BinaVibe.Mcp.Tools.PdfWord>>(null),
             OpenSource = (att, page) => Vm?.OpenSource(att, page),
             OpenView = (id, sheet) => Vm?.Revit != null ? Vm.Revit.OpenViewAsync(id, m.ResultCard?.DocKey, sheet) : System.Threading.Tasks.Task.FromResult<string>("Revit is not ready."),
@@ -1607,7 +1607,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         // Answer action row (PRD A9): count tag + "Highlight in model" chip.
         // Same chip idiom as FollowupChip; the crosshair glyph is drawn inline
         // (CopilotIcons has no crosshair and one icon doesn't warrant a map row).
-        private FrameworkElement HighlightRow(System.Collections.Generic.List<long> elementIds)
+        private FrameworkElement HighlightRow(ChatMessage m, System.Collections.Generic.List<long> elementIds)
         {
             var row = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) };
 
@@ -1617,7 +1617,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             row.Children.Add(count);
 
             var ids = elementIds.ToArray();
-            row.Children.Add(Controls.CardKit.Secondary("Highlight in model", () => { SelectElements(ids); Vm?.MarkFoundInModel(ids); }, Controls.CardKit.Icons.Target));
+            row.Children.Add(Controls.CardKit.Secondary("Highlight in model", () => { SelectElements(ids); Vm?.MarkFoundInModel(m, ids); }, Controls.CardKit.Icons.Target));
             return row;
         }
 
