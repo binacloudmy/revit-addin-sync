@@ -55,7 +55,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 var sectionTotal = section.Total;
                 if (table) box.Children.Add(TableHead(lang, Top()));
                 // Not-done rows that repeat one message fold into one row (RepeatFold); every other row is its own unit.
-                var units = ItemsBody.Units(section, lang);
+                var units = RepeatFold.Fold(section.Rows, r => ItemsBody.FoldMessage(r, lang), r => r.Ids);   // = ItemsBody.Units (tested)
                 var drawn = ItemsBody.DrawnRows(units.Count);
                 var folded = ItemsBody.FoldedRows(units.Count);
                 var behindFold = new List<FrameworkElement>();
