@@ -205,6 +205,214 @@ namespace Tests
             AssertRecovers(fit, 90, 7000, -2000);
         }
 
+        // ---------------------------------------------------------------- the crop
+
+        private const double Pitch = 23000;
+
+        /// <summary>Copies of a plan drawn one above the other on one sheet, a pitch apart.</summary>
+        private static List<FitSegment> Stack(params List<FitSegment>[] plans) =>
+            plans.SelectMany((plan, i) => Move(plan, 0, 0, i * Pitch)).ToList();
+
+        /// <summary>Level 2 of the L: the outside walls and the first partition kept, the rest moved.</summary>
+        private static List<FitSegment> OtherFloor() => LPlan().Take(7).Concat(new[]
+        {
+            new FitSegment(0, 3000, 4000, 3000),
+            new FitSegment(16000, 0, 16000, 8000),
+            new FitSegment(9000, 5000, 13000, 5000),
+            new FitSegment(0, 12500, 9000, 12500),
+        }).ToList();
+
+        /// <summary>A long block of classrooms: three corridor walls (so a half turn does not lay
+        /// it on itself) and cross walls every 7 m.</summary>
+        private static List<FitSegment> Bays()
+        {
+            var block = new List<FitSegment>
+            {
+                new FitSegment(0, 0, 56000, 0),
+                new FitSegment(0, 9000, 56000, 9000),
+                new FitSegment(0, 11500, 56000, 11500),
+            };
+            for (int i = 0; i <= 8; i++) block.Add(new FitSegment(i * 7000, 0, i * 7000, 9000));
+            return block;
+        }
+
+        [Fact]
+        public void Three_stacked_copies_score_on_the_one_under_the_model()
+        {
+            FitResult fit = CadModelFit.Fit(Stack(LPlan(), LPlan(), LPlan()), Move(LPlan(), 0, 4000, -9000));
+
+            Assert.Equal("accepted", fit.Outcome);
+            Assert.True(fit.Score >= 0.95, "cropped " + fit.Score);
+            Assert.Equal(1.0 / 3, fit.ScoreUncropped, 2);
+            Assert.Equal(1.0 / 3, fit.InsideShare, 2);
+            Assert.NotNull(fit.Footprint);
+        }
+
+        [Fact]
+        public void Three_stacked_copies_of_one_floor_are_rivals()
+        {
+            FitResult fit = CadModelFit.Fit(Stack(LPlan(), LPlan(), LPlan()), Move(LPlan(), 0, 4000, -9000));
+
+            Assert.Equal(2, fit.Rivals.Count);
+            var shifts = new[] { fit }.Concat(fit.Rivals).Select(r => Math.Round(r.Transform.TyMm)).OrderBy(y => y).ToList();
+            Assert.Equal(new[] { -9000 - (2 * Pitch), -9000 - Pitch, -9000.0 }, shifts);
+            Assert.All(fit.Rivals, r => Assert.Equal(4000, r.Transform.TxMm, 0));
+        }
+
+        [Fact]
+        public void Stacked_different_floors_each_fit_their_own_plan()
+        {
+            // Level 1 drawn at the bottom, Level 2 one pitch above it; in the model both floors
+            // stand at the same place.
+            List<FitSegment> cad = Stack(LPlan(), OtherFloor());
+            var byLevel = new Dictionary<string, IReadOnlyList<FitSegment>>
+            {
+                ["Level 1"] = Move(LPlan(), 0, 4000, -9000),
+                ["Level 2"] = Move(OtherFloor(), 0, 4000, -9000),
+            };
+
+            List<LevelFit> fits = CadModelFit.FitLevels(cad, byLevel, null, out bool tie, out List<LevelFit> elsewhere);
+
+            Assert.False(tie);
+            LevelFit one = fits.Single(f => f.Level == "Level 1"), two = fits.Single(f => f.Level == "Level 2");
+            Assert.Empty(one.Fit.Rivals);
+            Assert.Empty(two.Fit.Rivals);
+            Assert.Equal(-9000, one.Fit.Transform.TyMm, 0);
+            Assert.Equal(-9000 - Pitch, two.Fit.Transform.TyMm, 0);
+            Assert.Equal(4000, one.Fit.Transform.TxMm, 0);
+            Assert.Equal(4000, two.Fit.Transform.TxMm, 0);
+            Assert.Single(elsewhere);
+            Assert.NotEqual(fits[0].Level, elsewhere[0].Level);
+        }
+
+        [Fact]
+        public void A_shift_by_one_bay_scores_the_same_cropped_and_loses_on_covered_length()
+        {
+            List<FitSegment> model = Move(Bays(), 0, 3000, 3000);
+
+            FitResult fit = CadModelFit.Fit(Bays(), model);
+            FitResult shifted = CadModelFit.Measure(Bays(), model, new FitTransform { TxMm = 3000 + 7000, TyMm = 3000 });
+
+            Assert.Equal(3000, fit.Transform.TxMm, 0);
+            Assert.Equal(3000, fit.Transform.TyMm, 0);
+            Assert.True(Math.Abs(fit.Score - shifted.Score) < 0.05, fit.Score + " vs " + shifted.Score);
+            Assert.True(shifted.CoveredMm < 0.95 * fit.CoveredMm, shifted.CoveredMm + " vs " + fit.CoveredMm);
+            Assert.Empty(fit.Rivals);
+        }
+
+        [Fact]
+        public void A_sliver_inside_the_footprint_fails_with_crop_too_small()
+        {
+            // Four partitions, fitted exactly, are under a quarter of the floor's walls.
+            List<FitSegment> sliver = new[] { 6, 8, 10, 11 }.Select(i => LPlan()[i]).ToList();
+
+            FitResult fit = CadModelFit.Fit(sliver, Move(LPlan(), 0, 4000, -9000));
+
+            Assert.Equal("failed", fit.Outcome);
+            Assert.Equal("crop_too_small", fit.FailReason);
+            Assert.True(fit.Score >= 0.95, "score " + fit.Score);
+            Assert.True(fit.CadInsideMm < 0.25 * fit.ModelLengthMm);
+        }
+
+        [Fact]
+        public void Neighbouring_vote_bins_count_as_one_candidate()
+        {
+            var weights = new Dictionary<(long, long), double>
+            {
+                [(0, 0)] = 10,
+                [(1, 0)] = 9,
+                [(2, 2)] = 8,
+                [(3, 0)] = 7,
+                [(9, 9)] = 6,
+            };
+
+            List<(long, long)> picked = CadModelFit.PickBins(weights, 8, 2);
+
+            Assert.Equal(new[] { (0L, 0L), (3L, 0L), (9L, 9L) }, picked);
+            Assert.Single(CadModelFit.PickBins(weights, 1, 2));
+        }
+
+        [Fact]
+        public void Typical_floors_at_one_place_still_tie()
+        {
+            // Level 2 has one partition more; it stands at the same place and scores within the margin.
+            List<FitSegment> two = LPlan().Concat(new[] { new FitSegment(15000, 3000, 15000, 8000) }).ToList();
+            var byLevel = new Dictionary<string, IReadOnlyList<FitSegment>>
+            {
+                ["Level 1"] = Move(LPlan(), 0, 1000, 2000),
+                ["Level 2"] = Move(two, 0, 1000, 2000),
+            };
+
+            CadModelFit.FitLevels(LPlan(), byLevel, null, out bool tie, out List<LevelFit> elsewhere);
+
+            Assert.True(tie);
+            Assert.Empty(elsewhere);
+        }
+
+        // ---------------------------------------------------------------- the footprint
+
+        [Fact]
+        public void Middle_of_a_hall_is_inside()
+        {
+            var hall = new List<FitSegment>
+            {
+                new FitSegment(0, 0, 30000, 0), new FitSegment(30000, 0, 30000, 20000),
+                new FitSegment(30000, 20000, 0, 20000), new FitSegment(0, 20000, 0, 0),
+            };
+
+            ModelFootprint f = ModelFootprint.From(hall);
+
+            Assert.False(f.IsEmpty);
+            Assert.True(f.Contains(15000, 10000));
+            Assert.True(f.Contains(500, 19500));
+        }
+
+        [Fact]
+        public void Notch_of_an_L_is_outside()
+        {
+            ModelFootprint f = ModelFootprint.From(LPlan());
+
+            Assert.False(f.Contains(15000, 12500));
+            Assert.True(f.Contains(4500, 12500));
+            Assert.True(f.Contains(15000, 4000));
+        }
+
+        [Fact]
+        public void A_metre_outside_the_outer_wall_is_inside_and_three_are_not()
+        {
+            ModelFootprint f = ModelFootprint.From(LPlan());
+
+            Assert.True(f.Contains(-1000, 4000));
+            Assert.False(f.Contains(-3000, 4000));
+            Assert.True(f.Contains(10000, -1000));
+            Assert.False(f.Contains(10000, -3000));
+            Assert.True(f.Contains(20900, 4000));
+            Assert.False(f.Contains(23500, 4000));
+        }
+
+        [Fact]
+        public void A_far_stray_wall_does_not_stretch_it()
+        {
+            List<FitSegment> walls = LPlan().Concat(new[] { new FitSegment(60000, 7000, 61000, 7000) }).ToList();
+
+            ModelFootprint f = ModelFootprint.From(walls);
+
+            Assert.True(f.Contains(10000, 4000));
+            Assert.True(f.Contains(60500, 7000));
+            Assert.False(f.Contains(35000, 7000));
+            Assert.False(f.Contains(45000, 4000));
+        }
+
+        [Fact]
+        public void No_walls_contains_nothing()
+        {
+            ModelFootprint f = ModelFootprint.From(new List<FitSegment>());
+
+            Assert.True(f.IsEmpty);
+            Assert.False(f.Contains(0, 0));
+            Assert.False(f.Centre(out _, out _));
+        }
+
         [Fact]
         public void Model_faces_sit_half_the_thickness_each_side()
         {
