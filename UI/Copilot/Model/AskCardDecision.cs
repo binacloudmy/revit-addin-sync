@@ -177,7 +177,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
         {
             if (f.Type == AskFieldTypes.Number) return AskFieldShape.Number;
             if (f.Type != AskFieldTypes.Choice || f.Choices.Count == 0) return AskFieldShape.Text;
-            if (f.Choices.Count == 2 && f.Choices.Count(c => c.IsCreate) == 1 && f.Choices.Count(c => c.IsSkip) == 1)
+            if (!f.Multi && f.Choices.Count == 2 && f.Choices.Count(c => c.IsCreate) == 1 && f.Choices.Count(c => c.IsSkip) == 1)
                 return AskFieldShape.Switch;
             return PickChoices(f).Count > TileLimit ? AskFieldShape.List : AskFieldShape.Tiles;
         }
@@ -235,6 +235,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public bool IsAnswered(AskFieldModel f)
         {
             if (!Picks.TryGetValue(f.Id, out var v) || string.IsNullOrWhiteSpace(v)) return false;
+            if (f.Multi) return TickedIds(f, v).Count > 0;
             return f.Type != AskFieldTypes.Choice || f.Choices.Any(c => c.Id == v);
         }
 
@@ -302,8 +303,22 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public bool PickSends(string fieldId, string choiceId)
         {
             if (Kind != AskCardKind.Fields || Fields.Count != 1 || Fields[0].Id != fieldId) return false;
+            if (Fields[0].Multi && !Fields[0].Choices.Any(c => c.Id == choiceId && c.IsSkip)) return false;   // a tick is one of several
             return Fields[0].Choices.Any(c => c.Id == choiceId && c.IsSkip);
         }
+
+        /// <summary>A choice clicked (or keyed) on a field: a multi field ticks or unticks it and stays the active field; any
+        /// other field picks it (<see cref="Pick"/>).</summary>
+        public void Choose(string fieldId, string choiceId)
+        {
+            var f = Fields.FirstOrDefault(x => x.Id == fieldId);
+            if (f == null || !f.Multi) { Pick(fieldId, choiceId); return; }
+            Picks[fieldId] = Toggle(f, Picks.TryGetValue(fieldId, out var v) ? v : "", choiceId);
+        }
+
+        /// <summary>The choice is ticked (multi) or picked (single) on this field.</summary>
+        public bool IsTicked(AskFieldModel f, string choiceId) =>
+            Picks.TryGetValue(f.Id, out var v) && TickedIds(f, v).Contains(choiceId);
 
         /// <summary>Records typed text for a field (the keyboard stays where it is).</summary>
         public void SetText(string fieldId, string text) => Picks[fieldId] = text ?? "";
@@ -519,6 +534,12 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
         private string PickText(AskFieldModel f)
         {
+            if (f.Multi)
+            {
+                var ids = TickedIds(f, Picks.TryGetValue(f.Id, out var raw) ? raw : "");
+                var skipOnly = ids.Count == 1 && f.Choices.Any(x => x.Id == ids[0] && x.IsSkip);
+                return skipOnly ? SkippedText : string.Join(", ", ids.Select(id => f.Choices.First(x => x.Id == id).Label));
+            }
             var c = Picked(f);
             if (c != null) return c.IsSkip ? SkippedText : c.Label;
             return TypedText(f);

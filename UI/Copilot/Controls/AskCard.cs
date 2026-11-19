@@ -664,8 +664,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     var c = choices[i];
                     var tile = new Tile(c.Label, c.Meta, i < 9 ? (i + 1).ToString(System.Globalization.CultureInfo.InvariantCulture) : "", big: false);
                     tile.Button.Margin = new Thickness(0, 0, 0, 6);
-                    tile.Button.Click += (_, __) => { _m.Pick(f.Id, c.Id); Refresh(); };
-                    _refresh.Add(() => tile.Set(_m.Picked(f)?.Id == c.Id));
+                    tile.Button.Click += (_, __) => { _m.Choose(f.Id, c.Id); Refresh(); };   // a multi field ticks (r12)
+                    _refresh.Add(() => tile.Set(_m.IsTicked(f, c.Id)));
                     sp.Children.Add(tile.Button);
                 }
                 AddSkipText(sp, f);
@@ -705,8 +705,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                         var c = shown[i];
                         var row = new Tile(c.Label, c.Meta, i < 9 ? (i + 1).ToString(System.Globalization.CultureInfo.InvariantCulture) : "", big: false, flat: true);
                         row.Button.Margin = new Thickness(0, 0, 0, 2);
-                        row.Button.Click += (_, __) => { _m.Pick(f.Id, c.Id); Refresh(); };
-                        rowRefresh.Add(() => row.Set(_m.Picked(f)?.Id == c.Id));
+                        row.Button.Click += (_, __) => { _m.Choose(f.Id, c.Id); Refresh(); };
+                        rowRefresh.Add(() => row.Set(_m.IsTicked(f, c.Id)));
                         rows.Children.Add(row.Button);
                     }
                     var hidden = all.Count - shown.Count;

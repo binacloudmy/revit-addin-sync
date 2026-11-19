@@ -124,7 +124,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
             switch (r.Kind)
             {
                 case AskKeyKind.PickField:
-                case AskKeyKind.PickAndSend: m.Pick(r.Field!.Id, r.Choice!.Id); break;
+                case AskKeyKind.PickAndSend: m.Choose(r.Field!.Id, r.Choice!.Id); break;
                 case AskKeyKind.ToggleOption: m.ToggleMulti(r.Choice!.Id); break;
                 case AskKeyKind.MoveUp: m.MoveActive(-1); break;
                 case AskKeyKind.MoveDown: m.MoveActive(1); break;

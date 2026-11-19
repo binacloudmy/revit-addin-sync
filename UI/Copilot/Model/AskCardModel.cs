@@ -65,6 +65,9 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// "required" flag yet, so this stays false for every field the cloud sends today and Submit is
         /// enabled as before; set it where the field is built once the cloud says which are required.</summary>
         public bool Required;
+        /// <summary>A choice field with tick boxes (ask_field.multi): several choices, none ticked at first; the answer is the
+        /// ticked ids joined with <see cref="AskCardModel.MultiSeparator"/>.</summary>
+        public bool Multi;
     }
 
     public sealed partial class AskCardModel
@@ -261,6 +264,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 var safeChoices = field.Choices.Where(c => !IsApprovalLike(c.Label)).ToList();
                 if (safeChoices.Count != field.Choices.Count) { card.SomethingWasDropped = true; field.Choices = safeChoices; }
                 if (field.Type == AskFieldTypes.Choice && field.Choices.Count < 2) field.Type = AskFieldTypes.Text;
+                field.Multi = f.Multi == true && field.Type == AskFieldTypes.Choice;
                 card.Fields.Add(field);
             }
 
@@ -299,9 +303,37 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>The collapsed record of a submitted form: "Label: value" per filled field, joined by " · ".</summary>
         public string SummaryForFields(IDictionary<string, string> values) =>
             string.Join(" · ", Fields.Where(f => values.TryGetValue(f.Id, out var v) && !string.IsNullOrWhiteSpace(v))
-                .Select(f => f.Label + ": " + (f.Type == AskFieldTypes.Choice
+                .Select(f => f.Label + ": " + (f.Type == AskFieldTypes.Choice && f.Multi
+                    ? string.Join(", ", TickedIds(f, values[f.Id]).Select(id => f.Choices.First(c => c.Id == id).Label))
+                    : f.Type == AskFieldTypes.Choice
                     ? f.Choices.FirstOrDefault(c => c.Id == values[f.Id])?.Label ?? values[f.Id]
                     : values[f.Id] + (string.IsNullOrEmpty(f.Unit) ? "" : " " + f.Unit))));
+
+        /// <summary>How a multi choice field's ticked ids are joined, in its value and in its answer ("t1 | t2").</summary>
+        public const string MultiSeparator = " | ";
+
+        /// <summary>The choice ids a multi field's value holds (ids or labels, split on "|"), as choice ids in the field's
+        /// order; unknown parts are dropped. A single choice field: its one chosen id, or none.</summary>
+        public static List<string> TickedIds(AskFieldModel f, string? raw)
+        {
+            var parts = f.Multi ? (raw ?? "").Split('|').Select(p => p.Trim()).Where(p => p.Length > 0).ToList()
+                                : new List<string> { (raw ?? "").Trim() };
+            return f.Choices.Where(c => parts.Contains(c.Id) || parts.Contains(c.Label)).Select(c => c.Id).ToList();
+        }
+
+        /// <summary>A multi field's value with one choice ticked or unticked. A skip choice stands alone: ticking it clears
+        /// the others, ticking another clears it.</summary>
+        public static string Toggle(AskFieldModel f, string? raw, string choiceId)
+        {
+            var skip = f.Choices.FirstOrDefault(c => c.IsSkip)?.Id;
+            var ids = TickedIds(f, raw);
+            if (!ids.Remove(choiceId))
+            {
+                if (choiceId == skip) ids.Clear(); else if (skip != null) ids.Remove(skip);
+                ids.Add(choiceId);
+            }
+            return string.Join(MultiSeparator, f.Choices.Select(c => c.Id).Where(ids.Contains));
+        }
 
         public AnswerDto AnswerForFields(IDictionary<string, string> values)
         {
@@ -314,6 +346,11 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 if (f.Type == AskFieldTypes.Number
                     && double.TryParse(raw.Replace(",", ""), NumberStyles.Float, CultureInfo.InvariantCulture, out var d))
                     answer.Values[f.Id] = JsonSerializer.SerializeToElement(d);
+                else if (f.Type == AskFieldTypes.Choice && f.Multi)
+                {
+                    var ticked = TickedIds(f, raw);
+                    if (ticked.Count > 0) answer.Values[f.Id] = JsonSerializer.SerializeToElement(string.Join(MultiSeparator, ticked));
+                }
                 else if (f.Type == AskFieldTypes.Choice)
                 {
                     var choice = f.Choices.FirstOrDefault(c => c.Id == raw) ?? f.Choices.FirstOrDefault(c => c.Label == raw);
