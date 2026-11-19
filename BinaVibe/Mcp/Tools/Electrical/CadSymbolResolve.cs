@@ -265,6 +265,22 @@ namespace BinaVibe.Mcp.Tools.Electrical
             return false;
         }
 
+        /// <summary>True when a family that hosts this way cannot take the mapping's host: a
+        /// wall or ceiling family on another host, a floor or roof family anywhere, a hosted
+        /// family with no host. Face, work plane and unhosted families take any host.</summary>
+        public static bool HostMismatch(string host, string hosting)
+        {
+            switch (hosting)
+            {
+                case "wall": return host != "wall";
+                case "ceiling": return host != "ceiling";
+                case "floor":
+                case "roof": return true;
+                case "hosted": return host == "none";
+                default: return false;
+            }
+        }
+
         internal static bool IsWet(string roomName, IReadOnlyList<string> keywords) =>
             keywords.Any(k => !string.IsNullOrWhiteSpace(k) && roomName.IndexOf(k, StringComparison.OrdinalIgnoreCase) >= 0);
 

@@ -39,6 +39,7 @@ namespace Tests
         private static readonly string[] RevitFiles =
         {
             "CadElectricalTools.cs",
+            "CadElectricalResolver.cs",
         };
 
         private static string Src(string file) =>

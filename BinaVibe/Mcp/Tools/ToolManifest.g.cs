@@ -11,7 +11,7 @@ namespace BinaVibe.Mcp.Tools
     public static class InstalledToolManifest
     {
         public const int ProtocolVersion = 2;
-        public const string Version = "e1cb60c5ce71";
+        public const string Version = "78c1b6748c75";
         public static readonly string[] Names = new string[]
         {
             "align_viewports",
@@ -150,6 +150,7 @@ namespace BinaVibe.Mcp.Tools
             "place_view_on_sheet",
             "place_window",
             "place_window_array",
+            "plan_cad_electrical",
             "propagate_parameter_by_name",
             "purge_unused",
             "query_data",

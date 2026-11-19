@@ -79,6 +79,367 @@ namespace BinaVibe.Mcp.Tools.Electrical
             };
         }
 
+        // ─── plan_cad_electrical ───────────────────────────────────────
+        // Mapping + drawing + model -> one stored plan of one plan cluster on one level (D7),
+        // and its review card. Read-only: the plan is cached, place_socket_points commits it.
+
+        private const int MaxPointRows = 2000;
+
+        public static Dictionary<string, object?> PlanCadElectrical(UIApplication app, Document doc, JsonElement args)
+        {
+            // 1. The drawing.
+            var dwgRef = ArgsHelp.GetString(args, "dwg_ref") ?? "";
+            string path = ResolvePath(doc, dwgRef);
+            ElectricalScan scan = ScanFor(path);
+            if (scan.Census.Drawing.AecRefused) return AecRefused(dwgRef, scan.Census);
+
+            // 2. The mapping, checked against the drawing and the model.
+            ModelSnapshot model = CadElectricalResolver.Read(doc);
+            var issues = new List<MappingIssue>();
+            CadElectricalMapping mapping;
+            if (args.ValueKind == JsonValueKind.Object && args.TryGetProperty("mapping", out JsonElement raw))
+            {
+                mapping = CadElectricalMapping.Parse(raw, issues);
+            }
+            else
+            {
+                mapping = new CadElectricalMapping();
+                issues.Add(new MappingIssue { Path = "", Code = "not_an_object", Message = "mapping is required" });
+            }
+
+            var blockKeys = new HashSet<string>(StringComparer.Ordinal);
+            foreach (CensusBlockClass block in scan.Census.AllBlocks ?? scan.Census.Blocks) blockKeys.Add(block.Key);
+            foreach (ScanSymbol symbol in scan.Symbols) blockKeys.Add(symbol.Key);
+            var facts = new MappingFacts
+            {
+                BlockKeys = blockKeys,
+                LayerNames = new HashSet<string>(scan.LayerNames, StringComparer.Ordinal),
+                PlanCount = scan.Clusters.Count,
+                Levels = new HashSet<string>(model.Levels.Select(l => l.Name), StringComparer.Ordinal),
+                FamilyTypeMatches = model.FamilyTypeMatches,
+            };
+            mapping.Validate(facts, issues);
+            if (issues.Count > 0) return MappingInvalid(dwgRef, issues);
+
+            if (scan.Clusters.Count == 0)
+                return Failed(dwgRef, "no_background",
+                    "no floor plan was found in the drawing: no layer's linework pairs into walls");
+
+            // 3. The plan cluster.
+            int cluster;
+            long? clusterArg = ArgsHelp.GetLong(args, "cluster");
+            if (clusterArg.HasValue)
+            {
+                if (clusterArg.Value < 0 || clusterArg.Value >= scan.Clusters.Count)
+                    return ClusterNeeded(dwgRef, scan, mapping, "cluster_out_of_range",
+                        "cluster " + clusterArg.Value + " is not a plan of this drawing");
+                cluster = (int)clusterArg.Value;
+            }
+            else
+            {
+                List<int> withLevel = mapping.Plans.Where(p => p.Level != null).Select(p => p.Cluster).Distinct().ToList();
+                if (withLevel.Count == 1) cluster = withLevel[0];
+                else if (scan.Clusters.Count == 1) cluster = 0;
+                else
+                    return ClusterNeeded(dwgRef, scan, mapping, "cluster_needed",
+                        "the drawing has " + scan.Clusters.Count + " plans — pass cluster, or give one plan row a level");
+            }
+
+            // Background: the mapping's, else the drawing's wall-like layers, else the
+            // layer-name hints the CAD to BIM pane uses.
+            List<string> background = mapping.BackgroundLayers();
+            bool pairAcross = background.Count > 0;
+            if (background.Count == 0) background = scan.WallLikeLayers.ToList();
+            if (background.Count == 0)
+            {
+                var hints = new RevitWebAppSync.Services.CadToBim.CadToBimSettings();
+                background = scan.LayerNames.Where(hints.IsWallLayer).ToList();
+            }
+            if (background.Count == 0)
+                return Failed(dwgRef, "no_background",
+                    "no wall layer to align the drawing on — name the background layers in the mapping");
+
+            List<FitSegment> cad = scan.WallCentrelines(cluster, background, pairAcross);
+            var modelByLevel = new Dictionary<string, IReadOnlyList<FitSegment>>(StringComparer.Ordinal);
+            foreach (var pair in model.WallsByLevel)
+                modelByLevel[pair.Key] = pair.Value.Select(w => new FitSegment(w.X1, w.Y1, w.X2, w.Y2)).ToList();
+
+            // 4. The level.
+            var fitOptions = new FitOptions();
+            Level? level = null;
+            FitResult? fit = null;
+            string? levelName = ArgsHelp.GetString(args, "level")
+                                ?? mapping.Plans.FirstOrDefault(p => p.Cluster == cluster && p.Level != null)?.Level;
+            if (levelName != null)
+            {
+                level = model.Levels.FirstOrDefault(l => string.Equals(l.Name, levelName, StringComparison.Ordinal))
+                        ?? model.Levels.FirstOrDefault(l => string.Equals(l.Name, levelName, StringComparison.OrdinalIgnoreCase));
+                if (level == null)
+                    return Failed(dwgRef, "level_not_found", "no level '" + levelName + "' in the model",
+                        model.Levels.Select(l => (object?)l.Name).ToList());
+            }
+            else
+            {
+                List<LevelFit> fits = CadModelFit.FitLevels(cad, modelByLevel, fitOptions, out bool tie);
+                if (tie)
+                {
+                    Dictionary<string, object?> ambiguous = Failed(dwgRef, "level_ambiguous",
+                        "the drawing fits several levels about equally (typical floors) — pass level",
+                        fits.Take(5).Select(f => (object?)new Dictionary<string, object?>
+                        {
+                            ["level"] = f.Level,
+                            ["score"] = Math.Round(f.Fit.Score, 3),
+                            ["outcome"] = f.Fit.Outcome,
+                        }).ToList());
+                    ambiguous["cluster"] = cluster;
+                    return ambiguous;
+                }
+                if (fits.Count == 0)
+                    return Failed(dwgRef, "no_model_walls", "the model has no levels to place on");
+                level = model.Levels.First(l => l.Name == fits[0].Level);
+                fit = fits[0].Fit;
+            }
+
+            // 5. The fit: centrelines, then faces. A positioned CAD link is not tried yet.
+            List<ModelWall> walls = model.WallsByLevel.TryGetValue(level.Name, out List<ModelWall>? onLevel)
+                ? onLevel : new List<ModelWall>();
+            fit = fit ?? CadModelFit.Fit(cad, modelByLevel[level.Name], fitOptions);
+            string method = "fit";
+            if (fit.Outcome == "failed" && fit.FailReason != "no_model_walls")
+            {
+                ScanCluster box = scan.Clusters[cluster];
+                double margin = new CensusOptions().NearWallMm;
+                List<FitSegment> cadFaces = ElectricalCensus.MergeByDirection(scan.FacePieces(background))
+                    .Where(s => s.Length >= fitOptions.MinVoteLengthMm)
+                    .Select(s => new FitSegment(s.P1.x, s.P1.y, s.P2.x, s.P2.y))
+                    .Where(s =>
+                    {
+                        double mx = (s.X1 + s.X2) / 2, my = (s.Y1 + s.Y2) / 2;
+                        return mx >= box.MinX - margin && mx <= box.MaxX + margin &&
+                               my >= box.MinY - margin && my <= box.MaxY + margin;
+                    })
+                    .ToList();
+                List<FitSegment> modelFaces = CadModelFit.ModelFaces(
+                    walls.Select(w => (new FitSegment(w.X1, w.Y1, w.X2, w.Y2), w.ThicknessMm)));
+                FitResult faces = CadModelFit.Fit(cadFaces, modelFaces, fitOptions);
+                if (faces.Score > fit.Score)
+                {
+                    fit = faces;
+                    method = "fit_faces";
+                }
+            }
+            if (fit.Outcome == "failed")
+            {
+                Dictionary<string, object?> failed = Failed(dwgRef, fit.FailReason ?? "alignment_failed",
+                    "the drawing's walls could not be laid on the model's walls on " + level.Name +
+                    " (score " + Math.Round(fit.Score, 2).ToString(System.Globalization.CultureInfo.InvariantCulture) +
+                    "). Check the level and the background layers; or link the DWG into the model, move it " +
+                    "onto the building, and run plan_cad_electrical again.");
+                failed["level"] = level.Name;
+                failed["cluster"] = cluster;
+                failed["score"] = Math.Round(fit.Score, 3);
+                failed["method"] = method;
+                return failed;
+            }
+
+            // 6-7. Every placeable instance in the cluster, resolved to a point.
+            var options = new ResolveOptions();
+            var wallIndex = CadSymbolResolve.Index(walls);
+            Func<double, double, RoomHit?> roomAt = CadElectricalResolver.RoomLookup(doc, level);
+            double levelZMm = level.Elevation * MmPerFoot;
+            bool provisional = fit.Outcome == "provisional";
+
+            var rows = new Dictionary<string, SymbolRow>(StringComparer.Ordinal);
+            foreach (SymbolRow row in mapping.Symbols) rows[row.Block] = row;
+            var wallLike = new HashSet<string>(scan.WallLikeLayers, StringComparer.Ordinal);
+            double symbolMax = new CensusOptions().SymbolMaxExtentMm;
+            Func<string, bool> isMappedPlaceable = key =>
+                rows.TryGetValue(key, out SymbolRow? r) && CadElectricalMapping.IsPlaceable(r.Role);
+
+            var points = new List<PlannedPoint>();
+            var unmapped = new Dictionary<string, UnmappedClass>(StringComparer.Ordinal);
+            var dropped = new List<object?>();
+            int otherPlans = 0;
+            int total = scan.Symbols.Count;
+
+            for (int i = 0; i < total; i++)
+            {
+                if (i % 200 == 0) McpProgress.Report(i, total);
+                ScanSymbol symbol = scan.Symbols[i];
+                if (!symbol.Placed) continue;
+                rows.TryGetValue(symbol.Key, out SymbolRow? row);
+
+                if (symbol.Cluster != cluster)
+                {
+                    if (row != null && CadElectricalMapping.IsPlaceable(row.Role)) otherPlans++;
+                    continue;
+                }
+
+                fit.Transform.Apply(symbol.X, symbol.Y, out double mx, out double my);
+
+                // Ignored classes, and unmapped ones that are not symbol-sized or sit on a wall
+                // layer (containers, title blocks, the background's own blocks), say nothing.
+                if (row != null && row.Role == "ignore") continue;
+                if (row == null && (symbol.IsContainer || Math.Max(symbol.WidthMm, symbol.HeightMm) > symbolMax ||
+                                    wallLike.Contains(symbol.Layer)))
+                    continue;
+
+                if (CadSymbolResolve.NestedInMapped(scan.Symbols, i, isMappedPlaceable))
+                {
+                    Drop(dropped, symbol.Key, "nested_in_mapped", mx, my, levelZMm);
+                    continue;
+                }
+
+                string? reason = row == null ? "not_in_mapping" : CadElectricalMapping.UnplannedReason(row);
+                if (reason != null)
+                {
+                    if (!unmapped.TryGetValue(symbol.Key, out UnmappedClass? u))
+                        unmapped[symbol.Key] = u = new UnmappedClass { Block = symbol.Key, Reason = reason };
+                    u.Instances++;
+                    Drop(dropped, symbol.Key, reason, mx, my, levelZMm);
+                    continue;
+                }
+
+                string host = row!.Host ?? CadElectricalMapping.DefaultHost(row.Role);
+                PlannedPoint p = CadSymbolResolve.Resolve(
+                    new ResolveInput { XMm = mx, YMm = my, Role = row.Role, Host = host, MountHeightMm = row.MountHeightMm },
+                    walls, wallIndex, roomAt, levelZMm, model.ExistingDevices, options);
+                p.Index = points.Count;
+                p.LevelName = level.Name;
+                p.SymbolKey = symbol.Key;
+                p.FamilyType = row.FamilyType;
+                if (provisional) CadSymbolResolve.AddFlag(p, "provisional_alignment");
+                if (row.FamilyType != null && model.HostingByType.TryGetValue(row.FamilyType, out string? hosting) &&
+                    CadSymbolResolve.HostMismatch(host, hosting))
+                    CadSymbolResolve.AddFlag(p, "family_host_mismatch");
+                points.Add(p);
+            }
+            McpProgress.Report(total, total);
+            CadSymbolResolve.MarkDuplicates(points, options);
+
+            // 8. Store, then review.
+            var plan = new SocketPlan
+            {
+                Points = points,
+                Source = "cad",
+                SourceFile = Path.GetFileName(path),
+                Alignment = new PlanAlignment
+                {
+                    Level = level.Name,
+                    Cluster = cluster,
+                    RotationDeg = fit.Transform.RotationRad * 180 / Math.PI,
+                    TxMm = fit.Transform.TxMm,
+                    TyMm = fit.Transform.TyMm,
+                    Score = fit.Score,
+                    Outcome = fit.Outcome,
+                    Method = method,
+                },
+                ParamsUsed = new Dictionary<string, object?>
+                {
+                    ["dwg_ref"] = dwgRef,
+                    ["cluster"] = cluster,
+                    ["level"] = level.Name,
+                    ["background_layers"] = background.Cast<object?>().ToList(),
+                    ["pair_across_layers"] = pairAcross,
+                    ["reach_mm"] = options.ReachMm,
+                    ["axial_tolerance_mm"] = options.AxialTolMm,
+                    ["existing_mm"] = options.ExistingMm,
+                    ["duplicate_mm"] = options.DuplicateMm,
+                    ["wet_room_keywords"] = options.WetKeywords.Cast<object?>().ToList(),
+                },
+            };
+            string planId = SocketPlanCache.Store(plan, SocketCandidates.DocKey(doc));
+
+            var notes = new List<string>(mapping.Notes);
+            if (ArgsHelp.GetDouble(args, "run_height_mm").HasValue)
+                notes.Add("run_height_mm is for conduit runs, which come in phase 2; it was not used");
+            if (provisional)
+                notes.Add("the alignment is provisional (score under 0.80): check a few points before placing");
+
+            var result = new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["plan_id"] = planId,
+                ["dwg_ref"] = dwgRef,
+                ["level"] = level.Name,
+                ["cluster"] = cluster,
+                ["review"] = CadElectricalReview.PlanReview(plan, unmapped.Values.ToList(), otherPlans, notes),
+                ["params_used"] = plan.ParamsUsed,
+            };
+
+            if (ArgsHelp.GetBool(args, "include_points") ?? false)
+            {
+                result["points"] = points.Take(MaxPointRows).Select(p => (object?)new Dictionary<string, object?>
+                {
+                    ["index"] = p.Index,
+                    ["role"] = p.Role,
+                    ["block"] = p.SymbolKey,
+                    ["room"] = p.RoomName,
+                    ["host"] = p.Host,
+                    ["xyz_mm"] = new List<object?> { Math.Round(p.XMm, 1), Math.Round(p.YMm, 1), Math.Round(p.ZMm, 1) },
+                    ["facing"] = new List<object?> { Math.Round(p.FacingDx, 4), Math.Round(p.FacingDy, 4) },
+                    ["flags"] = p.Flags.Cast<object?>().ToList(),
+                    ["excluded"] = p.Excluded,
+                }).ToList();
+                result["points_truncated"] = points.Count > MaxPointRows;
+                result["dropped"] = dropped.Take(MaxPointRows).ToList();
+                result["dropped_truncated"] = dropped.Count > MaxPointRows;
+            }
+            return result;
+        }
+
+        private static void Drop(List<object?> dropped, string block, string reason, double x, double y, double z) =>
+            dropped.Add(new Dictionary<string, object?>
+            {
+                ["block"] = block,
+                ["reason"] = reason,
+                ["xyz_mm"] = new List<object?> { Math.Round(x, 1), Math.Round(y, 1), Math.Round(z, 1) },
+            });
+
+        private static Dictionary<string, object?> MappingInvalid(string dwgRef, List<MappingIssue> issues) =>
+            new Dictionary<string, object?>
+            {
+                ["ok"] = false,
+                ["dwg_ref"] = dwgRef,
+                ["error"] = "mapping_invalid",
+                ["issues"] = issues.Select(i => (object?)new Dictionary<string, object?>
+                {
+                    ["path"] = i.Path,
+                    ["code"] = i.Code,
+                    ["message"] = i.Message,
+                    ["candidates"] = i.Candidates.Cast<object?>().ToList(),
+                }).ToList(),
+            };
+
+        private static Dictionary<string, object?> ClusterNeeded(string dwgRef, ElectricalScan scan,
+                                                                 CadElectricalMapping mapping, string error, string message)
+        {
+            List<object?> candidates = scan.Census.Plans.Select(p => (object?)new Dictionary<string, object?>
+            {
+                ["cluster"] = p.Cluster,
+                ["titles"] = p.Titles.Cast<object?>().ToList(),
+                ["symbols"] = p.Symbols,
+                ["width_m"] = Math.Round(p.WidthM, 1),
+                ["height_m"] = Math.Round(p.HeightM, 1),
+                ["level"] = mapping.Plans.FirstOrDefault(r => r.Cluster == p.Cluster)?.Level,
+            }).ToList();
+            return Failed(dwgRef, error, message, candidates);
+        }
+
+        private static Dictionary<string, object?> Failed(string dwgRef, string error, string message,
+                                                          List<object?>? candidates = null)
+        {
+            var result = new Dictionary<string, object?>
+            {
+                ["ok"] = false,
+                ["dwg_ref"] = dwgRef,
+                ["error"] = error,
+                ["message"] = message,
+            };
+            if (candidates != null) result["candidates"] = candidates;
+            return result;
+        }
+
         internal static Dictionary<string, object?> AecRefused(string dwgRef, ElectricalCensusResult census) =>
             new Dictionary<string, object?>
             {
