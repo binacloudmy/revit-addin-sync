@@ -467,6 +467,13 @@ namespace BinaVibe.Mcp.Tools.Electrical
             doc.Regenerate();
             var state = Measure(fi, target);
             if (state.Method != "measured") return state;      // degenerate; nothing to correct
+
+            // A face-hosted instance faces out of the face it sits on, and that face was picked
+            // to look the way the point faces. Flipping turns it about the face (upside down) and
+            // a rotation about Z would tear it off the face, so it is measured, never corrected.
+            if (FaceHostedFacing(fi) != null)
+                return new Orientation(state.Dx, state.Dy, state.ErrorDeg,
+                    state.ErrorDeg <= FacingTolDeg ? "as_placed" : "uncorrectable");
             if (state.ErrorDeg <= FacingTolDeg)
                 return new Orientation(state.Dx, state.Dy, state.ErrorDeg, "as_placed");
 
@@ -532,8 +539,11 @@ namespace BinaVibe.Mcp.Tools.Electrical
         /// direction to correct and must not be silently reported as correct.</summary>
         private static Orientation Measure(FamilyInstance fi, XYZ? target)
         {
-            XYZ? cur = null;
-            try { cur = fi.FacingOrientation; } catch { }
+            XYZ? cur = FaceHostedFacing(fi);
+            if (cur == null)
+            {
+                try { cur = fi.FacingOrientation; } catch { }
+            }
             if (cur == null) return new Orientation(0, 0, 0, "unknown");
 
             double len = Math.Sqrt(cur.X * cur.X + cur.Y * cur.Y);
@@ -544,6 +554,52 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
             double err = SocketLayout.AbsAngleDeg(dx, dy, target.X, target.Y);
             return new Orientation(dx, dy, err, "measured");
+        }
+
+        /// <summary>
+        /// The plan facing of a face-based (work-plane-based) instance hosted on a face: the
+        /// host face's outward normal at the instance's point, flattened to plan. Null for any
+        /// other instance, so wall-hosted and unhosted ones keep reading FacingOrientation.
+        ///
+        /// FacingOrientation is not the front of a face-based instance: it is the family's Y
+        /// axis, which lies in the host face, so on a wall face it points up and reads [0,0] in
+        /// plan. The face normal is used rather than HandOrientation turned 90 degrees in plan,
+        /// because the sign of that turn depends on how the family was authored and on
+        /// mirroring, while the face normal is fixed by the face the socket sits on. When the
+        /// face cannot be read (a host in a link, a face gone after an edit) the instance's own
+        /// Z axis (GetTotalTransform().BasisZ, the work plane normal it was placed with) stands
+        /// in. A horizontal face has no plan facing and gives null.
+        /// </summary>
+        internal static XYZ? FaceHostedFacing(FamilyInstance fi)
+        {
+            Reference? hostFace = null;
+            try
+            {
+                if (fi.Symbol?.Family?.FamilyPlacementType != FamilyPlacementType.WorkPlaneBased) return null;
+                hostFace = fi.HostFace;
+            }
+            catch { hostFace = null; }
+            if (hostFace == null) return null;
+
+            XYZ? n = null;
+            try
+            {
+                if (fi.Host != null && fi.Host.GetGeometryObjectFromReference(hostFace) is Face face &&
+                    fi.Location is LocationPoint lp)
+                {
+                    IntersectionResult? hit = face.Project(lp.Point);
+                    if (hit != null) n = face.ComputeNormal(hit.UVPoint);
+                }
+            }
+            catch { n = null; }
+            if (n == null)
+            {
+                try { n = fi.GetTotalTransform().BasisZ; } catch { n = null; }
+            }
+            if (n == null) return null;
+
+            double len = Math.Sqrt(n.X * n.X + n.Y * n.Y);
+            return len < 1e-6 ? null : new XYZ(n.X / len, n.Y / len, 0);
         }
 
         /// <summary>Confirm the instance actually sits at the requested height,

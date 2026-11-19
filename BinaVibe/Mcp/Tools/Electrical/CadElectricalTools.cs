@@ -523,8 +523,13 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 Level? on = DeviceLevel(doc, el);
                 if (level != null && (on == null || on.Id != level.Id)) continue;
 
-                XYZ? facing = null;
-                try { facing = fi?.FacingOrientation; } catch { facing = null; }
+                // A face-hosted device faces out of its host face; its FacingOrientation lies in
+                // that face (up, on a wall) and would read [0,0] in plan.
+                XYZ? facing = fi != null ? SocketPlacement.FaceHostedFacing(fi) : null;
+                if (facing == null)
+                {
+                    try { facing = fi?.FacingOrientation; } catch { facing = null; }
+                }
                 devices.Add(new Dictionary<string, object?>
                 {
                     ["id"] = el.Id.Value,
