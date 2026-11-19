@@ -379,6 +379,16 @@ namespace BinaVibe.Mcp.Tools.Electrical
         public double Length => Math.Sqrt(((X2 - X1) * (X2 - X1)) + ((Y2 - Y1) * (Y2 - Y1)));
     }
 
+    /// <summary>
+    /// An arc as the scan keeps it, mm: its first and last points and the point halfway along
+    /// it. Three points are enough to tell a bend between two straight runs (CadRunChain) from
+    /// a free arc, and to place the bend; the arc itself is never rebuilt.
+    /// </summary>
+    internal struct ArcSpan
+    {
+        public double X1, Y1, X2, Y2, MidX, MidY, LengthMm;
+    }
+
     /// <summary>One placed insert, with where and how it is drawn. In process only.</summary>
     internal sealed class ScanSymbol
     {
@@ -423,6 +433,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
         public IReadOnlyCollection<string> WallLikeLayers;
 
         private readonly Dictionary<string, List<(double X1, double Y1, double X2, double Y2)>> _facePieces;
+        private readonly Dictionary<string, List<ArcSpan>> _arcSpans;
         private readonly CensusOptions _options;
         private readonly List<(double X, double Y, double Height, string Value)> _titleTexts;
 
@@ -431,7 +442,8 @@ namespace BinaVibe.Mcp.Tools.Electrical
                                 IReadOnlyCollection<string> wallLikeLayers,
                                 Dictionary<string, List<(double X1, double Y1, double X2, double Y2)>> facePieces,
                                 CensusOptions options,
-                                List<(double X, double Y, double Height, string Value)>? titleTexts = null)
+                                List<(double X, double Y, double Height, string Value)>? titleTexts = null,
+                                Dictionary<string, List<ArcSpan>>? arcSpans = null)
         {
             Census = census;
             MmPerUnit = mmPerUnit;
@@ -440,8 +452,64 @@ namespace BinaVibe.Mcp.Tools.Electrical
             LayerNames = layerNames;
             WallLikeLayers = wallLikeLayers;
             _facePieces = facePieces;
+            _arcSpans = arcSpans ?? new Dictionary<string, List<ArcSpan>>(StringComparer.Ordinal);
             _options = options;
             _titleTexts = titleTexts ?? new List<(double X, double Y, double Height, string Value)>();
+        }
+
+        /// <summary>
+        /// The straight pieces of these layers that a run can be drawn with, mm, each tagged with
+        /// its layer: symbol linework left out (the same pieces as FacePieces), and kept when the
+        /// piece's midpoint is inside the plan's box grown by the near-wall distance.
+        /// </summary>
+        public List<Segment> RunPieces(int cluster, IEnumerable<string> layers) =>
+            RunPieces(layers, InClusterBox(cluster), out _);
+
+        /// <summary>The run pieces of these layers whose midpoint (drawing mm) passes
+        /// <paramref name="keepMidpoint"/>; <paramref name="left"/> counts the rest.</summary>
+        public List<Segment> RunPieces(IEnumerable<string> layers, Func<double, double, bool> keepMidpoint, out int left)
+        {
+            left = 0;
+            var kept = new List<Segment>();
+            foreach (Segment s in FacePieces(layers))
+            {
+                if (keepMidpoint((s.P1.x + s.P2.x) / 2, (s.P1.y + s.P2.y) / 2)) kept.Add(s);
+                else left++;
+            }
+            return kept;
+        }
+
+        /// <summary>The arcs of these layers, symbol linework left out, whose middle point is
+        /// inside the plan's box grown by the near-wall distance.</summary>
+        public List<ArcSpan> RunArcs(int cluster, IEnumerable<string> layers) =>
+            RunArcs(layers, InClusterBox(cluster), out _);
+
+        /// <summary>The non-symbol arcs of these layers whose middle point (drawing mm) passes
+        /// <paramref name="keepMidpoint"/>; <paramref name="left"/> counts the rest.</summary>
+        public List<ArcSpan> RunArcs(IEnumerable<string> layers, Func<double, double, bool> keepMidpoint, out int left)
+        {
+            left = 0;
+            var kept = new List<ArcSpan>();
+            foreach (string layer in layers.Distinct(StringComparer.Ordinal))
+            {
+                if (!_arcSpans.TryGetValue(layer, out List<ArcSpan>? arcs)) continue;
+                foreach (ArcSpan arc in arcs)
+                {
+                    if (keepMidpoint(arc.MidX, arc.MidY)) kept.Add(arc);
+                    else left++;
+                }
+            }
+            return kept;
+        }
+
+        /// <summary>Inside the plan's box grown by the near-wall distance, drawing mm.</summary>
+        public Func<double, double, bool> InClusterBox(int cluster)
+        {
+            if (cluster < 0 || cluster >= Clusters.Count) throw new ArgumentOutOfRangeException(nameof(cluster));
+            ScanCluster box = Clusters[cluster];
+            double margin = _options.NearWallMm;
+            return (x, y) => x >= box.MinX - margin && x <= box.MaxX + margin &&
+                             y >= box.MinY - margin && y <= box.MaxY + margin;
         }
 
         /// <summary>The plan titles of a box on the sheet, mm, by the census's own rule for a
@@ -602,7 +670,24 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 result, scale, ScanSymbols(sink), ScanClusters(clusters, result),
                 sink.Layers.Keys.ToList(),
                 sink.Layers.Values.Where(tally => tally.PairsLikeWalls).Select(tally => tally.Name).ToList(),
-                facePieces, o, TitleTexts(sink));
+                facePieces, o, TitleTexts(sink), ArcSpansByLayer(sink, o));
+        }
+
+        /// <summary>Per layer, the arcs that are not symbol linework (see IsInsideSymbol).</summary>
+        private static Dictionary<string, List<ArcSpan>> ArcSpansByLayer(CensusSink sink, CensusOptions o)
+        {
+            var byLayer = new Dictionary<string, List<ArcSpan>>(StringComparer.Ordinal);
+            foreach (LayerTally tally in sink.Layers.Values)
+            {
+                if (tally.ArcSpans.Count == 0) continue;
+                var arcs = new List<ArcSpan>();
+                for (int i = 0; i < tally.ArcSpans.Count; i++)
+                {
+                    if (!IsInsideSymbol(tally.ArcOwners[i], o)) arcs.Add(tally.ArcSpans[i]);
+                }
+                if (arcs.Count > 0) byLayer[tally.Name] = arcs;
+            }
+            return byLayer;
         }
 
         private static List<ScanSymbol> ScanSymbols(CensusSink sink)
@@ -761,8 +846,12 @@ namespace BinaVibe.Mcp.Tools.Electrical
         /// enough to pair out of a great many pieces, where pairing the pieces unmerged found more
         /// walls. A bin caps the chain at its width. Straight up and straight down are the same
         /// direction, so the two vertical half-bins are one.
+        ///
+        /// <paramref name="gapMm"/> is how far apart two pieces along one line may end and still
+        /// join. Wall faces take the door-sized default; a run of conduit takes a few mm, so the
+        /// gap the drawing leaves at a symbol stays open (CadRunChain).
         /// </summary>
-        internal static List<Segment> MergeByDirection(List<Segment> segments)
+        internal static List<Segment> MergeByDirection(List<Segment> segments, double gapMm = CadClassifier.FaceJoinGapMm)
         {
             const double bin = Math.PI / 90;
             var byDirection = new Dictionary<int, List<Segment>>();
@@ -785,7 +874,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
             var merged = new List<Segment>(segments.Count);
             foreach (int key in byDirection.Keys.OrderBy(k => k))
             {
-                merged.AddRange(CadClassifier.MergeCollinearSegments(byDirection[key]));
+                merged.AddRange(CadClassifier.MergeCollinearSegments(byDirection[key], gapMm));
             }
             return merged;
         }
@@ -1521,6 +1610,12 @@ namespace BinaVibe.Mcp.Tools.Electrical
             /// <summary>Per piece, the innermost insert it was drawn in; null when loose.</summary>
             public List<Instance?> PieceOwners = new List<Instance?>();
 
+            /// <summary>Every arc's ends and middle; three points per arc.</summary>
+            public List<ArcSpan> ArcSpans = new List<ArcSpan>();
+
+            /// <summary>Per arc span, the innermost insert it was drawn in; null when loose.</summary>
+            public List<Instance?> ArcOwners = new List<Instance?>();
+
             /// <summary>Pieces as classifier segments on a layer, built only when asked for.</summary>
             public static List<Segment> Segments(List<(double X1, double Y1, double X2, double Y2)> pieces, string layer)
             {
@@ -1638,6 +1733,30 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
                 tally.ArcLength += length;
                 if (source == CadSource.Geometry) tally.LooseLength += length; else tally.InBlocksLength += length;
+
+                // The span: first point, last point, and the point halfway along the points
+                // (a vertex when there is one in the middle, else the middle chord's midpoint).
+                int n = points.Count;
+                if (n < 2 || length <= 0 || !IsFinite(length)) return;
+                var first = points[0];
+                var last = points[n - 1];
+                double midX, midY;
+                if (n % 2 == 1)
+                {
+                    midX = points[n / 2].X;
+                    midY = points[n / 2].Y;
+                }
+                else
+                {
+                    midX = (points[(n / 2) - 1].X + points[n / 2].X) / 2;
+                    midY = (points[(n / 2) - 1].Y + points[n / 2].Y) / 2;
+                }
+                if (!IsFinite(first.X, first.Y) || !IsFinite(last.X, last.Y) || !IsFinite(midX, midY)) return;
+                tally.ArcSpans.Add(new ArcSpan
+                {
+                    X1 = first.X, Y1 = first.Y, X2 = last.X, Y2 = last.Y, MidX = midX, MidY = midY, LengthMm = length,
+                });
+                tally.ArcOwners.Add(Owner);
             }
 
             public void Text(double x, double y, double height, string value, string layer, CadSource source)
@@ -1782,6 +1901,15 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     {
                         var p = tally.Pieces[i];
                         tally.Pieces[i] = (p.X1 * scale, p.Y1 * scale, p.X2 * scale, p.Y2 * scale);
+                    }
+                    for (int i = 0; i < tally.ArcSpans.Count; i++)
+                    {
+                        ArcSpan a = tally.ArcSpans[i];
+                        tally.ArcSpans[i] = new ArcSpan
+                        {
+                            X1 = a.X1 * scale, Y1 = a.Y1 * scale, X2 = a.X2 * scale, Y2 = a.Y2 * scale,
+                            MidX = a.MidX * scale, MidY = a.MidY * scale, LengthMm = a.LengthMm * scale,
+                        };
                     }
                 }
 
