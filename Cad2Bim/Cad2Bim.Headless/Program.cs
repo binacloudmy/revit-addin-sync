@@ -32,12 +32,15 @@ namespace Cad2Bim.Headless {
                     "  --fit=walls.json [--cluster=N] [--min-wall=50]  fit the drawing's walls to dump_electrical_reference\n" +
                     "                              walls; prints each cluster's size, walls and largest empty bands first\n" +
                     "usage: cad2bim-headless --compare-devices <ref.json> <placed.json> [--plan=plan.json]\n" +
-                    "                        [--ref-types=text] [--ref-link=text] [--role=socket] [--across=50] [--along=500] [--dz=150] [--json]");
+                    "                        [--ref-types=text] [--ref-link=text] [--role=socket] [--across=50] [--along=500] [--dz=150] [--json]\n" +
+                    "usage: cad2bim-headless <file.dwg> --runs --layers=E-CONDUIT[,E-TRUNK] [--cluster=N] [--points-out=runs.json]\n" +
+                    "usage: cad2bim-headless --compare-runs <ref.json> <placed.json> [--kind=conduit|cable_tray] [--tol=100] [--3d] [--json]");
                 return 2;
             }
 
             // The exit check's comparison reads two dumps, not a drawing.
             if (args.Contains("--compare-devices")) return ElectricalCheckCommands.Compare(args);
+            if (args.Contains("--compare-runs")) return RunCheckCommands.CompareRuns(args);
 
             string path = args[0];
             if (!File.Exists(path)) {
@@ -48,6 +51,7 @@ namespace Cad2Bim.Headless {
             // The census is its own measurement: one walk, none of the wall/room pipeline below.
             if (args.Contains("--census")) return CensusCommand.Run(path, args);
             if (args.Any(a => a.StartsWith("--fit=", StringComparison.Ordinal))) return ElectricalCheckCommands.Fit(path, args);
+            if (args.Contains("--runs")) return RunCheckCommands.Runs(path, args);
 
             var filter = new LayerFilter {
                 IncludeHatch = args.Contains("--hatch"),

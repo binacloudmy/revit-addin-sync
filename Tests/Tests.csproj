@@ -312,6 +312,7 @@
     <!-- CAD electrical phase 2 (conduit runs): chaining, run planning and the run comparison. -->
     <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\CadRunChain.cs" Link="CadRunChain.cs" />
     <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\CadRunPlan.cs" Link="CadRunPlan.cs" />
+    <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\RunCompare.cs" Link="RunCompare.cs" />
     <!-- The DWG read's dialog guard: which Revit dialog it answers (ImportDialogGuardTests).
          App passes the dialog's id and text in, so the file holds no Revit type. -->
     <Compile Include="..\BinaVibe\Mcp\Tools\ImportDialogGuard.cs" Link="ImportDialogGuard.cs" />

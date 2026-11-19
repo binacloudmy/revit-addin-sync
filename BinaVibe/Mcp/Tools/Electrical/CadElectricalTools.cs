@@ -730,6 +730,14 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 }
             }
 
+            int runCount = 0;
+            if (ArgsHelp.GetBool(args, "include_runs") ?? false)
+            {
+                List<object?> runs = RunRows(doc, level);
+                dump["runs"] = runs;
+                runCount = runs.Count;
+            }
+
             File.WriteAllText(full, JsonSerializer.Serialize(dump, new JsonSerializerOptions { WriteIndented = true }));
             return new Dictionary<string, object?>
             {
@@ -738,7 +746,59 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 ["devices"] = devices.Count,
                 ["links"] = links.Count,
                 ["walls"] = wallCount,
+                ["runs"] = runCount,
             };
+        }
+
+        /// <summary>Every conduit and cable tray segment of the model (of one level when given):
+        /// id, kind, type, size and both ends in mm. Fittings are left out.</summary>
+        private static List<object?> RunRows(Document doc, Level? level)
+        {
+            var rows = new List<object?>();
+            var filter = new ElementMulticategoryFilter(new List<BuiltInCategory>
+            {
+                BuiltInCategory.OST_Conduit, BuiltInCategory.OST_CableTray,
+            });
+            foreach (Element el in new FilteredElementCollector(doc).WhereElementIsNotElementType().WherePasses(filter))
+            {
+                if (!(el is MEPCurve curve) || !(curve.Location is LocationCurve lc) || lc.Curve == null) continue;
+                Level? on = null;
+                try { on = curve.ReferenceLevel; } catch { on = null; }
+                if (level != null && (on == null || on.Id != level.Id)) continue;
+
+                bool tray = curve is Autodesk.Revit.DB.Electrical.CableTray;
+                var type = doc.GetElement(curve.GetTypeId()) as ElementType;
+                var row = new Dictionary<string, object?>
+                {
+                    ["id"] = el.Id.Value,
+                    ["kind"] = tray ? "cable_tray" : "conduit",
+                    ["type"] = type != null ? type.FamilyName + " : " + type.Name : null,
+                    ["level"] = on?.Name,
+                    ["start_mm"] = Mm(lc.Curve.GetEndPoint(0)),
+                    ["end_mm"] = Mm(lc.Curve.GetEndPoint(1)),
+                };
+                if (tray)
+                {
+                    row["width_mm"] = ParamMm(curve, BuiltInParameter.RBS_CABLETRAY_WIDTH_PARAM);
+                    row["height_mm"] = ParamMm(curve, BuiltInParameter.RBS_CABLETRAY_HEIGHT_PARAM);
+                }
+                else
+                {
+                    row["diameter_mm"] = ParamMm(curve, BuiltInParameter.RBS_CONDUIT_DIAMETER_PARAM);
+                }
+                rows.Add(row);
+            }
+            return rows;
+        }
+
+        private static double? ParamMm(Element el, BuiltInParameter bip)
+        {
+            try
+            {
+                Parameter? p = el.get_Parameter(bip);
+                return p != null && p.StorageType == StorageType.Double ? Math.Round(p.AsDouble() * MmPerFoot, 1) : (double?)null;
+            }
+            catch { return null; }
         }
 
         private static Level? DeviceLevel(Document doc, Element el)
