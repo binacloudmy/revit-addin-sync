@@ -145,6 +145,17 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public string Detail = "";
         public List<TypeGroup> Groups = new List<TypeGroup>();
         public List<CreatedItem> Created = new List<CreatedItem>();
+        /// <summary>r13: elements the turn's commits deleted (touched or by Revit), 0 when none. An Undo brings them back, so the
+        /// undone banner may not say "Nothing else changed." then.</summary>
+        public int Deleted;
+        /// <summary>r13: the Undo put back exactly what the card lists (values written, or elements made) and nothing the card
+        /// does not show (no deleted elements came back). Only then does the undone banner say "Nothing else changed."</summary>
+        public bool UndoRestoresExactly =>
+            Deleted == 0 && ((Kind == ResultKind.Changes && ChangeCount > 0 && Created.Count == 0) || (Kind == ResultKind.Created && Created.Count > 0));
+        /// <summary>r13: the line under "Revit raised N warnings": the change is in the open model, not saved to the file.</summary>
+        public static string CommitWarningsNote(ReceiptLanguage lang) => lang == ReceiptLanguage.Ms
+            ? "Perubahan telah dibuat dalam Revit. Semak apa yang Revit tandakan di bawah dalam model."
+            : "The change is applied in Revit. Check what Revit flagged below in the model.";
         /// <summary>A Created card's counts by category; null when the envelopes carry none.</summary>
         public CreatedSummary? CreatedBy;
         public List<Finding> Findings = new List<Finding>();
@@ -516,6 +527,22 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public void RefreshHeadline(ReceiptLanguage lang) { if (Kind == ResultKind.Changes) SetHeadline(this, lang); }
         public int ChangedBackRows => Groups.Sum(g => g.Rows.Count(r => r.ChangedBack));
 
+        /// <summary>Elements the commits deleted: per commit the larger of its touched ids and its touched counts (the same
+        /// elements, told twice), plus what Revit deleted beside them.</summary>
+        internal static int DeletedBy(IEnumerable<Envelope> commits)
+        {
+            var n = 0;
+            foreach (var env in commits ?? Enumerable.Empty<Envelope>())
+            {
+                var ch = env?.Changes;
+                if (ch == null) continue;
+                var ids = ch.Touched?.Deleted?.Count ?? 0;
+                var counted = (ch.TouchedByCategory?.DeletedByCategory ?? new Dictionary<string, int>()).Values.Where(v => v > 0).Sum();
+                n += Math.Max(ids, counted) + (ch.SideEffects?.DeletedByCategory ?? new Dictionary<string, int>()).Values.Where(v => v > 0).Sum();
+            }
+            return n;
+        }
+
         public static ResultCardModel From(TurnEvidence ev, ReceiptLanguage lang, string? attachment = null)
         {
             var m = new ResultCardModel();
@@ -525,6 +552,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
             var commits = calls.Where(c => c.Env.PhaseKind() == EnvelopePhaseKind.Commit
                 && (c.Env.StatusKind() == EnvelopeStatusKind.Done || c.Env.StatusKind() == EnvelopeStatusKind.Partial)).ToList();
+            m.Deleted = DeletedBy(commits.Select(c => c.Env));
             // Net change: a value written and then put back (by a later call) is one row, or none.
             var net = new Dictionary<(long, string), (string? Before, string? After)>();
             var lastAt = new Dictionary<(long, string), int>();

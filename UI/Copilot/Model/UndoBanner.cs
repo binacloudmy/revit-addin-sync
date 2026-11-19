@@ -13,8 +13,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
             var ms = lang == ReceiptLanguage.Ms;
             string N(int n) => n.ToString(CultureInfo.InvariantCulture);
             var title = ms ? "Dibuat asal. Model kembali seperti asal." : "Undone. The model is back to how it was.";
-            var nothing = ms ? "Tiada yang lain berubah." : "Nothing else changed.";
-            if (card == null) return (title, nothing);
+            // r13: said only when the Undo put back exactly what the card lists; an Undo that also brought deleted elements back,
+            // or a card that lists nothing, does not claim it.
+            var nothing = card != null && card.UndoRestoresExactly ? (ms ? " Tiada yang lain berubah." : " Nothing else changed.") : "";
+            if (card == null) return (title, "");
 
             if (card.Kind == ResultKind.Changes && card.ChangeCount > 0)
             {
@@ -26,16 +28,16 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     : (ms ? N(card.InstanceCount) + " elemen" : N(card.InstanceCount) + (card.InstanceCount == 1 ? " element" : " elements"));
                 // The values are restored, not deleted: they hold what they held before.
                 var removed = ms
-                    ? N(n) + " nilai dikembalikan seperti asal pada " + what + ". " + nothing
-                    : N(n) + (n == 1 ? " value" : " values") + " put back to what " + (n == 1 ? "it was" : "they were") + " on " + what + ". " + nothing;
+                    ? N(n) + " nilai dikembalikan seperti asal pada " + what + "." + nothing
+                    : N(n) + (n == 1 ? " value" : " values") + " put back to what " + (n == 1 ? "it was" : "they were") + " on " + what + "." + nothing;
                 return (title, removed);
             }
             if (card.Kind == ResultKind.Created && card.Created.Count > 0)
             {
                 var what = card.CreatedBy?.Headline(lang) ?? N(card.Created.Count);
-                return (title, (ms ? what + " dibuang. " : what + " removed. ") + nothing);
+                return (title, (ms ? what + " dibuang." : what + " removed.") + nothing);
             }
-            return (title, nothing);
+            return (title, "");
         }
     }
 }

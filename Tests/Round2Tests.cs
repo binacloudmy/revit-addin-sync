@@ -2,6 +2,7 @@
 // Round 2 of the gaps: the undone banner's words, the changes as a table (Copy table / Open as grid), "Leave as is".
 using System.Collections.Generic;
 using System.Linq;
+using BinaVibe.Copilot.Contracts;
 using RevitWebAppSync.UI.Copilot.Model;
 using Xunit;
 
@@ -50,10 +51,46 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void TheUndoneBanner_ForAPutBackOnlyCardOrNoCard_JustSaysNothingElseChanged()
+        public void TheUndoneBanner_ForAPutBackOnlyCardOrNoCard_ClaimsNothing()
         {
-            Assert.Equal("Nothing else changed.", UndoBanner.For(null, ReceiptLanguage.En).Detail);
-            Assert.Equal("Nothing else changed.", UndoBanner.For(new ResultCardModel { Kind = ResultKind.Selection }, ReceiptLanguage.En).Detail);
+            // r13: the card lists nothing the Undo put back, so it does not say "Nothing else changed."
+            Assert.Equal("", UndoBanner.For(null, ReceiptLanguage.En).Detail);
+            Assert.Equal("", UndoBanner.For(new ResultCardModel { Kind = ResultKind.Selection }, ReceiptLanguage.En).Detail);
+        }
+
+        [Fact]
+        public void TheUndoneBanner_DropsNothingElseChanged_WhenTheUndoAlsoBroughtDeletedElementsBack()
+        {
+            var changes = TwoTypes();
+            changes.Deleted = 3;
+            Assert.Equal("10 values put back to what they were on 2 types.", UndoBanner.For(changes, ReceiptLanguage.En).Detail);
+            Assert.Equal("10 nilai dikembalikan seperti asal pada 2 jenis.", UndoBanner.For(changes, ReceiptLanguage.Ms).Detail);
+            var made = new ResultCardModel { Kind = ResultKind.Created, Deleted = 1 };
+            made.Created.Add(new CreatedItem { Id = 1 });
+            Assert.Equal("1 removed.", UndoBanner.For(made, ReceiptLanguage.En).Detail);
+            made.Deleted = 0;
+            Assert.Equal("1 dibuang. Tiada yang lain berubah.", UndoBanner.For(made, ReceiptLanguage.Ms).Detail);
+        }
+
+        [Fact]
+        public void TheWarningsNote_SaysApplied_NotSaved_InBothLanguages()
+        {
+            Assert.Equal("The change is applied in Revit. Check what Revit flagged below in the model.", ResultCardModel.CommitWarningsNote(ReceiptLanguage.En));
+            Assert.StartsWith("Perubahan telah dibuat dalam Revit.", ResultCardModel.CommitWarningsNote(ReceiptLanguage.Ms));
+            Assert.DoesNotContain("saved", ResultCardModel.CommitWarningsNote(ReceiptLanguage.En));
+        }
+
+        [Fact]
+        public void DeletedBy_CountsTouchedOnce_PlusRevitsOwnDeletes()
+        {
+            var env = new Envelope { Changes = new ChangeReportDto
+            {
+                Touched = new ChangesDto { Deleted = new List<ElementRef> { new ElementRef(1, null), new ElementRef(2, null) } },
+                TouchedByCategory = new SideEffectsDto { DeletedByCategory = new Dictionary<string, int> { ["Doors"] = 2 } },
+                SideEffects = new SideEffectsDto { DeletedByCategory = new Dictionary<string, int> { ["Tags"] = 1 } },
+            } };
+            Assert.Equal(3, ResultCardModel.DeletedBy(new[] { env }));
+            Assert.Equal(0, ResultCardModel.DeletedBy(new[] { new Envelope() }));
         }
 
         [Fact]

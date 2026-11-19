@@ -57,7 +57,7 @@ namespace RevitAddinSync.Tests
             Assert.Empty(m.Groups);
             Assert.Null(m.FirstGroup);
             Assert.Empty(ChangeTable.Rows(m, ReceiptLanguage.En));
-            Assert.Equal("Nothing else changed.", UndoBanner.For(m, ReceiptLanguage.En).Detail);
+            Assert.Equal("", UndoBanner.For(m, ReceiptLanguage.En).Detail);   // r13: nothing listed, nothing claimed
         }
 
         [Fact]

@@ -389,7 +389,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             }
             var text = new StackPanel();
             text.Children.Add(CardKit.Text(title, 12.5, "Cp.Ink", FontWeights.SemiBold));
-            text.Children.Add(CardKit.Text(detail, 11, "Cp.Muted", margin: new Thickness(0, 2, 0, 0)));
+            if (detail.Length > 0) text.Children.Add(CardKit.Text(detail, 11, "Cp.Muted", margin: new Thickness(0, 2, 0, 0)));
             dock.Children.Add(text);
             banner.Child = dock;
             return banner;
@@ -454,7 +454,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             banner.SetResourceReference(Border.BorderBrushProperty, "Cp.LineSoft");
             var sp = new StackPanel();
             sp.Children.Add(CardKit.Text("Revit raised " + n + (card.Warnings.Count == 1 ? " warning" : " warnings"), 12, "Cp.AmberFg", FontWeights.SemiBold));
-            sp.Children.Add(CardKit.Text("The change was saved. Check what Revit flagged below in the model.", 11, "Cp.AmberFg"));
+            sp.Children.Add(CardKit.Text(ResultCardModel.CommitWarningsNote(lang), 11, "Cp.AmberFg"));
             var grid = new Grid { Margin = new Thickness(0, 4, 0, 0) };
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
