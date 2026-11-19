@@ -767,6 +767,7 @@ namespace RevitWebAppSync.UI
                 issue.FixReference = fix.Reference ?? "";
                 issue.Example = fix.Value ?? "";
                 issue.AutoFixable = true;
+                issue.FixProposedByAi = true;
                 aiFixed.Add(issue);
             }
 
@@ -1005,8 +1006,9 @@ namespace RevitWebAppSync.UI
             Target = string.IsNullOrEmpty(i.FixTarget) ? "instance" : i.FixTarget,
         };
 
-        /// <summary>Ask before writing these fixes: "Modify the model?" with one row
-        /// per change, and the "Revit may pause" line from 500 affected elements.
+        /// <summary>Ask before writing these fixes: "Write these changes to the model?"
+        /// with one row per change (ready-made fixes, then AI fixer proposals), and the
+        /// "Revit may pause" line from 500 affected elements.
         /// True only when the user confirmed.</summary>
         private Task<bool> ConfirmFixesAsync(List<IssueVm> issues)
         {

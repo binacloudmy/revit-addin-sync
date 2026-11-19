@@ -7,11 +7,11 @@ using RevitWebAppSync.UI.Jkr.Panel.Core;
 namespace RevitWebAppSync.UI.Jkr.Modals
 {
     /// <summary>
-    /// Fix all result (design "JKR Fix all result"): what was written as one undo
-    /// step and every fix that was not, grouped by reason. Replaces the plain
-    /// Revit message box. Centred over Revit like the other pop-ups.
+    /// Fix outcome (Clear Sheet "fix outcome"): what was written as one undo step
+    /// and every fix that was not, grouped by reason. Replaces the plain Revit
+    /// message box. Centred over Revit like the other pop-ups.
     ///
-    /// Esc, ×, Close and a click on the scrim close it. Locate closes it and returns
+    /// Esc, Done and a click on the scrim close it. Locate closes it and returns
     /// the element, so the pane can show it in Revit.
     /// </summary>
     public partial class FixResultWindow : Window
@@ -29,10 +29,6 @@ namespace RevitWebAppSync.UI.Jkr.Modals
             System.Windows.Automation.AutomationProperties.SetName(Card, model.Title);
             CopyText.Text = model.CopyLabel;
 
-            var share = model.WrittenShare;
-            BarWritten.Width = new GridLength(share, GridUnitType.Star);
-            BarFailed.Width = new GridLength(1 - share, GridUnitType.Star);
-
             PreviewKeyDown += OnPreviewKeyDown;
             Loaded += (_, __) => CloseBtn.Focus();
             Closed += (_, __) => _copiedTimer?.Stop();
@@ -47,8 +43,8 @@ namespace RevitWebAppSync.UI.Jkr.Modals
             {
                 var room = h - w.Card.Margin.Top - w.Card.Margin.Bottom;
                 w.Card.MaxHeight = Math.Max(300, room);
-                // Header, summary and footer take about 300; the groups scroll in the rest.
-                w.GroupsScroll.MaxHeight = Math.Max(160, room - 300);
+                // Headline, undo line, stay-open line and footer take about 220; the groups scroll in the rest.
+                w.GroupsScroll.MaxHeight = Math.Max(160, room - 220);
             });
             if (!covered)
             {
@@ -58,15 +54,10 @@ namespace RevitWebAppSync.UI.Jkr.Modals
                 w.WindowStartupLocation = owner != null ? WindowStartupLocation.CenterOwner : WindowStartupLocation.CenterScreen;
                 var room = Math.Max(300, SystemParameters.WorkArea.Height - 120);
                 w.Card.MaxHeight = room;
-                w.GroupsScroll.MaxHeight = Math.Max(160, room - 300);
+                w.GroupsScroll.MaxHeight = Math.Max(160, room - 220);
             }
             w.ShowDialog();
             return w._locate;
-        }
-
-        private void Group_Click(object sender, RoutedEventArgs e)
-        {
-            if ((sender as FrameworkElement)?.DataContext is FixResultGroup g) g.Toggle();
         }
 
         private void More_Click(object sender, RoutedEventArgs e)

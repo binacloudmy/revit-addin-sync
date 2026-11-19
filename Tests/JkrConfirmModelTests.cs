@@ -15,31 +15,81 @@ namespace RevitWebAppSync.Tests
         private static List<JkrConfirmRow> Rows(int n) =>
             Enumerable.Range(1, n).Select(i => new JkrConfirmRow($"A{i}", $"Title {i}", "old", "new")).ToList();
 
+        private static List<JkrConfirmRow> Mixed(int ready, int ai) =>
+            Enumerable.Range(1, ready).Select(i => new JkrConfirmRow($"A{i}", $"Ready {i}", "old", "new"))
+                .Concat(Enumerable.Range(1, ai).Select(i => new JkrConfirmRow($"B{i}", $"AI {i}", "old", "new", isAiProposal: true)))
+                .ToList();
+
         // ── Fix ──
 
         [Fact]
-        public void Fix_dialog_uses_the_prototype_strings_and_counts_the_changes()
+        public void Fix_dialog_uses_the_clear_sheet_strings_and_counts_the_changes()
         {
             var m = new JkrConfirmModel(JkrConfirmKind.Fix, Rows(3), affectedElements: 3);
-            Assert.Equal("Modify the model?", m.Title);
-            Assert.Equal("These changes will be written to the Revit model. You can undo in Revit.", m.Sub);
-            Assert.Equal("Confirm & modify (3)", m.ConfirmLabel);
+            Assert.Equal("Write these changes to the model?", m.Title);
+            Assert.Equal("Nothing is written until you confirm. Revit can undo all of them as one step.", m.Sub);
+            Assert.Equal("Write 3 changes", m.ConfirmLabel);
             Assert.Equal("Cancel", m.CancelLabel);
+        }
+
+        [Fact]
+        public void One_change_reads_singular()
+        {
+            Assert.Equal("Write 1 change", new JkrConfirmModel(JkrConfirmKind.Fix, Rows(1), 1).ConfirmLabel);
         }
 
         [Fact]
         public void Fix_dialog_in_bm()
         {
-            var m = new JkrConfirmModel(JkrConfirmKind.Fix, Rows(1), 1, lang: "ms");
-            Assert.Equal("Ubah model?", m.Title);
-            Assert.Equal("Sahkan & ubah (1)", m.ConfirmLabel);
+            var m = new JkrConfirmModel(JkrConfirmKind.Fix, Mixed(1, 1), 1, lang: "ms");
+            Assert.Equal("Tulis perubahan ini ke model?", m.Title);
+            Assert.Equal("Tiada apa-apa ditulis sehingga anda sahkan. Revit boleh undo kesemuanya sebagai satu langkah.", m.Sub);
+            Assert.Equal("Tulis 2 perubahan", m.ConfirmLabel);
             Assert.Equal("Batal", m.CancelLabel);
+            Assert.Equal("Pembaikan sedia", m.ReadyHeader);
+            Assert.Equal("Dicadangkan oleh pembaiki AI", m.AiHeader);
         }
 
         [Fact]
         public void Unknown_language_falls_back_to_english()
         {
-            Assert.Equal("Modify the model?", new JkrConfirmModel(JkrConfirmKind.Fix, Rows(1), 1, lang: "fr").Title);
+            Assert.Equal("Write these changes to the model?", new JkrConfirmModel(JkrConfirmKind.Fix, Rows(1), 1, lang: "fr").Title);
+        }
+
+        // ── Groups: ready-made fixes and AI fixer proposals ──
+
+        [Fact]
+        public void Rows_split_into_ready_made_fixes_and_ai_fixer_proposals()
+        {
+            var m = new JkrConfirmModel(JkrConfirmKind.Fix, Mixed(4, 3), 7);
+            Assert.Equal(new[] { "Ready 1", "Ready 2", "Ready 3", "Ready 4" }, m.ReadyRows.Select(r => r.Title));
+            Assert.Equal(new[] { "AI 1", "AI 2", "AI 3" }, m.AiRows.Select(r => r.Title));
+            Assert.Equal(4, m.ReadyCount);
+            Assert.Equal(3, m.AiCount);
+            Assert.True(m.HasReady);
+            Assert.True(m.HasAi);
+            Assert.Equal("Ready-made fixes", m.ReadyHeader);
+            Assert.Equal("Proposed by the AI fixer", m.AiHeader);
+            // Every row is written, from both groups: the button counts them all.
+            Assert.Equal("Write 7 changes", m.ConfirmLabel);
+        }
+
+        [Fact]
+        public void Ready_made_only_has_no_ai_group()
+        {
+            var m = new JkrConfirmModel(JkrConfirmKind.Fix, Rows(2), 2);
+            Assert.False(m.HasAi);
+            Assert.Empty(m.AiRows);
+            Assert.True(m.HasReady);
+        }
+
+        [Fact]
+        public void Ai_proposals_only_has_no_ready_group()
+        {
+            var m = new JkrConfirmModel(JkrConfirmKind.Fix, Mixed(0, 2), 2);
+            Assert.False(m.HasReady);
+            Assert.True(m.HasAi);
+            Assert.Equal("Write 2 changes", m.ConfirmLabel);
         }
 
         [Fact]
@@ -98,13 +148,24 @@ namespace RevitWebAppSync.Tests
         // ── Rows ──
 
         [Fact]
-        public void Row_caption_is_item_dot_title_and_blanks_become_a_dash()
+        public void Row_caption_is_title_dot_scope()
         {
-            var r = new JkrConfirmRow("A5", "Grid sequence has a gap", "", null);
-            Assert.Equal("A5 · Grid sequence has a gap", r.Caption);
-            Assert.Equal("—", r.Actual);
-            Assert.Equal("—", r.Proposed);
+            Assert.Equal("Grid sequence has a gap · A5", new JkrConfirmRow("A5", "Grid sequence has a gap", "a", "b").Caption);
+            Assert.Equal("Type name not JKR · Doors [204511]",
+                         new JkrConfirmRow("Doors", "Type name not JKR", "a", "b", elementId: 204511).Caption);
             Assert.Equal("Untitled", new JkrConfirmRow("", "Untitled", "a", "b").Caption);
+        }
+
+        [Fact]
+        public void An_empty_old_value_reads_missing_in_the_dialog_language()
+        {
+            var en = new JkrConfirmModel(JkrConfirmKind.Fix, new[] { new JkrConfirmRow("Doors", "Kod Jenis missing", "", "PT1") }, 1);
+            Assert.Equal("(missing)", en.Rows[0].Old);
+            Assert.Equal("PT1", en.Rows[0].Proposed);
+            var ms = new JkrConfirmModel(JkrConfirmKind.Fix, new[] { new JkrConfirmRow("Doors", "Kod Jenis missing", null, "PT1") }, 1, lang: "ms");
+            Assert.Equal("(tiada)", ms.Rows[0].Old);
+            Assert.Equal("Aras Tanah", new JkrConfirmModel(JkrConfirmKind.Fix,
+                new[] { new JkrConfirmRow("Levels", "Level naming", "Aras Tanah", "L01") }, 1).Rows[0].Old);
         }
 
         [Fact]
@@ -112,20 +173,40 @@ namespace RevitWebAppSync.Tests
         {
             var issue = new IssueVm
             {
-                Category = "Walls", Title = "Type name not JKR", Actual = "Basic Wall 200",
+                Category = "Walls", Title = "Type name not JKR", Actual = "Basic Wall 200", RevitElementId = 205100,
                 FixOldValue = "Generic - 200mm", FixValue = "jkrAR_wll-b_(bb02) Batu Bata",
             };
             var r = JkrConfirmRow.FromIssue(issue);
-            Assert.Equal("Walls · Type name not JKR", r.Caption);
+            Assert.Equal("Type name not JKR · Walls [205100]", r.Caption);
             Assert.Equal("Generic - 200mm", r.Actual);
             Assert.Equal("jkrAR_wll-b_(bb02) Batu Bata", r.Proposed);
+            Assert.False(r.IsAiProposal);
+        }
+
+        [Fact]
+        public void Row_scope_is_the_revit_category_when_the_scan_gave_one()
+        {
+            var r = JkrConfirmRow.FromIssue(new IssueVm
+            {
+                Category = "Naming Convention", RevitCategory = "Doors", Title = "Type name not JKR",
+                RevitElementId = 204511, FixValue = "jkrAR_PT2p_900x2100",
+            });
+            Assert.Equal("Type name not JKR · Doors [204511]", r.Caption);
+        }
+
+        [Fact]
+        public void Row_from_an_issue_the_ai_fixer_proposed_is_an_ai_proposal()
+        {
+            var r = JkrConfirmRow.FromIssue(new IssueVm { Title = "Material not JKR-coded", FixValue = "jkrMT_ST_Putih", FixProposedByAi = true });
+            Assert.True(r.IsAiProposal);
         }
 
         [Fact]
         public void Row_from_an_issue_falls_back_to_the_scanned_value()
         {
             var r = JkrConfirmRow.FromIssue(new IssueVm { Title = "Kod_Jenis missing", Actual = "(empty)", FixValue = "AR-01" });
-            Assert.Equal("—", r.Actual);
+            Assert.Equal("", r.Actual);
+            Assert.Equal("(missing)", r.Old);
             Assert.Equal("AR-01", r.Proposed);
         }
     }

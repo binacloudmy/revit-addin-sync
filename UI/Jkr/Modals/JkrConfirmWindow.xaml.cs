@@ -7,9 +7,10 @@ using RevitWebAppSync.UI.Jkr.ViewModels;
 namespace RevitWebAppSync.UI.Jkr.Modals
 {
     /// <summary>
-    /// Confirm dialog before every model write (prototype .cf, frame f-confirm).
-    /// Lists each change as "item · title / actual → proposed". From 500
-    /// affected elements it says Revit may pause.
+    /// Confirm dialog before every model write (Clear Sheet "confirm changes").
+    /// Lists each change as "title · scope / old → new", ready-made fixes and AI
+    /// fixer proposals in their own groups. From 500 affected elements it says
+    /// Revit may pause.
     ///
     /// Esc, Cancel and a click on the scrim cancel; Enter confirms when the confirm
     /// button is enabled. The scrim covers the window that owns the pane.
@@ -23,13 +24,7 @@ namespace RevitWebAppSync.UI.Jkr.Modals
             _model = model ?? throw new ArgumentNullException(nameof(model));
             InitializeComponent();
 
-            TitleText.Text = model.Title;
-            SubText.Text = model.Sub;
-            RowsList.ItemsSource = model.Rows;
-            PauseBox.Visibility = model.ShowPauseWarning ? Visibility.Visible : Visibility.Collapsed;
-            PauseText.Text = model.PauseWarning;
-            CancelBtn.Content = model.CancelLabel;
-            ConfirmBtn.Content = model.ConfirmLabel;
+            DataContext = model;
             AutomationPropertiesHelper(model.Title);
             Refresh();
 

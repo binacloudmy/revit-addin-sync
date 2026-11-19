@@ -147,8 +147,14 @@ namespace UiHarness
             DetailShot(dir, "jkr-detail-marked.png", fixMed, tweak: i => i.MarkedManual = true, en: false);
             DetailShot(dir, "jkr-detail-failed-en.png", fixMed, tweak: i => i.FixError = "Type name already used in this family.");
             DetailShot(dir, "jkr-detail-steps-en.png", noFixMed, steps: true);
-            ConfirmShot(dir, "jkr-confirm-en.png");
-            FixResultShot(dir, "jkr-fixresult-en.png");
+            ConfirmShot(dir, "jkr-confirm-en.png", ai: 0, affected: 12);
+            ConfirmShot(dir, "jkr-confirm-ai-en.png", ai: 3, affected: 40);
+            ConfirmShot(dir, "jkr-confirm-pause-en.png", ai: 3, affected: JkrFixBatch.PauseWarningElementCount + 120);
+            ConfirmShot(dir, "jkr-confirm-ai.png", ai: 3, affected: JkrFixBatch.PauseWarningElementCount + 120, en: false);
+            FixResultShot(dir, "jkr-fixresult-en.png", applied: 42);
+            FixResultShot(dir, "jkr-fixresult-allwritten-en.png", applied: 42, failures: false);
+            FixResultShot(dir, "jkr-fixresult-nothing-en.png", applied: 0);
+            FixResultShot(dir, "jkr-fixresult.png", applied: 42, en: false);
         }
 
         /// <summary>The detail window over the failing run, at the first issue that
@@ -185,9 +191,11 @@ namespace UiHarness
             finally { host.Close(); }
         }
 
-        /// <summary>The confirm dialog with the failing run's first ready-made fixes,
-        /// over the pause threshold so the "Revit may pause" panel shows.</summary>
-        private static void ConfirmShot(string dir, string file)
+        /// <summary>The confirm dialog with the failing run's first ready-made fixes and,
+        /// with <paramref name="ai"/> &gt; 0, that many AI fixer proposals (harness sample:
+        /// the proposals come from the backend during Fix all). From
+        /// <paramref name="affected"/> 500 the "Revit may pause" note shows.</summary>
+        private static void ConfirmShot(string dir, string file, int ai, int affected, bool en = true)
         {
             try
             {
@@ -195,30 +203,50 @@ namespace UiHarness
                 var response = json["response"].ToObject<ModelCheckResponse>(JsonSerializer.CreateDefault());
                 var rows = IssueMapper.MapAll(response)
                     .Where(i => i.AutoFixable && !string.IsNullOrEmpty(i.FixAction))
-                    .Take(5)
+                    .Take(4)
                     .Select(JkrConfirmRow.FromIssue)
                     .ToList();
-                var model = new JkrConfirmModel(JkrConfirmKind.Fix, rows, JkrFixBatch.PauseWarningElementCount + 120, PanelStrings.En);
+                var samples = new[]
+                {
+                    new JkrConfirmRow("Railings", "Material not JKR-coded", "Metal White", "jkrMT_ST_Putih", 88213, isAiProposal: true),
+                    new JkrConfirmRow("Furniture", "Material not JKR-coded", "Wood - Oak", "jkrMT_KY_Oak", 90544, isAiProposal: true),
+                    new JkrConfirmRow("Doors", "Missing type parameter: Kod Jenis JKR", "", "PT1", 204511, isAiProposal: true),
+                };
+                rows.AddRange(samples.Take(ai));
+                var model = new JkrConfirmModel(JkrConfirmKind.Fix, rows, affected, en ? PanelStrings.En : PanelStrings.Ms);
                 RenderWindow(NewWindow<JkrConfirmWindow>(model), dir, file);
             }
             catch (Exception ex) { Console.WriteLine(file + ": failed — " + ex); }
         }
 
-        /// <summary>The Fix all result: 42 written, and failures in three reasons
-        /// (category without JKR parameters, model group, a reason Revit gave).</summary>
-        private static void FixResultShot(string dir, string file)
+        /// <summary>The fix outcome: <paramref name="applied"/> written and, unless
+        /// <paramref name="failures"/> is false, failures in three reasons (category
+        /// without JKR parameters, model group, a reason Revit gave).</summary>
+        private static void FixResultShot(string dir, string file, int applied, bool failures = true, bool en = true)
         {
             try
             {
+                var lang = en ? PanelStrings.En : PanelStrings.Ms;
                 var r = new RenameResult();
                 void Param(long id, string param, string why) =>
-                    r.RecordFailure(RenameResult.MakeFixKey("set_parameter", id, param), id, PaneText.ParamWhat(param, id, PanelStrings.En), why);
-                for (var i = 0; i < 7; i++)
-                    Param(578862, "P" + i + "_jkr_stt", $"Parameter 'P{i}_jkr_stt' not found on element 578862. Element category does not accept bound parameters.");
-                foreach (var id in new long[] { 901102, 901105, 930585 })
-                    Param(id, "LOD_jkr_sit", $"Element {id} is inside a model group — Revit blocks instance parameter edits outside group edit mode.");
-                Param(921291, "Bahan_jkr_stm", "The value is outside the range Revit allows.");
-                var model = new FixResultModel(r, 42, fixAll: true, id => id == 578862 ? "Generic Models" : null, PanelStrings.En);
+                    r.RecordFailure(RenameResult.MakeFixKey("set_parameter", id, param), id, PaneText.ParamWhat(param, id, lang), why);
+                if (failures)
+                {
+                    for (var i = 0; i < 7; i++)
+                        Param(578862, "P" + i + "_jkr_stt", $"Parameter 'P{i}_jkr_stt' not found on element 578862. Element category does not accept bound parameters.");
+                    foreach (var id in new long[] { 901102, 901105, 930585 })
+                        Param(id, "LOD_jkr_sit", $"Element {id} is inside a model group — Revit blocks instance parameter edits outside group edit mode.");
+                    Param(921291, "Bahan_jkr_stm", "The value is outside the range Revit allows.");
+                }
+                var labels = new Dictionary<long, string>
+                {
+                    [578862] = "Generic Models · Bollard 600",
+                    [901102] = "Walls · jkrAR_DD_Bata_115",
+                    [901105] = "Walls · jkrAR_DD_Bata_115",
+                    [930585] = "Doors · jkrAR_PT2p_900x2100",
+                    [921291] = "Railings · jkrAR_RL_900",
+                };
+                var model = new FixResultModel(r, applied, fixAll: true, id => labels.TryGetValue(id, out var l) ? l : null, lang);
                 RenderWindow(NewWindow<FixResultWindow>(model), dir, file);
             }
             catch (Exception ex) { Console.WriteLine(file + ": failed — " + ex); }
