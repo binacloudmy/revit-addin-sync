@@ -42,9 +42,19 @@ namespace RevitWebAppSync.Services.CadToBim
         public List<CadWall> Forced = new();
 
         /// <summary>CAD wall -> Revit ElementId value for every wall a Confirm built.
-        /// Never pruned here: erasing after a build hides the wall from the pane, it does
-        /// not delete it — undo is the drafter's tool for that.</summary>
+        /// Erasing after a build hides the wall from the pane, it does not delete it. Entries
+        /// leave only through ForgetBuilt: "Undo this build", or a check on the Revit thread
+        /// that found the wall gone (Ctrl+Z in Revit).</summary>
         public Dictionary<CadWall, long> BuiltWallIds = new();
+
+        /// <summary>The document BuiltWallIds belong to (BuildReport.DocumentKey of the "Add to
+        /// this project" build that made them); null before the first such build. The ids mean
+        /// nothing in any other document.</summary>
+        public string BuiltDocumentKey;
+
+        /// <summary>Doors and windows the drafter left out with Pick, by OpeningKey. Keys, not
+        /// instances: openings are re-derived after every erase, brush and re-detect.</summary>
+        public HashSet<string> PickedOut = new(StringComparer.Ordinal);
 
         /// <summary>Thickness a single-line brush wall is given. The drawing's own
         /// median beats any constant; 100 mm until a detect pass has run.</summary>
@@ -101,6 +111,35 @@ namespace RevitWebAppSync.Services.CadToBim
         public List<CadWall> Pending() =>
             Active().Where(wall => !BuiltWallIds.ContainsKey(wall)).ToList();
 
+        /// <summary>Drops built ids the model no longer has (or that "Undo this build" deleted),
+        /// so their walls are pending again. Returns how many walls were forgotten.</summary>
+        public int ForgetBuilt(IEnumerable<long> ids)
+        {
+            if (ids == null) return 0;
+            var gone = new HashSet<long>(ids);
+            if (gone.Count == 0) return 0;
+
+            List<CadWall> walls = BuiltWallIds.Where(pair => gone.Contains(pair.Value)).Select(pair => pair.Key).ToList();
+            foreach (CadWall wall in walls) BuiltWallIds.Remove(wall);
+            return walls.Count;
+        }
+
+        /// <summary>Pick tool: leave an opening out of the build, or bring it back.</summary>
+        public void TogglePick(Cad2Bim.Opening opening)
+        {
+            if (opening == null) return;
+            string key = OpeningKey(opening);
+            if (!PickedOut.Remove(key)) PickedOut.Add(key);
+        }
+
+        public bool IsPickedOut(Cad2Bim.Opening opening) =>
+            opening != null && PickedOut.Contains(OpeningKey(opening));
+
+        /// <summary>"D|x|y" (or "W|…"): kind and position rounded to whole millimetres.</summary>
+        public static string OpeningKey(Cad2Bim.Opening opening) =>
+            (opening.IsDoor ? "D|" : "W|") +
+            (long)Math.Round(opening.Position.x) + "|" + (long)Math.Round(opening.Position.y);
+
         public void ToggleErase(CadWall wall)
         {
             if (wall == null) return;
@@ -127,6 +166,13 @@ namespace RevitWebAppSync.Services.CadToBim
         public void MarkBuilt(BuildReport report)
         {
             if (report == null || !report.Ok || report.WallIds == null) return;
+
+            // Built into another document than the walls recorded so far: those ids mean
+            // nothing there, so the new build's ids replace them.
+            if (!string.IsNullOrEmpty(report.DocumentKey) && !string.IsNullOrEmpty(BuiltDocumentKey) &&
+                !string.Equals(report.DocumentKey, BuiltDocumentKey, StringComparison.OrdinalIgnoreCase))
+                BuiltWallIds.Clear();
+            if (!string.IsNullOrEmpty(report.DocumentKey)) BuiltDocumentKey = report.DocumentKey;
 
             foreach (var (key, value) in report.WallIds)
             {
@@ -158,6 +204,9 @@ namespace RevitWebAppSync.Services.CadToBim
             {
                 if (byKey.TryGetValue(CenterlineKey(oldWall), out CadWall match)) BuiltWallIds[match] = id;
             }
+
+            PickedOut.UnionWith(previous.PickedOut);
+            BuiltDocumentKey ??= previous.BuiltDocumentKey;
 
             foreach (CadWall forced in previous.Forced)
             {

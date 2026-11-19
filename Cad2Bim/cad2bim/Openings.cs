@@ -110,6 +110,12 @@ namespace Cad2Bim {
             var openings = new List<Opening>();
             if (walls.Count == 0) return openings;
 
+            // Windows drawn as lines across a gap in the wall: the wall stops, the window
+            // lines carry on to the next piece. Those lines also pair into thin "frame walls",
+            // which must neither host a door nor take the window marks.
+            var gaps = FindWindowGaps(walls, swings, windowLines);
+            var frames = new HashSet<Wall>(gaps.SelectMany(gap => gap.Frames));
+
             var centerlines = walls.Select(w => w.Centerline).ToList();
             var index = new SegmentIndex(centerlines, 2000);
 
@@ -124,6 +130,7 @@ namespace Cad2Bim {
 
                 foreach (int i in index.Near(probe, arc.Radius * 1.5)) {
                     Wall candidate = walls[i];
+                    if (frames.Contains(candidate)) continue;
                     double along = DistanceAlong(candidate.Centerline, arc.Center, out double offset);
 
                     if (along < -arc.Radius || along > candidate.Centerline.Length + arc.Radius) continue;
@@ -148,6 +155,7 @@ namespace Cad2Bim {
 
                 foreach (int i in index.Near(probe, 500)) {
                     Wall candidate = walls[i];
+                    if (frames.Contains(candidate)) continue;
                     double along = DistanceAlong(candidate.Centerline, middle, out double offset);
 
                     if (offset > Math.Max(candidate.Thickness, 150)) continue;
@@ -186,7 +194,235 @@ namespace Cad2Bim {
                 }
             }
 
+            // A gap window sits past its host's end, so its jambs are not clamped to the host.
+            foreach (var gap in gaps) {
+                Point centre = PointAlong(gap.Host.Centerline, (gap.From + gap.To) / 2);
+                openings.Add(Across(gap.Host, centre, gap.To - gap.From, null, clamp: false));
+            }
+
             return Merge(openings);
+        }
+
+        /// <summary>How close a window line's start, or the next piece of wall, has to come to
+        /// where a wall stops (or where the run of window lines stops) to carry on from it.</summary>
+        public const double WindowGapAbutMm = 50.0;
+
+        /// <summary>How far past the wall's face a window line may sit and still be in the
+        /// wall: sills and frames are drawn a little proud of it.</summary>
+        public const double WindowGapSideSlackMm = 50.0;
+
+        /// <summary>Slack around a gap window for a wall made of its lines to count as a frame.</summary>
+        public const double WindowFrameSlackMm = 25.0;
+
+        /// <summary>How far off the wall's direction a window line may run.</summary>
+        public const double WindowGapAngleDegrees = 5.0;
+
+        /// <summary>Gap windows whose middles are this close are one window found twice.</summary>
+        public const double WindowGapSameMm = 150.0;
+
+        /// <summary>
+        /// The thin walls the classifier paired out of window lines lying in a wall gap: a
+        /// sill, glass or frame line matched with its neighbour, not fabric. Callers drop them
+        /// from the wall list before anything else uses it; left in, they take the window
+        /// marks and door swings meant for the real wall, and stop that wall being stretched
+        /// across the window to meet the next piece.
+        /// </summary>
+        public static List<Wall> WindowFrameWalls(
+                IReadOnlyList<Wall> walls, IReadOnlyList<Arc> swings, IReadOnlyList<Segment> windowLines) =>
+            FindWindowGaps(walls, swings, windowLines)
+                .SelectMany(gap => gap.Frames)
+                .Distinct()
+                .ToList();
+
+        private sealed class WindowGapCandidate {
+            public readonly Wall Host;
+            public readonly int HostIndex;
+            public readonly double From;
+            public readonly double To;
+            public readonly bool TwoSided;
+            public readonly Point Middle;
+            public readonly List<Wall> Frames;
+
+            public WindowGapCandidate(Wall host, int hostIndex, double from, double to, bool twoSided, List<Wall> frames) {
+                Host = host;
+                HostIndex = hostIndex;
+                From = from;
+                To = to;
+                TwoSided = twoSided;
+                Frames = frames;
+                Middle = PointAlong(host.Centerline, (from + to) / 2);
+            }
+        }
+
+        /// <summary>
+        /// Windows drawn as a run of lines in a gap where the wall stops. The sill, glass and
+        /// frame lines run on from the wall's end, parallel to it, to the next piece of the
+        /// same wall - or, with two or more lines and no next piece, simply for a window's
+        /// width. From and To are along the host's centreline and lie past one of its ends,
+        /// so they are below zero or above its length. Frames are the walls paired out of
+        /// the window lines in the gap.
+        /// </summary>
+        private static List<(Wall Host, double From, double To, List<Wall> Frames)> FindWindowGaps(
+                IReadOnlyList<Wall> walls, IReadOnlyList<Arc> swings, IReadOnlyList<Segment> windowLines) {
+
+            var found = new List<(Wall Host, double From, double To, List<Wall> Frames)>();
+            if (walls.Count == 0 || windowLines.Count == 0) return found;
+
+            List<Segment> lines = windowLines.Where(line => line.Length > 0).ToList();
+            if (lines.Count == 0) return found;
+
+            var lineIndex = new SegmentIndex(lines, 2000);
+            var wallIndex = new SegmentIndex(walls.Select(w => w.Centerline).ToList(), 2000);
+            double reachOut = OpeningMaxWidthMm + WindowGapAbutMm;
+
+            var candidates = new List<WindowGapCandidate>();
+
+            for (int wi = 0; wi < walls.Count; wi++) {
+                Wall wall = walls[wi];
+                Segment line = wall.Centerline;
+                double length = line.Length;
+                if (length <= 0) continue;
+
+                double side = (wall.Thickness / 2.0) + WindowGapSideSlackMm;
+
+                for (int endIndex = 0; endIndex < 2; endIndex++) {
+                    bool atP2 = endIndex == 1;
+
+                    // Distance outward from this end of the wall; negative is back along it.
+                    double Out(Point p, out double offset) {
+                        double at = DistanceAlong(line, p, out offset);
+                        return atP2 ? at - length : -at;
+                    }
+
+                    Point stop = atP2 ? line.P2 : line.P1;
+                    var probe = new Segment(stop, PointAlong(line, atP2 ? length + reachOut : -reachOut));
+
+                    var spans = new List<(double A, double B)>();
+                    foreach (int k in lineIndex.Near(probe, side)) {
+                        Segment candidate = lines[k];
+                        if (!candidate.isParallelTo(line, WindowGapAngleDegrees)) continue;
+
+                        double t1 = Out(candidate.P1, out double off1);
+                        double t2 = Out(candidate.P2, out double off2);
+                        if (off1 > side || off2 > side) continue;
+
+                        spans.Add((Math.Min(t1, t2), Math.Max(t1, t2)));
+                    }
+                    if (spans.Count == 0) continue;
+
+                    spans.Sort((a, b) => a.A.CompareTo(b.A));
+
+                    // The run starts at the wall's end and carries on while each line picks up
+                    // within WindowGapAbutMm of where the run so far stops.
+                    double e = double.NaN;
+                    int count = 0;
+                    foreach (var span in spans) {
+                        if (double.IsNaN(e)) {
+                            if (span.A >= -WindowGapAbutMm && span.A <= WindowGapAbutMm && span.B > WindowGapAbutMm) {
+                                e = span.B;
+                                count = 1;
+                            }
+                            continue;
+                        }
+                        if (span.A > e + WindowGapAbutMm) break;
+                        e = Math.Max(e, span.B);
+                        count++;
+                    }
+                    if (double.IsNaN(e)) continue;
+
+                    // Other walls on this line: the next piece, real wall in the way, and the
+                    // frame walls made of the window lines themselves.
+                    var others = new List<(Wall Wall, double Near, double Far, bool InRun, bool Tight)>();
+                    foreach (int j in wallIndex.Near(probe, side + wall.Thickness)) {
+                        if (j == wi) continue;
+                        Wall other = walls[j];
+                        Segment otherLine = other.Centerline;
+                        if (otherLine.Length <= 0) continue;
+                        if (!otherLine.isParallelTo(line, WindowGapAngleDegrees)) continue;
+
+                        double t1 = Out(otherLine.P1, out double off1);
+                        double t2 = Out(otherLine.P2, out double off2);
+                        double off = Math.Max(off1, off2);
+
+                        // InRun is BuildSizing.CoverOpenings' "next piece of the same run".
+                        bool inRun = off <= Math.Max(wall.Thickness, other.Thickness) / 2.0;
+                        bool tight = off <= (wall.Thickness / 2.0) + WindowFrameSlackMm;
+                        if (!inRun && !tight) continue;
+
+                        others.Add((other, Math.Min(t1, t2), Math.Max(t1, t2), inRun, tight));
+                    }
+
+                    // The next piece: starts where the run stops and goes on past it.
+                    Wall? neighbour = null;
+                    double neighbourNear = 0, bestMiss = double.MaxValue;
+                    foreach (var other in others) {
+                        if (!other.InRun) continue;
+                        double miss = Math.Abs(other.Near - e);
+                        if (miss > WindowGapAbutMm || other.Far <= e) continue;
+                        if (miss >= bestMiss) continue;
+                        neighbour = other.Wall;
+                        neighbourNear = other.Near;
+                        bestMiss = miss;
+                    }
+                    if (neighbour is not null) e = neighbourNear;
+
+                    // Real wall standing in the gap: these lines are not a window across it.
+                    bool blocked = others.Any(other =>
+                        other.InRun && !ReferenceEquals(other.Wall, neighbour) &&
+                        other.Far > WindowGapAbutMm && other.Near < e - WindowGapAbutMm &&
+                        !(other.Near >= -WindowFrameSlackMm && other.Far <= e + WindowFrameSlackMm));
+                    if (blocked) continue;
+
+                    if (e < WindowMinWidthMm || e > OpeningMaxWidthMm) continue;
+                    if (neighbour is null && count < 2) continue;
+
+                    double gapEnd = e;
+                    List<Wall> frames = others
+                        .Where(other => other.Tight &&
+                                        other.Near >= -WindowFrameSlackMm && other.Far <= gapEnd + WindowFrameSlackMm)
+                        .Select(other => other.Wall)
+                        .ToList();
+
+                    candidates.Add(new WindowGapCandidate(
+                        wall, wi,
+                        atP2 ? length : -e,
+                        atP2 ? length + e : 0,
+                        neighbour is not null,
+                        frames));
+                }
+            }
+
+            // A frame wall can itself look like a wall stopping at a window; it hosts nothing.
+            var allFrames = new HashSet<Wall>(candidates.SelectMany(c => c.Frames));
+            candidates.RemoveAll(c => allFrames.Contains(c.Host));
+
+            // The same window is found from both pieces it sits between: keep one, on the
+            // longer piece, the same way every time.
+            var kept = new List<WindowGapCandidate>();
+            foreach (WindowGapCandidate candidate in candidates
+                         .OrderByDescending(c => c.TwoSided)
+                         .ThenByDescending(c => c.Host.Centerline.Length)
+                         .ThenBy(c => c.HostIndex)) {
+                if (kept.Any(k => Segment.PointDistance(k.Middle, candidate.Middle) <= WindowGapSameMm)) continue;
+                kept.Add(candidate);
+            }
+
+            // A door hinged in the gap makes it a doorway; the lines there are its leaf and frame.
+            List<Arc> doors = swings.Where(IsDoorSwing).ToList();
+            kept.RemoveAll(gap => doors.Any(arc => DoorInGap(gap, arc)));
+
+            foreach (WindowGapCandidate gap in kept) found.Add((gap.Host, gap.From, gap.To, gap.Frames));
+            return found;
+        }
+
+        private static bool DoorInGap(WindowGapCandidate gap, Arc swing) {
+            Segment line = gap.Host.Centerline;
+            double along = DistanceAlong(line, swing.Center, out _);
+            if (along < gap.From - swing.Radius || along > gap.To + swing.Radius) return false;
+
+            double clamped = Math.Min(Math.Max(along, gap.From), gap.To);
+            double distance = Segment.PointDistance(swing.Center, PointAlong(line, clamped));
+            return distance <= Math.Max(gap.Host.Thickness, DoorHostReachMm);
         }
 
         /// <summary>How far a swing's hinge may sit from the wall centreline and still be
@@ -249,7 +485,7 @@ namespace Cad2Bim {
         /// <summary>Two jambs across the wall, the width apart, centred where the symbol sat.
         /// The Opening model is built from its jambs, and a symbol-found opening has none of
         /// its own - so they are placed where the wall says they must be.</summary>
-        private static Opening Across(Wall wall, Point centre, double width, Arc? swing) {
+        private static Opening Across(Wall wall, Point centre, double width, Arc? swing, bool clamp = true) {
             Segment line = wall.Centerline;
             double dx = (line.P2.x - line.P1.x) / line.Length;
             double dy = (line.P2.y - line.P1.y) / line.Length;
@@ -259,7 +495,7 @@ namespace Cad2Bim {
             double reach = Math.Max(wall.Thickness, 100) / 2.0;
 
             Segment Jamb(double at) {
-                Point on = PointAlong(line, Math.Min(Math.Max(at, 0), line.Length));
+                Point on = PointAlong(line, clamp ? Math.Min(Math.Max(at, 0), line.Length) : at);
                 return new Segment(
                     new Point(on.x - (-dy * reach), on.y - (dx * reach)),
                     new Point(on.x + (-dy * reach), on.y + (dx * reach)));

@@ -138,9 +138,9 @@ namespace RevitWebAppSync.Services.CadToBim
 
             result.Walls = walls;
             result.Note = walls.Count == 0
-                ? inside.Count + " lines in box, but no wall shape - their extent is " + Extent(points) +
+                ? inside.Count + (inside.Count == 1 ? " line" : " lines") + " in box, but no wall shape - their extent is " + Extent(points) +
                   ". Try a box that follows one wall rather than a room."
-                : result.Paired + " walls paired, " + result.SingleLine + " single-line, " +
+                : result.Paired + (result.Paired == 1 ? " wall" : " walls") + " paired, " + result.SingleLine + " single-line, " +
                   result.Cloud + " cloud";
 
             return result;

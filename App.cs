@@ -62,6 +62,9 @@ namespace RevitWebAppSync
         public static CadToBimPaneHost CadToBimPaneHost { get; private set; }
         public static CadToBimBuildHandler CadToBimBuildHandler { get; private set; }
         public static ExternalEvent CadToBimBuildEvent { get; private set; }
+        /// <summary>Opens the CAD to BIM pane on a drawing from the Copilot chat (CadToBimLauncher).</summary>
+        public static CadToBimOpenHandler CadToBimOpenHandler { get; private set; }
+        public static ExternalEvent CadToBimOpenEvent { get; private set; }
 
         // Live UIApplication captured on Idling (a valid Revit API context).
         // Fallback for the dockable Copilot pane: its _uiApp is only pushed by
@@ -727,6 +730,8 @@ namespace RevitWebAppSync
                 {
                     CadToBimBuildHandler = new CadToBimBuildHandler();
                     CadToBimBuildEvent = ExternalEvent.Create(CadToBimBuildHandler);
+                    CadToBimOpenHandler = new CadToBimOpenHandler();
+                    CadToBimOpenEvent = ExternalEvent.Create(CadToBimOpenHandler);
 
                     CadToBimPaneHost = new CadToBimPaneHost();
                     application.RegisterDockablePane(
@@ -973,6 +978,9 @@ namespace RevitWebAppSync
             try { CadToBimBuildEvent?.Dispose(); } catch { }
             CadToBimBuildEvent = null;
             CadToBimBuildHandler = null;
+            try { CadToBimOpenEvent?.Dispose(); } catch { }
+            CadToBimOpenEvent = null;
+            CadToBimOpenHandler = null;
             CadToBimPaneHost = null;
 
             // Scratch documents opened to read attached DWGs — left open they

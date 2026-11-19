@@ -3,6 +3,7 @@ using ACadSharp.Entities;
 
 using Cad2Bim;
 using Cad2Bim.Services;
+using RevitWebAppSync.Services.CadToBim;
 
 namespace Cad2Bim.Headless {
     // Console harness for the classification model. The WPF viewer is the tuning surface;
@@ -25,6 +26,7 @@ namespace Cad2Bim.Headless {
                     "  --aspect=3                  how many times longer than thick a wall face must be\n" +
                     "  --facegap=150               gap in a face that still counts as one face (mm)\n" +
                     "  --bridge=2000               widest doorway a room boundary may jump (mm)\n" +
+                    "  --sizes                     wall types, door/window sizes and corner moves a Revit build uses\n" +
                     "  --ifc=out.ifc               write the result as an IFC model");
                 return 2;
             }
@@ -46,7 +48,8 @@ namespace Cad2Bim.Headless {
             CadModel model = ModelSource.Read(document, filter);
 
             Console.WriteLine($"file        {Path.GetFileName(path)}");
-            Console.WriteLine($"units       {document.Header.InsUnits} ({model.Scale:0.####} mm per unit)");
+            string disbelieved = Units.HeaderDisbelieved(document, model.Scale) ? ", header disbelieved" : "";
+            Console.WriteLine($"units       {document.Header.InsUnits} ({model.Scale:0.####} mm per unit{disbelieved})");
             ReportEntityCensus(document);
 
             Console.WriteLine();
@@ -123,10 +126,29 @@ namespace Cad2Bim.Headless {
             int beforeDedupe = walls.Count;
             walls = CadClassifier.DeduplicateWalls(walls);
 
+            // Windows are found by layer, doors are not. In this drawing the swings sit on
+            // Hatch-wall and C-door while A-DOOR holds only 75 mm fillets, so a layer named
+            // for doors is no guide to where the doors are. The geometry is: a quarter-turn
+            // arc with a leaf-width radius is a door swing wherever it was filed.
+            string[] windowWords = { "win", "tingkap", "glaz" };
+
+            bool OnAny(string layer, string[] words) =>
+                words.Any(word => layer.IndexOf(word, StringComparison.OrdinalIgnoreCase) >= 0);
+
+            List<Arc> swings = model.Arcs;
+            List<Segment> windowLines = model.Segments.Where(s => OnAny(s.Layer, windowWords)).ToList();
+
+            // Window lines lying in a gap where the wall stops pair into thin "frame walls".
+            // They are the window, not fabric: left in they host its neighbours and stop the
+            // real wall being stretched across it.
+            List<Wall> frameWalls = CadClassifier.WindowFrameWalls(walls, swings, windowLines);
+            walls.RemoveAll(new HashSet<Wall>(frameWalls).Contains);
+
             List<PlanCluster> plans = CadClassifier.ClusterPlans(walls, model.Texts);
             Console.WriteLine();
             Console.WriteLine($"-- walls (SMin={Wall.SMin:0.##} mm, SMax={Wall.SMax:0.##} mm) --");
-            Console.WriteLine($"  walls     {walls.Count} ({beforeDedupe - walls.Count} duplicates dropped)");
+            Console.WriteLine($"  walls     {walls.Count} ({beforeDedupe - walls.Count - frameWalls.Count} duplicates dropped)");
+            Console.WriteLine($"  frames    {frameWalls.Count} walls made of window lines dropped");
             Console.WriteLine($"  found by  {pairedCount} pairing wall-layer faces, {agreeing.Count} agreeing off those layers, {outlineWalls.Count} from hatched outlines " +
                               $"({model.Outlines.Count} outlines read)");
             Console.WriteLine($"  faces     {rawFaces} pieces joined into {wallSegments.Count} whole faces\n" +
@@ -291,18 +313,6 @@ namespace Cad2Bim.Headless {
                 Console.WriteLine($"  components {comps}  (cycles = {graph.Edges.Count - graph.Nodes.Count + comps})");
             }
 
-            // Windows are found by layer, doors are not. In this drawing the swings sit on
-            // Hatch-wall and C-door while A-DOOR holds only 75 mm fillets, so a layer named
-            // for doors is no guide to where the doors are. The geometry is: a quarter-turn
-            // arc with a leaf-width radius is a door swing wherever it was filed.
-            string[] windowWords = { "win", "tingkap", "glaz" };
-
-            bool OnAny(string layer, string[] words) =>
-                words.Any(word => layer.IndexOf(word, StringComparison.OrdinalIgnoreCase) >= 0);
-
-            List<Arc> swings = model.Arcs;
-            List<Segment> windowLines = model.Segments.Where(s => OnAny(s.Layer, windowWords)).ToList();
-
             // Symbols only. The jamb reader looks for a gap between two short perpendicular
             // lines in the wall, which on these drawings matches frame details, furniture edges
             // and hatch ends far more often than openings: it contributed 160 of 168 "windows"
@@ -318,6 +328,11 @@ namespace Cad2Bim.Headless {
             if (openings.Count > 0) {
                 var widths = openings.Select(o => o.Width).OrderBy(w => w).ToList();
                 Console.WriteLine($"  width     min={widths[0]:0} median={widths[widths.Count / 2]:0} max={widths[^1]:0} mm");
+            }
+
+            if (args.Contains("--sizes")) {
+                Func<Opening, Segment?> hostOf = ReportSizes(walls, openings);
+                ReportDoorSwings(openings, hostOf);
             }
 
             List<Space> spaces = CadClassifier.ClassifySpaces(graph, model.Texts);
@@ -365,6 +380,106 @@ namespace Cad2Bim.Headless {
             }
 
             return 0;
+        }
+
+        // What the Revit build will ask for (BuildSizing, the add-in's own rules): one wall
+        // type per rounded thickness, one door/window type per rounded size, and how far
+        // wall ends move to meet at corners. Heights are the add-in defaults. Returns each
+        // opening's host line as built (lengthened over its openings), null when it has none.
+        private static Func<Opening, Segment?> ReportSizes(List<Wall> walls, List<Opening> openings) {
+            const double doorHeight = 2100, windowHeight = 1200, reach = 100;
+
+            Console.WriteLine();
+            Console.WriteLine("-- sizes the Revit build will use --");
+            foreach (var g in walls.GroupBy(w => BuildSizing.WallWidthMm(w.Thickness)).OrderByDescending(g => g.Count())) {
+                Console.WriteLine($"  wall  {g.Count(),6}  {g.Key,5:0} mm  -> {BuildSizing.WallTypeName(g.Key)} (or a model type that width)");
+            }
+
+            List<Segment> met = BuildSizing.MeetAtCorners(walls, reach);
+            var moves = new List<double>();
+            for (int i = 0; i < walls.Count; i++) {
+                Segment a = walls[i].Centerline, b = met[i];
+                if (ReferenceEquals(a, b)) continue;
+                moves.Add(Math.Max(Segment.PointDistance(a.P1, b.P1), Segment.PointDistance(a.P2, b.P2)));
+            }
+            moves.Sort();
+            Console.WriteLine($"  ends  {moves.Count} of {walls.Count} walls moved to meet a corner" +
+                              (moves.Count > 0 ? $", median {moves[moves.Count / 2]:0} max {moves[^1]:0} mm" : ""));
+
+            // Doors are centred on the leaf, not the hinge, and hosts are lengthened to cover
+            // their openings: an opening only cuts a wall it lies within. Widths are fitted to
+            // these host lines, as the builder fits them.
+            List<Segment> covered = BuildSizing.CoverOpenings(walls, met, openings);
+            var indexOf = new Dictionary<Wall, int>();
+            for (int i = 0; i < walls.Count; i++) indexOf[walls[i]] = i;
+            Segment? HostOf(Opening o) => o.Wall != null && indexOf.TryGetValue(o.Wall, out int i) ? covered[i] : null;
+
+            foreach (var g in openings
+                         .GroupBy(o => (Kind: BuildSizing.KindOf(o),
+                                        Size: BuildSizing.OpeningSize(o, HostOf(o), doorHeight, windowHeight)))
+                         .OrderBy(g => g.Key.Kind).ThenByDescending(g => g.Count())) {
+                string kind = g.Key.Kind == OpeningKind.Door ? "door  " : "window";
+                Console.WriteLine($"  {kind}{g.Count(),5}  {BuildSizing.OpeningTypeName(g.Key.Size.WidthMm, g.Key.Size.HeightMm)}");
+            }
+
+            var shifts = new List<double>();
+            int pastBefore = 0, pastAfter = 0, lengthened = 0;
+            for (int i = 0; i < walls.Count; i++) if (!ReferenceEquals(met[i], covered[i])) lengthened++;
+            foreach (Opening o in openings) {
+                Point centre = BuildSizing.OpeningCentre(o);
+                if (o.IsDoor) shifts.Add(Segment.PointDistance(centre, o.Position));
+                if (!indexOf.TryGetValue(o.Wall, out int i)) continue;
+
+                double half = BuildSizing.OpeningWidthMm(o) / 2;
+                double before = CadClassifier.DistanceAlong(met[i], centre, out _);
+                double after = CadClassifier.DistanceAlong(covered[i], centre, out _);
+                if (before - half < -1 || before + half > met[i].Length + 1) pastBefore++;
+                if (after - half < -1 || after + half > covered[i].Length + 1) pastAfter++;
+            }
+            shifts.Sort();
+            if (shifts.Count > 0) {
+                Console.WriteLine($"  doors re-centred from hinge to leaf: median {shifts[shifts.Count / 2]:0} max {shifts[^1]:0} mm");
+            }
+            Console.WriteLine($"  hosts {pastBefore} of {openings.Count} openings ran past their wall's end; " +
+                              $"{lengthened} walls lengthened to cover them, {pastAfter} still past (stopped at the next piece)");
+            return HostOf;
+        }
+
+        // Which way each door opens, as the Revit build reads it (BuildSizing.SwingOf): the side
+        // of the wall the leaf swings into and which jamb is the hinge. "left of wall" is the
+        // left of the centreline's P1->P2, the side Revit takes as the exterior of a wall
+        // drawn that way.
+        private static void ReportDoorSwings(List<Opening> openings, Func<Opening, Segment?> hostOf) {
+            const double doorHeight = 2100, windowHeight = 1200;
+            List<Opening> doors = openings.Where(o => o.IsDoor).ToList();
+            if (doors.Count == 0) return;
+
+            string Dir(double x, double y) =>
+                Math.Abs(x) >= Math.Abs(y) * 2 ? (x > 0 ? "+X" : "-X")
+                : Math.Abs(y) >= Math.Abs(x) * 2 ? (y > 0 ? "+Y" : "-Y")
+                : (y > 0 ? "+Y" : "-Y") + (x > 0 ? "+X" : "-X");
+
+            Console.WriteLine();
+            Console.WriteLine("-- door swings the Revit build will match --");
+            int n = 0;
+            foreach (Opening door in doors.OrderBy(d => d.Position.x).ThenBy(d => d.Position.y)) {
+                n++;
+                Segment line = door.Wall.Centerline;
+                double len = line.Length;
+                double ux = (line.P2.x - line.P1.x) / len, uy = (line.P2.y - line.P1.y) / len;
+                Arc arc = door.Geometry.OfType<Arc>().First();
+                DoorSwing s = BuildSizing.SwingOf(door);
+                string head = $"  door {n,2}  hinge ({arc.Center.x:0},{arc.Center.y:0})  r {arc.Radius:0}  " +
+                              $"arc {arc.StartAngle * 180 / Math.PI:0}..{arc.EndAngle * 180 / Math.PI:0} deg  wall P1->P2 {Dir(ux, uy)}";
+                Segment? host = hostOf(door);
+                double width = BuildSizing.OpeningSize(door, host, doorHeight, windowHeight).WidthMm;
+                (double start, double end) = BuildSizing.WallPastJambsMm(door, host, width);
+                string jambs = double.IsNaN(start) ? "  wall past jambs ?" : $"  wall past jambs {start:0} / {end:0} mm";
+                if (!s.Known) { Console.WriteLine($"{head}  -> left as placed ({s.Why}){jambs}"); continue; }
+                bool left = (s.OpenX * -uy) + (s.OpenY * ux) > 0;
+                Console.WriteLine($"{head}  opens {Dir(s.OpenX, s.OpenY)} ({(left ? "left" : "right")} of wall)  " +
+                                  $"hinge at the {Dir(s.HingeX, s.HingeY)} jamb, strike ({s.Strike.x:0},{s.Strike.y:0}){jambs}");
+            }
         }
 
         // Which entity types the drawing holds at the top level, before blocks are opened up.
