@@ -18,7 +18,7 @@ namespace RevitAddinSync.Tests
     {
         private const long View = 3431003, Camera = 3431001, Box = 3431002;
 
-        private static HighlightSet Run(Dictionary<long, string> added, string data)
+        private static HighlightSet Run(Dictionary<long, string> added, string data, bool keepFull = true)
         {
             var env = new Envelope
             {
@@ -31,7 +31,7 @@ namespace RevitAddinSync.Tests
                 },
             };
             foreach (var g in added.GroupBy(kv => kv.Value)) env.Changes.TouchedByCategory.AddedByCategory[g.Key] = g.Count();
-            CommitIds.Remember(env, new ChangesDto { Added = added.Keys.Select(i => new ElementRef(i, null)).ToList() }, added);
+            if (keepFull) CommitIds.Remember(env, new ChangesDto { Added = added.Keys.Select(i => new ElementRef(i, null)).ToList() }, added);
             var call = new ToolCallDto { CallId = "c1", IdempotencyKey = "k", Tool = ToolNames.RunRevitCode, Args = JsonDocument.Parse("{\"intent\":\"Section box\"}").RootElement.Clone() };
             var ev = new TurnEvidence();
             ev.Add(new ToolRequestDto { RequestId = "r1", Kind = ToolRequestKinds.Write, Calls = { call } }, new[] { env });
@@ -82,13 +82,26 @@ namespace RevitAddinSync.Tests
         [Fact]
         public void OnlyWhatRevitMakesAlongWithAView_IsLeftOut()
         {
-            foreach (var c in new[] { "Cameras", "Section Boxes", "Viewports", "Sun Path", "class:Element", "" })
+            foreach (var c in new[] { "Cameras", "Section Boxes", "Viewports", "Sun Path", "class:Element" })
                 Assert.True(HighlightSet.MadeAlongWithCreated(c), c);
-            foreach (var c in new[] { "Door Tags", "Walls", "Rooms", "Scope Boxes" })
+            foreach (var c in new[] { "Door Tags", "Walls", "Rooms", "Scope Boxes", "", "  ", null })
                 Assert.False(HighlightSet.MadeAlongWithCreated(c), c);
             // The by-product list used for edits is unchanged: a camera or a section box is not a by-product there.
             Assert.False(CreatedSummary.IsByProduct("Cameras"));
             Assert.False(CreatedSummary.IsByProduct("Section Boxes"));
+        }
+
+        [Fact]
+        public void FromHistory_AnIdOfUnknownCategory_KeepsItsMadeMark()
+        {
+            // Audit P3: a turn reloaded from history has no full id lists; with several categories added, an id's category is "".
+            // Only a known view by-product is dropped, so the walls made alongside the listed view stay marked.
+            var added = new Dictionary<long, string> { [View] = "Views", [Camera] = "Cameras", [600001] = "Walls", [600002] = "Walls" };
+            var set = Run(added, Listed, keepFull: false);
+            var made = set.Kinds.Where(k => k.Outcome == MarkOutcome.Made).SelectMany(k => k.Ids).ToList();
+            Assert.Contains(View, made);
+            Assert.Contains(600001L, made);
+            Assert.Contains(600002L, made);
         }
     }
 }

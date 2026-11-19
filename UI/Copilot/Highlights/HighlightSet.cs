@@ -195,8 +195,8 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                     return only.Count == 1 ? only[0] : "";
                 }
                 // r13 (0.0.148), live fb713fc2: the commit's own data.created (what the card's rows count, "Views 1 and 10 supporting")
-                // leads the Made marks. What Revit made along with a listed view or sheet (its camera, its section box, a viewport;
-                // an id of no known category) is not a mark ("3 elements made" for one view was wrong). Any other addition (walls or
+                // leads the Made marks. What Revit made along with a listed view or sheet (its camera, its section box, a viewport,
+                // a by-product: a KNOWN category only) is not a mark ("3 elements made" for one view was wrong). Any other addition (walls or
                 // tags the same run placed, which data.created never lists) stays a Made mark as before.
                 var listed = ListedCreated(env);
                 if (listed != null)
@@ -290,7 +290,9 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
         internal static bool MadeAlongWithCreated(string? category)
         {
             var c = (category ?? "").Trim();
-            return c.Length == 0 || CreatedSummary.IsByProduct(c) || AlongWithCreated.Contains(c);
+            // Only a KNOWN category: a card from history has no full id lists, so a mixed commit's ids come back with no category (""),
+            // and a wall made alongside the listed view must keep its Made mark there.
+            return c.Length > 0 && (CreatedSummary.IsByProduct(c) || AlongWithCreated.Contains(c));
         }
 
         private static readonly HashSet<string> AlongWithCreated = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
