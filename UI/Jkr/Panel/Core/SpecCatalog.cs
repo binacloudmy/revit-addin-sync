@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -655,5 +656,30 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public static IEnumerable<SpecItem> ItemsOf(string section) => Items.Where(i => i.Section == section);
         public static IEnumerable<SpecCheck> ChecksOf(string item) => Checks.Where(c => c.Item == item);
         public static string SectionOf(string item) => Items.FirstOrDefault(i => i.No == item)?.Section ?? "";
+
+        private static readonly System.Text.RegularExpressions.Regex TranscriptTime =
+            new System.Text.RegularExpressions.Regex(@"^(?:T\s+)?\d{1,2}:\d{2}(?:\s*[–-]\s*\d{1,2}:\d{2})?$");
+
+        /// <summary>
+        /// A check's reference as users see it: without the spec meeting's transcript times
+        /// ("T 22:27–22:28", "T 21:26, 21:34"), which mean nothing outside the spec's own
+        /// source. "F A.2, T 21:16" → "F A.2"; "T 22:18–22:19, N3" → "N3". The catalog
+        /// (<see cref="SpecCheck.Reference"/>) keeps them.
+        /// </summary>
+        public static string ShownReference(string reference)
+        {
+            var parts = (reference ?? "").Split(',').Select(p => p.Trim()).Where(p => p.Length > 0).ToList();
+            var kept = new List<string>();
+            var inTranscript = false;
+            foreach (var p in parts)
+            {
+                // "T 21:19" opens a run of times; a bare "21:22" after it belongs to it.
+                if (p.StartsWith("T ", StringComparison.Ordinal) && TranscriptTime.IsMatch(p)) { inTranscript = true; continue; }
+                if (inTranscript && TranscriptTime.IsMatch(p)) continue;
+                inTranscript = false;
+                kept.Add(p);
+            }
+            return string.Join(", ", kept);
+        }
     }
 }

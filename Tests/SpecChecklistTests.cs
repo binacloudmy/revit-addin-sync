@@ -984,8 +984,8 @@ namespace RevitWebAppSync.Tests
             Assert.DoesNotContain("NS §4.1.9", Row(r, "A1.1", PanelStrings.Ms).Meta);
             Assert.DoesNotContain("§5.8", Row(r, "A1.3", PanelStrings.En).Meta);             // "(NS §5.8.1/5.8.3)" vs "NS §5.8.1, §5.8.3"
             Assert.DoesNotContain("§5.14", Row(r, "A1.4", PanelStrings.En).Meta);            // "(NS §5.2.3 + §5.14)"
-            Assert.Equal("T 21:16".Length > 0 ? "F A.2, T 21:16" : "", Row(r, "A2.1", PanelStrings.En).Meta);   // not in the title: kept
-            Assert.Equal("T 21:26, 21:34 · a person decides", Row(r, "A6.3", PanelStrings.En).Meta);
+            Assert.Equal("F A.2", Row(r, "A2.1", PanelStrings.En).Meta);   // not in the title: kept, without the transcript time
+            Assert.Equal("a person decides", Row(r, "A6.3", PanelStrings.En).Meta);
             Assert.True(SpecChecklist.TitleHasReference("Saiz pintu (NS §5.8.5)", "NS §5.8.5"));
             Assert.False(SpecChecklist.TitleHasReference("Saiz pintu", "NS §5.8.5"));
             Assert.False(SpecChecklist.TitleHasReference("Model tunggal (kod W00)", "T 21:19, 21:22, 21:23"));

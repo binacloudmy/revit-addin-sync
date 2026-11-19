@@ -290,7 +290,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                              : ids.Count > 1 ? $"{ids.Count} elements"
                              : firstId > 0 ? "Element" : "Model",
                     },
-                    Spec = new SpecRef { Doc = "", Clause = check?.Reference ?? "" },
+                    Spec = new SpecRef { Doc = "", Clause = RevitWebAppSync.UI.Jkr.Panel.Core.SpecCatalog.ShownReference(check?.Reference) },
                 };
                 byId[id] = vm;
                 list.Add(vm);

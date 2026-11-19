@@ -764,7 +764,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// already names it ("Ketinggian siling (NS §4.1.9)" + "NS §4.1.9").
         /// </summary>
         public static string Meta(SpecCheck c, string lang) => Join(
-            TitleHasReference(c.Title.Ms, c.Reference) || TitleHasReference(c.Title.En, c.Reference) ? null : c.Reference,
+            TitleHasReference(c.Title.Ms, c.Reference) || TitleHasReference(c.Title.En, c.Reference) ? null : SpecCatalog.ShownReference(c.Reference),
             c.Class == SpecCellClass.Human ? Str("clsHuman", lang) : c.Class == SpecCellClass.List ? Str("clsList", lang) : null,
             IsPendingJkr(c) ? Str("pendingTag", lang) : null);
 
