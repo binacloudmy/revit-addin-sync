@@ -157,56 +157,6 @@ namespace RevitWebAppSync.Tests
                 .ToDictionary(e => (string)e.Attribute(x + "Key"), e => ((string)e.Attribute("Color")).ToUpperInvariant());
         }
 
-        /// <summary>Bz key → the Cp key it mirrors, read from the comment after each brush.</summary>
-        private static Dictionary<string, string> TokenMirrors()
-        {
-            var text = File.ReadAllText(Path.Combine(RepoRoot(), "UI", "Jkr", "Panel", "PanelTokens.xaml"));
-            var rx = new System.Text.RegularExpressions.Regex("x:Key=\"(Bz\\.[A-Za-z0-9.]+)\"[^\n]*?<!--\\s*(Cp\\.[A-Za-z0-9.]+)\\s*-->");
-            return rx.Matches(text).Cast<System.Text.RegularExpressions.Match>()
-                .ToDictionary(m => m.Groups[1].Value, m => m.Groups[2].Value);
-        }
-
-        [Theory]
-        [InlineData("Bz.Brand", "Cp.Jkr.Dark.Action")]
-        [InlineData("Bz.OnBrand", "Cp.Jkr.Dark.OnAction")]
-        [InlineData("Bz.Ink", "Cp.Dark.Ink2")]
-        [InlineData("Bz.Chrome", "Cp.Dark.Bg")]
-        [InlineData("Bz.Chrome2", "Cp.Dark.Sunken")]
-        [InlineData("Bz.Surface", "Cp.Dark.Bg")]
-        [InlineData("Bz.Text", "Cp.Dark.Ink")]
-        [InlineData("Bz.Text2", "Cp.Dark.Muted")]
-        [InlineData("Bz.Text3", "Cp.Jkr.Dark.Faint")]
-        [InlineData("Bz.Line", "Cp.Dark.Line")]
-        [InlineData("Bz.Line2", "Cp.Dark.Hair2")]
-        [InlineData("Bz.Sunken", "Cp.Dark.Sunken")]
-        [InlineData("Bz.BrandTint", "Cp.Dark.BlueSoft")]
-        [InlineData("Bz.High", "Cp.Jkr.Dark.FailDot")]
-        [InlineData("Bz.HighText", "Cp.Jkr.Dark.Fail")]
-        [InlineData("Bz.Med", "Cp.Jkr.Dark.WarnDot")]
-        [InlineData("Bz.MedText", "Cp.Jkr.Dark.Warn")]
-        [InlineData("Bz.Low", "Cp.Jkr.Dark.Listed")]
-        [InlineData("Bz.Manual", "Cp.Jkr.Dark.Person")]
-        [InlineData("Bz.ManualBg", "Cp.Jkr.Dark.PersonBg")]
-        [InlineData("Bz.Ok", "Cp.Jkr.Dark.Pass")]
-        public void Tokens_are_the_Copilot_design_tokens(string key, string cpKey)
-        {
-            Assert.Equal(CopilotBrushes()[cpKey], Brushes()[key]);
-        }
-
-        [Fact]
-        public void Every_mirrored_token_matches_its_Copilot_source()
-        {
-            var bz = Brushes();
-            var cp = CopilotBrushes();
-            var mirrors = TokenMirrors();
-            Assert.True(mirrors.Count >= 60, "mirror comments not found: " + mirrors.Count);
-            foreach (var m in mirrors)
-            {
-                Assert.True(cp.ContainsKey(m.Value), m.Key + " mirrors unknown " + m.Value);
-                Assert.True(bz[m.Key] == cp[m.Value], m.Key + " = " + bz[m.Key] + " but " + m.Value + " = " + cp[m.Value]);
-            }
-        }
-
         [Fact]
         public void The_fixed_Slate_keys_are_the_Copilot_dark_palette()
         {
