@@ -62,6 +62,13 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// counts as a passing cell.</summary>
         public bool Passed;
 
+        /// <summary>The user marked it "Mark as Manual" (option b): it stays Open and still
+        /// counts as a fail, is left out of every fix request, and prints "handled manually".</summary>
+        public bool MarkedManual;
+
+        /// <summary>"Mark as Manual" may be offered (an open AI item below the High tier).</summary>
+        public bool CanMarkManual;
+
         public bool IsHuman => V == Verify.Human;
 
         public PanelItem Clone() => (PanelItem)MemberwiseClone();

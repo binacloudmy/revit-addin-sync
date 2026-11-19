@@ -280,7 +280,8 @@ namespace RevitWebAppSync.UI.Jkr.Export
             var text = Clean(local && !string.IsNullOrWhiteSpace(i.Description) ? i.Description : i.Title);
             if (text.Length == 0) return "";
             if (i.Status == IssueStatus.Fixed) return text + " (fixed, not yet re-scanned)";
-            if (i.Status == IssueStatus.Ignored || i.Status == IssueStatus.Approved || i.Status == IssueStatus.ManualFixNeeded)
+            if (i.Status == IssueStatus.ManualFixNeeded) return text + " (handled manually)";
+            if (i.Status == IssueStatus.Ignored || i.Status == IssueStatus.Approved)
                 return text + " (ignored by user)";
             return text;
         }

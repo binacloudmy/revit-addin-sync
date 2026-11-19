@@ -265,7 +265,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// <summary>Fix all scope: open AI items with a plain fix in the current
         /// section .</summary>
         public List<PanelItem> FixableOpen() =>
-            InCat.Where(x => !x.IsHuman && x.Status == ItemStatus.Open && x.Fix == FixKind.Fix).ToList();
+            InCat.Where(x => !x.IsHuman && x.Status == ItemStatus.Open && !x.MarkedManual && x.Fix == FixKind.Fix).ToList();
 
         /// <summary>Tab counts over the current section.</summary>
         public Dictionary<PanelTab, int> TabCounts()
@@ -353,7 +353,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// <summary>Ignore all: open AI items in the current section.</summary>
         public void IgnoreAll()
         {
-            var ids = InCat.Where(x => !x.IsHuman && x.Status == ItemStatus.Open).Select(x => x.Id).ToList();
+            var ids = InCat.Where(x => !x.IsHuman && x.Status == ItemStatus.Open && !x.MarkedManual).Select(x => x.Id).ToList();
             if (ids.Count > 0) Ignore(ids);
         }
 
@@ -451,7 +451,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                     if (ids.Count > 0) { DetailId = ids[Math.Max(0, idx - 1)]; Notify(); }
                     return KeyOutcome.Handled;
                 }
-                if (key == PanelKey.F && cur != null && cur.Fix != FixKind.None && cur.Status == ItemStatus.Open) AskFix(new[] { cur.Id });
+                if (key == PanelKey.F && cur != null && cur.Fix != FixKind.None && cur.Status == ItemStatus.Open && !cur.MarkedManual) AskFix(new[] { cur.Id });
                 else if (key == PanelKey.A && cur != null && !cur.IsHuman && cur.Status == ItemStatus.Open) Ignore(new[] { cur.Id });
                 return KeyOutcome.None;
             }
@@ -473,7 +473,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                     Open(list[sel].Id);
                     return KeyOutcome.None;
                 case PanelKey.F:
-                    if (list[sel].Fix != FixKind.None && list[sel].Status == ItemStatus.Open) AskFix(new[] { list[sel].Id });
+                    if (list[sel].Fix != FixKind.None && list[sel].Status == ItemStatus.Open && !list[sel].MarkedManual) AskFix(new[] { list[sel].Id });
                     return KeyOutcome.None;
                 case PanelKey.A:
                     if (!list[sel].IsHuman && list[sel].Status == ItemStatus.Open) Ignore(new[] { list[sel].Id });

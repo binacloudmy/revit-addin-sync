@@ -58,7 +58,7 @@ namespace RevitWebAppSync.Tests
         [InlineData(IssueStatus.Open, ItemStatus.Open)]
         [InlineData(IssueStatus.Ignored, ItemStatus.Ignored)]
         [InlineData(IssueStatus.Approved, ItemStatus.Ignored)]
-        [InlineData(IssueStatus.ManualFixNeeded, ItemStatus.Ignored)]
+        [InlineData(IssueStatus.ManualFixNeeded, ItemStatus.Open)]
         [InlineData(IssueStatus.Fixed, ItemStatus.Resolved)]
         public void Pane_statuses_map_to_prototype_statuses(IssueStatus s, ItemStatus expected)
         {
@@ -311,6 +311,103 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(0, asked);
             r.BusyText = null;
             Assert.True(r.CanFixAll);
+        }
+
+        [Fact]
+        public void A_marked_manual_issue_stays_open_and_counts_as_a_fail()
+        {
+            var item = ResultsAdapter.FromIssue(Issue("1", "A4", st: IssueStatus.ManualFixNeeded));
+            Assert.Equal(ItemStatus.Open, item.Status);
+            Assert.True(item.MarkedManual);
+            Assert.False(item.Passed);
+            Assert.False(ResultsAdapter.FromIssue(Issue("2", "A4")).MarkedManual);
+        }
+
+        [Fact]
+        public void A_marked_manual_item_is_never_resolved_or_passed_in_the_numbers()
+        {
+            var (r, core) = New();
+            r.Load(new[] { Issue("1", "A4", st: IssueStatus.ManualFixNeeded), Issue("2", "A4") }, Summary());
+            Assert.Equal(2, core.ToGo);
+            Assert.Equal(0, core.ResolvedN);
+            Assert.Equal(2, core.TabCounts()[PanelTab.Open]);
+            Assert.Equal(0, core.TabCounts()[PanelTab.Ignore]);
+        }
+
+        [Fact]
+        public void A_marked_manual_row_carries_the_manual_tag_and_no_fix()
+        {
+            var (r, _) = New();
+            r.Load(new[] { Issue("1", "A4", fixable: true, st: IssueStatus.ManualFixNeeded), Issue("2", "A4", fixable: true) }, Summary());
+            var m = r.Rows.Single(x => x.Id == "1");
+            var o = r.Rows.Single(x => x.Id == "2");
+            Assert.Equal("Manual · anda baiki dalam Revit", m.ManualTag);
+            Assert.Equal("", o.ManualTag);
+            Assert.False(m.ShowFix);
+            Assert.True(o.ShowFix);
+        }
+
+        [Fact]
+        public void Fix_all_leaves_marked_manual_issues_out()
+        {
+            var (r, _) = New();
+            var ai = Issue("3", "A6"); ai.CheckId = "element.naming.01"; ai.RevitElementId = 1;
+            var aiMarked = Issue("4", "A6", st: IssueStatus.ManualFixNeeded); aiMarked.CheckId = "element.naming.01"; aiMarked.RevitElementId = 2;
+            r.Load(new[] { Issue("1", "A4", fixable: true), Issue("2", "A4", fixable: true, st: IssueStatus.ManualFixNeeded), ai, aiMarked }, Summary());
+            Assert.Equal(2, r.FixableN);
+            var asked = 0;
+            r.FixAllRequested += _ => asked++;
+            r.FixAll();
+            Assert.Equal(1, asked);
+            r.SelectSection("A");
+            Assert.Equal(2, r.FixableN);
+        }
+
+        [Fact]
+        public void A_marked_manual_item_is_left_out_of_the_F_key_and_the_row_fix()
+        {
+            var (r, _) = New();
+            r.Load(new[] { Issue("2", "A4", fixable: true, st: IssueStatus.ManualFixNeeded) }, Summary());
+            List<string> fix = null;
+            r.FixRequested += x => fix = x;
+            r.HandleKey(PanelKey.F, false);
+            r.FixRow("2");
+            Assert.Null(fix);
+        }
+
+        [Fact]
+        public void Mark_manual_and_reopen_raise_requests_with_the_id()
+        {
+            var (r, _) = New();
+            var ign = Issue("2", "A6", st: IssueStatus.Ignored);
+            var open = Issue("1", "A4");
+            r.Load(new[] { open, ign }, Summary());
+            string marked = null, reopened = null;
+            r.MarkManualRequested += id => marked = id;
+            r.ReopenRequested += id => reopened = id;
+            r.MarkManual("1");
+            r.Reopen("2");
+            Assert.Equal("1", marked);
+            Assert.Equal("2", reopened);
+        }
+
+        [Fact]
+        public void Mark_manual_needs_an_open_ai_item_that_may_be_marked()
+        {
+            var (r, _) = New();
+            r.Load(new[] { Issue("1", "A4", IssuePriority.High), Issue("2", "A4"), Issue("3", "A4", st: IssueStatus.Ignored),
+                           Issue("4", "C5.1", human: true) }, Summary());
+            var marked = new List<string>();
+            r.MarkManualRequested += marked.Add;
+            r.MarkManual("1");      // High: not allowed
+            r.MarkManual("3");      // not open
+            r.MarkManual("4");      // needs a person
+            Assert.Empty(marked);
+            r.MarkManual("2");
+            Assert.Equal(new[] { "2" }, marked);
+            Assert.True(ResultsAdapter.FromIssue(Issue("2", "A4")).CanMarkManual);
+            Assert.False(ResultsAdapter.FromIssue(Issue("1", "A4", IssuePriority.High)).CanMarkManual);
+            Assert.False(ResultsAdapter.FromIssue(Issue("4", "C5.1", human: true)).CanMarkManual);
         }
     }
 }

@@ -73,7 +73,7 @@ namespace RevitWebAppSync.Tests
         {
             Assert.Equal(19, PanelFixture.Issues().Count);
             Assert.Equal(5, PanelFixture.Issues().Count(x => x.IsHuman));
-            Assert.Equal(109, PanelStrings.Keys.Count);
+            Assert.Equal(111, PanelStrings.Keys.Count);
             Assert.Equal("Jalankan audit", PanelStrings.Get("ms", "run"));
             Assert.Equal("Run audit", PanelStrings.Get("en", "run"));
             Assert.Equal("Semak manual", PanelStrings.Get("ms", "heroPend"));

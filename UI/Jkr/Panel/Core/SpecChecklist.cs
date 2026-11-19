@@ -717,7 +717,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 row.MoreLabel = all ? Str("showLess", lang) : F("showAll", lang, items.Count);
             // "Show all" never lists fewer elements than the check has without saying so.
             if (all && items.Count > ElementsMax) row.ElementsCutLabel = F("elCut", lang, ElementsMax, items.Count);
-            row.FixIds = items.Where(x => !x.IsHuman && x.Status == ItemStatus.Open && (x.Fix == FixKind.Fix || x.AiFix))
+            row.FixIds = items.Where(x => !x.IsHuman && x.Status == ItemStatus.Open && !x.MarkedManual && (x.Fix == FixKind.Fix || x.AiFix))
                               .Select(x => x.Id).ToList();
             row.CanFix = row.FixIds.Count > 0;
             row.FixLabel = F("fix", lang, row.FixIds.Count);

@@ -53,6 +53,21 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
+        public void Mark_manual_is_saved_and_reopen_drops_it_again()
+        {
+            var item = Ai("m1");
+            item.Status = IssueStatus.ManualFixNeeded;
+            JkrAuditStore.Save(Rvt, item);
+            Assert.Equal(IssueStatus.ManualFixNeeded, JkrAuditStore.LoadFor(Rvt)["m1"]);
+            Assert.Contains(JkrAuditStore.LoadManualFor(Rvt), x => x.Id == "m1");
+
+            item.Status = IssueStatus.Open;                 // Reopen
+            JkrAuditStore.Save(Rvt, item);
+            Assert.False(JkrAuditStore.LoadFor(Rvt).ContainsKey("m1"));      // a fresh scan reads it as Open
+            Assert.DoesNotContain(JkrAuditStore.LoadManualFor(Rvt), x => x.Id == "m1");
+        }
+
+        [Fact]
         public void Back_to_not_reviewed_removes_the_record()
         {
             var item = Human("h1");

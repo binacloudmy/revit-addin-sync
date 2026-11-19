@@ -56,6 +56,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// <summary>Handled (ignored / fixed): title in the secondary colour.</summary>
         public bool IsDone { get; set; }
         public bool ShowFix { get; set; }
+        /// <summary>"Manual · you'll fix it in Revit" on a marked item, else empty.</summary>
+        public string ManualTag { get; set; } = "";
         public string FixError { get; set; } = "";
         public bool HasFixError => !string.IsNullOrEmpty(FixError);
         public int Index { get; set; }
@@ -120,6 +122,10 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public event Action<string> OpenRequested;
         public event Action<List<string>> FixRequested;
         public event Action<List<string>> IgnoreRequested;
+        /// <summary>Mark one open AI item as handled by hand (stays open, still a fail).</summary>
+        public event Action<string> MarkManualRequested;
+        /// <summary>Put an ignored or marked item back to Open.</summary>
+        public event Action<string> ReopenRequested;
         /// <summary>Fix the issues behind one spec check: ready-made fixes plus whatever
         /// the backend AI fixer proposes; the host confirms and writes.</summary>
         public event Action<List<string>> FixCheckRequested;
@@ -257,7 +263,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public int FixableN => _core.FixableOpen().Count + AiCandidates().Count();
 
         private IEnumerable<PanelItem> AiCandidates() =>
-            _core.Issues.Where(x => !x.Passed && !x.IsHuman && x.AiFix && x.Status == ItemStatus.Open
+            _core.Issues.Where(x => !x.Passed && !x.IsHuman && x.AiFix && x.Status == ItemStatus.Open && !x.MarkedManual
                                     && (_core.Cat == PanelCore.AllSections || x.Sec == _core.Cat));
         public string FixAllLabel => T("fixAll") + " (" + FixableN + ")";
         public bool CanFixAll => FixableN > 0 && CanAct;
@@ -325,7 +331,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 Meta = (man && x.Status == ItemStatus.Reviewed ? T("reviewed") + " · " : "") + string.Join(" · ", meta),
                 IsSel = isSel,
                 IsDone = x.Status != ItemStatus.Open && !man,
-                ShowFix = !man && x.Fix != FixKind.None && x.Status == ItemStatus.Open,
+                ShowFix = !man && x.Fix != FixKind.None && x.Status == ItemStatus.Open && !x.MarkedManual,
+                ManualTag = x.MarkedManual ? T("manualTag") : "",
                 FixError = x.FixError ?? "",
                 Index = i,
             };
@@ -502,6 +509,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public void FixRow(string id)
         {
             if (!CanAct) return;
+            if (_core.Issues.Any(x => x.Id == id && x.MarkedManual)) return;
             var i = _core.Filtered().FindIndex(x => x.Id == id);
             if (i >= 0) _core.SetSel(i);
             FixRequested?.Invoke(new List<string> { id });
@@ -512,8 +520,26 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         {
             if (!CanAct) return;
             var x = _core.Issues.FirstOrDefault(i => i.Id == id);
-            if (x == null || x.IsHuman || x.Status != ItemStatus.Open) return;
+            if (x == null || x.IsHuman || x.Status != ItemStatus.Open || x.MarkedManual) return;
             IgnoreRequested?.Invoke(new List<string> { id });
+        }
+
+        /// <summary>Mark one open AI item as handled manually (the detail's Mark as Manual).</summary>
+        public void MarkManual(string id)
+        {
+            if (!CanAct) return;
+            var x = _core.Issues.FirstOrDefault(i => i.Id == id);
+            if (x == null || x.IsHuman || x.Passed || x.Status != ItemStatus.Open || x.MarkedManual || !x.CanMarkManual) return;
+            MarkManualRequested?.Invoke(id);
+        }
+
+        /// <summary>Reopen an ignored or manually marked item.</summary>
+        public void Reopen(string id)
+        {
+            if (!CanAct) return;
+            var x = _core.Issues.FirstOrDefault(i => i.Id == id);
+            if (x == null || x.IsHuman || !(x.MarkedManual || x.Status == ItemStatus.Ignored)) return;
+            ReopenRequested?.Invoke(id);
         }
 
         /// <summary>Fix all (n) in the current section (see <see cref="FixableN"/>).</summary>
@@ -527,7 +553,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public void IgnoreAll()
         {
             if (!CanAct) return;
-            var ids = _core.Issues.Where(x => !x.Passed && !x.IsHuman && x.Status == ItemStatus.Open
+            var ids = _core.Issues.Where(x => !x.Passed && !x.IsHuman && x.Status == ItemStatus.Open && !x.MarkedManual
                                               && (_core.Cat == PanelCore.AllSections || x.Sec == _core.Cat))
                                   .Select(x => x.Id).ToList();
             if (ids.Count > 0) IgnoreRequested?.Invoke(ids);
@@ -561,7 +587,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                     OpenRequested?.Invoke(cur.Id);
                     return KeyOutcome.Handled;
                 case PanelKey.F:
-                    if (CanAct && cur.Fix != FixKind.None && cur.Status == ItemStatus.Open && !cur.IsHuman)
+                    if (CanAct && cur.Fix != FixKind.None && cur.Status == ItemStatus.Open && !cur.IsHuman && !cur.MarkedManual)
                         FixRequested?.Invoke(new List<string> { cur.Id });
                     return KeyOutcome.Handled;
                 case PanelKey.A:

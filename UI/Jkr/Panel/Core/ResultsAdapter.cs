@@ -51,6 +51,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 AiFix = i.AiFixCandidate,
                 Status = human ? (i.Reviewed ? ItemStatus.Reviewed : ItemStatus.Open) : StatusOf(i.Status),
                 Passed = i.Status == IssueStatus.Fixed && i.FixVerified,
+                MarkedManual = i.Status == IssueStatus.ManualFixNeeded,
+                CanMarkManual = !human && i.CanMarkManual,
             };
         }
 
@@ -142,17 +144,17 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             return new Text(string.Join("\n", ms), string.Join("\n", en));
         }
 
-        /// <summary>Pane status → prototype status. Approved (old "accept") and a
-        /// user's "mark as manual" both keep the item out of Open and still print it
-        /// as not comply, which is the prototype's Ignored.</summary>
+        /// <summary>Pane status → prototype status. Approved (old "accept") keeps the
+        /// item out of Open and still prints it as not comply (the prototype's Ignored).
+        /// A user's "mark as manual" stays Open (<see cref="PanelItem.MarkedManual"/>):
+        /// still a fail, just not offered for a fix.</summary>
         public static ItemStatus StatusOf(IssueStatus s)
         {
             switch (s)
             {
                 case IssueStatus.Fixed: return ItemStatus.Resolved;
                 case IssueStatus.Ignored:
-                case IssueStatus.Approved:
-                case IssueStatus.ManualFixNeeded: return ItemStatus.Ignored;
+                case IssueStatus.Approved: return ItemStatus.Ignored;
                 default: return ItemStatus.Open;
             }
         }

@@ -97,6 +97,17 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
+        public void A_marked_manual_issue_prints_as_handled_manually_not_ignored()
+        {
+            var issues = SampleIssues().ToList();
+            issues[2] = Issue("3", "A5", "Grid sequence has a gap", IssueStatus.ManualFixNeeded);
+            var d = BorangDoc.Build(Sample(), issues, new BorangHeader());
+            Assert.EndsWith("(handled manually)", d.SecA[4].Remark);
+            Assert.DoesNotContain("ignored by user", d.SecA[4].Remark);
+            Assert.Equal(("", "X"), (d.SecA[4].Yes, d.SecA[4].No2));     // still not compliant
+        }
+
+        [Fact]
         public void Remarks_list_what_failed_with_its_state_then_what_a_person_decides()
         {
             var d = Build();

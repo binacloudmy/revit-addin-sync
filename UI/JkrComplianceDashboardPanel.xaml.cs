@@ -188,6 +188,38 @@ namespace RevitWebAppSync.UI
             RenderAll();
         }
 
+        /// <summary>"Mark as Manual" (option b) on an open AI issue, or back to Open with
+        /// <paramref name="manual"/> false. The issue stays open and still counts as a fail;
+        /// it is left out of Fix all and the AI fixer. Saved to the audit file.</summary>
+        public void SetManual(string id, bool manual)
+        {
+            if (!manual) { Reopen(id); return; }
+            var issue = FindIssue(id);
+            if (issue == null || !issue.IsAiOpen || !issue.CanMarkManual) return;
+            _vm.ApplyDecisions(new[] { issue }, IssueStatus.ManualFixNeeded,
+                Jkr.Panel.Core.PaneText.Decision("ManualFixNeeded", issue.Title));
+            SaveAudit(issue);
+            RenderAll();
+        }
+
+        /// <summary>Reopen an ignored, approved or manually marked issue (status Open; the
+        /// audit store drops its entry).</summary>
+        public void Reopen(string id)
+        {
+            var issue = FindIssue(id);
+            if (issue == null || issue.NeedsPerson || issue.Status == IssueStatus.Open || issue.Status == IssueStatus.Fixed) return;
+            _vm.ApplyDecisions(new[] { issue }, IssueStatus.Open,
+                Jkr.Panel.Core.PaneText.Decision("Open", issue.Title));
+            SaveAudit(issue);
+            RenderAll();
+        }
+
+        private void SaveAudit(IssueVm issue)
+        {
+            try { JkrAuditStore.Save(_scannedDocPath, issue); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[BINA] audit save failed: {ex.Message}"); }
+        }
+
         /// <summary>"Mark as reviewed" on an item that needs a person (or back to not
         /// reviewed). Saved to the audit file so it survives a re-scan and Revit
         /// restarts. Not a verdict: the item stays in Manual and out of the %.</summary>

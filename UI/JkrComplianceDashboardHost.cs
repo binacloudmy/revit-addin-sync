@@ -53,6 +53,8 @@ namespace RevitWebAppSync.UI
                 // (same confirm, same AI fixer reusing the last scan request).
                 results.FixCheckRequested += ids => _ = _panel.FixAllAsync(null, openOnly: true, onlyIds: ids);
                 results.IgnoreRequested += ids => _panel.IgnoreIssues(ids);
+                results.MarkManualRequested += id => _panel.SetManual(id, true);
+                results.ReopenRequested += id => _panel.Reopen(id);
                 results.RescanRequested += (lod, disc) => _panel.RunFromStart(lod, disc);
                 results.ResetRequested += () => _panel.ResetToStart();
                 // Export (step 14): the Borang BIM010 preview + PDF; the issue list
