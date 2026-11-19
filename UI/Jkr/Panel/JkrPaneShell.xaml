@@ -62,7 +62,7 @@
         </ResourceDictionary>
     </UserControl.Resources>
 
-    <Grid x:Name="Frame" MinWidth="380" HorizontalAlignment="Stretch">
+    <Grid x:Name="Frame" MinWidth="320" HorizontalAlignment="Stretch">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>

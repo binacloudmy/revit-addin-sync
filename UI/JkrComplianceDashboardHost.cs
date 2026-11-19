@@ -127,7 +127,7 @@ namespace RevitWebAppSync.UI
             data.InitialState = new DockablePaneState
             {
                 DockPosition = DockPosition.Right,
-                MinimumWidth = (int)Jkr.Panel.JkrPaneShell.PaneWidth,
+                MinimumWidth = (int)Jkr.Panel.JkrPaneShell.MinimumWidth,
             };
             data.VisibleByDefault = false;
         }

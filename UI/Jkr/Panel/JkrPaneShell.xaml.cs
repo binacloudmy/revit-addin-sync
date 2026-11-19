@@ -13,8 +13,11 @@ namespace RevitWebAppSync.UI.Jkr.Panel
     /// </summary>
     public partial class JkrPaneShell : UserControl
     {
-        /// <summary>Design width and the pane's minimum width; the shell fills any wider pane.</summary>
-        public const double PaneWidth = 380;
+        /// <summary>The width Clear Sheet draws the pane at; the shell fills any wider pane.</summary>
+        public const double DesignWidth = 380;
+
+        /// <summary>The narrowest the pane may be (Clear Sheet also draws the result at 320 px, BM).</summary>
+        public const double MinimumWidth = 320;
 
         public PaneShellModel Model { get; } = new PaneShellModel();
 

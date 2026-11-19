@@ -194,13 +194,18 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void The_shell_fills_the_pane_and_the_pane_minimum_is_380()
+        public void The_shell_fills_the_pane_and_the_pane_minimum_is_320()
         {
+            // Clear Sheet draws the pane at 380 px and the result at 320 px (BM): 380 is the
+            // design width, 320 the narrowest the dockable pane may be dragged.
             var shell = File.ReadAllText(Path.Combine(RepoRoot(), "UI", "Jkr", "Panel", "JkrPaneShell.xaml"));
-            Assert.Contains("x:Name=\"Frame\" MinWidth=\"380\" HorizontalAlignment=\"Stretch\"", shell);
+            Assert.Contains("x:Name=\"Frame\" MinWidth=\"320\" HorizontalAlignment=\"Stretch\"", shell);
             Assert.DoesNotContain("Width=\"380\" HorizontalAlignment=\"Left\"", shell);   // no blank strip in a wider pane
+            var code = File.ReadAllText(Path.Combine(RepoRoot(), "UI", "Jkr", "Panel", "JkrPaneShell.xaml.cs"));
+            Assert.Contains("public const double DesignWidth = 380;", code);
+            Assert.Contains("public const double MinimumWidth = 320;", code);
             var host = File.ReadAllText(Path.Combine(RepoRoot(), "UI", "JkrComplianceDashboardHost.cs"));
-            Assert.Contains("MinimumWidth = (int)Jkr.Panel.JkrPaneShell.PaneWidth", host);
+            Assert.Contains("MinimumWidth = (int)Jkr.Panel.JkrPaneShell.MinimumWidth", host);
         }
     }
 }
