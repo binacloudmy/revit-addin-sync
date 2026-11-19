@@ -194,7 +194,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         /// turn the sentence names. When Undo is off (the model changed after the turn) it stays, greyed, and says why.</summary>
         private static FrameworkElement HeadlineRow(ResultCardModel card, TurnEvidenceActions actions, bool canUndo, bool undone, string? undoOff)
         {
-            var warn = card.Kind == ResultKind.Findings || card.Mismatches > 0 || card.ClaimMismatch;
+            var warn = card.HeadlineWarns;
             Button? undo = null;
             if (actions.Undo != null && canUndo && !undone)
             {

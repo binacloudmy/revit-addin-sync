@@ -22,7 +22,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 return col;
             }
             var (headline, rest) = ProseSplit.Split(text);
-            col.Children.Add(ResultCardView.HeadlineText(headline, warn: false));
+            col.Children.Add(ResultCardView.HeadlineText(headline, warn: warn));
             if (rest.Length == 0) return col;
             return AddRest(col, rest, ProseSplit.CollapseRest(text), lang, maxWidth, tableDownloads);
         }

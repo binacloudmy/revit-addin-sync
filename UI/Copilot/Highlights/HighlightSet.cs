@@ -145,7 +145,10 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             var set = new HighlightSet();
             if (card == null) return set;
             set.Card = card; set.Headline = card.Headline;
-            if (card.Kind == ResultKind.None || card.Kind == ResultKind.Selection) return set;
+            if (card.Kind == ResultKind.None) return set;
+            // r12 (live 19 Nov, 46d35bc5): a find's card with element rows draws Found marks on those rows' ids. A "Selection" card,
+            // or a grouped answer that WithServerResult turned into a Created tally (Selected = 0), had no marks, no Show button.
+            if (card.Kind == ResultKind.Selection) { AddFoundRows(set, card); set.Rows = RowsOf(card, set.Kinds); return set; }
 
             var commits = (envelopes ?? Array.Empty<Envelope>()).Where(e => e != null && e.PhaseKind() == EnvelopePhaseKind.Commit
                 && (e.StatusKind() == EnvelopeStatusKind.Done || e.StatusKind() == EnvelopeStatusKind.Partial)).ToList();
@@ -235,8 +238,25 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             foreach (var f in card.Findings.Where(f => f.Ids.Count > 0))
                 set.Kinds.Add(new MarkGroup { Title = f.Title, Outcome = MarkOutcome.NeedsLook, Kind = MarkKind.Element, Ids = f.Ids.Distinct().ToList(), Count = f.Ids.Distinct().Count() });
 
+            // A read-only turn (no commit) with nothing else to mark: its card's element rows are what it found.
+            if (commits.Count == 0 && set.Kinds.Count == 0) AddFoundRows(set, card);
+
             set.Rows = RowsOf(card, set.Kinds);
             return set;
+        }
+
+        /// <summary>r12: Found groups for the ids of a card's element and tag rows (what a find listed), at most one group per mark kind.
+        /// No transaction, no Undo entry; the turn's find selected them already, so the set never reselects (SelectsAtTheEnd).</summary>
+        private static void AddFoundRows(HighlightSet set, ResultCardModel card)
+        {
+            if (card.NoChange) return;   // a write that changed nothing lists the element it looked at: nothing was found, nothing to mark
+            var rows = (card.Items?.Sections ?? new List<ItemSection>()).SelectMany(s => s.Rows).Where(r => r.Button == ItemButton.Select).ToList();
+            foreach (var kind in new[] { MarkKind.Element, MarkKind.Annotation })
+            {
+                var ids = rows.Where(r => (r.Kind == ResultItemKinds.Tag ? MarkKind.Annotation : MarkKind.Element) == kind)
+                    .SelectMany(r => r.Ids).Where(id => id > 0).Distinct().ToList();
+                if (ids.Count > 0) set.Kinds.Add(new MarkGroup { Title = "Found", Outcome = MarkOutcome.Found, Kind = kind, Ids = ids, Count = ids.Count });
+            }
         }
 
         /// <summary>One group per row of the card that names marked elements: the server's item rows (a door type with its

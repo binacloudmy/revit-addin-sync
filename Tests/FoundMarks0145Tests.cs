@@ -1,8 +1,12 @@
 #nullable enable
 // r12 (0.0.145): the in-model marker is a 30 DIP target (coloured ring, white halo, solid dot) instead of the 10 DIP dot, and
 // find results (highlight) and a card's Show draw Found marks too, not only write turns. No transaction, no Undo entry.
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
+using BinaVibe.Copilot.Contracts;
+using RevitWebAppSync.UI.Copilot.Model;
 using RevitWebAppSync.UI.Copilot.Highlights;
 using Xunit;
 
@@ -72,6 +76,41 @@ namespace RevitAddinSync.Tests
             var inModel = Src("UI/Copilot/Highlights/InModelResult.cs");
             Assert.Contains("if (set.FromSelection) FillFromSelection(app, set);", inModel);
             Assert.Contains("public const int MaxMarks = 400;", inModel);
+        }
+
+        // Live 19 Nov 20:24 (turn 46d35bc5): "Select all the fire doors on PTBR_Aras 01." selected 6 doors; the server's rows (3 types,
+        // count 2 each, ids, a rooms cell) are a tally, so WithServerResult made the card Created with Selected = 0 and the turn-end
+        // hook (Selection && Selected > 0) never ran: no Found marks, no Show marks button, the rows' click did nothing.
+        private const string FireDoors = "{\"kind\":\"selection\",\"lang\":\"en\",\"reply\":\"Selected the 6 fire doors on PTBR_Aras 01.\","
+            + "\"counts\":{\"elements\":6},\"items\":["
+            + "{\"ids\":[977255,977284],\"kind\":\"element\",\"cells\":{\"rooms\":\"BILIK SUIS 1, BILIK TCR 1\"},\"count\":2,\"group\":\"Fire doors, PTBR_Aras 01\",\"title\":\"FD1 (PTa2) 1700x 2400 - 1 HOUR\"},"
+            + "{\"ids\":[968434,1128977],\"kind\":\"element\",\"cells\":{\"rooms\":\"TANGGA 2, TANGGA 1\"},\"count\":2,\"group\":\"Fire doors, PTBR_Aras 01\",\"title\":\"FD2 (PTa1) 1000 x 2400 - 1 HOUR\"},"
+            + "{\"ids\":[967821,1327450],\"kind\":\"element\",\"cells\":{\"rooms\":\"ELE, ELE\"},\"count\":2,\"group\":\"Fire doors, PTBR_Aras 01\",\"title\":\"FD3 (PTa1) 700 x 1800 - 2 HOUR\"}]}";
+
+        [Fact]
+        public void AFindsCardWithElementRows_DrawsFoundMarks_OnTheirIds()
+        {
+            var result = JsonSerializer.Deserialize<TurnResultDto>(FireDoors)!;
+            var card = new ResultCardModel { Kind = ResultKind.Selection, Selected = 6 }.WithServerResult(result);
+            Assert.Equal(ResultKind.Created, card.Kind);   // the tally turn, as live
+            var set = HighlightSet.From(card, new List<Envelope>());
+            Assert.False(set.IsEmpty);                      // HasMarks: the card's Show marks button, and the turn-end marks
+            var g = Assert.Single(set.Kinds);
+            Assert.Equal(MarkOutcome.Found, g.Outcome);
+            Assert.Equal(new long[] { 977255, 977284, 968434, 1128977, 967821, 1327450 }, g.Ids);
+            Assert.False(set.SelectsAtTheEnd);              // the find selected them already
+            Assert.Equal(3, set.Rows.Count);                // each row's click focuses its 2 doors
+            Assert.Equal("6 elements found", MarkKey.Title(set.Kinds));
+        }
+
+        [Fact]
+        public void ASelectionCardWithElementRows_DrawsFoundMarks_Too()
+        {
+            var card = new ResultCardModel { Kind = ResultKind.Selection, Selected = 2 };
+            card.Items = new ResultItems { Sections = { new ItemSection { Rows = { new ItemRow { Kind = ResultItemKinds.Element, Title = "FD1", Ids = { 5, 6 } } } } } };
+            var set = HighlightSet.From(card, new List<Envelope>());
+            Assert.Equal(new long[] { 5, 6 }, set.Kinds.Single().Ids);
+            Assert.Equal(MarkOutcome.Found, set.Kinds[0].Outcome);
         }
     }
 }

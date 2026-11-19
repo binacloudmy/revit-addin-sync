@@ -32,6 +32,9 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public static string AfterResult(string current, bool failed, bool caution) =>
             failed ? Failed : caution ? CheckReceipt : current;
 
+        /// <summary>Export (the card's Export, a table's Download CSV): never on a failed turn (turn_end failed, live dcf2ce71).</summary>
+        public static bool CanExport(bool failed) => !failed;
+
         /// <summary>"Save as command" on a completed reply that actually ran tools from a natural-language prompt. Pure
         /// Q&amp;A (no tools), slash-command turns, interrupted and failed turns do not qualify.
         /// (Primitives, not ChatMessage, so the rule runs in the WPF-free test build.)</summary>

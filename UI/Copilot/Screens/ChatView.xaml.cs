@@ -809,6 +809,8 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             // A result card draws the headline, the chips, the "Steps" toggle and the action row itself:
             // then the steps card and the save row do not draw on their own.
             bool cardShown = showEvidence && m.ResultCard != null && m.ResultCard.Kind != ResultKind.None;
+            // A failed turn (turn_end failed): no green disc on its card or prose, no Export, no Save as command.
+            if (m.ResultCard != null) m.ResultCard.Failed = m.Failed;
             // No server reply for this card: the model's first sentence is the headline, not a count beside the model's text.
             if (cardShown && m.Kind == CpMsgKind.AiReply) m.ResultCard.AdoptProseHeadline(m.Text);
             // Every Copilot row wears the mark, an ask card and the delete gate too (0.0.139 pass: they had none).
@@ -834,14 +836,15 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             // message that draws it carries the export, this one must not add its own.
             bool evidenceExports = m.Evidence != null && m.Evidence.Tables.Count > 0
                 && (m.Kind == CpMsgKind.AiReply || m.Kind == CpMsgKind.Clarify);
+            bool tableDownloads = TurnStatus.CanExport(m.Failed) && !evidenceExports;
 
             // The server's one-sentence reply is the card's headline: the model's prose above it would say it twice.
             if (!string.IsNullOrEmpty(m.Text) && !(cardShown && m.ResultCard.ReplacesProse))
             {
                 // AI replies are markdown (headers, **bold**, tables, lists); a long prose answer gets a headline and "More detail".
                 col.Children.Add(proseLayout
-                    ? Controls.ProseAnswer.Build(m.Text, m.Lang, textWidth, tableDownloads: !evidenceExports, serverHeadline: serverProse ? m.ResultCard.ServerReply : null, warn: m.ResultCard != null && m.ResultCard.ClaimMismatch)
-                    : CopilotMessageBubble.MarkdownText(m.Text, textWidth, tableDownloads: !evidenceExports));
+                    ? Controls.ProseAnswer.Build(m.Text, m.Lang, textWidth, tableDownloads: tableDownloads, serverHeadline: serverProse ? m.ResultCard.ServerReply : null, warn: m.Failed || (m.ResultCard != null && m.ResultCard.ClaimMismatch))
+                    : CopilotMessageBubble.MarkdownText(m.Text, textWidth, tableDownloads: tableDownloads));
                 // Copyable: right-click → Copy message, plus a hover ⧉ button.
                 CopilotMessageBubble.AttachCopyMenu(col, m.Text);
                 col.Children.Add(CopilotMessageBubble.HoverReveal(aiRow, CopilotMessageBubble.CopyButton(m.Text)));
@@ -851,6 +854,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             {
                 var evActions = EvidenceActions(m);
                 if (m.Kind == CpMsgKind.Clarify) evActions.Export = null;   // a question card has nothing to export (UX review Q5)
+                if (!TurnStatus.CanExport(m.Failed)) evActions.Export = null;   // a failed turn's find table is not a result to export
                 if (cardShown)
                 {
                     if (m.Steps != null && m.Steps.Count > 0) evActions.StepsPanel = ActivityBlock(m, open: true);
@@ -866,12 +870,12 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 // A prose answer that also has rows: the rows are the card; the full text sits behind "More detail" under it.
                 if (cardShown && serverProse)
                 {
-                    var more = Controls.ProseAnswer.MoreDetail(m.Text, m.ResultCard.ServerReply, m.Lang, textWidth, !evidenceExports, m.ResultCard.Items);
+                    var more = Controls.ProseAnswer.MoreDetail(m.Text, m.ResultCard.ServerReply, m.Lang, textWidth, tableDownloads, m.ResultCard.Items);
                     if (more != null) col.Children.Add(more);
                 }
                 else if (cardShown && m.ResultCard.AdoptedRest.Length > 0)
                 {
-                    var more = Controls.ProseAnswer.MoreDetail(m.ResultCard.AdoptedRest, m.ResultCard.ServerReply, m.Lang, textWidth, !evidenceExports, m.ResultCard.Items);
+                    var more = Controls.ProseAnswer.MoreDetail(m.ResultCard.AdoptedRest, m.ResultCard.ServerReply, m.Lang, textWidth, tableDownloads, m.ResultCard.Items);
                     if (more != null) col.Children.Add(more);
                 }
             }

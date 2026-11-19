@@ -232,6 +232,14 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// not the envelopes' added elements: the marks come from those rows, never from Revit's by-products.</summary>
         public bool ServerChanges;
 
+        /// <summary>The turn ended failed (turn_end failed, e.g. a refused-only turn, live dcf2ce71): the card never wears the green
+        /// "done" disc, and offers no Export or Save as command.</summary>
+        public bool Failed;
+
+        /// <summary>The headline's disc is the amber "!" (a check's findings, values that read back different, a claim the
+        /// envelopes contradict, a failed turn), not the green check.</summary>
+        public bool HeadlineWarns => Kind == ResultKind.Findings || Mismatches > 0 || ClaimMismatch || Failed;
+
         /// <summary>The type a stored change-type script gave the elements ("Family: Type"), from its own "MADE … changed to"
         /// line; "" when the turn ran no such script or the line is not there.</summary>
         public string ChangedTo = "";
