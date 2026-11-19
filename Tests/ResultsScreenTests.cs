@@ -122,7 +122,7 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(1, r.PendTotal);
             Assert.Equal(new[] { "50%", "100%", "—", "—", "—" }, r.Sections.Select(s => s.PctLabel));
             Assert.Equal("+1", r.Sections[2].PendLabel);
-            Assert.Equal("Baiki semua (1)", r.FixAllLabel);
+            Assert.Equal("Baiki semua 1", r.FixAllLabel);
             Assert.Equal((1, 0, 1), (r.SevChips[0].N, r.SevChips[1].N, r.SevChips[2].N));
         }
 
@@ -134,12 +134,12 @@ namespace RevitWebAppSync.Tests
             r.Load(new[] { Issue("1", "D10", IssuePriority.High, fixable: true), Issue("2", "A6") }, Summary());
             var rows = r.Rows;
             Assert.Equal("D10", rows[0].Row);
-            Assert.Equal("Door 1 → jkrAR_x", rows[0].Diff);
+            Assert.Equal(("Door 1", "jkrAR_x"), (rows[0].OldValue, rows[0].NewValue));
             Assert.Equal(("High", "High"), (rows[0].SvLabel, rows[0].SvKind));
-            Assert.Equal("Architectural families · Doors [204511] PT2p600a · Borang D10", rows[0].Meta);
+            Assert.Equal("High · Doors [204511] PT2p600a · Architectural families", rows[0].Meta);
             Assert.True(rows[0].ShowFix);
             Assert.True(rows[0].IsSel);
-            Assert.Equal("Door 1 (needs manual action)", rows[1].Diff);
+            Assert.Equal("Still reads “Door 1”. Needs manual action.", rows[1].NoFixText);
             Assert.False(rows[1].ShowFix);
         }
 
@@ -271,7 +271,7 @@ namespace RevitWebAppSync.Tests
             fixture.RevitElementId = 6;
             r.Load(new[] { Issue("1", "A4", fixable: true), ai, bim010, fixture }, Summary());
             Assert.Equal(2, r.FixableN);
-            Assert.Equal("Baiki semua (2)", r.FixAllLabel);
+            Assert.Equal("Baiki semua 2", r.FixAllLabel);
             Assert.False(r.Rows.Single(x => x.Id == "2").ShowFix); // the row's ⚡ is for ready-made fixes only
             r.SelectSection("C");
             Assert.Equal(0, r.FixableN);

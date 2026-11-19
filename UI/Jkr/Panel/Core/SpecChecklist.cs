@@ -300,6 +300,17 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             ["tabIssuesSec"] = ("Isu · Seksyen {0}", "Issues · Section {0}"),
             ["secIssues"] = ("{0} isu dalam seksyen ini", "{0} issues in this section"),
             ["secIssues1"] = ("", "1 issue in this section"),
+            // The Issues list (Clear Sheet "issues"): toolbar and rows.
+            ["stateTabs"] = ("Status isu", "Issue state"),
+            ["searchIssues"] = ("Cari isu", "Search issues"),
+            ["progResolved"] = ("{0} daripada {1} selesai", "{0} of {1} resolved"),
+            ["fixAllN"] = ("Baiki semua {0}", "Fix all {0}"),
+            ["aiProposal"] = ("Cadangan pembaiki AI", "AI fixer proposal"),
+            ["noFix"] = ("Tiada pembaikan sedia. Perlu tindakan manual.", "No ready-made fix. Needs manual action."),
+            ["noFixReads"] = ("Masih tertulis “{0}”. Perlu tindakan manual.", "Still reads “{0}”. Needs manual action."),
+            // An AI fixer candidate before the fixer has proposed anything: no value is claimed.
+            ["aiCan"] = ("Tiada pembaikan sedia. Pembaiki AI boleh mencadangkannya.", "No ready-made fix. The AI fixer can propose one."),
+            ["aiCanReads"] = ("Masih tertulis “{0}”. Pembaiki AI boleh mencadangkan pembaikan.", "Still reads “{0}”. The AI fixer can propose a fix."),
             // A section / aspect opened from the list.
             ["posSection"] = ("Seksyen {0} daripada {1}", "Section {0} of {1}"),
             ["posAspect"] = ("Aspek {0} daripada {1}", "Aspect {0} of {1}"),

@@ -36,6 +36,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public int N { get; set; }
         /// <summary>Dot colour (prototype SEV).</summary>
         public string Color { get; set; } = "";
+        /// <summary>The legend's words: "4 high" / "4 tinggi".</summary>
+        public string Text { get; set; } = "";
     }
 
     /// <summary>One list row (prototype mkItem).</summary>
@@ -44,8 +46,18 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public string Id { get; set; } = "";
         public string Row { get; set; } = "";
         public string Title { get; set; } = "";
-        public string Diff { get; set; } = "";
-        public bool HasDiff { get; set; }
+        /// <summary>A ready-made fix: the value in the model and the one it writes (old → new).</summary>
+        public bool HasChange { get; set; }
+        public string OldValue { get; set; } = "";
+        public string NewValue { get; set; } = "";
+        /// <summary>No ready-made fix: "No ready-made fix. Needs manual action." (or what the
+        /// AI fixer can do); "" with a change or on a semak manual item.</summary>
+        public string NoFixText { get; set; } = "";
+        public bool HasNoFixText => !string.IsNullOrEmpty(NoFixText);
+        /// <summary>"High" | "Med" | "Low": the pip beside the row.</summary>
+        public string Sev { get; set; } = "";
+        /// <summary>An open AI fixer candidate: the spark-bolt mark, "· AI fixer proposal" in the meta.</summary>
+        public bool IsAiProposal { get; set; }
         public bool IsManual { get; set; }
         public string Reason { get; set; } = "";
         public string SvLabel { get; set; } = "";
@@ -58,6 +70,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public bool ShowFix { get; set; }
         /// <summary>"Manual · you'll fix it in Revit" on a marked item, else empty.</summary>
         public string ManualTag { get; set; } = "";
+        public bool HasManualTag => !string.IsNullOrEmpty(ManualTag);
         public string FixError { get; set; } = "";
         public bool HasFixError => !string.IsNullOrEmpty(FixError);
         public int Index { get; set; }
@@ -242,7 +255,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         // ── progress (shown with the issue tabs: it counts issues, not spec checks) ──
         public bool ShowTriage => ShowList;
         public int ResolvedN => _core.ResolvedN;
-        public string ProgressRest => " " + T("of") + " " + _core.FixTotal + " " + T("resolved") + " · " + _core.ToGo + " " + T("toGo");
+        /// <summary>"0 of 99 resolved".</summary>
+        public string ProgressLabel => string.Format(S("progResolved"), _core.ResolvedN, _core.FixTotal);
         public double ProgFraction => _core.ProgN / 100.0;
         public IReadOnlyList<SevChip> SevChips
         {
@@ -252,6 +266,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 return new[] { "High", "Med", "Low" }.Select(k => new SevChip
                 {
                     Key = k, Label = PanelStrings.Severity[k].In(_core.Lang), N = n[k], Color = SevColor[k],
+                    Text = n[k] + " " + PanelStrings.Severity[k].In(_core.Lang).ToLowerInvariant(),
                 }).ToList();
             }
         }
@@ -265,7 +280,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         private IEnumerable<PanelItem> AiCandidates() =>
             _core.Issues.Where(x => !x.Passed && !x.IsHuman && x.AiFix && x.Status == ItemStatus.Open && !x.MarkedManual
                                     && (_core.Cat == PanelCore.AllSections || x.Sec == _core.Cat));
-        public string FixAllLabel => T("fixAll") + " (" + FixableN + ")";
+        public string FixAllLabel => string.Format(S("fixAllN"), FixableN);
         public bool CanFixAll => FixableN > 0 && CanAct;
 
         // ── list toolbar ──
@@ -274,7 +289,10 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             get => _core.Q;
             set => _core.SetQuery(value ?? "");
         }
-        public string SearchPlaceholder => T("search");
+        public string SearchPlaceholder => S("searchIssues");
+        public string StateTabsAria => S("stateTabs");
+        /// <summary>The spark-bolt mark's name on an AI fixer row: "AI fixer proposal".</summary>
+        public string AiProposalLabel => S("aiProposal");
         public bool HasCat => _core.Cat != PanelCore.AllSections;
         public string CatLabel => HasCat ? T("secShort") + " " + _core.Cat + " · " + SectionName(_core.Cat) : "";
         public string ClearCatLabel => T("clearF");
@@ -313,17 +331,34 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             else if (x.Status == ItemStatus.Resolved) { sv = T("resolvedRow"); kind = "ok"; }
             else if (x.Status == ItemStatus.Ignored) { sv = T("ignoredRow"); kind = "ign"; }
             else { sv = PanelStrings.Severity[x.Sev].In(_core.Lang); kind = x.Sev; }
-            var meta = new List<string>();
-            if (!string.IsNullOrEmpty(x.Sec)) meta.Add(SectionName(x.Sec));
-            if (!string.IsNullOrEmpty(x.El) && x.El != "—") meta.Add(x.El);
-            if (!string.IsNullOrEmpty(x.Cite) && x.Cite != "—") meta.Add(x.Cite);
+            // An AI fixer candidate has no proposed value yet: the row says so and claims none.
+            var ai = !man && x.AiFix && x.Prop == null && x.Status == ItemStatus.Open && !x.MarkedManual;
+            var hasAct = !string.IsNullOrEmpty(a) && a != "—";
+            // Clear Sheet's meta line: severity (or state) · element · section, then the cited
+            // document. The section is left out when the element already names it ("Project
+            // Information"), and "Borang A5" because the key leads the title.
+            var meta = new List<string> { sv };
+            var el = !string.IsNullOrEmpty(x.El) && x.El != "—" ? x.El : "";
+            if (el.Length > 0) meta.Add(el);
+            var sec = string.IsNullOrEmpty(x.Sec) ? "" : SectionName(x.Sec);
+            if (sec.Length > 0 && !string.Equals(sec, el, StringComparison.OrdinalIgnoreCase)) meta.Add(sec);
+            if (!string.IsNullOrEmpty(x.Cite) && x.Cite != "—")
+                meta.AddRange(x.Cite.Split(new[] { " · " }, StringSplitOptions.RemoveEmptyEntries).Where(c => c != "Borang " + x.Row));
+            if (ai) meta.Add(S("aiProposal"));
+            var change = !man && x.Prop != null;
             return new ResultRow
             {
                 Id = x.Id,
                 Row = x.Row,
                 Title = x.Title.In(_core.Lang),
-                Diff = x.Prop != null ? a + " → " + x.Prop : (man ? a : a + " (" + T("needsAction") + ")"),
-                HasDiff = !(man && (string.IsNullOrEmpty(a) || a == "—")),
+                HasChange = change,
+                OldValue = change ? (hasAct ? a : "—") : "",
+                NewValue = change ? x.Prop : "",
+                NoFixText = man || change ? ""
+                          : ai ? (hasAct ? string.Format(S("aiCanReads"), a) : S("aiCan"))
+                          : hasAct ? string.Format(S("noFixReads"), a) : S("noFix"),
+                Sev = x.Sev,
+                IsAiProposal = ai,
                 IsManual = man,
                 Reason = man ? x.Reason?.In(_core.Lang) ?? "" : "",
                 SvLabel = sv,
