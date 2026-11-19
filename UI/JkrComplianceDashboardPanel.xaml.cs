@@ -29,7 +29,6 @@ namespace RevitWebAppSync.UI
         private readonly PanelVm _vm = new PanelVm();
         private readonly JkrComplianceService _jkrService = new JkrComplianceService();
         private Storyboard _rescanSpin;
-        private Jkr.Modals.IssueFocusWindow _focusWindow;
         private Jkr.Modals.ExportWindow _exportWindow;
 
         // Guards against rapid double-click between Fix All and per-issue Apply Fix.
@@ -128,15 +127,6 @@ namespace RevitWebAppSync.UI
         {
             var doc = FindIssue(id)?.Spec?.Doc;
             if (!string.IsNullOrEmpty(doc)) RevitWebAppSync.Services.JkrSpecPdfBootstrap.Open(doc);
-        }
-
-        /// <summary>Open the issue's detail (the existing focus window until step 11).</summary>
-        public void OpenIssue(string id)
-        {
-            var issue = FindIssue(id);
-            if (issue == null) return;
-            _vm.ActiveIssue = issue;
-            _vm.FocusOpen = true;
         }
 
         /// <summary>Fix these issues: one goes through the single auto-fix, several
@@ -553,16 +543,6 @@ namespace RevitWebAppSync.UI
             else
             {
                 Toast.Visibility = System.Windows.Visibility.Collapsed;
-            }
-
-            // Focus modal
-            if (_vm.FocusOpen && _vm.ActiveIssue != null)
-            {
-                OpenFocusWindow();
-            }
-            else
-            {
-                CloseFocusWindow();
             }
 
             // Export modal
@@ -1604,7 +1584,6 @@ namespace RevitWebAppSync.UI
             if (sender is IssueRow r && r.DataContext is IssueVm v)
             {
                 _vm.ActiveIssue = v;
-                _vm.FocusOpen = true;
             }
         }
         private void Row_Action(object sender, IssueRowActionArgs e)
@@ -1938,33 +1917,27 @@ namespace RevitWebAppSync.UI
             switch (e.Key)
             {
                 case Key.Escape:
-                    if (_vm.FocusOpen) { _vm.FocusOpen = false; e.Handled = true; }
-                    else if (_vm.ExportOpen) { _vm.ExportOpen = false; e.Handled = true; }
-                    break;
-                case Key.Enter:
-                    if (!_vm.FocusOpen && active != null) { _vm.FocusOpen = true; e.Handled = true; }
+                    if (_vm.ExportOpen) { _vm.ExportOpen = false; e.Handled = true; }
                     break;
                 case Key.J:
                 case Key.Down:
-                case Key.Right when _vm.FocusOpen:
                     if (idx + 1 < _vm.Filtered.Count) { _vm.ActiveIssue = _vm.Filtered[idx + 1]; e.Handled = true; }
                     break;
                 case Key.K:
                 case Key.Up:
-                case Key.Left when _vm.FocusOpen:
                     if (idx > 0) { _vm.ActiveIssue = _vm.Filtered[idx - 1]; e.Handled = true; }
                     break;
                 case Key.F:
                     if (active != null && active.IsActionable && active.AutoFixable)
                     {
-                        DispatchAction(active, IssueStatus.Fixed, _vm.FocusOpen);
+                        DispatchAction(active, IssueStatus.Fixed, false);
                         e.Handled = true;
                     }
                     break;
                 case Key.A:
                     if (active != null && active.IsOpen && active.CanIgnore)
                     {
-                        DispatchAction(active, IssueStatus.Ignored, _vm.FocusOpen);
+                        DispatchAction(active, IssueStatus.Ignored, false);
                         e.Handled = true;
                     }
                     break;
@@ -1986,47 +1959,8 @@ namespace RevitWebAppSync.UI
         }
 
         // ────────────────────────────────────────────────
-        // Focus / Export windows
+        // Export window
         // ────────────────────────────────────────────────
-
-        private void OpenFocusWindow()
-        {
-            if (_focusWindow != null && _focusWindow.IsLoaded)
-            {
-                try { _focusWindow.SetContext(_vm); _focusWindow.Activate(); } catch { }
-                return;
-            }
-            try
-            {
-                _focusWindow = new Jkr.Modals.IssueFocusWindow();
-                _focusWindow.HostPanel = this;
-                _focusWindow.SetContext(_vm);
-                _focusWindow.Closed += (_, __) => { _vm.FocusOpen = false; _focusWindow = null; };
-                try
-                {
-                    var owner = Window.GetWindow(this);
-                    if (owner != null) _focusWindow.Owner = owner;
-                }
-                catch { }
-                _focusWindow.Show();
-            }
-            catch (Exception ex)
-            {
-                _focusWindow = null;
-                _vm.FocusOpen = false;
-                TaskDialog.Show(Jkr.Panel.Core.PaneText.DialogTitle,
-                    Jkr.Panel.Core.PaneText.DetailFailed($"{ex.GetType().Name}: {ex.Message}"));
-            }
-        }
-
-        private void CloseFocusWindow()
-        {
-            if (_focusWindow != null)
-            {
-                var w = _focusWindow; _focusWindow = null;
-                try { w.Close(); } catch { }
-            }
-        }
 
         private void OpenExportWindow()
         {
