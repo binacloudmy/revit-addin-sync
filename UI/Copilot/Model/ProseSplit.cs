@@ -14,8 +14,9 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public const int MinWords = 25;
         /// <summary>Past this many words the rest is collapsed behind "More detail"; up to it the rest is shown under the headline.</summary>
         public const int CollapseAbove = 60;
-        /// <summary>A first sentence longer than this is cut at a word with "…" and the whole text stays as the detail.</summary>
-        public const int MaxHeadlineChars = 220;
+        /// <summary>A first sentence longer than this is cut at a word with "…" and the whole text stays as the detail. The card's
+        /// own safety cap (r12: a 290-character count answer was cut mid-sentence at 220; the headline wraps whole up to the cap).</summary>
+        public const int MaxHeadlineChars = CardText.HeadlineMax;
 
         private static readonly string[] Abbreviations = { "e.g", "i.e", "vs", "etc", "approx", "no", "dr", "mr", "mrs", "fig", "al" };
 

@@ -114,7 +114,8 @@ namespace RevitAddinSync.Tests
             var body = cut.TrimEnd('…');
             Assert.False(body.Length > 0 && char.IsHighSurrogate(body[body.Length - 1]), "a high surrogate was left at the cut");
 
-            var sentence = string.Join(" ", System.Linq.Enumerable.Range(1, 30).Select(i => "word" + i)) + " (an aside that goes on and on and on and on and on, so the cut lands inside it and it never closes before the headline limit is reached) tail.";
+            // r12: the headline cap is 400 now, so the aside is longer to make the cut land inside it.
+            var sentence = string.Join(" ", System.Linq.Enumerable.Range(1, 40).Select(i => "word" + i)) + " (an aside that goes" + string.Concat(System.Linq.Enumerable.Repeat(" on and", 30)) + " on, so the cut lands inside it and it never closes before the headline limit is reached) tail.";
             var (h, rest) = ProseSplit.Split(sentence);
             Assert.DoesNotContain("(", h);                                                          // backed up to before the open parenthesis
             Assert.StartsWith("(an aside", rest);

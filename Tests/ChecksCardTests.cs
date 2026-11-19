@@ -79,10 +79,13 @@ namespace RevitAddinSync.Tests
         {
             Assert.Equal("Could not: busy", ChecksCardText.FailureText("busy", ms: false));
             Assert.Equal("Tidak dapat: busy", ChecksCardText.FailureText("busy", ms: true));
-            var why = new string('a', 200) + "END";
+            // r12: a reason up to the card's safety cap is shown whole (it wraps); only a runaway one keeps its end.
+            var whole = new string('a', 200) + "END";
+            Assert.Equal("Could not: " + whole, ChecksCardText.FailureText(whole, ms: false));
+            var why = new string('a', 600) + "END";
             var text = ChecksCardText.FailureText(why, ms: false);
             Assert.EndsWith("END", text);
-            Assert.Equal("Could not: ".Length + 80, text.Length);
+            Assert.Equal("Could not: ".Length + CardText.HeadlineMax, text.Length);
         }
 
         // ---- the drawing (source text) ----

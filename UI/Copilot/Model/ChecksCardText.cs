@@ -56,7 +56,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
         /// <summary>Why an answer did not run, shown under its buttons (which come back so it can be tried again).</summary>
         public static string FailureText(string why, bool ms) =>
-            (ms ? "Tidak dapat: " : "Could not: ") + Tail(why, 80);
+            (ms ? "Tidak dapat: " : "Could not: ") + Tail(why, CardText.HeadlineMax);   // r12: whole, wrapped, up to the card's safety cap
 
         /// <summary>The end of a long reason, with a leading ellipsis (the end of a message is where the cause is).</summary>
         public static string Tail(string s, int n) =>

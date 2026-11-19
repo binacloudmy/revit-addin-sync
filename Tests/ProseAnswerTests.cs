@@ -88,10 +88,11 @@ namespace RevitAddinSync.Tests
         {
             var text = "There are 56 doors visible in the active view (\"Aras 01 (07d_Dokumen)\"): 20 × (PTh300a) 750 x 2100 sd-d, 12 × (PTt760b) 3700 x 2100 sd-d, 8 × (PTr680a) 900 x 2100 sd-a, and the remaining types make up the rest — host model only, as all 6 linked models are unloaded and were not searched.";
             var (h, rest) = ProseSplit.Split(text);
-            Assert.EndsWith("…", h);
+            // r12: the 290-character sentence is under the card's 400 cap now: the headline is the whole sentence, wrapped, no "…".
+            Assert.DoesNotContain("…", h);
+            Assert.Equal(text, h);
+            Assert.Equal("", rest);
             Assert.DoesNotContain("There are 56 doors visible", rest);                          // the detail does not start the sentence again
-            Assert.StartsWith("model only", rest.Replace("— ", ""), System.StringComparison.Ordinal);
-            Assert.Equal(text.Replace(" — ", " "), (h.TrimEnd('…') + " " + rest).Replace(" — ", " "));
         }
 
         [Fact]
