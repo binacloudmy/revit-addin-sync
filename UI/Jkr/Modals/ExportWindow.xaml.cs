@@ -13,19 +13,15 @@ namespace RevitWebAppSync.UI.Jkr.Modals
     public partial class ExportWindow : Window
     {
         private readonly PanelVm _vm;
-        private readonly JkrComplianceService _svc;
 
-        public ExportWindow(PanelVm vm, JkrComplianceService svc = null)
+        public ExportWindow(PanelVm vm)
         {
             InitializeComponent();
             _vm = vm;
-            _svc = svc;
             // In the pane's language (BM / EN). Replaced by the Borang export in step 14.
             string L(string ms, string en) => RevitWebAppSync.UI.Jkr.Panel.Core.PaneLanguage.Pick(ms, en);
             TitleText.Text = L("Eksport laporan", "Export Report");
             SubText.Text = L("Muat turun keputusan pematuhan sebagai CSV atau Excel.", "Download compliance results as CSV or Excel.");
-            CbSpec.Content = L("Sertakan rujukan spesifikasi", "Include spec references");
-            CbJson.Content = L("Sertakan JSON permintaan/respons", "Include request/response JSON");
             CsvBtn.Content = L("Muat turun CSV", "Download CSV");
             CloseBtn.ToolTip = L("Tutup", "Close");
             System.Windows.Automation.AutomationProperties.SetName(CloseBtn, L("Tutup", "Close"));
@@ -51,27 +47,16 @@ namespace RevitWebAppSync.UI.Jkr.Modals
 
         private string[] BuildHeader()
         {
-            var header = new[] { "ID", "Title", "Category", "Priority", "Status", "Required", "Actual" };
-            if (CbSpec.IsChecked == true)
-                header = header.Concat(new[] { "Spec", "Clause", "Page" }).ToArray();
-            return header;
+            return new[] { "ID", "Title", "Category", "Priority", "Status", "Required", "Actual" };
         }
 
         private string[] RowCells(IssueVm i)
         {
-            var cells = new System.Collections.Generic.List<string>
+            return new[]
             {
                 // An item a person marked as reviewed exports as "Reviewed" (the pane's Manual tab).
                 i.Id, i.Title, i.Category, i.PriorityLabel, i.NeedsPerson && i.Reviewed ? "Reviewed" : i.StatusLabel, i.Required, i.Actual
             };
-            if (CbSpec.IsChecked == true)
-            {
-                var spec = SpecDoc.Get(i.Spec.Doc);
-                cells.Add(spec.Short);
-                cells.Add(i.Spec.Clause);
-                cells.Add(i.Spec.Page.ToString());
-            }
-            return cells.ToArray();
         }
 
         // ── CSV ──────────────────────────────────────────
@@ -96,7 +81,6 @@ namespace RevitWebAppSync.UI.Jkr.Modals
                 sb.AppendLine(string.Join(",", RowCells(i).Select(CsvCell)));
 
             File.WriteAllText(dlg.FileName, sb.ToString(), Encoding.UTF8);
-            WriteSiblingJson(dlg.FileName);
             Close();
         }
 
@@ -142,24 +126,7 @@ namespace RevitWebAppSync.UI.Jkr.Modals
                 wb.SaveAs(dlg.FileName);
             }
 
-            WriteSiblingJson(dlg.FileName);
             Close();
-        }
-
-        // ── Sibling JSON (benchmark) ─────────────────────
-
-        private void WriteSiblingJson(string exportPath)
-        {
-            if (CbJson.IsChecked != true || _svc == null) return;
-
-            var dir = Path.GetDirectoryName(exportPath);
-            var stem = Path.GetFileNameWithoutExtension(exportPath);
-
-            if (!string.IsNullOrEmpty(_svc.LastRequestJson))
-                File.WriteAllText(Path.Combine(dir, $"{stem}_request.json"), _svc.LastRequestJson, Encoding.UTF8);
-
-            if (!string.IsNullOrEmpty(_svc.LastResponseJson))
-                File.WriteAllText(Path.Combine(dir, $"{stem}_response.json"), _svc.LastResponseJson, Encoding.UTF8);
         }
 
         // ── Helpers ──────────────────────────────────────
