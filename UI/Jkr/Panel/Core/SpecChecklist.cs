@@ -78,6 +78,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// <summary>The spec criterion and what was tested are shown (toggle "Why").</summary>
         public bool WhyOpen { get; set; }
         public bool CanToggleWhy => HasWhy || HasTested || HasPending;
+        /// <summary>The check's card is open (inside a section: the first failing check, or as toggled).</summary>
+        public bool IsOpen { get; set; }
         public bool ShowWhy => WhyOpen && CanToggleWhy;
         public string WhyToggleLabel { get; set; } = "";
         public List<ChecklistElement> Elements { get; set; } = new List<ChecklistElement>();
@@ -140,6 +142,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public int N { get; set; }
         /// <summary>Same as Key; "all" has no colour.</summary>
         public string Tone { get; set; } = "";
+        /// <summary>The state's tick code (<see cref="SpecChecklist.TickOfTone"/>); "" for "all".</summary>
+        public string Tick => SpecChecklist.TickOfTone(Tone);
         public bool IsOn { get; set; }
         public bool IsEmpty => N == 0;
         public string Aria { get; set; } = "";
@@ -180,7 +184,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             ["stPass"] = ("Lulus", "Pass"),
             ["stFail"] = ("Gagal", "Fails"),
             ["stPartial"] = ("Sebahagian", "Partly"),
-            ["stPerson"] = ("Manusia", "Person"),
+            // Clear Sheet names the state a person decides "semak manual" in both languages.
+            ["stPerson"] = ("Semak manual", "Semak manual"),
             ["stListed"] = ("Senarai", "Listed"),
             ["stNa"] = ("Tidak berkenaan", "Not applicable"),
             ["stNone"] = ("Belum disemak", "Not checked"),
@@ -215,8 +220,10 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             ["wNotComply"] = ("Spec — tidak patuh bila:", "Spec — does not comply when:"),
             ["wManual"] = ("Spec — semak manual:", "Spec — checked by hand:"),
             ["wNote"] = ("Spec — nota:", "Spec — note:"),
-            ["whyShow"] = ("Kenapa? ▸", "Why? ▸"),
-            ["whyHide"] = ("Sembunyi ▾", "Hide ▾"),
+            // The toggle in a check's card (Clear Sheet "Why this fails"); a chevron shows open / closed.
+            ["whyFail"] = ("Kenapa ini gagal", "Why this fails"),
+            ["whyPass"] = ("Kenapa ini lulus", "Why this passes"),
+            ["whyOther"] = ("Apa kata spec", "What the spec says"),
             ["tested"] = ("Disemak: ", "Tested: "),
             ["secFail"] = ("{0} gagal", "{0} fail"),
             ["secPass"] = ("{0} lulus", "{0} pass"),
@@ -273,6 +280,40 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             ["gManualAria"] = ("{0} semakan menunggu semak manual", "{0} checks wait for semak manual"),
             ["gManualAria1"] = ("", "1 check waits for semak manual"),
             ["filterAria"] = ("Tapis ikut status: {0}", "Filter by state: {0}"),
+            ["filterGroup"] = ("Tapis ikut status", "Filter by state"),
+            ["keysAria"] = ("Pintasan papan kekunci", "Keyboard shortcuts"),
+            // Result head (Clear Sheet): verdict, its line, the score sentence.
+            ["vHeadFail"] = ("Tidak patuh", "Does not comply"),
+            ["vSubFail"] = ("{0} semakan spec gagal.", "{0} spec checks fail."),
+            ["vSubFail1"] = ("", "1 spec check fails."),
+            ["vSubPerson"] = ("Belum lulus penuh: sesetengah semakan perlu diputuskan oleh manusia.",
+                              "Not a full pass yet: some checks are for a person to decide."),
+            ["hPct"] = ("{0} patuh", "{0} compliant"),
+            ["hRest"] = (", {0} daripada {1} keputusan lulus. Peratus mengira keputusan, bukan semakan.",
+                         ", {0} of {1} results pass. The % counts results, not checks."),
+            ["hRest1"] = ("", ", {0} of {1} result passes. The % counts results, not checks."),
+            ["hRestNone"] = (", belum ada keputusan yang dapat dikira.", ", no result could be scored yet."),
+            // The issue view's one-line verdict: "18% compliant · 22 fail".
+            ["vShort"] = ("{0} patuh · {1} gagal", "{0} compliant · {1} fail"),
+            ["tabIssues"] = ("Isu", "Issues"),
+            // A section / aspect opened from the list.
+            ["posSection"] = ("Seksyen {0} daripada {1}", "Section {0} of {1}"),
+            ["posAspect"] = ("Aspek {0} daripada {1}", "Aspect {0} of {1}"),
+            ["allChecks"] = ("Semua semakan", "All checks"),
+            ["otherName"] = ("Peraturan JKR lain", "Other JKR rules"),
+            ["otherNote"] = ("bukan dalam spec Borang", "not in the Borang spec"),
+            ["aspectsNote"] = ("Aspek mengumpul semula {0} semakan yang sama ikut apa yang disemak: penamaan, parameter dan maklumat, kualiti dan integriti, serta geometri reka bentuk.",
+                               "Aspects regroup the same {0} checks by what they test: naming, parameters and information, quality and integrity, and design geometry."),
+            // The split banner on a result that is out of date or missing the backend's checks.
+            ["lodStrong"] = ("Keputusan ini untuk LOD {0}.", "This result is for LOD {0}."),
+            ["lodRest"] = ("Imbas semula untuk menyemak model terhadap LOD {0}.", "Re-scan to check the model against LOD {0}."),
+            ["beStrong"] = ("Backend BINA tidak tersedia.", "BINA backend unavailable."),
+            ["beOne"] = ("{0} memerlukannya, jadi ia ditunjuk sebagai belum disemak, bukan sebagai lulus.",
+                         "{0} needs it, so it shows as not checked, never as passed."),
+            ["beMany"] = ("{0} memerlukannya, jadi semakan itu ditunjuk sebagai belum disemak, bukan sebagai lulus.",
+                          "{0} need it, so they show as not checked, never as passed."),
+            ["beNone"] = ("Semakan yang memerlukannya ditunjuk sebagai belum disemak, bukan sebagai lulus.",
+                          "Checks that need it show as not checked, never as passed."),
         };
 
         private static bool IsEn(string lang) => string.Equals(lang, PanelStrings.En, StringComparison.OrdinalIgnoreCase);
@@ -324,19 +365,24 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public static string StateLabel(SpecState s, string lang) => StateLabel(ToneOf(s), lang);
 
         /// <summary>The legend: All + every state with its count of spec checks; the one filtered on is on.</summary>
-        public static List<StateChip> StateChips(SpecReport r, string lang, string filter)
+        public static List<StateChip> StateChips(SpecReport r, string lang, string filter) => StateChips(r, lang, filter, null);
+
+        /// <summary>The legend counted over the checks <paramref name="member"/> picks (a section,
+        /// an aspect; null = every check).</summary>
+        public static List<StateChip> StateChips(SpecReport r, string lang, string filter, Func<SpecCheck, bool> member)
         {
             var list = new List<StateChip>();
             if (r == null) return list;
+            var checks = member == null ? r.Checks : r.Checks.Where(c => member(c.Check)).ToList();
             var on = string.IsNullOrEmpty(filter) ? AllStates : filter;
             list.Add(new StateChip
             {
-                Key = AllStates, Tone = AllStates, Label = Str("stAll", lang), N = r.Checks.Count, IsOn = on == AllStates,
-                Aria = F("filterAria", lang, Str("stAll", lang)) + " · " + r.Checks.Count,
+                Key = AllStates, Tone = AllStates, Label = Str("stAll", lang), N = checks.Count, IsOn = on == AllStates,
+                Aria = F("filterAria", lang, Str("stAll", lang)) + " · " + checks.Count,
             });
             foreach (var k in StateKeys)
             {
-                var n = r.Checks.Count(c => ToneOf(c.State) == k);
+                var n = checks.Count(c => ToneOf(c.State) == k);
                 list.Add(new StateChip
                 {
                     Key = k, Tone = k, Label = StateLabel(k, lang), N = n, IsOn = on == k,
@@ -407,6 +453,22 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             }
         }
 
+        /// <summary>The tick code of a tone (fail → f …); "" for "all" or an unknown tone.</summary>
+        public static string TickOfTone(string tone)
+        {
+            switch (tone)
+            {
+                case "fail": return "f";
+                case "pass": return "p";
+                case "partial": return "h";
+                case "person": return "m";
+                case "listed": return "l";
+                case "na": return "n";
+                case "none": return "x";
+                default: return "";
+            }
+        }
+
         /// <summary>
         /// One row of the Result screen's list, for the checks <paramref name="member"/>
         /// picks: % as the headline counts it (<see cref="Pct(SpecReport, Func{SpecCheck, bool})"/>),
@@ -464,6 +526,21 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
 
         public static string BackendBanner(string lang) => Str("backendDown", lang);
 
+        /// <summary>"B1.2 needs it, so it shows as not checked, never as passed." for the checks
+        /// only the backend answers that this run could not check (none: the general line).</summary>
+        public static string BackendNeedsLine(IEnumerable<string> ids, string lang)
+        {
+            var list = (ids ?? Enumerable.Empty<string>()).Where(i => !string.IsNullOrEmpty(i)).ToList();
+            if (list.Count == 0) return Str("beNone", lang);
+            return F(list.Count == 1 ? "beOne" : "beMany", lang, string.Join(", ", list));
+        }
+
+        /// <summary>Checks only the backend answers that stay "not checked" because it was unavailable.</summary>
+        public static List<string> BackendNotChecked(SpecReport r) =>
+            r == null || !r.BackendUnavailable ? new List<string>()
+                : r.Checks.Where(c => c.State == SpecState.NotChecked && SpecReport.BackendMappedChecks.Contains(c.Check.Id))
+                          .Select(c => c.Check.Id).ToList();
+
         // ─── verdict ───
 
         public static string VerdictTitle(SpecReport r, string lang)
@@ -505,10 +582,13 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// <param name="whyOpen">Whether a check shows its spec criterion (null = the default: open when it fails).</param>
         public static List<ChecklistSection> Build(SpecReport report, IEnumerable<PanelItem> items, string lang,
                                                    string section, Func<string, bool?> isOpen, Func<string, bool> showAll,
-                                                   string stateFilter = null, Func<string, bool?> whyOpen = null)
+                                                   string stateFilter = null, Func<string, bool?> whyOpen = null,
+                                                   Func<SpecCheck, bool> member = null)
         {
             var list = new List<ChecklistSection>();
             if (report == null) return list;
+            // Only the other JKR rules (their row on the Result list was opened).
+            var onlyOthers = section == OtherKey;
             var byId = new Dictionary<string, PanelItem>();
             foreach (var i in items ?? Enumerable.Empty<PanelItem>())
                 if (!string.IsNullOrEmpty(i?.Id) && !byId.ContainsKey(i.Id)) byId[i.Id] = i;
@@ -518,8 +598,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
 
             foreach (var sec in PanelCore.Secs)
             {
-                if (!all && sec != section) continue;
-                var inSec = report.Checks.Where(x => x.Check.Section == sec).ToList();
+                if (onlyOthers || (!all && sec != section)) continue;
+                var inSec = report.Checks.Where(x => x.Check.Section == sec && (member == null || member(x.Check))).ToList();
+                if (member != null && inSec.Count == 0) continue;
                 if (filtered && !inSec.Any(Keep)) continue;
                 int N(SpecState s) => inSec.Count(x => x.State == s);
                 int fail = N(SpecState.Fail), pass = N(SpecState.Pass), partial = N(SpecState.Partial),
@@ -551,7 +632,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                         foreach (var check in SpecCatalog.ChecksOf(it.No))
                         {
                             var r = report.For(check.Id);
-                            if (r == null || !Keep(r)) continue;
+                            if (r == null || !Keep(r) || (member != null && !member(check))) continue;
                             ivm.Checks.Add(CheckRow(r, report, byId, lang, showAll, whyOpen));
                         }
                         if (ivm.Checks.Count > 0) vm.Items.Add(ivm);
@@ -560,7 +641,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 list.Add(vm);
             }
 
-            if (all && !filtered && report.Others.Count > 0)
+            if ((onlyOthers || (all && !filtered && member == null)) && report.Others.Count > 0)
             {
                 var failing = report.Others.Count(o => o.State == SpecState.Fail);
                 var passing = report.Others.Count(o => o.State == SpecState.Pass);
@@ -575,7 +656,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                         report.Others.Count - failing - passing > 0 ? F("secPerson", lang, report.Others.Count - failing - passing) : null),
                     Tone = failing > 0 ? "fail" : "pass",
                 };
-                other.IsOpen = isOpen?.Invoke(OtherKey) ?? false;
+                other.IsOpen = isOpen?.Invoke(OtherKey) ?? onlyOthers;
                 if (other.IsOpen)
                 {
                     var ivm = new ChecklistItem { No = "", Title = Str("otherItem", lang) };
@@ -621,8 +702,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 row.Tested = Str("tested", lang) + string.Join("; ", r.Rules.Take(3));
             var notCounted = NotCountedLine(r, lang);
             if (notCounted.Length > 0) row.Tested = string.IsNullOrEmpty(row.Tested) ? notCounted : row.Tested + "\n" + notCounted;
-            row.WhyOpen = whyOpen?.Invoke(c.Id) ?? r.State == SpecState.Fail;
-            row.WhyToggleLabel = Str(row.WhyOpen ? "whyHide" : "whyShow", lang);
+            // Closed until asked for: the check's line already says why in one sentence.
+            row.WhyOpen = whyOpen?.Invoke(c.Id) ?? false;
+            row.WhyToggleLabel = Str(r.State == SpecState.Fail ? "whyFail" : r.State == SpecState.Pass ? "whyPass" : "whyOther", lang);
 
             // Every remark of the run (not only the Borang's first few), both languages side
             // by side; an element row that shows one takes it (in the pane's language), so it

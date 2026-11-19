@@ -360,13 +360,215 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public string VerdictText => SpecChecklist.VerdictText(_spec, _core.Lang);
         public SpecReport Spec => _spec;
 
-        /// <summary>Section → Borang item → spec check, filtered by the section tile and the state chip.</summary>
-        public IReadOnlyList<ChecklistSection> Checklist =>
-            SpecChecklist.Build(_spec, _core.Issues, _core.Lang, _core.Cat,
-                key => _sectionOpen.TryGetValue(key, out var o) ? o : (bool?)null,
-                id => _showAll.Contains(id),
-                _stateFilter,
-                id => _why.TryGetValue(id, out var w) ? w : (bool?)null);
+        /// <summary>Section → Borang item → spec check, for what is open: a section (the section
+        /// filter), an aspect, the other JKR rules, or every check; filtered by the state chip.
+        /// Inside it the first failing check's card is open unless the user toggled cards.</summary>
+        public IReadOnlyList<ChecklistSection> Checklist
+        {
+            get
+            {
+                var aspect = _aspectKey != null;
+                var list = SpecChecklist.Build(_spec, _core.Issues, _core.Lang,
+                    _otherFocus ? SpecChecklist.OtherKey : aspect ? PanelCore.AllSections : _core.Cat,
+                    key => aspect ? true : _sectionOpen.TryGetValue(key, out var o) ? o : (bool?)null,
+                    id => _showAll.Contains(id),
+                    _stateFilter,
+                    id => _why.TryGetValue(id, out var w) ? w : (bool?)null,
+                    aspect ? AspectMember(_aspectKey) : null);
+                var checks = list.SelectMany(s => s.Items).SelectMany(i => i.Checks).ToList();
+                var first = checks.FirstOrDefault(c => c.Tone == "fail")?.Id;
+                foreach (var c in checks) c.IsOpen = _checkOpen.TryGetValue(c.Id, out var open) ? open : c.Id == first;
+                return list;
+            }
+        }
+
+        /// <summary>Open or close a check's card inside a section.</summary>
+        public void ToggleCheck(string checkId)
+        {
+            var c = Checklist.SelectMany(s => s.Items).SelectMany(i => i.Checks).FirstOrDefault(x => x.Id == checkId);
+            if (c == null) return;
+            _checkOpen[checkId] = !c.IsOpen;
+            RaiseAll();
+        }
+
+        // ── Clear Sheet head ──
+        private string L => _core.Lang;
+        private string S(string key) => SpecChecklist.Str(key, _core.Lang);
+
+        /// <summary>"Does not comply" / "No failures in the checks covered" / "No spec check verified yet".</summary>
+        public string VerdictHead =>
+            _spec == null ? "" : _spec.Verdict == SpecVerdict.Fails ? S("vHeadFail") : SpecChecklist.VerdictTitle(_spec, L);
+        /// <summary>"22 spec checks fail." — or, with none failing while a person still decides
+        /// some, "Not a full pass yet: …"; "" otherwise.</summary>
+        public string VerdictSub
+        {
+            get
+            {
+                if (_spec == null) return "";
+                if (_spec.Verdict == SpecVerdict.Fails) return SpecChecklist.Plural("vSubFail", L, _spec.FailChecks);
+                if (_spec.Verdict == SpecVerdict.NoFailures && _spec.NeedsPersonChecks + _spec.PartialChecks > 0) return S("vSubPerson");
+                return "";
+            }
+        }
+        public bool HasVerdictSub => VerdictSub.Length > 0;
+        /// <summary>The bold start of the score sentence: "18% compliant".</summary>
+        public string HeadPctStrong => string.Format(S("hPct"), HeadPctLabel);
+        /// <summary>", 19 of 104 results pass. The % counts results, not checks."</summary>
+        public string HeadResultsRest
+        {
+            get
+            {
+                if (_spec == null) return ", " + AiPass + " / " + AiTotal + " " + T("checksAI");
+                var (p, t) = SpecChecklist.Score(_spec);
+                return t == 0 ? S("hRestNone") : SpecChecklist.Plural("hRest", L, t, p, t);
+            }
+        }
+        /// <summary>"13 checks wait for semak manual" (opens those checks).</summary>
+        public string ManualLinkLabel => SpecChecklist.Plural("gManualAria", L, PendTotal);
+        public bool HasManualLink => _spec != null && PendTotal > 0;
+        /// <summary>The issue view's one-line verdict: "18% compliant · 22 fail".</summary>
+        public string VerdictShortLine =>
+            _spec == null ? HeadPctLabel + " " + CompliantLabel : string.Format(S("vShort"), HeadPctLabel, _spec.FailChecks);
+
+        // ── tabs: Checklist n / Issues n ──
+        public int ChecklistTabN => _spec?.Checks.Count ?? 0;
+        public string IssuesTabLabel => S("tabIssues");
+        /// <summary>Open issues (the Issues view opens on its Open tab).</summary>
+        public int IssuesTabN => _core.TabCounts()[PanelTab.Open];
+        public bool IssuesTabOn => ShowList;
+        /// <summary>The issue view's one-line verdict is shown (issue tabs of a run with a spec report).</summary>
+        public bool ShowVerdictBar => ShowList && HasSpec;
+        public void ShowIssues() => SelectTab(PanelTab.Open);
+
+        // ── the list: a section / aspect row opens its checks ──
+        private string _aspectKey;       // an aspect is open (N / P / Q / G)
+        private bool _otherFocus;        // the other JKR rules are open
+        private readonly Dictionary<string, bool> _checkOpen = new Dictionary<string, bool>();
+
+        private static Func<SpecCheck, bool> AspectMember(string letter) =>
+            c => SpecAspects.Letter(SpecAspects.Of(c.Id)) == letter;
+
+        /// <summary>The checks of what is open (a section, an aspect), or null for every check.</summary>
+        private Func<SpecCheck, bool> FocusMember =>
+            _aspectKey != null ? AspectMember(_aspectKey)
+            : _core.Cat != PanelCore.AllSections ? (Func<SpecCheck, bool>)(c => c.Section == _core.Cat)
+            : null;
+
+        /// <summary>A section, an aspect, the other rules or a state filter is open: the screen
+        /// shows its checks (Clear Sheet's section screen) instead of the list.</summary>
+        public bool IsFocused => ShowChecklist && (_core.Cat != PanelCore.AllSections || _aspectKey != null || _otherFocus || IsStateFiltered);
+        /// <summary>The Result screen's list (head, tabs, sections / aspects).</summary>
+        public bool ShowOverview => ShowChecklist && !IsFocused;
+        public bool FocusIsOther => IsFocused && _otherFocus;
+        /// <summary>State chips inside what is open (not for the other rules: they are not spec checks).</summary>
+        public bool ShowFocusChips => IsFocused && !_otherFocus;
+        /// <summary>The open checks come from several sections (an aspect, or every check): their
+        /// section names head them.</summary>
+        public bool ShowSectionHeads => IsFocused && !_otherFocus && _core.Cat == PanelCore.AllSections;
+
+        private GroupRow FocusRow
+        {
+            get
+            {
+                if (_spec == null || _otherFocus) return null;
+                if (_aspectKey != null) return SpecAspects.Rows(_spec, L).FirstOrDefault(g => g.Key == _aspectKey);
+                if (_core.Cat != PanelCore.AllSections) return SpecChecklist.SectionRows(_spec, L).FirstOrDefault(g => g.Key == _core.Cat);
+                return SpecChecklist.Group(_spec, PanelCore.AllSections, "", S("allChecks"), c => true, L);
+            }
+        }
+        public string FocusLetter => _otherFocus ? "+" : FocusRow?.Letter ?? "";
+        public bool HasFocusLetter => FocusLetter.Length > 0;
+        public string FocusName => _otherFocus ? S("otherName") : FocusRow?.Name ?? "";
+        public string FocusPctLabel => _otherFocus ? "" : FocusRow?.PctLabel ?? "";
+        public IReadOnlyList<string> FocusTicks => FocusRow?.Ticks ?? new List<string>();
+        /// <summary>"Section 4 of 5" / "Aspect 2 of 4"; "" for the other rules or every check.</summary>
+        public string FocusPosition
+        {
+            get
+            {
+                if (!IsFocused || _otherFocus) return "";
+                if (_aspectKey != null)
+                {
+                    var i = SpecAspects.All.Select(SpecAspects.Letter).ToList().IndexOf(_aspectKey);
+                    return i < 0 ? "" : string.Format(S("posAspect"), i + 1, SpecAspects.All.Count);
+                }
+                var s = Array.IndexOf(PanelCore.Secs, _core.Cat);
+                return s < 0 ? "" : string.Format(S("posSection"), s + 1, PanelCore.Secs.Length);
+            }
+        }
+        public string BackLabel => ChecklistTabLabel;
+        public string FilterGroupAria => S("filterGroup");
+
+        /// <summary>Open a row of the list: a section letter (also the Issues filter), an aspect
+        /// letter (in the Aspects view), or <see cref="SpecChecklist.OtherKey"/>.</summary>
+        public void OpenGroup(string key)
+        {
+            if (_spec == null || string.IsNullOrEmpty(key)) return;
+            var isOther = key == SpecChecklist.OtherKey;
+            if (!isOther && (_aspects ? !SpecAspects.All.Any(a => SpecAspects.Letter(a) == key) : !PanelCore.Secs.Contains(key))) return;
+            _stateFilter = SpecChecklist.AllStates;
+            _sectionOpen.Clear();
+            _checkOpen.Clear();
+            _checklist = true;
+            _otherFocus = isOther;
+            _aspectKey = !isOther && _aspects ? key : null;
+            var cat = !isOther && !_aspects ? key : PanelCore.AllSections;
+            if (_core.Cat != cat) { if (cat == PanelCore.AllSections) _core.ClearCat(); else _core.SetCat(cat); }
+            RaiseAll();
+        }
+
+        /// <summary>Back to the list: no section, aspect or state filter.</summary>
+        public void CloseFocus()
+        {
+            _aspectKey = null;
+            _otherFocus = false;
+            _stateFilter = SpecChecklist.AllStates;
+            _sectionOpen.Clear();
+            _checkOpen.Clear();
+            if (_core.Cat != PanelCore.AllSections) _core.ClearCat();
+            RaiseAll();
+        }
+
+        // ── the list's other rows and notes ──
+        public bool HasOtherRow => _spec != null && _spec.Others.Count > 0;
+        /// <summary>The "Other JKR rules" row sits under the Borang sections (not the aspects).</summary>
+        public bool ShowOtherRow => HasOtherRow && ShowSections;
+        public string OtherRowName => S("otherName");
+        public string OtherRowNote => S("otherNote");
+        /// <summary>"4 fail", or "" when none fails.</summary>
+        public string OtherRowCount
+        {
+            get
+            {
+                var n = _spec?.Others.Count(o => o.State == SpecState.Fail) ?? 0;
+                return n > 0 ? string.Format(S("secFail"), n) : "";
+            }
+        }
+        // Clear Sheet's legend order.
+        private static readonly string[] LegendOrder = { "fail", "pass", "partial", "person", "listed", "na", "none" };
+
+        /// <summary>The states the run has, in Clear Sheet's legend order, with their names.</summary>
+        public IReadOnlyList<StateChip> Legend
+        {
+            get
+            {
+                if (_spec == null) return new List<StateChip>();
+                var tones = new HashSet<string>(_spec.Checks.Select(c => SpecChecklist.ToneOf(c.State)));
+                return LegendOrder.Where(tones.Contains)
+                    .Select(k => new StateChip { Key = k, Tone = k, Label = SpecChecklist.StateLabel(k, L) }).ToList();
+            }
+        }
+        public bool ShowAspectsNote => ShowOverview && _aspects;
+        public string AspectsNote => string.Format(S("aspectsNote"), ChecklistTabN);
+
+        // ── the split banner: LOD changed since the run, backend unavailable ──
+        public bool ShowLodBanner => LodChanged;
+        public string LodBannerStrong => string.Format(S("lodStrong"), _core.RunLod);
+        public string LodBannerRest => string.Format(S("lodRest"), _core.Lod);
+        public string BackendBannerStrong => S("beStrong");
+        public string BackendBannerRest => SpecChecklist.BackendNeedsLine(SpecChecklist.BackendNotChecked(_spec), L);
+        public bool ShowBanner => ShowLodBanner || ShowBackendBanner;
+        public bool ShowBothBanners => ShowLodBanner && ShowBackendBanner;
 
         // ── "Borang sections | Aspects" (Clear Sheet): the same 61 checks, two groupings ──
         // A view switch only: the section filter, state filter, selection and open
@@ -392,7 +594,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             _aspects ? SpecAspects.Rows(_spec, _core.Lang) : SpecChecklist.SectionRows(_spec, _core.Lang);
 
         /// <summary>The legend: every state with its count of spec checks; click filters the Checklist.</summary>
-        public IReadOnlyList<StateChip> StateChips => SpecChecklist.StateChips(_spec, _core.Lang, _stateFilter);
+        public IReadOnlyList<StateChip> StateChips => SpecChecklist.StateChips(_spec, _core.Lang, _stateFilter, FocusMember);
         public string StateFilter => _stateFilter;
         public bool IsStateFiltered => _stateFilter != SpecChecklist.AllStates;
 
@@ -426,7 +628,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         {
             var r = _spec?.For(checkId);
             if (r == null) return;
-            var open = _why.TryGetValue(checkId, out var w) ? w : r.State == SpecState.Fail;
+            var open = _why.TryGetValue(checkId, out var w) && w;
             _why[checkId] = !open;
             RaiseAll();
         }
@@ -437,6 +639,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         {
             if (_spec == null) { GoManual(); return; }
             _stateFilter = "person";
+            _aspectKey = null;
+            _otherFocus = false;
+            _checkOpen.Clear();
             _sectionOpen.Clear();
             _checklist = true;
             RaiseAll();
@@ -505,6 +710,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public string KeyFix => T("kFix");
         public string KeyIgnore => T("kIgnore");
         public string ResetLabel => T("reset");
+        public string KeysAria => SpecChecklist.Str("keysAria", _core.Lang);
         public string ExportLabel => T("export");
 
         private string SectionName(string s) =>
@@ -595,6 +801,13 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// core; Enter / F / A become open / fix / ignore requests for the host.</summary>
         public KeyOutcome HandleKey(PanelKey key, bool typing)
         {
+            // Esc inside a section goes back to the list (the detail, confirm or export close first).
+            if (key == PanelKey.Escape && !typing && IsFocused && _core.Stage == PanelStage.Results
+                && _core.DetailId == null && _core.Confirm == null && !_core.ExportOpen)
+            {
+                CloseFocus();
+                return KeyOutcome.Handled;
+            }
             if (key == PanelKey.Escape || typing || _core.Stage != PanelStage.Results)
                 return _core.HandleKey(key, typing);
             if (_core.DetailId != null) return KeyOutcome.None;   // the detail window handles its keys

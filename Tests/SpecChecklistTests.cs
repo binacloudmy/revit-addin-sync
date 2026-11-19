@@ -432,10 +432,10 @@ namespace RevitWebAppSync.Tests
             var chips = SpecChecklist.StateChips(r, PanelStrings.En, "fail");
             Assert.Equal(new[] { "all", "fail", "person", "partial", "pass", "listed", "na", "none" }, chips.Select(c => c.Key));
             Assert.Equal(new[] { 61, 8, 9, 3, 3, 5, 0, 33 }, chips.Select(c => c.N));
-            Assert.Equal(new[] { "All", "Fails", "Person", "Partly", "Pass", "Listed", "Not applicable", "Not checked" }, chips.Select(c => c.Label));
+            Assert.Equal(new[] { "All", "Fails", "Semak manual", "Partly", "Pass", "Listed", "Not applicable", "Not checked" }, chips.Select(c => c.Label));
             Assert.Equal("fail", chips.Single(c => c.IsOn).Key);
             Assert.True(chips.Single(c => c.Key == "na").IsEmpty);
-            Assert.Equal(new[] { "Semua", "Gagal", "Manusia", "Sebahagian", "Lulus", "Senarai", "Tidak berkenaan", "Belum disemak" },
+            Assert.Equal(new[] { "Semua", "Gagal", "Semak manual", "Sebahagian", "Lulus", "Senarai", "Tidak berkenaan", "Belum disemak" },
                          SpecChecklist.StateChips(r, PanelStrings.Ms, null).Select(c => c.Label));
         }
 
@@ -470,12 +470,12 @@ namespace RevitWebAppSync.Tests
         {
             var r = Report("jkr_run_failing.json");
             var a21 = SpecCatalog.Find("A2.1");
-            // Fail → the "does not comply when" cell, open by default.
+            // Fail → the "does not comply when" cell, closed until asked for (Clear Sheet "Why this fails").
             var fail = Row(r, "A2.1", PanelStrings.Ms);
             Assert.Equal("Spec — tidak patuh bila:", fail.WhyLabel);
             Assert.Equal(a21.NotComply.Ms, fail.WhyText);
-            Assert.True(fail.WhyOpen);
-            Assert.Equal("Sembunyi ▾", fail.WhyToggleLabel);
+            Assert.False(fail.WhyOpen);
+            Assert.Equal("Kenapa ini gagal", fail.WhyToggleLabel);
             var failEn = Row(r, "A2.1", PanelStrings.En);
             Assert.Equal("Spec — does not comply when:", failEn.WhyLabel);
             Assert.Equal(a21.NotComply.En, failEn.WhyText);
@@ -486,7 +486,7 @@ namespace RevitWebAppSync.Tests
             Assert.Equal("Spec — complies when:", pass.WhyLabel);
             Assert.Equal(SpecCatalog.Find("A4.1").Comply.En, pass.WhyText);
             Assert.False(pass.WhyOpen);
-            Assert.Equal("Why? ▸", pass.WhyToggleLabel);
+            Assert.Equal("Why this passes", pass.WhyToggleLabel);
             Assert.Equal("2 results checked — all comply.", pass.Detail);
             // Partly → why it is only partly: part of the rule is tested.
             var part = Row(r, "A7.1", PanelStrings.En);
@@ -687,16 +687,16 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void Why_is_open_on_failing_checks_and_toggles()
+        public void Why_is_closed_until_asked_for_and_toggles()
         {
             var (r, core) = Results("jkr_run_failing.json");
             core.SetLang(PanelStrings.En);
             ChecklistCheck Check(string id) => r.Checklist.SelectMany(s => s.Items).SelectMany(i => i.Checks).Single(c => c.Id == id);
-            Assert.True(Check("Da.1").ShowWhy);
+            Assert.False(Check("Da.1").ShowWhy);
             Assert.Equal(SpecCatalog.Find("Da.1").NotComply.En.Replace("`", ""), Check("Da.1").WhyText);
             r.ToggleWhy("Da.1");
-            Assert.False(Check("Da.1").ShowWhy);
-            Assert.Equal("Why? ▸", Check("Da.1").WhyToggleLabel);
+            Assert.True(Check("Da.1").ShowWhy);
+            Assert.Equal("Why this fails", Check("Da.1").WhyToggleLabel);
             Assert.False(Check("A4.1").ShowWhy);
             r.ToggleWhy("A4.1");
             Assert.True(Check("A4.1").ShowWhy);
@@ -775,7 +775,7 @@ namespace RevitWebAppSync.Tests
 
             var ms = CheckIn(r, "A7.2");
             Assert.Equal("person", ms.Tone);
-            Assert.Equal("Manusia", ms.StateLabel);                          // the legend's state: the Person filter shows it
+            Assert.Equal("Semak manual", ms.StateLabel);                     // the legend's state: the Semak manual filter shows it
             Assert.True(ms.HasWarning);
             Assert.Equal("3 amaran", ms.WarningLabel);
             Assert.StartsWith("Amaran, bukan kegagalan", ms.Detail);
@@ -788,7 +788,7 @@ namespace RevitWebAppSync.Tests
 
             core.SetLang(PanelStrings.En);
             var en = CheckIn(r, "A7.2");
-            Assert.Equal("Person", en.StateLabel);
+            Assert.Equal("Semak manual", en.StateLabel);
             Assert.Equal("3 warnings", en.WarningLabel);
             Assert.Equal("Warnings, not failures — a person judges each one. Not scored.", en.Detail);
             Assert.Equal("Material \"Glass (door)\", 10 elements: not JKR naming", en.Elements[0].Detail);
