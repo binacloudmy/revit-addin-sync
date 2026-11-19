@@ -43,6 +43,14 @@ namespace Tests
         }
 
         [Fact]
+        public void Skipped_excluded_counts_the_roles_asked_for_and_not_explicit_indices()
+        {
+            Assert.Equal(2, SocketPlanSelect.SkippedExcluded(Plan(), new long[0], new string[0]));
+            Assert.Equal(1, SocketPlanSelect.SkippedExcluded(Plan(), new long[0], new[] { "socket" }));
+            Assert.Equal(0, SocketPlanSelect.SkippedExcluded(Plan(), new long[] { 0 }, new string[0]));
+        }
+
+        [Fact]
         public void A_rule_plans_points_are_sockets()
         {
             var plan = new SocketPlan();

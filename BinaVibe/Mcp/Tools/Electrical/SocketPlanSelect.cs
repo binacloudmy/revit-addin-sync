@@ -32,6 +32,17 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 .ToList();
         }
 
+        /// <summary>How many excluded points of the given roles a default selection leaves out;
+        /// none when indices are explicit.</summary>
+        public static int SkippedExcluded(SocketPlan plan, IReadOnlyCollection<long> indices,
+                                          IReadOnlyCollection<string> roles)
+        {
+            if (indices.Count > 0) return 0;
+            var roleSet = new HashSet<string>(roles.Where(r => !string.IsNullOrWhiteSpace(r)).Select(r => r.Trim()),
+                                              StringComparer.OrdinalIgnoreCase);
+            return plan.Points.Count(p => p.Excluded && (roleSet.Count == 0 || roleSet.Contains(RoleOf(p))));
+        }
+
         /// <summary>The point's own family type wins over the argument; null when neither
         /// names one.</summary>
         public static string? FamilyTypeFor(PlannedPoint p, string? argFamilyType)

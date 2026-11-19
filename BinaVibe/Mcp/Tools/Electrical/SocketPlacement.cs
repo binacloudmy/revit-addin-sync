@@ -42,46 +42,111 @@ namespace BinaVibe.Mcp.Tools.Electrical
         {
             var planId = ArgsHelp.GetString(args, "plan_id")
                 ?? throw new ArgumentException("missing plan_id");
-            var familyType = ArgsHelp.GetString(args, "family_type")
-                ?? throw new ArgumentException("missing family_type");
+            // Optional: a drawing plan names a family type per point, and the point's own wins.
+            var familyType = ArgsHelp.GetString(args, "family_type");
 
             var plan = SocketPlanCache.Get(planId, SocketCandidates.DocKey(doc));
 
             var wanted = ArgsHelp.GetLongList(args, "indices");
-            var points = wanted.Count == 0
-                ? plan.Points
-                : plan.Points.Where(p => wanted.Contains(p.Index)).ToList();
+            var roles = ArgsHelp.GetStringList(args, "roles");
+            var points = SocketPlanSelect.Select(plan, wanted, roles);
+            int skippedExcluded = SocketPlanSelect.SkippedExcluded(plan, wanted, roles);
 
             if (points.Count == 0)
                 return new Dictionary<string, object?>
                 {
                     ["ok"] = false,
                     ["error"] = $"no candidates selected from plan {planId} " +
-                                $"(plan holds {plan.Points.Count} points; indices are 0-based)",
+                                $"(plan holds {plan.Points.Count} points, {skippedExcluded} of them excluded; " +
+                                "indices are 0-based)",
                 };
 
-            var symbol = ResolveSymbol(doc, familyType)
-                ?? throw new ArgumentException($"family type '{familyType}' not found in document");
+            // Family per point. Each distinct type is resolved once.
+            var typeOf = new Dictionary<int, string?>();
+            foreach (var p in points) typeOf[p.Index] = SocketPlanSelect.FamilyTypeFor(p, familyType);
+            if (typeOf.Values.All(t => t == null))
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = false,
+                    ["error"] = "no family type for any selected point — pass family_type, or give the " +
+                                "block a family_type in the plan_cad_electrical mapping",
+                };
+
+            var symbols = new Dictionary<string, FamilySymbol?>(StringComparer.OrdinalIgnoreCase);
+            foreach (var t in typeOf.Values)
+                if (t != null && !symbols.ContainsKey(t)) symbols[t] = ResolveSymbol(doc, t);
+            if (symbols.Values.All(s => s == null))
+                throw new ArgumentException(
+                    "family type " + string.Join(", ", symbols.Keys.Select(k => "'" + k + "'")) + " not found in document");
 
             var levelOverride = ArgsHelp.GetString(args, "level");
             double? mountOverrideMm = ArgsHelp.GetDouble(args, "mount_height_mm");
             double facingOffsetDeg = ArgsHelp.GetDouble(args, "facing_offset_deg") ?? 0.0;
 
+            // The devices that exist now: a second run of the same plan must not double up.
+            var present = CadElectricalResolver.ExistingDevices(doc);
+
             var created = new List<object>();
             var failed = new List<object>();
-            var placement = symbol.Family.FamilyPlacementType;
+            var skippedPresent = new List<object?>();
+            var placedPoints = new List<PlannedPoint>();
+            var byRole = new Dictionary<string, object?>(StringComparer.Ordinal);
+            var byType = new Dictionary<string, object?>(StringComparer.Ordinal);
 
             using var group = new TransactionGroup(doc, "BinaVibe: place_socket_points");
             group.Start();
             try
             {
-                foreach (var p in points)
+                var inactive = symbols.Values.Where(s => s != null && !s.IsActive).ToList();
+                if (inactive.Count > 0)
                 {
+                    using var activate = new Transaction(doc, "BinaVibe: activate socket types");
+                    TxGuard.StartSwallowing(activate);
                     try
                     {
-                        var row = PlaceOne(doc, symbol, placement, p, levelOverride,
+                        foreach (var s in inactive) s!.Activate();
+                        doc.Regenerate();
+                        TxGuard.CommitOrThrow(activate);
+                    }
+                    catch { activate.RollBack(); throw; }
+                }
+
+                foreach (var p in points)
+                {
+                    var t = typeOf[p.Index];
+                    var symbol = t != null && symbols.TryGetValue(t, out var found) ? found : null;
+                    if (symbol == null)
+                    {
+                        failed.Add(new Dictionary<string, object?>
+                        {
+                            ["index"] = p.Index,
+                            ["room_id"] = p.RoomId,
+                            ["reason"] = t == null
+                                ? "no family type for this point — the plan names none and family_type was not passed"
+                                : $"family type '{t}' not found in document",
+                        });
+                        continue;
+                    }
+
+                    // A point the drafter picked by index although the plan saw a device there
+                    // is placed as asked; any other point next to a device is skipped.
+                    bool chosenAnyway = wanted.Count > 0 && p.Flags.Contains("already_present");
+                    if (!chosenAnyway && AlreadyPresent(p, mountOverrideMm, present))
+                    {
+                        skippedPresent.Add(p.Index);
+                        continue;
+                    }
+
+                    try
+                    {
+                        var row = PlaceOne(doc, symbol, symbol.Family.FamilyPlacementType, p, levelOverride,
                                            mountOverrideMm, facingOffsetDeg);
+                        row["family_type"] = t;
                         created.Add(row);
+                        placedPoints.Add(p);
+                        string role = p.Role.Length == 0 ? "socket" : p.Role;
+                        byRole[role] = (byRole.TryGetValue(role, out var nr) ? (int)nr! : 0) + 1;
+                        byType[t!] = (byType.TryGetValue(t!, out var nt) ? (int)nt! : 0) + 1;
                     }
                     catch (Exception ex)
                     {
@@ -99,11 +164,12 @@ namespace BinaVibe.Mcp.Tools.Electrical
             catch { group.RollBack(); throw; }
 
             // A run of sideways sockets must not read as a clean success.
-            var uncorrected = created
-                .OfType<Dictionary<string, object?>>()
+            var rows = created.OfType<Dictionary<string, object?>>().ToList();
+            var uncorrected = rows
                 .Where(r => (r.TryGetValue("facing_method", out var m) ? m as string : null) == "uncorrectable")
                 .Select(r => r.TryGetValue("index", out var i) ? i : null)
                 .ToList();
+            int elevationUnset = rows.Count(r => (r.TryGetValue("elevation_set_via", out var v) ? v as string : null) == "unset");
 
             return new Dictionary<string, object?>
             {
@@ -116,7 +182,27 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 ["failed"] = failed,
                 ["facing_uncorrected"] = uncorrected.Count,
                 ["facing_uncorrected_indices"] = uncorrected,
+                ["by_role"] = byRole,
+                ["by_family_type"] = byType,
+                ["skipped_excluded"] = skippedExcluded,
+                ["skipped_already_present"] = skippedPresent,
+                ["review"] = CadElectricalReview.PlaceReview(placedPoints, uncorrected.Count, elevationUnset),
             };
+        }
+
+        /// <summary>A device of the model already stands within ExistingMm (3D) of where this
+        /// point would go: the resolver's already_present rule, against the model as it is now.</summary>
+        private static bool AlreadyPresent(PlannedPoint p, double? mountOverrideMm,
+                                           List<(double X, double Y, double Z)> present)
+        {
+            double limit = new ResolveOptions().ExistingMm;
+            double zMm = p.ZMm - p.MountHeightMm + (mountOverrideMm ?? p.MountHeightMm);
+            foreach (var (x, y, z) in present)
+            {
+                double dx = x - p.XMm, dy = y - p.YMm, dz = z - zMm;
+                if (dx * dx + dy * dy + dz * dz <= limit * limit) return true;
+            }
+            return false;
         }
 
         private static Dictionary<string, object?> PlaceOne(
@@ -159,14 +245,23 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 if (!symbol.IsActive) { symbol.Activate(); doc.Regenerate(); }
 
                 var level = ResolveLevel(doc, levelOverride ?? p.LevelName, host);
-                FamilyInstance fi;
+                FamilyInstance? fi = null;
+                bool onFace = false;
 
-                if (host != null && (hosted || placement == FamilyPlacementType.WorkPlaneBased))
+                // A work-plane-based (face) family goes on the wall's side face that looks the
+                // way the point faces. If that is refused, the wall overload below is tried.
+                if (host != null && placement == FamilyPlacementType.WorkPlaneBased)
+                {
+                    fi = TryOnSideFace(doc, symbol, host, pt, facing);
+                    onFace = fi != null;
+                }
+
+                if (fi == null && host != null && (hosted || placement == FamilyPlacementType.WorkPlaneBased))
                 {
                     var hostLevel = doc.GetElement(host.LevelId) as Level ?? level;
                     fi = doc.Create.NewFamilyInstance(pt, symbol, host, hostLevel, StructuralType.NonStructural);
                 }
-                else
+                else if (fi == null)
                 {
                     fi = level != null
                         ? doc.Create.NewFamilyInstance(pt, symbol, level, StructuralType.NonStructural)
@@ -188,7 +283,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     ["room_id"] = p.RoomId,
                     ["created_id"] = fi.Id.Value,
                     ["host_wall_id"] = p.HostWallId,
-                    ["host"] = host != null ? "wall" : "unhosted",
+                    ["host"] = onFace ? "wall_face" : host != null ? "wall" : "unhosted",
                     ["flipped"] = orient.Method == "flip",
                     ["facing"] = new List<object> { Math.Round(orient.Dx, 4), Math.Round(orient.Dy, 4) },
                     ["facing_target"] = new List<object> { Math.Round(targetDx, 4), Math.Round(targetDy, 4) },
@@ -271,6 +366,55 @@ namespace BinaVibe.Mcp.Tools.Electrical
         }
 
         // ─── helpers ────────────────────────────────────────────────────
+
+        /// <summary>Place a face-based family on the wall side face whose normal is closest to
+        /// the point's facing (and nearest the point among those), in a SubTransaction so a
+        /// refusal leaves nothing behind. Null when there is no such face or Revit refuses.</summary>
+        private static FamilyInstance? TryOnSideFace(Document doc, FamilySymbol symbol, Wall host, XYZ pt, XYZ facing)
+        {
+            Reference? best = null;
+            XYZ? bestPoint = null;
+            double bestDistance = double.MaxValue;
+            foreach (var side in new[] { ShellLayerType.Exterior, ShellLayerType.Interior })
+            {
+                IList<Reference> refs;
+                try { refs = HostObjectUtils.GetSideFaces(host, side); } catch { continue; }
+                foreach (var r in refs)
+                {
+                    try
+                    {
+                        if (!(host.GetGeometryObjectFromReference(r) is Face face)) continue;
+                        var hit = face.Project(pt);
+                        if (hit == null) continue;
+                        var n = face.ComputeNormal(hit.UVPoint);
+                        if (n.X * facing.X + n.Y * facing.Y < 0.5) continue;
+                        if (hit.Distance >= bestDistance) continue;
+                        best = r;
+                        bestPoint = hit.XYZPoint;
+                        bestDistance = hit.Distance;
+                    }
+                    catch { /* a face that cannot be read is not a candidate */ }
+                }
+            }
+            if (best == null || bestPoint == null) return null;
+
+            using var st = new SubTransaction(doc);
+            st.Start();
+            try
+            {
+                // Along the wall, so the family's own up stays up on a vertical face.
+                var alongWall = new XYZ(-facing.Y, facing.X, 0);
+                var fi = doc.Create.NewFamilyInstance(best, bestPoint, alongWall, symbol);
+                doc.Regenerate();
+                st.Commit();
+                return fi;
+            }
+            catch
+            {
+                st.RollBack();
+                return null;
+            }
+        }
 
         private static FamilySymbol? ResolveSymbol(Document doc, string name, BuiltInCategory? cat = null)
         {
