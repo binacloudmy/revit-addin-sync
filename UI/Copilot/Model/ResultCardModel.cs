@@ -397,6 +397,67 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return last;
         }
 
+        /// <summary>r13: the categories Revit updated as dependents of a code write that did not target them (a view-only run
+        /// left "Schedules 2" beside "Views 1"), biggest first; drawn after "updated by Revit", never as the drafter's change.</summary>
+        public List<(string Category, int Count)> UpdatedByRevit = new List<(string Category, int Count)>();
+
+        /// <summary>Categories Revit updates along with other changes (a schedule's rows, a viewport, a sketch). A run that
+        /// names one of them in its intent or playbook targets it, and then it is a real change.</summary>
+        private static readonly Dictionary<string, string[]> DependentCategories = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Schedules"] = new[] { "schedule", "jadual" },
+            ["Viewports"] = new[] { "viewport", "sheet", "helaian" },
+            ["Sketch"] = new[] { "sketch", "lakaran", "boundary" },
+            ["<Sketch>"] = new[] { "sketch", "lakaran", "boundary" },
+            ["Sketch Lines"] = new[] { "sketch", "lakaran", "boundary" },
+        };
+
+        /// <summary>The call's own words: its intent and playbook, lower case.</summary>
+        private static string CallWords(ToolCallDto? call)
+        {
+            if (call == null || call.Args.ValueKind != System.Text.Json.JsonValueKind.Object) return "";
+            var sb = new System.Text.StringBuilder();
+            foreach (var key in new[] { "intent", "playbook" })
+                if (call.Args.TryGetProperty(key, out var v) && v.ValueKind == System.Text.Json.JsonValueKind.String) sb.Append(' ').Append(v.GetString());
+            return sb.ToString().ToLowerInvariant();
+        }
+
+        /// <summary>True when Revit updated this category as a dependent: a dependent category the call did not name.</summary>
+        internal static bool IsDependentUpdate(string category, string callWords) =>
+            DependentCategories.TryGetValue(category ?? "", out var words) && !words.Any(w => (callWords ?? "").Contains(w));
+
+        /// <summary>A code write's counts by category, split: what the run changed, and what Revit updated as dependents. Revit's
+        /// by-products (class: buckets, Center Line, Sun Path) stay out of both. When only dependents remain they ARE the change
+        /// (a committed write is never a card that says nothing), and when nothing real remains the raw buckets stay (as before).</summary>
+        internal static (List<(string Category, int Count)> Changed, List<(string Category, int Count)> ByRevit) CodeWriteSplit(IEnumerable<(ToolCallDto Call, Envelope Env)> commits)
+        {
+            var list = commits.ToList();
+            var changed = new Dictionary<string, int>(StringComparer.Ordinal);
+            var byRevit = new Dictionary<string, int>(StringComparer.Ordinal);
+            void Add(Dictionary<string, int> d, string k, int v) => d[k] = (d.TryGetValue(k, out var have) ? have : 0) + v;
+            foreach (var c in list)
+            {
+                if (c.Call?.Tool != ToolNames.RunRevitCode) continue;
+                var words = CallWords(c.Call);
+                var by = c.Env.Changes?.TouchedByCategory;
+                if (by != null)
+                {
+                    foreach (var kv in by.AddedByCategory ?? new Dictionary<string, int>())
+                        if (kv.Value > 0 && !CreatedSummary.IsByProduct(kv.Key)) Add(changed, kv.Key, kv.Value);
+                    foreach (var kv in by.DeletedByCategory ?? new Dictionary<string, int>())
+                        if (kv.Value > 0 && !CreatedSummary.IsByProduct(kv.Key)) Add(changed, kv.Key, kv.Value);
+                    foreach (var kv in by.ModifiedByCategory ?? new Dictionary<string, int>())
+                        if (kv.Value > 0 && !CreatedSummary.IsByProduct(kv.Key))
+                            Add(IsDependentUpdate(kv.Key, words) ? byRevit : changed, kv.Key, kv.Value);
+                }
+            }
+            List<(string, int)> Order(Dictionary<string, int> d) =>
+                d.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => (kv.Key, kv.Value)).ToList();
+            if (changed.Count > 0) return (Order(changed), Order(byRevit));
+            if (byRevit.Count > 0) return (Order(byRevit), new List<(string, int)>());     // only dependents: they are the change
+            return (CodeWriteCounts(list), new List<(string, int)>());                       // only by-products: the raw buckets, as before
+        }
+
         /// <summary>A code write with no element ids: what it changed, by category, biggest first. Empty for every other card.</summary>
         public List<(string Category, int Count)> CategoryCounts = new List<(string Category, int Count)>();
 
@@ -652,12 +713,14 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 return m;
             }
             else if (m.Created.Count > 0) { m.Kind = ResultKind.Created; m.CreatedBy = CreatedSummary.From(commits.Select(c => c.Env), source, lang); }
-            else if (CodeWriteCounts(commits) is { Count: > 0 } counts)
+            else if (CodeWriteSplit(commits) is { Changed.Count: > 0 } split)
             {
                 // A code write that touched elements but listed no ids (run_revit_code reports counts by category only): still a
                 // committed write, so the card says how many and keeps Undo all. (Live test of 0.0.107: 2097 elements, no Undo.)
+                // r13: what Revit updated as a dependent of the run (a schedule after tags were hidden) is listed apart.
                 m.Kind = ResultKind.Changes;
-                m.CategoryCounts = counts;
+                m.CategoryCounts = split.Changed;
+                m.UpdatedByRevit = split.ByRevit;
             }
             else
             {
@@ -959,6 +1022,12 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     g.Label = g.Title + " (id " + string.Join(", ", g.Ids.Select(id => id.ToString(CultureInfo.InvariantCulture))) + ")";
         }
 
+        /// <summary>" · updated by Revit: Schedules 2" ("dikemas kini oleh Revit"); "" when Revit updated nothing apart.</summary>
+        public static string UpdatedByRevitText(IReadOnlyList<(string Category, int Count)> byRevit, ReceiptLanguage lang) =>
+            byRevit == null || byRevit.Count == 0 ? ""
+            : (lang == ReceiptLanguage.Ms ? " · dikemas kini oleh Revit: " : " · updated by Revit: ")
+              + string.Join(", ", byRevit.Select(c => c.Category + " " + c.Count.ToString(CultureInfo.InvariantCulture)));
+
         private static void SetHeadline(ResultCardModel m, ReceiptLanguage lang)
         {
             var ms = lang == ReceiptLanguage.Ms;
@@ -972,7 +1041,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
                         var total = m.CategoryCounts.Sum(c => c.Count);
                         m.Headline = ms ? N(total) + " elemen diubah" : N(total) + " element" + (total == 1 ? "" : "s") + " changed";
                         m.Counts = m.Detail = string.Join(" · ", m.CategoryCounts.Take(4).Select(c => c.Category + " " + N(c.Count)))
-                            + (m.CategoryCounts.Count > 4 ? (ms ? " · +" + N(m.CategoryCounts.Count - 4) + " kategori lagi" : " · +" + N(m.CategoryCounts.Count - 4) + " more categories") : "");
+                            + (m.CategoryCounts.Count > 4 ? (ms ? " · +" + N(m.CategoryCounts.Count - 4) + " kategori lagi" : " · +" + N(m.CategoryCounts.Count - 4) + " more categories") : "")
+                            + UpdatedByRevitText(m.UpdatedByRevit, lang);
                         break;
                     }
                     if (m.ChangeCount == 0 && m.ChangedBackRows > 0)
