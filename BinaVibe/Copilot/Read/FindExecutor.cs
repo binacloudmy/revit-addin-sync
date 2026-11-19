@@ -202,6 +202,9 @@ namespace BinaVibe.Copilot.Read
                 foreach (var h in sorted)
                     (h.Row.SumValue, h.Row.SumUnit) = ReadNumber(h.Target.Doc, h.El, plan.SumParam, outcome);
             foreach (var h in sorted.Take(plan.Limit)) EnsureRoom(h);
+            // r13: a door/window find grouped by type: the shown rows carry their type's Type Mark, Function and Fire Rating.
+            foreach (var h in sorted.Take(plan.Limit))
+                if (TypeCells.Applies(plan, IsDoorOrWindow(h.El))) TypeCells.Merge(h.Row.Fields, TypeValues(h.Target.Doc, h.El));
             outcome.Rows = sorted.Select(h => h.Row).ToList();
             outcome.Partial = budget.Exhausted;
             outcome.Scanned = budget.Used;
@@ -553,6 +556,35 @@ namespace BinaVibe.Copilot.Read
                 el.Category?.Name,
                 el is SpatialElement sp ? sp.Number : null,
             };
+        }
+
+        private static bool IsDoorOrWindow(Element el)
+        {
+            try
+            {
+                var id = el.Category?.Id.Value;
+                return id == (long)BuiltInCategory.OST_Doors || id == (long)BuiltInCategory.OST_Windows;
+            }
+            catch { return false; }
+        }
+
+        /// <summary>The type's Type Mark, Function and Fire Rating as shown in Revit (read only; null when the type lacks one).</summary>
+        private static IEnumerable<(string, string?)> TypeValues(Document doc, Element el)
+        {
+            var type = RevitValues.TypeOf(doc, el);
+            if (type == null) yield break;
+            string? Read(BuiltInParameter bip, string name)
+            {
+                try
+                {
+                    var p = type.get_Parameter(bip) ?? type.LookupParameter(name);
+                    return p == null ? null : RevitValues.ParamValue(doc, p).Display;
+                }
+                catch { return null; }
+            }
+            yield return ("Type Mark", Read(BuiltInParameter.ALL_MODEL_TYPE_MARK, "Type Mark"));
+            yield return ("Function", Read(BuiltInParameter.FUNCTION_PARAM, "Function"));
+            yield return ("Fire Rating", Read(BuiltInParameter.DOOR_FIRE_RATING, "Fire Rating"));
         }
 
         private static FoundRow RowOf(Target t, Element el, string? typeName, string? family, string? room)

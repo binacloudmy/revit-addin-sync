@@ -68,6 +68,29 @@ namespace BinaVibe.Copilot.Read
         public HashSet<int> Queries = new();
     }
 
+    /// <summary>r13 (issue 7 follow-up): the type values a door or window row of a find grouped by type carries beside its
+    /// instance mark, so a fire-door list reads "FD2 · Type Mark · Fire Rating" without a second read. Optional cells only: a
+    /// row gets a key only when its type has a value, and a value the row already holds (the queried parameter) is kept.</summary>
+    public static class TypeCells
+    {
+        public static readonly string[] Names = { "Type Mark", "Function", "Fire Rating" };
+
+        /// <summary>The find is grouped by type and the element is a door or a window.</summary>
+        public static bool Applies(FindPlan plan, bool doorOrWindow) =>
+            doorOrWindow && plan != null && plan.GroupKeys.Any(k => k.Kind == "type");
+
+        /// <summary>Adds the type's non-empty values to the row's cells; never overwrites a cell the row has (any case).</summary>
+        public static void Merge(Dictionary<string, string?> fields, IEnumerable<(string Name, string? Value)> typeValues)
+        {
+            foreach (var (name, value) in typeValues)
+            {
+                if (string.IsNullOrWhiteSpace(value)) continue;
+                if (fields.Keys.Any(k => string.Equals(k, name, StringComparison.OrdinalIgnoreCase))) continue;
+                fields[name] = value!.Trim();
+            }
+        }
+    }
+
     public sealed class QueryOutcome
     {
         public int Count;
