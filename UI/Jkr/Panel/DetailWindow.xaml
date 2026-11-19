@@ -478,23 +478,6 @@
             <StackPanel Orientation="Horizontal">
                 <TextBlock x:Name="ToastText" Foreground="{StaticResource Bz.Text}" FontSize="12.5" VerticalAlignment="Center"
                            TextWrapping="Wrap" MaxWidth="460" AutomationProperties.LiveSetting="Polite"/>
-                <Button x:Name="ToastUndo" Margin="14,0,0,0" Cursor="Hand" Click="ToastUndo_Click" VerticalAlignment="Center"
-                        FocusVisualStyle="{StaticResource Bz.FocusRing}">
-                    <Button.Template>
-                        <ControlTemplate TargetType="Button">
-                            <Border x:Name="UndoBd" Height="28" Background="Transparent" BorderBrush="{StaticResource Bz.Line2}" BorderThickness="1"
-                                    CornerRadius="6" Padding="10,0,10,0">
-                                <TextBlock x:Name="UndoText" Text="{Binding Tag, RelativeSource={RelativeSource TemplatedParent}}" VerticalAlignment="Center"
-                                           Foreground="{StaticResource Bz.Brand}" FontWeight="SemiBold" FontSize="12"/>
-                            </Border>
-                            <ControlTemplate.Triggers>
-                                <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="UndoBd" Property="Background" Value="{StaticResource Bz.Hover}"/>
-                                </Trigger>
-                            </ControlTemplate.Triggers>
-                        </ControlTemplate>
-                    </Button.Template>
-                </Button>
             </StackPanel>
         </Border>
     </Grid>

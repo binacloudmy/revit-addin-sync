@@ -436,7 +436,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             _undo = undo;
             Toast = new ToastVm { Message = msg, CanUndo = undo != null };
             _toastTimer?.Stop();
-            _toastTimer = new DispatcherTimer { Interval = RevitWebAppSync.UI.Jkr.Panel.Core.PaneText.ToastTime(msg, undo != null) };
+            _toastTimer = new DispatcherTimer { Interval = undo != null ? UndoToastTime : RevitWebAppSync.UI.Jkr.Panel.Core.PaneText.ToastTime(msg) };
             _toastTimer.Tick += (_, __) => { _toastTimer.Stop(); Toast = null; _undo = null; };
             _toastTimer.Start();
         }

@@ -98,7 +98,7 @@ namespace RevitWebAppSync.UI
         public event Action<string> BusyChanged;
 
         /// <summary>A toast appeared (message, Undo offered) or went (null).</summary>
-        public event Action<string, bool> ToastChanged;
+        public event Action<string> ToastChanged;
 
         public IReadOnlyList<IssueVm> CurrentIssues => _vm.Issues.ToList();
         public BinaVibe.Mcp.Tools.Audit.Bim010Summary CurrentSummary => _vm.Summary;
@@ -202,7 +202,6 @@ namespace RevitWebAppSync.UI
         }
 
         /// <summary>The toast's Undo (restores and saves the last decision).</summary>
-        public void UndoLastDecision() => Undo_Click(this, new RoutedEventArgs());
 
         /// <summary>Reset from the Results screen (back to Start; writes nothing).</summary>
         public void ResetToStart() => Reset_Click(this, new RoutedEventArgs());
@@ -367,7 +366,7 @@ namespace RevitWebAppSync.UI
         private void Vm_PropertyChanged(object sender, PropertyChangedEventArgs e)
         {
             if (e.PropertyName == nameof(PanelVm.Toast))
-                ToastChanged?.Invoke(_vm.Toast?.Message, _vm.Toast?.CanUndo == true);
+                ToastChanged?.Invoke(_vm.Toast?.Message);
 
             // Batch multiple rapid-fire PropertyChanged events into a single RenderAll().
             // Without this, switching tabs fires 4x Raise() → 4x full visual tree walks.

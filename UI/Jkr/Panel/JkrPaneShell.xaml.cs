@@ -32,7 +32,6 @@ namespace RevitWebAppSync.UI.Jkr.Panel
         public DetailScreenModel Detail { get; }
 
         /// <summary>The toast's Undo was clicked.</summary>
-        public event Action UndoRequested;
 
         /// <summary>The login view's "Try again" was clicked.</summary>
         public event Action RetryRequested;
@@ -124,7 +123,6 @@ namespace RevitWebAppSync.UI.Jkr.Panel
             {
                 var w = DetailWindow.Open(Detail, this);
                 _detailWindow = w;
-                w.UndoRequested += () => UndoRequested?.Invoke();
                 w.Closed += (_, __) =>
                 {
                     if (ReferenceEquals(_detailWindow, w)) _detailWindow = null;
@@ -132,7 +130,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel
                     if (ContentHost.Content is UIElement screen) screen.Focus();
                 };
                 if (ToastBox.Visibility == Visibility.Visible)
-                    w.ShowToast(ToastText.Text, ToastUndo.Visibility == Visibility.Visible, Model.UndoLabel);
+                    w.ShowToast(ToastText.Text);
             }
             catch (Exception ex)
             {
@@ -222,21 +220,18 @@ namespace RevitWebAppSync.UI.Jkr.Panel
 
         private void Retry_Click(object sender, RoutedEventArgs e) => RetryRequested?.Invoke();
 
-        /// <summary>Show a toast (message null hides it); Undo only when offered.</summary>
-        public void ShowToast(string message, bool canUndo)
+        /// <summary>Show a toast (message null hides it).</summary>
+        public void ShowToast(string message)
         {
             if (string.IsNullOrEmpty(message))
             {
                 ToastBox.Visibility = Visibility.Collapsed;
-                _detailWindow?.ShowToast(null, false, null);
+                _detailWindow?.ShowToast(null);
                 return;
             }
             ToastText.Text = message;
-            ToastUndo.Visibility = canUndo ? Visibility.Visible : Visibility.Collapsed;
             ToastBox.Visibility = Visibility.Visible;
-            _detailWindow?.ShowToast(message, canUndo, Model.UndoLabel);
+            _detailWindow?.ShowToast(message);
         }
-
-        private void ToastUndo_Click(object sender, RoutedEventArgs e) => UndoRequested?.Invoke();
     }
 }

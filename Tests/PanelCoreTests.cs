@@ -73,7 +73,7 @@ namespace RevitWebAppSync.Tests
         {
             Assert.Equal(19, PanelFixture.Issues().Count);
             Assert.Equal(5, PanelFixture.Issues().Count(x => x.IsHuman));
-            Assert.Equal(118, PanelStrings.Keys.Count);
+            Assert.Equal(117, PanelStrings.Keys.Count);
             Assert.Equal("Jalankan audit", PanelStrings.Get("ms", "run"));
             Assert.Equal("Run audit", PanelStrings.Get("en", "run"));
             Assert.Equal("Semak manual", PanelStrings.Get("ms", "heroPend"));
@@ -187,48 +187,30 @@ namespace RevitWebAppSync.Tests
             Assert.Equal("emptyQ", (core.SetQueryAndHint("zzz")));
         }
 
-        // ── Ignore with 6 s undo ──
+        // ── Ignore: a plain toast, no Undo ──
 
         [Fact]
-        public void Ignore_moves_items_to_the_ignored_tab_with_an_undo_toast()
+        public void Ignore_moves_items_to_the_ignored_tab_with_a_plain_toast()
         {
             var (core, _) = AtResults();
             core.Ignore(new[] { "4" });
             Assert.Equal(ItemStatus.Ignored, core.Issues.First(x => x.Id == "4").Status);
             Assert.Equal("1 isu diabaikan", core.Toast);
-            Assert.Equal(new[] { "4" }, core.UndoIds);
             Assert.Equal(13, core.TabCounts()[PanelTab.Open]);
             Assert.Equal(1, core.TabCounts()[PanelTab.Ignore]);
         }
 
         [Fact]
-        public void Undo_within_6_seconds_reopens_the_items()
-        {
-            var (core, clock) = AtResults();
-            core.Ignore(new[] { "4", "6" });
-            clock.AdvanceMs(5999);
-            Assert.NotNull(core.UndoIds);
-            core.Undo();
-            Assert.All(core.Issues.Where(x => x.Id == "4" || x.Id == "6"), x => Assert.Equal(ItemStatus.Open, x.Status));
-            Assert.Null(core.Toast);
-            Assert.Null(core.UndoIds);
-        }
-
-        [Fact]
-        public void The_undo_toast_goes_after_6_seconds_and_a_plain_toast_after_2_6()
+        public void Ignore_shows_a_plain_toast_that_closes_after_the_normal_time()
         {
             var (core, clock) = AtResults();
             core.Ignore(new[] { "4" });
-            clock.AdvanceMs(6000);
-            Assert.Null(core.Toast);
-            Assert.Null(core.UndoIds);
-            Assert.Equal(ItemStatus.Ignored, core.Issues.First(x => x.Id == "4").Status);   // stays ignored
-
-            core.ShowToast("x");
+            Assert.NotNull(core.Toast);
             clock.AdvanceMs(2599);
-            Assert.Equal("x", core.Toast);
+            Assert.NotNull(core.Toast);
             clock.AdvanceMs(1);
             Assert.Null(core.Toast);
+            Assert.Equal(ItemStatus.Ignored, core.Issues.First(x => x.Id == "4").Status);   // stays ignored
         }
 
         [Fact]
@@ -238,11 +220,10 @@ namespace RevitWebAppSync.Tests
             core.Ignore(new[] { "4" });
             clock.AdvanceMs(2000);
             core.ShowToast("next");
-            clock.AdvanceMs(4500);                     // past the first toast's 6 s
-            Assert.Null(core.Toast);                   // the second (2.6 s) has also gone
-            core.ShowToast("again");
-            clock.AdvanceMs(2000);
-            Assert.Equal("again", core.Toast);
+            clock.AdvanceMs(2599);
+            Assert.Equal("next", core.Toast);          // the first toast's timer did not cut it short
+            clock.AdvanceMs(1);
+            Assert.Null(core.Toast);
         }
 
         [Fact]
@@ -251,7 +232,7 @@ namespace RevitWebAppSync.Tests
             var (core, _) = AtResults();
             core.SetCat("D");
             core.IgnoreAll();
-            Assert.Equal(new[] { "16", "17", "18" }, core.UndoIds);
+            Assert.All(new[] { "16", "17", "18" }, id => Assert.Equal(ItemStatus.Ignored, core.Issues.First(x => x.Id == id).Status));
             Assert.All(core.Issues.Where(x => x.Sec != "D"), x => Assert.Equal(ItemStatus.Open, x.Status));
         }
 

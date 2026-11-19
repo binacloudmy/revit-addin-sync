@@ -38,8 +38,7 @@ namespace RevitWebAppSync.UI
                 // BM / EN: re-read the issues so fix errors and element words switch too.
                 Jkr.Panel.Core.PaneLanguage.Changed += () => results.Load(_panel.CurrentIssues, _panel.CurrentSummary, _panel.CurrentSpecReport);
                 _panel.BusyChanged += label => results.BusyText = label;
-                _panel.ToastChanged += (message, canUndo) => _shell.ShowToast(message, canUndo);
-                _shell.UndoRequested += () => _panel.UndoLastDecision();
+                _panel.ToastChanged += message => _shell.ShowToast(message);
                 // Issue detail (step 11): the shell opens it from a row; Locate and
                 // the source PDF go to the panel, Fix / Ignore through the results.
                 var detail = _shell.Detail;

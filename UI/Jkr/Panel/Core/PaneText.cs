@@ -79,11 +79,10 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public static string SelectedInModel(string element, string lang = null) =>
             PanelStrings.Get(lang ?? PaneLanguage.Current, "toastLoc") + ": " + element;
 
-        /// <summary>prototype toast times: 6 s with Undo, else 2.6 s — longer for a long
-        /// notice so it can be read (about 60 ms a character, at most 8 s).</summary>
-        public static TimeSpan ToastTime(string message, bool canUndo)
+        /// <summary>Toast time: 2.6 s, longer for a long notice so it can be read
+        /// (about 60 ms a character, at most 8 s).</summary>
+        public static TimeSpan ToastTime(string message)
         {
-            if (canUndo) return TimeSpan.FromMilliseconds(6000);
             var reading = (message ?? "").Length * 60;
             return TimeSpan.FromMilliseconds(Math.Max(2600, Math.Min(8000, reading)));
         }

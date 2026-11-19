@@ -147,7 +147,7 @@
             </StackPanel>
         </Grid>
 
-        <!-- Toast: bottom centre, raised dark with a hairline; Undo as an amber text button when offered -->
+        <!-- Toast: bottom centre, raised dark with a hairline -->
         <Border x:Name="ToastBox" Grid.Row="2" Visibility="Collapsed" VerticalAlignment="Bottom" HorizontalAlignment="Center"
                 Margin="16,0,16,20" Background="{StaticResource Bz.Sunken2}" BorderBrush="{StaticResource Bz.Line2}" BorderThickness="1"
                 CornerRadius="9" Padding="14,6,8,6">
@@ -157,23 +157,6 @@
             <StackPanel Orientation="Horizontal">
                 <TextBlock x:Name="ToastText" Foreground="{StaticResource Bz.Text}" FontSize="12.5" VerticalAlignment="Center"
                            TextWrapping="Wrap" MaxWidth="290" Margin="0,4,6,4" AutomationProperties.LiveSetting="Polite"/>
-                <Button x:Name="ToastUndo" Margin="6,0,0,0" Cursor="Hand" Click="ToastUndo_Click" VerticalAlignment="Center"
-                        FocusVisualStyle="{StaticResource Bz.FocusRing}">
-                    <Button.Template>
-                        <ControlTemplate TargetType="Button">
-                            <Border x:Name="Bd" Background="Transparent" CornerRadius="6" Padding="8,0,8,0" MinHeight="28">
-                                <TextBlock x:Name="T" Text="{Binding UndoLabel}" Foreground="{StaticResource Bz.Brand}" FontWeight="SemiBold" FontSize="12"
-                                           VerticalAlignment="Center"/>
-                            </Border>
-                            <ControlTemplate.Triggers>
-                                <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="Bd" Property="Background" Value="{StaticResource Bz.Hover}"/>
-                                    <Setter TargetName="T" Property="Foreground" Value="{StaticResource Bz.BrandHover}"/>
-                                </Trigger>
-                            </ControlTemplate.Triggers>
-                        </ControlTemplate>
-                    </Button.Template>
-                </Button>
             </StackPanel>
         </Border>
 

@@ -34,7 +34,6 @@ namespace RevitWebAppSync.UI.Jkr.Panel
         private bool _closing;
 
         /// <summary>The toast's Undo was clicked.</summary>
-        public event Action UndoRequested;
 
         private DetailWindow(DetailScreenModel model)
         {
@@ -109,12 +108,10 @@ namespace RevitWebAppSync.UI.Jkr.Panel
         }
 
         /// <summary>Show a toast over the scrim (the pane's toast is behind it); null hides it.</summary>
-        public void ShowToast(string message, bool canUndo, string undoLabel)
+        public void ShowToast(string message)
         {
             if (string.IsNullOrEmpty(message)) { ToastBox.Visibility = Visibility.Collapsed; return; }
             ToastText.Text = message;
-            ToastUndo.Tag = undoLabel;
-            ToastUndo.Visibility = canUndo ? Visibility.Visible : Visibility.Collapsed;
             ToastBox.Visibility = Visibility.Visible;
         }
 
@@ -129,7 +126,6 @@ namespace RevitWebAppSync.UI.Jkr.Panel
         private void Review_Click(object sender, RoutedEventArgs e) => _model.ToggleReviewed();
         private void Locate_Click(object sender, RoutedEventArgs e) => _model.Locate();
         private void Source_Click(object sender, MouseButtonEventArgs e) => _model.OpenSource();
-        private void ToastUndo_Click(object sender, RoutedEventArgs e) => UndoRequested?.Invoke();
 
         private void Dot_Click(object sender, RoutedEventArgs e)
         {

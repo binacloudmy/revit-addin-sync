@@ -22,7 +22,6 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public const string AllSections = "all";
 
         public static readonly TimeSpan ToastTime = TimeSpan.FromMilliseconds(2600);
-        public static readonly TimeSpan UndoToastTime = TimeSpan.FromMilliseconds(6000);
         public static readonly TimeSpan SectionTime = TimeSpan.FromMilliseconds(750);
         public static readonly TimeSpan ResultsDelay = TimeSpan.FromMilliseconds(800);
 
@@ -67,7 +66,6 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public bool Consent { get; private set; }
         public bool ExportOpen { get; private set; }
         public string Toast { get; private set; }
-        public List<string> UndoIds { get; private set; }
         public string Located { get; private set; }
 
         /// <summary>prototype t()</summary>
@@ -354,7 +352,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         {
             var list = (ids ?? Enumerable.Empty<string>()).ToList();
             SetStatus(list, ItemStatus.Ignored);
-            ShowToast(list.Count + " " + T("toastIgn"), list);
+            ShowToast(list.Count + " " + T("toastIgn"));
         }
 
         /// <summary>Ignore all: open AI items in the current section.</summary>
@@ -365,17 +363,6 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         }
 
         public void FixAll() => AskFix(FixableOpen().Select(x => x.Id));
-
-        /// <summary>prototype undo: the ignored items go back to open.</summary>
-        public void Undo()
-        {
-            var ids = UndoIds ?? new List<string>();
-            SetStatus(ids, ItemStatus.Open);
-            _toastTimer?.Dispose();
-            Toast = null;
-            UndoIds = null;
-            Notify();
-        }
 
         /// <summary>prototype onReview: open ↔ reviewed.</summary>
         public void ToggleReviewed(string id)
@@ -392,15 +379,13 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             ShowToast(T("toastLoc") + ": " + it.El);
         }
 
-        public void ShowToast(string msg, List<string> undoIds = null)
+        public void ShowToast(string msg)
         {
             _toastTimer?.Dispose();
             Toast = msg;
-            UndoIds = undoIds;
-            _toastTimer = _clock.Schedule(undoIds != null ? UndoToastTime : ToastTime, () =>
+            _toastTimer = _clock.Schedule(ToastTime, () =>
             {
                 Toast = null;
-                UndoIds = null;
                 Notify();
             });
             Notify();
