@@ -392,8 +392,14 @@ namespace BinaVibe.Mcp.Tools
                 if (pts.Count < 2)
                     throw new RouteFailure("points_mm needs at least 2 points", -1);
                 var level = ResolveLevel(doc, args);
-                var spec = ResolveConduitSpec(doc, ArgsHelp.GetString(args, "conduit_type_name"),
-                                              ArgsHelp.GetDouble(args, "diameter_mm"), needsBends: pts.Count > 2);
+                var conduitTypeName = ArgsHelp.GetString(args, "conduit_type_name");
+                var trayTypeName = ArgsHelp.GetString(args, "tray_type_name");
+                if (conduitTypeName != null && trayTypeName != null)
+                    throw new RouteFailure("pass conduit_type_name (conduit) or tray_type_name (cable tray), not both", -1);
+                var spec = trayTypeName != null
+                    ? ResolveTraySpec(doc, trayTypeName, ArgsHelp.GetDouble(args, "width_mm"),
+                                      ArgsHelp.GetDouble(args, "height_mm"), needsBends: pts.Count > 2)
+                    : ResolveConduitSpec(doc, conduitTypeName, ArgsHelp.GetDouble(args, "diameter_mm"), needsBends: pts.Count > 2);
                 var connectStartTo = ArgsHelp.GetLong(args, "connect_start_to");
                 var connectEndTo = ArgsHelp.GetLong(args, "connect_end_to");
 
@@ -585,7 +591,48 @@ namespace BinaVibe.Mcp.Tools
         private static RunCurveSpec ResolveRunSpec(Document doc, PlannedRun run, bool needsBends)
         {
             if (run.Kind == "conduit") return ResolveConduitSpec(doc, run.TypeName, run.DiameterMm, needsBends);
+            if (run.Kind == "cable_tray")
+                return ResolveTraySpec(doc, run.TypeName ?? throw new RouteFailure("the trunking run names no cable tray type", -1),
+                                       run.WidthMm, run.HeightMm, needsBends);
             throw new RouteFailure($"run {run.Index} is a {run.Kind} run, which route_conduit cannot build", -1);
+        }
+
+        /// <summary>
+        /// A cable tray type (trunking) by "Family : Type", else by a unique bare type name. When
+        /// the run bends, the type must be a "with fittings" type. Width and height must be
+        /// positive. Throws RouteFailure with the fix.
+        /// </summary>
+        private static RunCurveSpec ResolveTraySpec(Document doc, string typeName, double? widthMm, double? heightMm, bool needsBends)
+        {
+            var types = new FilteredElementCollector(doc).OfClass(typeof(CableTrayType)).Cast<CableTrayType>().ToList();
+            var full = types.Where(t => string.Equals(t.FamilyName + " : " + t.Name, typeName.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
+            var matches = full.Count > 0 ? full
+                : types.Where(t => string.Equals(t.Name, typeName.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
+            if (matches.Count == 0)
+                throw new RouteFailure($"cable tray type '{typeName}' not found (use list_family_types(\"OST_CableTray\"))", -1);
+            if (matches.Count > 1)
+                throw new RouteFailure($"cable tray type '{typeName}' matches " +
+                    string.Join(", ", matches.Select(t => "'" + t.FamilyName + " : " + t.Name + "'")) +
+                    ": name it as 'Family : Type'", -1);
+            var type = matches[0];
+            string name = type.FamilyName + " : " + type.Name;
+
+            if (needsBends)
+            {
+                bool withFitting;
+                try { withFitting = type.IsWithFitting; } catch { withFitting = false; }
+                if (!withFitting)
+                    throw new RouteFailure($"cable tray type '{name}' is a type without fittings, so bends cannot be built: " +
+                                           "choose a Cable Tray with Fittings type", -1);
+            }
+            if (widthMm.HasValue && widthMm.Value <= 0) throw new RouteFailure("width_mm must be above 0", -1);
+            if (heightMm.HasValue && heightMm.Value <= 0) throw new RouteFailure("height_mm must be above 0", -1);
+
+            return new RunCurveSpec
+            {
+                Kind = "cable_tray", Name = name, TypeId = type.Id,
+                WidthFt = widthMm / MmPerFoot, HeightFt = heightMm / MmPerFoot,
+            };
         }
 
         private static Dictionary<string, object?> FailedRun(int index, string reason, int corner) => new()
@@ -691,6 +738,13 @@ namespace BinaVibe.Mcp.Tools
 
         private static MEPCurve CreateLeg(Document doc, RunCurveSpec spec, Level level, XYZ a, XYZ b)
         {
+            if (spec.Kind == "cable_tray")
+            {
+                var tray = CableTray.Create(doc, spec.TypeId, a, b, level.Id);
+                if (spec.WidthFt.HasValue) tray.get_Parameter(BuiltInParameter.RBS_CABLETRAY_WIDTH_PARAM)?.Set(spec.WidthFt.Value);
+                if (spec.HeightFt.HasValue) tray.get_Parameter(BuiltInParameter.RBS_CABLETRAY_HEIGHT_PARAM)?.Set(spec.HeightFt.Value);
+                return tray;
+            }
             var conduit = Conduit.Create(doc, spec.TypeId, a, b, level.Id);
             if (spec.DiameterFt.HasValue) conduit.get_Parameter(BuiltInParameter.RBS_CONDUIT_DIAMETER_PARAM)?.Set(spec.DiameterFt.Value);
             return conduit;

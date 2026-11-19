@@ -427,5 +427,28 @@ namespace Tests
             Assert.False(CadElectricalReview.PlanReview(plan, Unmapped, 0).ContainsKey("conduit"));
             Assert.DoesNotContain("Conduit", (string)CadElectricalReview.PlanReview(plan, Unmapped, 0)["headline"]!);
         }
+
+        [Fact]
+        public void Trunking_runs_are_named_in_the_headline_and_have_no_open_ends()
+        {
+            SocketPlan plan = RunPlan();
+            PlannedRun tray = Run(4, 6000, "open", "open", 0);
+            tray.Layer = "E-TRUNK";
+            tray.Kind = "cable_tray";
+            tray.TypeName = "Cable Tray with Fittings : Trunking";
+            tray.DiameterMm = null;
+            tray.WidthMm = 100;
+            tray.HeightMm = 50;
+            plan.Runs.Add(tray);
+
+            Dictionary<string, object?> block = CadElectricalReview.ConduitReview(plan, new List<UnplannedLayer>(), 0, 0, "planned");
+            Assert.Equal(2, block["open_ends"]);
+            Dictionary<string, object?> trunk = ((List<object?>)block["by_layer"]!).Select(Row).Single(l => (string)l["layer"]! == "E-TRUNK");
+            Assert.Equal("cable_tray", trunk["kind"]);
+            Assert.Equal(100.0, trunk["width_mm"]);
+
+            string headline = (string)CadElectricalReview.PlanReview(plan, Unmapped, 0, null, 0, block)["headline"]!;
+            Assert.EndsWith(" Conduit and trunking: 5 runs, 18.0 m, 3 drops, 2 open ends.", headline);
+        }
     }
 }

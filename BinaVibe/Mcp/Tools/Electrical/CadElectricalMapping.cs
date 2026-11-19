@@ -120,7 +120,10 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
         public static readonly string[] Hosts = { "wall", "ceiling", "none" };
 
-        public static readonly string[] LayerRoles = { "background", "conduit", "wiring_schematic", "ignore", "unknown" };
+        public static readonly string[] LayerRoles = { "background", "conduit", "trunking", "wiring_schematic", "ignore", "unknown" };
+
+        /// <summary>Largest trunking (cable tray) width and height accepted, mm.</summary>
+        public const double MaxTrayWidthMm = 2000, MaxTrayHeightMm = 1000;
 
         /// <summary>Highest mount height accepted, mm. Above it is a typo, not a device.</summary>
         public const double MaxMountHeightMm = 4000;
@@ -342,6 +345,16 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     "the diameter must be a number of mm above 0 and at most " + Mm(MaxDiameterMm),
                     mm => mm > 0 && mm <= MaxDiameterMm, issues);
             }
+            else if (layer.Role == "trunking")
+            {
+                layer.TrayType = Blank(Text(row, "tray_type"));
+                layer.WidthMm = Number(row, "width_mm", path, "bad_tray_size",
+                    "the trunking width must be a number of mm above 0 and at most " + Mm(MaxTrayWidthMm),
+                    mm => mm > 0 && mm <= MaxTrayWidthMm, issues);
+                layer.HeightMm = Number(row, "height_mm", path, "bad_tray_size",
+                    "the trunking height must be a number of mm above 0 and at most " + Mm(MaxTrayHeightMm),
+                    mm => mm > 0 && mm <= MaxTrayHeightMm, issues);
+            }
         }
 
         /// <summary>A number property: null when missing or null; an issue (and null) when it is
@@ -453,6 +466,11 @@ namespace BinaVibe.Mcp.Tools.Electrical
                                 sizes.OrderBy(s => s).Select(s => Mm(Math.Round(s, 1))));
                         }
                     }
+                }
+                else if (row.Role == "trunking" && row.TrayType != null)
+                {
+                    row.TrayType = ResolveType(row.TrayType, facts.TrayTypeMatches, path + ".tray_type",
+                                               "tray_type", "cable tray type", issues);
                 }
             }
 

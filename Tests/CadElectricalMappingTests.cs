@@ -33,7 +33,7 @@ namespace Tests
         private static MappingFacts Facts() => new MappingFacts
         {
             BlockKeys = new HashSet<string>(StringComparer.Ordinal) { "SOCKET", "LIGHT-A", "anon:1a2b3c4d", "SWITCH-1G" },
-            LayerNames = new HashSet<string>(StringComparer.Ordinal) { "A-WALL", "E-POWER", "E-CONDUIT", "0" },
+            LayerNames = new HashSet<string>(StringComparer.Ordinal) { "A-WALL", "E-POWER", "E-CONDUIT", "E-TRUNK", "0" },
             PlanCount = 2,
             Levels = new HashSet<string>(StringComparer.Ordinal) { "Level 1", "Level 2" },
             FamilyTypeMatches = text =>
@@ -45,6 +45,14 @@ namespace Tests
             },
             ConduitTypeMatches = text => RunTypeInfo.Matches(ConduitTypes, text),
             ConduitSizesMm = name => ConduitTypes.Single(t => t.Name == name).SizesMm,
+            TrayTypeMatches = text => RunTypeInfo.Matches(TrayTypes, text),
+        };
+
+        private static readonly RunTypeInfo[] TrayTypes =
+        {
+            new RunTypeInfo { Name = "Cable Tray with Fittings : Trunking", TypeName = "Trunking", WithFittings = true },
+            new RunTypeInfo { Name = "Cable Tray with Fittings : Ladder", TypeName = "Ladder", WithFittings = true },
+            new RunTypeInfo { Name = "Cable Tray without Fittings : Trunking", TypeName = "Trunking" },
         };
 
         private static readonly RunTypeInfo[] ConduitTypes =
@@ -138,6 +146,12 @@ namespace Tests
         [InlineData(@"{""layers"": [{""layer"": ""E-CONDUIT"", ""role"": ""conduit"", ""run_height_mm"": 12000, ""evidence"": ""e""}]}", "bad_run_height", "layers[0].run_height_mm")]
         [InlineData(@"{""layers"": [{""layer"": ""E-CONDUIT"", ""role"": ""conduit"", ""run_height_mm"": -1500, ""evidence"": ""e""}]}", "bad_run_height", "layers[0].run_height_mm")]
         [InlineData(@"{""layers"": [{""layer"": ""E-CONDUIT"", ""role"": ""conduit"", ""conduit_type"": ""Steel"", ""diameter_mm"": 32, ""evidence"": ""e""}]}", "diameter_not_in_standard", "layers[0].diameter_mm")]
+        [InlineData(@"{""layers"": [{""layer"": ""E-TRUNK"", ""role"": ""trunking""}]}", "missing_evidence", "layers[0].evidence")]
+        [InlineData(@"{""layers"": [{""layer"": ""E-TRUNK"", ""role"": ""trunking"", ""tray_type"": ""Basket"", ""evidence"": ""e""}]}", "tray_type_not_found", "layers[0].tray_type")]
+        [InlineData(@"{""layers"": [{""layer"": ""E-TRUNK"", ""role"": ""trunking"", ""tray_type"": ""Trunking"", ""evidence"": ""e""}]}", "tray_type_ambiguous", "layers[0].tray_type")]
+        [InlineData(@"{""layers"": [{""layer"": ""E-TRUNK"", ""role"": ""trunking"", ""width_mm"": 0, ""evidence"": ""e""}]}", "bad_tray_size", "layers[0].width_mm")]
+        [InlineData(@"{""layers"": [{""layer"": ""E-TRUNK"", ""role"": ""trunking"", ""height_mm"": ""50"", ""evidence"": ""e""}]}", "bad_tray_size", "layers[0].height_mm")]
+        [InlineData(@"{""layers"": [{""layer"": ""E-TRUNK"", ""role"": ""trunking"", ""width_mm"": 2500, ""evidence"": ""e""}]}", "bad_tray_size", "layers[0].width_mm")]
         public void Each_error_code_is_reported_at_its_path(string json, string code, string path)
         {
             (_, List<MappingIssue> issues) = ParseAndValidate(json);
@@ -287,6 +301,34 @@ namespace Tests
             Assert.Equal(3000, CadElectricalMapping.EffectiveRunHeight(row, 2700));
             row.RunHeightMm = null;
             Assert.Equal(2700, CadElectricalMapping.EffectiveRunHeight(row, 2700));
+        }
+
+        [Fact]
+        public void Trunking_row_keeps_tray_type_and_size()
+        {
+            (CadElectricalMapping mapping, List<MappingIssue> issues) = ParseAndValidate(
+                @"{""layers"": [{""layer"": ""E-TRUNK"", ""role"": ""trunking"", ""tray_type"": ""Ladder"",
+                    ""width_mm"": 100, ""height_mm"": 50, ""evidence"": ""text '100x50 TRUNKING'""}]}");
+
+            Assert.Empty(issues);
+            LayerRow row = Assert.Single(mapping.Layers);
+            Assert.Equal("trunking", row.Role);
+            Assert.Equal("Cable Tray with Fittings : Ladder", row.TrayType);
+            Assert.Equal(100, row.WidthMm);
+            Assert.Equal(50, row.HeightMm);
+            Assert.Null(row.ConduitType);
+            Assert.True(CadElectricalMapping.IsRunLayer(row.Role));
+            Assert.Equal("no_run_height", CadElectricalMapping.UnplannedReason(row, null));
+            Assert.Null(CadElectricalMapping.UnplannedReason(row, 3000));
+        }
+
+        [Fact]
+        public void Trunking_row_without_a_type_or_size_is_unplanned()
+        {
+            Assert.Equal("no_tray_type", CadElectricalMapping.UnplannedReason(
+                new LayerRow { Role = "trunking", WidthMm = 100, HeightMm = 50 }, 3000));
+            Assert.Equal("no_tray_size", CadElectricalMapping.UnplannedReason(
+                new LayerRow { Role = "trunking", TrayType = "Cable Tray with Fittings : Ladder", WidthMm = 100 }, 3000));
         }
 
         [Fact]

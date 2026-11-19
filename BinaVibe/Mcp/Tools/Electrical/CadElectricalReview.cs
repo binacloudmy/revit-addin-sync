@@ -248,7 +248,9 @@ namespace BinaVibe.Mcp.Tools.Electrical
             if (runs.Count > 0 || needHeight == 0)
             {
                 int openEnds = conduit.TryGetValue("open_ends", out object? o) && o is int n ? n : 0;
-                sentence = " Conduit: " + Count(runs.Count) + " runs, " +
+                bool trays = runs.Any(r => r.Kind == "cable_tray"), conduits = runs.Any(r => r.Kind != "cable_tray");
+                string label = trays ? (conduits ? "Conduit and trunking" : "Trunking") : "Conduit";
+                sentence = " " + label + ": " + Count(runs.Count) + " runs, " +
                            Math.Round(runs.Sum(r => r.LengthMm) / 1000, 1).ToString("0.0", CultureInfo.InvariantCulture) + " m, " +
                            Count(runs.Sum(r => r.Drops)) + " drops, " + Count(openEnds) + " open ends.";
             }
