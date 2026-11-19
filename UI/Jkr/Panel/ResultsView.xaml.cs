@@ -17,16 +17,16 @@ namespace RevitWebAppSync.UI.Jkr.Panel
             InitializeComponent();
             _model = model;
             DataContext = model;
-            model.PropertyChanged += (_, __) => UpdateSearchHint();
+            model.PropertyChanged += (_, __) => { UpdateSearchHint(); QueueFitTools(); };
             PreviewKeyDown += OnPreviewKeyDown;
+            SizeChanged += (_, __) => QueueFitTools();
             Loaded += (_, __) => { UpdateSearchHint(); Focus(); };
         }
 
         // ── clicks ──
         private void Rescan_Click(object s, RoutedEventArgs e) => _model.Rescan();
-        // "n need a person": the Checklist filtered to those checks (with a spec report), else the Manual tab.
-        private void GoManual_Click(object s, RoutedEventArgs e) => _model.GoNeedsPerson();
-        private void Section_Click(object s, RoutedEventArgs e) => _model.SelectSection((string)((FrameworkElement)s).Tag);
+        // "n checks wait for semak manual": those checks (with a spec report), else the Manual tab.
+        private void GoManual_Click(object s, RoutedEventArgs e) { _model.GoNeedsPerson(); ChecklistScroll.ScrollToTop(); }
         private void IgnoreAll_Click(object s, RoutedEventArgs e) => _model.IgnoreAll();
         private void FixAll_Click(object s, RoutedEventArgs e) => _model.FixAll();
         private void ClearCat_Click(object s, RoutedEventArgs e) => _model.ClearCat();
@@ -39,12 +39,46 @@ namespace RevitWebAppSync.UI.Jkr.Panel
 
         // Checklist (JKR Model Audit spec view)
         private void Checklist_Click(object s, RoutedEventArgs e) => _model.ShowChecklistTab();
-        private void ChecklistSection_Click(object s, RoutedEventArgs e) => _model.ToggleSection((string)((FrameworkElement)s).Tag);
+        private void Issues_Click(object s, RoutedEventArgs e) => _model.ShowIssues();
+        private void ShowSections_Click(object s, RoutedEventArgs e) => _model.ShowSectionsView();
+        private void ShowAspects_Click(object s, RoutedEventArgs e) => _model.ShowAspectsView();
+        // A section / aspect row opens its checks (item 10: a section also filters the Issues tab).
+        private void Group_Click(object s, RoutedEventArgs e) { _model.OpenGroup((string)((FrameworkElement)s).Tag); ChecklistScroll.ScrollToTop(); }
+        private void Other_Click(object s, RoutedEventArgs e) { _model.OpenGroup(SpecChecklist.OtherKey); ChecklistScroll.ScrollToTop(); }
+        private void Back_Click(object s, RoutedEventArgs e) => _model.CloseFocus();
+        private void CheckToggle_Click(object s, RoutedEventArgs e) => _model.ToggleCheck((string)((FrameworkElement)s).Tag);
         private void ChecklistElement_Click(object s, RoutedEventArgs e) => _model.OpenElement((string)((FrameworkElement)s).Tag);
         private void ChecklistMore_Click(object s, RoutedEventArgs e) => _model.ToggleShowAll((string)((FrameworkElement)s).Tag);
         private void ChecklistFix_Click(object s, RoutedEventArgs e) => _model.FixCheck((string)((FrameworkElement)s).Tag);
         private void StateChip_Click(object s, RoutedEventArgs e) => _model.SetStateFilter((string)((FrameworkElement)s).Tag);
         private void CheckWhy_Click(object s, RoutedEventArgs e) => _model.ToggleWhy((string)((FrameworkElement)s).Tag);
+
+        // ── tools bar: Re-scan keeps only its icon when its word would not fit (320 px, BM) ──
+        // The bar or a dropdown changed size (the pane, a new selection, BM / EN): check after layout.
+        private void Tools_SizeChanged(object s, SizeChangedEventArgs e) => QueueFitTools();
+
+        private bool _fitQueued;
+        private void QueueFitTools()
+        {
+            if (_fitQueued) return;
+            _fitQueued = true;
+            Dispatcher.BeginInvoke(new Action(() => { _fitQueued = false; FitTools(); }), System.Windows.Threading.DispatcherPriority.Loaded);
+        }
+
+        private void FitTools()
+        {
+            // Room: the pane's width less the bar's padding. Need: both dropdowns (their own
+            // widths, Auto columns) and Re-scan with its word: icon 16 + gap 4 + word + 2 × 4 + 2 × 8
+            // padding + 2 border. Nothing is re-measured here, so the check cannot feed the layout.
+            var room = ActualWidth - 24;
+            if (room <= 0 || LodBox.ActualWidth <= 0) return;
+            var word = new FormattedText(RescanText.Text ?? "", System.Globalization.CultureInfo.CurrentUICulture, FlowDirection.LeftToRight,
+                new Typeface(RescanText.FontFamily, RescanText.FontStyle, RescanText.FontWeight, RescanText.FontStretch),
+                RescanText.FontSize, Brushes.Black, VisualTreeHelper.GetDpi(this).PixelsPerDip).WidthIncludingTrailingWhitespace;
+            var need = LodBox.ActualWidth + LodBox.Margin.Right + DiscBox.ActualWidth + DiscBox.Margin.Right + 16 + 4 + word + 8 + 16 + 2;
+            var v = need > room ? Visibility.Collapsed : Visibility.Visible;
+            if (RescanText.Visibility != v) RescanText.Visibility = v;
+        }
 
         // ── search box focus: accent border + soft accent halo (Copilot focus ring) ──
         private void Search_Focus(object s, KeyboardFocusChangedEventArgs e)

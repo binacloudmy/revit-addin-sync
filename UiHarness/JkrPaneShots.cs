@@ -75,7 +75,7 @@ namespace UiHarness
             // The pane at a typical docked height: the Checklist must start above the fold.
             Shot(dir, "jkr-failing-790.png", s => ShowRun(s, Failing), 790);
             Shot(dir, "jkr-failing-790-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing); }, 790);
-            Shot(dir, "jkr-failing-section-d.png", s => { s.Model.IsEn = true; ShowRun(s, Failing); s.Results.SelectSection("D"); });
+            Shot(dir, "jkr-failing-section-d.png", s => { s.Model.IsEn = true; ShowRun(s, Failing); s.Results.OpenGroup("D"); });
             Shot(dir, "jkr-failing-filter-fails-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing); s.Results.SetStateFilter("fail"); });
             Shot(dir, "jkr-failing-filter-person.png", s => { ShowRun(s, Failing); s.Results.GoNeedsPerson(); });
             // Revision 2: A7.2's non-JKR materials are warnings a person judges, not a fail.
@@ -95,6 +95,17 @@ namespace UiHarness
             // The backend check failed: the add-in's own checks and the BIM010 checker still answer.
             Shot(dir, "jkr-backend-down.png", s => ShowRun(s, Failing, backendDown: true), 790);
             Shot(dir, "jkr-backend-down-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing, backendDown: true); });
+            // Clear Sheet result screens (Task 12): the list at 380 / 320 px, aspects, a section,
+            // an aspect, the other rules, and the degraded result (LOD changed + backend down).
+            Shot(dir, "jkr-failing-320.png", s => ShowRun(s, Failing), 800, (int)JkrPaneShell.MinimumWidth);
+            Shot(dir, "jkr-failing-section-d-320.png", s => { ShowRun(s, Failing); s.Results.OpenGroup("D"); }, 1100, (int)JkrPaneShell.MinimumWidth);
+            Shot(dir, "jkr-failing-issues-320.png", s => { ShowRun(s, Failing); s.Results.ShowIssues(); }, 800, (int)JkrPaneShell.MinimumWidth);
+            Shot(dir, "jkr-failing-aspects-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing); s.Results.ShowAspectsView(); }, 900);
+            Shot(dir, "jkr-failing-aspect-p-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing); s.Results.ShowAspectsView(); s.Results.OpenGroup("P"); }, 1100);
+            Shot(dir, "jkr-failing-other-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing); s.Results.OpenGroup("+"); }, 900);
+            Shot(dir, "jkr-compliant-aspects-en.png", s => { s.Model.IsEn = true; ShowRun(s, Compliant); s.Results.ShowAspectsView(); }, 900);
+            Shot(dir, "jkr-degraded-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing, backendDown: true); s.Core.SetLod("400"); }, 900);
+            Shot(dir, "jkr-degraded-320.png", s => { ShowRun(s, Failing, backendDown: true); s.Core.SetLod("400"); }, 900, (int)JkrPaneShell.MinimumWidth);
 
             // The issue detail and the two fix modals (Direction C: Task, Verify).
             DetailShot(dir, "jkr-detail-fix-en.png", i => !i.IsHuman && i.Status == ItemStatus.Open && i.Fix == FixKind.Fix);
@@ -299,12 +310,12 @@ namespace UiHarness
             if (fail) s.Running.Fail("the model is synchronising with central. Run again when it finishes.", stoppedIn);
         }
 
-        private static void Shot(string dir, string file, Action<JkrPaneShell> configure, int height = 1100)
+        private static void Shot(string dir, string file, Action<JkrPaneShell> configure, int height = 1100, int width = 400)
         {
             var shell = new JkrPaneShell(new Grid());
             var win = new Window
             {
-                Width = 400,
+                Width = width,
                 Height = height,
                 WindowStyle = WindowStyle.None,
                 ShowInTaskbar = false,

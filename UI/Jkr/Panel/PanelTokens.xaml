@@ -79,12 +79,18 @@
     <SolidColorBrush x:Key="Bz.Tone.Pass"         Color="#3DA570"/>
     <SolidColorBrush x:Key="Bz.Tone.PassBg"       Color="#EAF5EF"/>
     <SolidColorBrush x:Key="Bz.Tone.PassDot"      Color="#3DA570"/>
+    <!-- the pass mark's disc (Clear Sheet section screen): a darker green than the tick -->
+    <SolidColorBrush x:Key="Bz.Tone.PassMark"     Color="#157347"/>
     <SolidColorBrush x:Key="Bz.Tone.Partial"      Color="#B26B00"/>
     <SolidColorBrush x:Key="Bz.Tone.PartialBg"    Color="#FFF5E0"/>
     <SolidColorBrush x:Key="Bz.Tone.PartialDot"   Color="#B26B00"/>
     <SolidColorBrush x:Key="Bz.Tone.Warn"         Color="#B26B00"/>
     <SolidColorBrush x:Key="Bz.Tone.WarnBg"       Color="#FFF5E0"/>
     <SolidColorBrush x:Key="Bz.Tone.WarnLine"     Color="#F2D9A6"/>
+    <!-- the result's split banner (LOD changed / backend unavailable): text, dot, dashed mark -->
+    <SolidColorBrush x:Key="Bz.Tone.WarnInk"      Color="#4F3300"/>
+    <SolidColorBrush x:Key="Bz.Tone.WarnDot"      Color="#E39A0B"/>
+    <SolidColorBrush x:Key="Bz.Tone.WarnDash"     Color="#8A6A2E"/>
     <SolidColorBrush x:Key="Bz.Tone.Person"       Color="#5B3FD0"/>
     <SolidColorBrush x:Key="Bz.Tone.PersonBg"     Color="#EEEAFB"/>
     <SolidColorBrush x:Key="Bz.Tone.PersonDot"    Color="#5B3FD0"/>
