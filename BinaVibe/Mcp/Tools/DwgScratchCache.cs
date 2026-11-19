@@ -253,15 +253,21 @@ namespace BinaVibe.Mcp.Tools
                 Placement = ImportPlacement.Origin,
                 ColorMode = ImportColorMode.Preserved,
             };
-            using var tx = new Transaction(doc, "BinaVibe: link DWG for reading");
-            tx.Start();
-            if (!doc.Link(path, options, view, out var id) || id == null || id == ElementId.InvalidElementId)
+            // A drawing with stray geometry far away raises a dialog (answered OK by the guard)
+            // and posts an out-of-range warning (deleted by the swallowing preprocessor), either
+            // of which would otherwise sit modal in front of a read nobody is watching.
+            using (ImportDialogGuard.Begin())
             {
-                tx.RollBack();
-                return null;
+                using var tx = new Transaction(doc, "BinaVibe: link DWG for reading");
+                TxGuard.StartSwallowing(tx);
+                if (!doc.Link(path, options, view, out var id) || id == null || id == ElementId.InvalidElementId)
+                {
+                    tx.RollBack();
+                    return null;
+                }
+                // A rollback (an error the preprocessor could not swallow) is "use the fallback".
+                return tx.Commit() == TransactionStatus.RolledBack ? null : id;
             }
-            tx.Commit();
-            return id;
         }
 
         private static ViewPlan? FirstPlanView(Document doc) =>
