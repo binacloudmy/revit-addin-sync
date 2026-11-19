@@ -160,9 +160,16 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     "no wall layer to align the drawing on — name the background layers in the mapping");
 
             List<FitSegment> cad = scan.WallCentrelines(cluster, background, pairAcross);
+
+            // Fit and host on structural walls only (finish walls under 50 mm left out).
+            var structural = new Dictionary<string, List<ModelWall>>(StringComparer.Ordinal);
             var modelByLevel = new Dictionary<string, IReadOnlyList<FitSegment>>(StringComparer.Ordinal);
             foreach (var pair in model.WallsByLevel)
-                modelByLevel[pair.Key] = pair.Value.Select(w => new FitSegment(w.X1, w.Y1, w.X2, w.Y2)).ToList();
+            {
+                List<ModelWall> kept = CadSymbolResolve.Structural(pair.Value);
+                structural[pair.Key] = kept;
+                modelByLevel[pair.Key] = kept.Select(w => new FitSegment(w.X1, w.Y1, w.X2, w.Y2)).ToList();
+            }
 
             // 4. The level.
             var fitOptions = new FitOptions();
@@ -201,8 +208,11 @@ namespace BinaVibe.Mcp.Tools.Electrical
             }
 
             // 5. The fit: centrelines, then faces. A positioned CAD link is not tried yet.
-            List<ModelWall> walls = model.WallsByLevel.TryGetValue(level.Name, out List<ModelWall>? onLevel)
+            List<ModelWall> walls = structural.TryGetValue(level.Name, out List<ModelWall>? onLevel)
                 ? onLevel : new List<ModelWall>();
+            int thinIgnored = model.WallsByLevel.TryGetValue(level.Name, out List<ModelWall>? allOnLevel)
+                ? allOnLevel.Count - walls.Count : 0;
+            if (!modelByLevel.ContainsKey(level.Name)) modelByLevel[level.Name] = new List<FitSegment>();
             fit = fit ?? CadModelFit.Fit(cad, modelByLevel[level.Name], fitOptions);
             string method = "fit";
             if (fit.Outcome == "failed" && fit.FailReason != "no_model_walls")
@@ -341,6 +351,8 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     ["level"] = level.Name,
                     ["background_layers"] = background.Cast<object?>().ToList(),
                     ["pair_across_layers"] = pairAcross,
+                    ["min_wall_mm"] = CadSymbolResolve.MinStructuralWallMm,
+                    ["thin_walls_ignored"] = thinIgnored,
                     ["reach_mm"] = options.ReachMm,
                     ["axial_tolerance_mm"] = options.AxialTolMm,
                     ["existing_mm"] = options.ExistingMm,

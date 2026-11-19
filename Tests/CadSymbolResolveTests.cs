@@ -258,5 +258,57 @@ namespace Tests
                 new[] { "linked_wall", "no_room", "provisional_alignment", "side_ambiguous", "wet_room" },
                 CadSymbolResolve.FlagExcludes.Where(f => !f.Value).Select(f => f.Key).OrderBy(k => k, StringComparer.Ordinal));
         }
+
+        // ---------------------------------------------------------------- structural walls
+
+        /// <summary>A 200 mm core wall along X with a 20 mm finish wall on its +Y face, and three
+        /// more 200 mm walls well away from it.</summary>
+        private static List<ModelWall> CoreAndFinish() => new List<ModelWall>
+        {
+            new ModelWall { Id = 201, X1 = 0, Y1 = 0, X2 = 5000, Y2 = 0, ThicknessMm = 200 },
+            new ModelWall { Id = 202, X1 = 0, Y1 = 110, X2 = 5000, Y2 = 110, ThicknessMm = 20 },
+            new ModelWall { Id = 203, X1 = 0, Y1 = 0, X2 = 0, Y2 = -6000, ThicknessMm = 200 },
+            new ModelWall { Id = 204, X1 = 5000, Y1 = 0, X2 = 5000, Y2 = -6000, ThicknessMm = 200 },
+            new ModelWall { Id = 205, X1 = 0, Y1 = -6000, X2 = 5000, Y2 = -6000, ThicknessMm = 200 },
+        };
+
+        [Fact]
+        public void Thin_walls_are_not_structural()
+        {
+            List<ModelWall> walls = CadSymbolResolve.Structural(CoreAndFinish());
+
+            Assert.Equal(new long[] { 201, 203, 204, 205 }, walls.Select(w => w.Id));
+            Assert.Equal(50, CadSymbolResolve.MinStructuralWallMm);
+            Assert.Equal(5, CadSymbolResolve.Structural(CoreAndFinish(), 10).Count);
+        }
+
+        [Fact]
+        public void A_level_of_only_thin_walls_keeps_them()
+        {
+            List<ModelWall> thin = CoreAndFinish().Select(w => new ModelWall
+            {
+                Id = w.Id, X1 = w.X1, Y1 = w.Y1, X2 = w.X2, Y2 = w.Y2, ThicknessMm = 30,
+            }).ToList();
+            thin[0].ThicknessMm = 200;
+
+            Assert.Equal(5, CadSymbolResolve.Structural(thin).Count);
+            Assert.Empty(CadSymbolResolve.Structural(new List<ModelWall>()));
+        }
+
+        [Fact]
+        public void Symbol_at_a_finish_face_hosts_on_the_core_wall_and_faces_the_room()
+        {
+            // Drawn at the finish's surface (y = 120): nearest the finish's centreline, 10 mm off.
+            var rooms = new Func<double, double, RoomHit?>((x, y) => y > 120 ? Office : y < -100 && y > -5900 ? Store : null);
+            List<ModelWall> walls = CadSymbolResolve.Structural(CoreAndFinish());
+
+            PlannedPoint p = Run(2500, 120, walls, rooms);
+
+            Assert.Equal(201, p.HostWallId);
+            Assert.Equal(100, p.YMm, 6);
+            Assert.Equal(1, p.FacingDy, 6);
+            Assert.Equal("Office", p.RoomName);
+            Assert.DoesNotContain("side_ambiguous", p.Flags);
+        }
     }
 }

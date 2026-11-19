@@ -89,6 +89,23 @@ namespace BinaVibe.Mcp.Tools.Electrical
             if (FlagExcludes.TryGetValue(flag, out bool excludes) && excludes) p.Excluded = true;
         }
 
+        /// <summary>Walls thinner than this are finishes (render, tiling, a lining), not walls:
+        /// neither fitted on nor hosted on.</summary>
+        public const double MinStructuralWallMm = 50;
+
+        /// <summary>
+        /// The walls at least <paramref name="minMm"/> thick. A finish drawn as its own thin
+        /// wall triples the fit's votes at 60-70 mm off, and a symbol at the finish surface is
+        /// nearest the finish's centreline, so the side test and the room probe go wrong; the
+        /// core wall behind it is the host. Fewer than four left keeps the input as it is, so a
+        /// level of thin walls only still fits. Curtain walls report no width and drop out too.
+        /// </summary>
+        public static List<ModelWall> Structural(IReadOnlyList<ModelWall> walls, double minMm = MinStructuralWallMm)
+        {
+            List<ModelWall> kept = walls.Where(w => w.ThicknessMm >= minMm).ToList();
+            return kept.Count >= 4 ? kept : walls.ToList();
+        }
+
         /// <summary>The walls' centrelines filed for <see cref="Resolve"/>, same order.</summary>
         public static SegmentIndex Index(IReadOnlyList<ModelWall> walls) =>
             new SegmentIndex(walls.Select(w => new Segment(new Point(w.X1, w.Y1), new Point(w.X2, w.Y2))).ToList(), 2000);
