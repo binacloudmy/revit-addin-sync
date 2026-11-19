@@ -102,6 +102,8 @@ namespace UiHarness
             Shot(dir, "jkr-failing-issues-320.png", s => { ShowRun(s, Failing); s.Results.ShowIssues(); }, 800, (int)JkrPaneShell.MinimumWidth);
             Shot(dir, "jkr-failing-aspects-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing); s.Results.ShowAspectsView(); }, 900);
             Shot(dir, "jkr-failing-aspect-p-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing); s.Results.ShowAspectsView(); s.Results.OpenGroup("P"); }, 1100);
+            Shot(dir, "jkr-failing-section-d-issues-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing); s.Results.OpenGroup("D"); s.Results.ShowSectionIssues(); }, 900);
+            Shot(dir, "jkr-failing-section-d-issues-320.png", s => { ShowRun(s, Failing); s.Results.OpenGroup("D"); s.Results.ShowSectionIssues(); }, 900, (int)JkrPaneShell.MinimumWidth);
             Shot(dir, "jkr-failing-other-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing); s.Results.OpenGroup("+"); }, 900);
             Shot(dir, "jkr-compliant-aspects-en.png", s => { s.Model.IsEn = true; ShowRun(s, Compliant); s.Results.ShowAspectsView(); }, 900);
             Shot(dir, "jkr-degraded-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing, backendDown: true); s.Core.SetLod("400"); }, 900);
@@ -310,7 +312,7 @@ namespace UiHarness
             if (fail) s.Running.Fail("the model is synchronising with central. Run again when it finishes.", stoppedIn);
         }
 
-        private static void Shot(string dir, string file, Action<JkrPaneShell> configure, int height = 1100, int width = 400)
+        private static void Shot(string dir, string file, Action<JkrPaneShell> configure, int height = 1100, int width = (int)JkrPaneShell.DesignWidth)
         {
             var shell = new JkrPaneShell(new Grid());
             var win = new Window

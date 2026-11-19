@@ -296,6 +296,10 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             // The issue view's one-line verdict: "18% compliant · 22 fail".
             ["vShort"] = ("{0} patuh · {1} gagal", "{0} compliant · {1} fail"),
             ["tabIssues"] = ("Isu", "Issues"),
+            // The Issues tab while a section filters it, and the link to it from inside a section.
+            ["tabIssuesSec"] = ("Isu · Seksyen {0}", "Issues · Section {0}"),
+            ["secIssues"] = ("{0} isu dalam seksyen ini", "{0} issues in this section"),
+            ["secIssues1"] = ("", "1 issue in this section"),
             // A section / aspect opened from the list.
             ["posSection"] = ("Seksyen {0} daripada {1}", "Section {0} of {1}"),
             ["posAspect"] = ("Aspek {0} daripada {1}", "Aspect {0} of {1}"),

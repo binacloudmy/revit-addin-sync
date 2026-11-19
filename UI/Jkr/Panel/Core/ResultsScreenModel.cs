@@ -432,13 +432,22 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
 
         // ── tabs: Checklist n / Issues n ──
         public int ChecklistTabN => _spec?.Checks.Count ?? 0;
-        public string IssuesTabLabel => S("tabIssues");
-        /// <summary>Open issues (the Issues view opens on its Open tab).</summary>
+        /// <summary>"Issues", or "Issues · Section D" while a section filters them (the count is that section's).</summary>
+        public string IssuesTabLabel => HasCat ? string.Format(S("tabIssuesSec"), _core.Cat) : S("tabIssues");
+        /// <summary>Open issues, in the filtered section if one is (the Issues view opens on its Open tab).</summary>
         public int IssuesTabN => _core.TabCounts()[PanelTab.Open];
         public bool IssuesTabOn => ShowList;
         /// <summary>The issue view's one-line verdict is shown (issue tabs of a run with a spec report).</summary>
         public bool ShowVerdictBar => ShowList && HasSpec;
         public void ShowIssues() => SelectTab(PanelTab.Open);
+
+        /// <summary>Inside a section: "12 issues in this section" (hidden when none, and in an
+        /// aspect or the other rules, which are not a section filter).</summary>
+        public bool HasSectionIssuesLink => IsFocused && _aspectKey == null && !_otherFocus && HasCat && IssuesTabN > 0;
+        public string SectionIssuesLabel => SpecChecklist.Plural("secIssues", L, IssuesTabN);
+        /// <summary>Follow the link: the Issues view, still filtered to the section (items 9 and
+        /// 10); its pill clears the filter. Back / Esc from the section clear it instead.</summary>
+        public void ShowSectionIssues() => SelectTab(PanelTab.Open);
 
         // ── the list: a section / aspect row opens its checks ──
         private string _aspectKey;       // an aspect is open (N / P / Q / G)

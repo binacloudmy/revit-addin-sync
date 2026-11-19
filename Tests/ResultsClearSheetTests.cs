@@ -154,6 +154,52 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
+        public void A_section_links_to_its_issues_and_the_Issues_view_keeps_the_section_filter_until_the_pill_clears_it()
+        {
+            var (r, core) = Failing();
+            Assert.False(r.HasSectionIssuesLink);                          // the list: no section open
+            // A section with more than one open issue in this fixture.
+            var sec = PanelCore.Secs.First(k => core.Issues.Count(x => x.Sec == k && !x.IsHuman && x.Status == ItemStatus.Open) > 1);
+            r.OpenGroup(sec);
+            var n = core.TabCounts()[PanelTab.Open];
+            Assert.True(n > 1);
+            Assert.True(r.HasSectionIssuesLink);
+            Assert.Equal(n + " isu dalam seksyen ini", r.SectionIssuesLabel);
+            core.SetLang(PanelStrings.En);
+            Assert.Equal(n + " issues in this section", r.SectionIssuesLabel);
+            Assert.Equal("1 issue in this section", SpecChecklist.Plural("secIssues", PanelStrings.En, 1));
+
+            r.ShowSectionIssues();
+            Assert.True(r.ShowList);
+            Assert.Equal(PanelTab.Open, core.Tab);
+            Assert.Equal(sec, core.Cat);                                    // the filter is kept
+            Assert.True(r.HasCat);                                          // the section pill shows (item 9)
+            Assert.Equal(n, r.IssuesTabN);                                  // counted in the section
+            Assert.Equal("Issues · Section " + sec, r.IssuesTabLabel);
+            core.SetLang(PanelStrings.Ms);
+            Assert.Equal("Isu · Seksyen " + sec, r.IssuesTabLabel);
+
+            r.ClearCat();                                                   // the pill clears it
+            Assert.Equal(PanelCore.AllSections, core.Cat);
+            Assert.False(r.HasCat);
+            Assert.Equal("Isu", r.IssuesTabLabel);
+            Assert.True(r.ShowList);
+        }
+
+        [Fact]
+        public void No_issues_link_in_an_aspect_or_the_other_rules()
+        {
+            var (r, _) = Failing();
+            r.ShowAspectsView();
+            r.OpenGroup("N");
+            Assert.False(r.HasSectionIssuesLink);
+            r.CloseFocus();
+            r.ShowSectionsView();
+            r.OpenGroup(SpecChecklist.OtherKey);
+            Assert.False(r.HasSectionIssuesLink);
+        }
+
+        [Fact]
         public void An_aspect_row_opens_the_checks_of_that_aspect_and_leaves_the_section_filter_alone()
         {
             var (r, core) = Failing();

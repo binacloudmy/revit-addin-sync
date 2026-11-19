@@ -475,6 +475,15 @@
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
+            <!-- "12 issues in this section →": the Issues view, still filtered to this section
+                 (items 9 and 10; its pill clears the filter) -->
+            <Button Style="{StaticResource TextBtn}" Click="SectionIssues_Click" Foreground="{StaticResource Bz.Text}" Margin="-8,2,0,0" HorizontalAlignment="Left"
+                    Visibility="{Binding HasSectionIssuesLink, Converter={StaticResource B2V}}" AutomationProperties.Name="{Binding SectionIssuesLabel}">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="{Binding SectionIssuesLabel}" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                    <Path Style="{StaticResource Icon16}" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" Data="M2.5,8 L13.5,8 M9.8,4.5 L13.3,8 L9.8,11.5" Margin="6,0,0,0"/>
+                </StackPanel>
+            </Button>
         </StackPanel>
 
         <!-- Tabs: Checklist n / Issues n (active: ink, 2 px ink underline) -->
@@ -641,28 +650,28 @@
                     </Grid>
                 </StackPanel>
 
-                <!-- .acts: "n shown" and the section pill (item 9) on the left, Ignore all / Fix all on the right -->
+                <!-- .pill: the section filter (item 9), on its own line so a 320 px pane never
+                     squeezes it out; click clears it ("Clear section filter") -->
+                <Button Style="{StaticResource Bare}" Click="ClearCat_Click" HorizontalAlignment="Left" Margin="0,10,0,0"
+                        Visibility="{Binding HasCat, Converter={StaticResource B2V}}" AutomationProperties.Name="{Binding ClearCatLabel}" ToolTip="{Binding ClearCatLabel}">
+                    <Border Background="{StaticResource Bz.Sunken2}" CornerRadius="14" MinHeight="28" Padding="10,4,10,4">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="{Binding CatLabel}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource Bz.Text}" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                            <Path Grid.Column="1" Style="{StaticResource Icon}" Width="9" Height="9" Margin="8,0,0,0" Stroke="{StaticResource Bz.Text}" StrokeThickness="2" Data="M18,6 L6,18 M6,6 L18,18"/>
+                        </Grid>
+                    </Border>
+                </Button>
+                <!-- .acts: "n shown" on the left, Ignore all / Fix all on the right -->
                 <Grid Margin="0,10,0,0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
-                    <!-- "n shown", then the section pill, which trims rather than run under the buttons -->
-                    <DockPanel VerticalAlignment="Center" Margin="0,0,8,0" LastChildFill="True">
-                        <TextBlock DockPanel.Dock="Left" Text="{Binding ShownLabel}" FontSize="11" Foreground="{StaticResource Bz.Text2}" VerticalAlignment="Center" Margin="0,0,8,0"
-                                   Visibility="{Binding ShowList, Converter={StaticResource B2V}}"/>
-                        <!-- .pill: active section filter -->
-                        <Button Style="{StaticResource Bare}" Click="ClearCat_Click" HorizontalAlignment="Left"
-                                Visibility="{Binding HasCat, Converter={StaticResource B2V}}" AutomationProperties.Name="{Binding ClearCatLabel}">
-                            <Border Background="{StaticResource Bz.BrandSoft}" CornerRadius="4" Height="28" Padding="9,0,8,0">
-                                <DockPanel VerticalAlignment="Center" LastChildFill="True">
-                                    <Path DockPanel.Dock="Right" Style="{StaticResource Icon}" Width="9" Height="9" Margin="6,0,0,0" Stroke="{StaticResource Bz.Brand}" Data="M18,6 L6,18 M6,6 L18,18"/>
-                                    <TextBlock Text="{Binding CatLabel}" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource Bz.Brand}" TextTrimming="CharacterEllipsis"
-                                               VerticalAlignment="Center" ToolTip="{Binding CatLabel}"/>
-                                </DockPanel>
-                            </Border>
-                        </Button>
-                    </DockPanel>
+                    <TextBlock Text="{Binding ShownLabel}" FontSize="11" Foreground="{StaticResource Bz.Text2}" VerticalAlignment="Center" Margin="0,0,8,0" TextWrapping="Wrap"/>
                     <StackPanel Grid.Column="1" Orientation="Horizontal">
                         <Button Content="{Binding IgnoreAllLabel}" Style="{StaticResource Bz.Btn.Ghost}" Click="IgnoreAll_Click" Padding="10,0,10,0" MinHeight="32"
                                 IsEnabled="{Binding CanAct}" Margin="0,0,6,0"/>

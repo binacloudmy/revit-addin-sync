@@ -46,6 +46,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel
         private void Group_Click(object s, RoutedEventArgs e) { _model.OpenGroup((string)((FrameworkElement)s).Tag); ChecklistScroll.ScrollToTop(); }
         private void Other_Click(object s, RoutedEventArgs e) { _model.OpenGroup(SpecChecklist.OtherKey); ChecklistScroll.ScrollToTop(); }
         private void Back_Click(object s, RoutedEventArgs e) => _model.CloseFocus();
+        private void SectionIssues_Click(object s, RoutedEventArgs e) => _model.ShowSectionIssues();
         private void CheckToggle_Click(object s, RoutedEventArgs e) => _model.ToggleCheck((string)((FrameworkElement)s).Tag);
         private void ChecklistElement_Click(object s, RoutedEventArgs e) => _model.OpenElement((string)((FrameworkElement)s).Tag);
         private void ChecklistMore_Click(object s, RoutedEventArgs e) => _model.ToggleShowAll((string)((FrameworkElement)s).Tag);
