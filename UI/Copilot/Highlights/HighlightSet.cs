@@ -179,6 +179,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             var made = new Dictionary<string, List<long>>(StringComparer.Ordinal);
             var changed = new Dictionary<string, List<long>>(StringComparer.Ordinal);
             var seenMade = new HashSet<long>(); var seenChanged = new HashSet<long>();
+            var madeAlong = new HashSet<long>();   // added with a listed creation (its camera, section box, ...): neither made nor changed
             var anyFull = false;
             foreach (var env in commits)
             {
@@ -193,6 +194,28 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                     var only = (byCat ?? new Dictionary<string, int>()).Where(kv => kv.Value > 0).Select(kv => kv.Key).ToList();
                     return only.Count == 1 ? only[0] : "";
                 }
+                // r13 (0.0.148), live fb713fc2: the commit's own data.created (what the card's rows count, "Views 1 and 10 supporting")
+                // leads the Made marks. What Revit made along with a listed view or sheet (its camera, its section box, a viewport;
+                // an id of no known category) is not a mark ("3 elements made" for one view was wrong). Any other addition (walls or
+                // tags the same run placed, which data.created never lists) stays a Made mark as before.
+                var listed = ListedCreated(env);
+                if (listed != null)
+                {
+                    var listedIds = new HashSet<long>(listed.Select(c => c.Id));
+                    var rest = new List<long>();
+                    foreach (var id in added)
+                    {
+                        if (listedIds.Contains(id)) continue;
+                        var cat = CategoryOf(id, env.Changes?.TouchedByCategory?.AddedByCategory);
+                        if (MadeAlongWithCreated(cat)) madeAlong.Add(id); else rest.Add(id);
+                    }
+                    foreach (var (id, listedCat) in listed)
+                    {
+                        if (!seenMade.Add(id)) continue;
+                        Bucket(made, full != null && full.CategoryOf.TryGetValue(id, out var fc) ? fc : listedCat).Add(id);
+                    }
+                    added = rest;
+                }
                 foreach (var id in added)
                 {
                     var cat = CategoryOf(id, env.Changes?.TouchedByCategory?.AddedByCategory);
@@ -204,7 +227,7 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
                 }
                 foreach (var id in modified)
                 {
-                    if (typeIds.Contains(id) || seenMade.Contains(id) || putBack.Contains(id) || !seenChanged.Add(id)) continue;
+                    if (typeIds.Contains(id) || seenMade.Contains(id) || madeAlong.Contains(id) || putBack.Contains(id) || !seenChanged.Add(id)) continue;
                     Bucket(changed, CategoryOf(id, env.Changes?.TouchedByCategory?.ModifiedByCategory)).Add(id);
                 }
             }
@@ -250,6 +273,30 @@ namespace RevitWebAppSync.UI.Copilot.Highlights
             set.Rows = RowsOf(card, set.Kinds);
             return set;
         }
+
+        /// <summary>r13 (0.0.148): a commit's data.created as (id, category), the add-in's own list of what the run made for the drafter
+        /// (RevitWriteEngine.CreatedItems). Null when it lists no id, or when it is cut at its cap (CreatedSummary.CreatedListCap): then
+        /// the marks come from every id the commit added, as before.</summary>
+        internal static List<(long Id, string Category)>? ListedCreated(Envelope env)
+        {
+            var created = ToolResults.Write(env)?.Created;
+            if (created == null || created.Count == 0 || created.Count >= CreatedSummary.CreatedListCap) return null;
+            var list = created.Where(c => c.Id != null).Select(c => (c.Id!.Value, (c.Category ?? "").Trim())).Distinct().ToList();
+            return list.Count == 0 ? null : list;
+        }
+
+        /// <summary>r13 (0.0.148): what Revit makes along with a view or sheet the run listed in data.created: never a Made mark of that
+        /// run. Local to the marks of a listed creation; CreatedSummary.IsByProduct (also used for edits) is unchanged.</summary>
+        internal static bool MadeAlongWithCreated(string? category)
+        {
+            var c = (category ?? "").Trim();
+            return c.Length == 0 || CreatedSummary.IsByProduct(c) || AlongWithCreated.Contains(c);
+        }
+
+        private static readonly HashSet<string> AlongWithCreated = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "Cameras", "Section Boxes", "Viewports", "Elevations", "Sections", "Crop Boundaries",
+        };
 
         /// <summary>r12 audit: a turn that only read. At least one envelope, and every one ok, done (or partial) and phase read: a failed
         /// write's validation (ToolContracts.Failure) and a "changed the model although classified read-only" rejection both carry
