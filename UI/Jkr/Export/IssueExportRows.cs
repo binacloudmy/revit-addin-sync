@@ -32,7 +32,7 @@ namespace RevitWebAppSync.UI.Jkr.Export
                 .ToArray();
 
         private static readonly System.Text.RegularExpressions.Regex RuleCode =
-            new System.Text.RegularExpressions.Regex(@"^(?:SPEC-|BIM010-)([A-Za-z][A-Za-z0-9]*(?:\.[A-Za-z0-9]+)*)");
+            new System.Text.RegularExpressions.Regex(@"^(?:SPEC-|BIM010-)(.+?)(?:-[0-9a-f]{12})?$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
         /// <summary>The rule a finding failed ("A1.1", "C5.1.1"): the check id without its
         /// "SPEC-" / "BIM010-" prefix or any hash after it; other ids (the backend's) as they are.</summary>
@@ -52,9 +52,27 @@ namespace RevitWebAppSync.UI.Jkr.Export
         public static string[] Cells(IssueVm i) => new[]
         {
             // An item a person marked as reviewed exports as "Reviewed" (the pane's Manual tab).
-            i.Id, i.Title, i.Category, i.PriorityLabel, i.NeedsPerson && i.Reviewed ? "Reviewed" : i.StatusLabel, i.Required, i.Actual,
-            i.RevitElementId > 0 ? i.RevitElementId.ToString() : "", RuleCodeOf(i)
+            i.Id, i.Title, i.Category, i.PriorityLabel,
+            i.NeedsPerson && i.Reviewed ? Pick("Sudah disemak", "Reviewed") : i.StatusLabel,
+            i.Required, ActualIn(i),
+            ElementIdsCell(i), RuleCodeOf(i)
         };
+
+        /// <summary>The Actual text in the pane's language (the English one when the issue has it).</summary>
+        private static string ActualIn(IssueVm i) =>
+            RevitWebAppSync.UI.Jkr.Panel.Core.PaneLanguage.IsEn && !string.IsNullOrEmpty(i.ActualEn) ? i.ActualEn : i.Actual;
+
+        /// <summary>Every element id, ";"-separated; at most <see cref="RevitWebAppSync.UI.Jkr.Panel.Core.SpecModelIssues.MaxIdsListed"/>,
+        /// then "+N more". Blank when the issue has no element.</summary>
+        public static string ElementIdsCell(IssueVm i)
+        {
+            var ids = (i.RevitElementIds ?? new List<long>()).Where(x => x > 0).Distinct().ToList();
+            if (ids.Count == 0 && i.RevitElementId > 0) ids.Add(i.RevitElementId);
+            if (ids.Count == 0) return "";
+            int max = RevitWebAppSync.UI.Jkr.Panel.Core.SpecModelIssues.MaxIdsListed;
+            var s = string.Join(";", ids.Take(max));
+            return ids.Count > max ? s + Pick($" +{ids.Count - max} lagi", $" +{ids.Count - max} more") : s;
+        }
 
         public static string CsvCell(string s)
         {

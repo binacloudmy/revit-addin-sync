@@ -1,4 +1,6 @@
+using System.Collections.Generic;
 using System.Linq;
+using RevitWebAppSync.UI.Jkr.Panel.Core;
 using RevitWebAppSync.UI.Jkr.Export;
 using RevitWebAppSync.UI.Jkr.ViewModels;
 using Xunit;
@@ -7,6 +9,7 @@ namespace RevitWebAppSync.Tests
 {
     /// <summary>The issue-list export (Excel / CSV): the count the Borang preview's
     /// footer shows is the count the export writes with the default options.</summary>
+    [Xunit.Collection("PaneLanguage")]
     public class IssueExportRowsTests
     {
         private static IssueVm I(string id, IssueStatus st) => new IssueVm { Id = id, Title = "t" + id, Status = st };
@@ -42,38 +45,92 @@ namespace RevitWebAppSync.Tests
             Assert.Empty(IssueExportRows.Select(s, false, false));
         }
 
-        [Fact]
-        public void Element_id_and_rule_code_columns_are_written()
+        /// <summary>Runs the body in the language ("ms" / "en"), then puts the static state back.</summary>
+        private static void In(string lang, System.Action body)
         {
-            var i = new IssueVm
+            var before = PaneLanguage.Current;
+            try { PaneLanguage.Set(lang); body(); }
+            finally { PaneLanguage.Set(before); }
+        }
+
+        [Fact]
+        public void Header_has_nine_columns_in_BM_and_in_EN()
+        {
+            In("ms", () =>
             {
-                Id = "abc", Title = "Door too narrow", CheckId = "SPEC-A1.1-3f9c0a1b2c3d", BorangKey = "A1",
-                RevitElementId = 123456, Status = IssueStatus.Open,
-            };
-            var header = IssueExportRows.Header;
+                Assert.Equal(9, IssueExportRows.Header.Length);
+                Assert.Equal("ID Elemen", IssueExportRows.Header[7]);
+                Assert.Equal("Kod Peraturan", IssueExportRows.Header[8]);
+                Assert.Equal("Tajuk", IssueExportRows.Header[1]);
+            });
+            In("en", () =>
+            {
+                Assert.Equal(9, IssueExportRows.Header.Length);
+                Assert.Equal("Element ID", IssueExportRows.Header[7]);
+                Assert.Equal("Rule code", IssueExportRows.Header[8]);
+                Assert.Equal("Title", IssueExportRows.Header[1]);
+            });
+        }
+
+        [Fact]
+        public void Element_id_and_rule_code_cells_are_written()
+        {
+            var i = new IssueVm { Id = "abc", CheckId = "SPEC-A1.1", BorangKey = "A1", RevitElementId = 123456, Status = IssueStatus.Open };
             var cells = IssueExportRows.Cells(i);
-            Assert.Equal(header.Length, cells.Length);
+            Assert.Equal(IssueExportRows.Header.Length, cells.Length);
             Assert.Equal("123456", cells[7]);
             Assert.Equal("A1.1", cells[8]);
-            // BM or EN, by the pane language
-            Assert.Contains(header[7], new[] { "ID Elemen", "Element ID" });
-            Assert.Contains(header[8], new[] { "Kod Peraturan", "Rule code" });
+        }
+
+        [Fact]
+        public void Element_id_cell_lists_all_elements_semicolon_separated()
+        {
+            var i = new IssueVm { RevitElementId = 11, RevitElementIds = new List<long> { 11, 22, 33 } };
+            Assert.Equal("11;22;33", IssueExportRows.ElementIdsCell(i));
+        }
+
+        [Fact]
+        public void Element_id_cell_is_capped_with_a_more_marker_in_both_languages()
+        {
+            var ids = Enumerable.Range(1, SpecModelIssues.MaxIdsListed + 5).Select(n => (long)n).ToList();
+            var i = new IssueVm { RevitElementId = 1, RevitElementIds = ids };
+            var listed = string.Join(";", ids.Take(SpecModelIssues.MaxIdsListed));
+            In("en", () => Assert.Equal(listed + " +5 more", IssueExportRows.ElementIdsCell(i)));
+            In("ms", () => Assert.Equal(listed + " +5 lagi", IssueExportRows.ElementIdsCell(i)));
+        }
+
+        [Fact]
+        public void Element_id_cell_is_blank_without_an_element_and_falls_back_to_the_single_id()
+        {
+            Assert.Equal("", IssueExportRows.ElementIdsCell(new IssueVm { RevitElementId = 0 }));
+            Assert.Equal("", IssueExportRows.ElementIdsCell(new IssueVm { RevitElementId = -1 }));
+            Assert.Equal("77", IssueExportRows.ElementIdsCell(new IssueVm { RevitElementId = 77 }));
+        }
+
+        [Fact]
+        public void Actual_and_Reviewed_cells_follow_the_language()
+        {
+            var i = new IssueVm { Actual = "Tiada material", ActualEn = "No material" };
+            In("ms", () => Assert.Equal("Tiada material", IssueExportRows.Cells(i)[6]));
+            In("en", () => Assert.Equal("No material", IssueExportRows.Cells(i)[6]));
+            var noEn = new IssueVm { Actual = "kosong" };
+            In("en", () => Assert.Equal("kosong", IssueExportRows.Cells(noEn)[6]));
         }
 
         [Theory]
         [InlineData("SPEC-C5.1.1", "C5.1.1")]
-        [InlineData("SPEC-Dd.1", "Dd.1")]
+        [InlineData("SPEC-A1.1-3f9c0a1b2c3d", "A1.1")]          // StableId shape: prefix, check id, '-' + 12 hex
+        [InlineData("SPEC-Dd.1-3F9C0A1B2C3D", "Dd.1")]
+        [InlineData("  spec-a1.2  ", "a1.2")]                    // prefix is case-insensitive; Trim
         [InlineData("BIM010-A6", "A6")]
-        [InlineData("backend_rule_7", "backend_rule_7")]
+        [InlineData("BIM010-D10", "D10")]
+        [InlineData("SPEC-X-12", "X-12")]                        // a short '-' tail is not a hash
+        [InlineData("backend_rule_7", "backend_rule_7")]         // backend id: as is
+        [InlineData("odd id", "odd id")]
+        [InlineData("SPEC-", "SPEC-")]
         [InlineData("", "")]
-        public void Rule_code_drops_the_prefix(string checkId, string code) =>
+        public void Rule_code_drops_the_prefix_and_hash(string checkId, string code) =>
             Assert.Equal(code, IssueExportRows.RuleCodeOf(new IssueVm { CheckId = checkId }));
-
-        [Fact]
-        public void Element_id_is_blank_for_a_project_level_issue()
-        {
-            Assert.Equal("", IssueExportRows.Cells(new IssueVm { Id = "p", RevitElementId = 0 })[7]);
-        }
 
         [Fact]
         public void Export_writes_exactly_the_issues_it_is_given_no_hidden_drops()
