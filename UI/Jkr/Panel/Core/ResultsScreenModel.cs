@@ -108,6 +108,10 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         private Dictionary<string, IssueVm> _issues = new Dictionary<string, IssueVm>(StringComparer.Ordinal);
         private string _itemsLang;
 
+        /// <summary>AI-436: the Project Checklist (rules 1, 21-24, 26), shown above the issue list.
+        /// The host's ProjectChecklistController feeds it.</summary>
+        public ProjectChecklistModel ProjectChecklist { get; } = new ProjectChecklistModel();
+
         public ResultsScreenModel(PanelCore core, StartScreenModel start)
         {
             _core = core ?? throw new ArgumentNullException(nameof(core));
@@ -117,6 +121,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
 
         private void OnCoreChanged()
         {
+            ProjectChecklist.SetLang(_core.Lang);
             if (_itemsLang != null && _itemsLang != _core.Lang)
             {
                 _itemsLang = _core.Lang;

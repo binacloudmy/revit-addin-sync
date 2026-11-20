@@ -31,6 +31,14 @@ namespace RevitWebAppSync.UI
                 _panel.ScanStarted += (lod, disc) => _shell.OnScanStarted(lod, disc);
                 _panel.ScanCompleted += (summary, error) => _shell.OnScanCompleted(summary, error);
 
+                // Project Checklist (AI-436): project rules 1, 21-24 re-check after each full scan;
+                // rule 26 follows every element-rule run.
+                var checklist = new Jkr.Panel.ProjectChecklistController(_shell.Results.ProjectChecklist,
+                    new Services.JkrComplianceService(), () => _panel.CurrentLod, () => _panel.CurrentDiscipline,
+                    message => _shell.ShowToast(message));
+                _panel.ElementRulesRan += checklist.OnElementRulesRan;
+                _panel.ScanCompleted += (summary, error) => { if (string.IsNullOrEmpty(error)) _ = checklist.RecheckAllAsync(); };
+
                 // Results screen (step 10): a view over the panel's state; its actions
                 // go back to the panel, which owns confirms, writes and the audit file.
                 var results = _shell.Results;
