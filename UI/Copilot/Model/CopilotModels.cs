@@ -204,8 +204,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
     {
         public string Kind;    // level | category | family | type | view | sheet | selection
         public string Value;   // the text the mention sends
+        public long? Id;       // level / view / sheet: the Revit element id (r17); null when unknown
         public Mention() { }
         public Mention(string kind, string value) { Kind = kind; Value = value; }
+        public Mention(string kind, string value, long? id) { Kind = kind; Value = value; Id = id; }
     }
 
     public class ClarifyOption
@@ -437,6 +439,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public string DisplayText;
         public List<string> ImagesBase64;
         public List<FileAttachment> Files;
+        /// <summary>The @ mentions picked in the message (r17), sent with the turn as structured context.</summary>
+        public List<Mention> Mentions;
     }
 
     /// <summary>Floating viewport marker (Task 15). Coordinates are % of the active view rect.</summary>

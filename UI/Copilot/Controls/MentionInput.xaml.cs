@@ -689,7 +689,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 try { selNow = src.ReadSelection(); } catch { selNow = null; }
             }
             var sent = _chips.Expand(Editor.Text ?? "", selNow).Trim();
-            var mentions = _chips.Mentions(selNow).Select(m => new Mention(m.kind, m.sent)).ToList();
+            var mentions = _chips.Records(selNow);   // with ids (r17): the turn carries them as structured mentions
             Submitted?.Invoke(sent, shown, mentions);
             _chips.Clear();
             Editor.Clear();

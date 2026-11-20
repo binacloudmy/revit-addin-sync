@@ -99,11 +99,12 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 // while the thread shows the message as the drafter wrote it.
                 string display = shown != text ? shown : null;
                 object payload = text;
-                if (display != null && _images.Count == 0 && _files.Count == 0)
-                    payload = new RevitWebAppSync.UI.Copilot.Model.PromptPayload { Text = text, DisplayText = display };
+                var picked = mentions != null && mentions.Count > 0 ? mentions : null;   // r17: the mentions travel with the turn
+                if ((display != null || picked != null) && _images.Count == 0 && _files.Count == 0)
+                    payload = new RevitWebAppSync.UI.Copilot.Model.PromptPayload { Text = text, DisplayText = display, Mentions = picked };
                 if (_images.Count > 0 || _files.Count > 0)
                 {
-                    var pp = new RevitWebAppSync.UI.Copilot.Model.PromptPayload { Text = text, DisplayText = display };
+                    var pp = new RevitWebAppSync.UI.Copilot.Model.PromptPayload { Text = text, DisplayText = display, Mentions = picked };
                     if (_images.Count > 0)
                     {
                         var encoded = new System.Collections.Generic.List<string>();

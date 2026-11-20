@@ -130,6 +130,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public List<(string kind, string sent)> Mentions(MentionSelection selectionNow = null) =>
             _chips.Select(c => (c.Kind, SentFor(c, selectionNow))).ToList();
 
+        /// <summary>The chips as Mention records with the element id the picker knew (level, view, sheet), for the turn's structured mentions (r17).</summary>
+        public List<Mention> Records(MentionSelection selectionNow = null) =>
+            _chips.Select(c => new Mention(c.Kind, SentFor(c, selectionNow), c.Item?.Node?.ElementId)).ToList();
+
         private static string SentFor(MentionChip c, MentionSelection selectionNow) =>
             c.Kind == "selection" && selectionNow != null
                 ? MentionText.SelectionSent(selectionNow)

@@ -52,25 +52,25 @@ namespace RevitWebAppSync.UI.Copilot
                 var active = doc.ActiveView;
                 var activeName = active?.Name;
                 if (!string.IsNullOrEmpty(activeName))
-                    roots.Add(new MentionNode("view", activeName) { IsActive = true });
+                    roots.Add(new MentionNode("view", activeName) { IsActive = true, ElementId = active.Id.Value });
 
                 roots.Add(MentionNode.Group("Levels",
                     new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
                         .OrderBy(l => l.Elevation)
-                        .Select(l => MentionNode.Leaf("level", l.Name))));
+                        .Select(l => new MentionNode("level", l.Name) { ElementId = l.Id.Value })));
 
                 var views = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>()
                     .Where(v => !v.IsTemplate && !(v is ViewSheet)).ToList();
                 roots.Add(MentionNode.Group("Views",
                     views.GroupBy(v => ViewTypeLabel(v.ViewType)).OrderBy(g => g.Key)
                         .Select(g => MentionNode.Group(g.Key,
-                            g.Select(v => v.Name).Distinct().OrderBy(n => n)
-                                .Select(n => new MentionNode("view", n) { IsActive = n == activeName })))));
+                            g.GroupBy(v => v.Name).OrderBy(n => n.Key)
+                                .Select(n => new MentionNode("view", n.Key) { IsActive = n.Key == activeName, ElementId = n.Count() == 1 ? n.First().Id.Value : (long?)null })))));
 
                 roots.Add(MentionNode.Group("Sheets",
                     new FilteredElementCollector(doc).OfClass(typeof(ViewSheet)).Cast<ViewSheet>()
                         .OrderBy(s => s.SheetNumber)
-                        .Select(s => MentionNode.Leaf("sheet", $"{s.SheetNumber} - {s.Name}"))));
+                        .Select(s => new MentionNode("sheet", $"{s.SheetNumber} - {s.Name}") { ElementId = s.Id.Value })));
 
                 var types = new FilteredElementCollector(doc).WhereElementIsElementType()
                     .Cast<ElementType>()

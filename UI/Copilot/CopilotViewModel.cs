@@ -670,10 +670,13 @@ namespace RevitWebAppSync.UI.Copilot
 
         // ─── Chat ──────────────────────────────────────────────────────────────
 
+        private List<Mention> _pendingMentions;
+
         /// <summary>Command entry: the PromptBar sends a PromptPayload when
         /// screenshots are attached; chips/follow-ups still send a plain string.</summary>
         private void ChatSendAny(object p)
         {
+            _pendingMentions = (p as PromptPayload)?.Mentions;   // r17: consumed by the next turn start only
             if (p is PromptPayload pp) ChatSend(pp.Text, pp.ImagesBase64, pp.Files, displayText: pp.DisplayText);
             else ChatSend(p as string);
         }
@@ -1138,7 +1141,9 @@ namespace RevitWebAppSync.UI.Copilot
                     router.PendingImages = images;
                     router.PendingTables = tables;
                     router.PendingDocuments = documents;
+                    router.PendingMentions = MentionWire.For(_pendingMentions);
                 }
+                _pendingMentions = null;
                 IsSending = true;   // send button shows Stop until the reply resolves
                 try { rr = await Router.RouteAsync(routeText, fallbackToolId); }
                 catch { rr = null; }

@@ -115,6 +115,8 @@ namespace RevitWebAppSync.UI.Copilot
 
         /// <summary>Screenshots for the NEXT turn (base64 PNG); consumed by RouteAsync.</summary>
         public List<string>? PendingImages { get; set; }
+        /// <summary>The @ mentions of the next message (r17): sent as the turn's structured mentions when their text is in the message.</summary>
+        public List<MentionDto>? PendingMentions { get; set; }
 
         /// <summary>Tables (Excel/CSV) for the NEXT turn; consumed by RouteAsync.</summary>
         public List<TableData>? PendingTables { get; set; }
@@ -248,6 +250,7 @@ namespace RevitWebAppSync.UI.Copilot
         public Task<RouteResult> RouteAsync(string message, string fallbackToolId)
         {
             var images = PendingImages; PendingImages = null;
+            var mentions = PendingMentions; PendingMentions = null;
             var tables = PendingTables; PendingTables = null;
             var documents = PendingDocuments; PendingDocuments = null;
             var lang = PromptLanguage.Detect(message);   // receipts follow the prompt's language
@@ -298,6 +301,7 @@ namespace RevitWebAppSync.UI.Copilot
             // The turn's snapshot: sent once, then handed to every tool request (C1). Where the tools can, the view is re-read first (a tab
             // switch a moment ago must not leave the turn on the previous view).
             turn.Snapshot = SafeSnapshot();
+            turn.Mentions = MentionWire.InText(mentions, message);
             var text = (message ?? "") + TurnNote();
             if (_tools is ISnapshotRefresher fresh) return StartWithFreshViewAsync(turn, text, attachments, fresh);
             return RunAsync(turn, (h, ct) => _client.StartTurnAsync(StartRequest(turn, text, attachments), h, ct));
@@ -311,6 +315,7 @@ namespace RevitWebAppSync.UI.Copilot
             Lang = PromptLanguage.Code(turn.Language),
             Snapshot = turn.Snapshot,
             Attachments = attachments,
+            Mentions = turn.Mentions,
         };
 
         /// <summary>How long a turn waits for Revit to re-read its view before it goes on with the snapshot it has.</summary>
@@ -702,6 +707,8 @@ namespace RevitWebAppSync.UI.Copilot
             /// <summary>The snapshot the turn started with (C1); never refreshed mid-turn.</summary>
             public SnapshotModel Snapshot { get; set; } = new SnapshotModel { Stale = true };
             public TurnEvidence Evidence { get; } = new TurnEvidence();
+            /// <summary>The message's @ mentions (r17); null when none.</summary>
+            public List<MentionDto>? Mentions { get; set; }
             public List<string> ToolsUsed { get; } = new List<string>();
 
             /// <summary>The model's text since the last ask (all of it before one).</summary>

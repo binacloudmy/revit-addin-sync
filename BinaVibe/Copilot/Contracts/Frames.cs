@@ -110,6 +110,21 @@ namespace BinaVibe.Copilot.Contracts
         [JsonPropertyName("lang")] public string? Lang { get; set; }
         [JsonPropertyName("snapshot")] public SnapshotModel Snapshot { get; set; } = new();
         [JsonPropertyName("attachments")] public List<AttachmentDto> Attachments { get; set; } = new();
+        /// <summary>The @ mentions the drafter picked (r17): what each names and, for a level, view or sheet, its element id. Null: none
+        /// (omitted on the wire, so an older backend sees the same body).</summary>
+        [JsonPropertyName("mentions")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public List<MentionDto>? Mentions { get; set; }
+    }
+
+    /// <summary>One @ mention of a turn's message: kind (level, view, sheet, category, family, type, selection), the text it put in the message, and the element id when known.</summary>
+    public sealed class MentionDto
+    {
+        [JsonPropertyName("kind")] public string Kind { get; set; } = "";
+        [JsonPropertyName("name")] public string Name { get; set; } = "";
+        [JsonPropertyName("id")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public long? Id { get; set; }
     }
 
     public sealed class AttachmentDto
