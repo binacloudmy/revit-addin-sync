@@ -2,11 +2,12 @@
 // The result card's one button for the marks in the model (result marks design, rules 6 and 8):
 // "Hide marks" while this turn's marks and key are shown, "Show in model" when they are hidden or
 // gone (a newer turn, a closed pill, a new chat). It follows the model: hiding from the key's
-// close button relabels it too. Fixed labels are English (rule 11).
+// close button relabels it too. r21: the labels follow the card's language (owner, 21 Nov, replacing rule 11's English only).
 
 using System;
 using System.Windows.Controls;
 using RevitWebAppSync.UI.Copilot.Highlights;
+using RevitWebAppSync.UI.Copilot.Model;
 
 namespace RevitWebAppSync.UI.Copilot.Controls
 {
@@ -14,8 +15,12 @@ namespace RevitWebAppSync.UI.Copilot.Controls
     {
         public static string LabelFor(MarksState state) => MarkKey.ButtonLabel(state);
 
+        /// <summary>The label in the card's language: "Sembunyikan tanda" / "Tunjuk dalam model" on a Malay card.</summary>
+        public static string LabelFor(MarksState state, ReceiptLanguage lang) =>
+            lang != ReceiptLanguage.Ms ? LabelFor(state) : state == MarksState.Shown ? "Sembunyikan tanda" : "Tunjuk dalam model";
+
         /// <summary>The button, or null when the turn has nothing to mark or the pane has no model layer.</summary>
-        public static Button? Build(TurnEvidenceActions actions, bool ghost = false)
+        public static Button? Build(TurnEvidenceActions actions, bool ghost = false, ReceiptLanguage lang = ReceiptLanguage.En)
         {
             if (actions.ShowMarks == null || actions.HideMarks == null) return null;
             if (!Safe(actions.HasMarks, true)) return null;
@@ -26,14 +31,14 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 if (State() == MarksState.Shown) actions.HideMarks!();
                 else actions.ShowMarks!();
             }
-            var label = LabelFor(State());
+            var label = LabelFor(State(), lang);
             button = ghost ? CardKit.Ghost(label, Click, CardKit.Icons.Eye, compact: true) : CardKit.Secondary(label, Click, CardKit.Icons.Eye);
             Refresh(button, State(), actions);
             var weak = new WeakReference<Button>(button);
             actions.WatchMarks?.Invoke(() =>
             {
                 if (!weak.TryGetTarget(out var b)) return false;
-                ItemsCard.SetLabel(b, LabelFor(State()));
+                ItemsCard.SetLabel(b, LabelFor(State(), lang));
                 Refresh(b, State(), actions);
                 return true;
             });

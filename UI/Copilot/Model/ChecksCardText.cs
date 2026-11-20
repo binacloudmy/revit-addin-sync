@@ -27,10 +27,23 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// one more remark. An info check whose text starts with "Checked:" and that has no answers is drawn as its own compact row (a small
         /// green tick and the line) above Notes. A warning or error that starts with "Checked:" stays amber; a check with answers keeps them.</summary>
         public static bool IsVerified(string? severity, string? text, int actionCount) =>
-            IsNote(severity) && actionCount == 0 && (text ?? "").TrimStart().StartsWith(VerifiedPrefix, System.StringComparison.OrdinalIgnoreCase);
+            IsNote(severity) && actionCount == 0 && ((text ?? "").TrimStart().StartsWith(VerifiedPrefix, System.StringComparison.OrdinalIgnoreCase)
+                                                             || (text ?? "").TrimStart().StartsWith(VerifiedPrefixMs, System.StringComparison.OrdinalIgnoreCase));
 
-        /// <summary>What the server's read-back line starts with.</summary>
+        /// <summary>What the server's read-back line starts with: a stable token on the wire, in every chat language (the backend writes it,
+        /// <see cref="IsVerified"/> reads it).</summary>
         public const string VerifiedPrefix = "Checked:";
+
+        /// <summary>The prefix a Malay card shows in its place (r21, owner 21 Nov: the card follows the chat's language).</summary>
+        public const string VerifiedPrefixMs = "Disemak:";
+
+        /// <summary>The read-back line as the card draws it: on a Malay card "Checked:" reads "Disemak:"; the rest (the facts Revit read back,
+        /// with their Revit names) is drawn as sent. An English card, or a line without the prefix, is the text trimmed, as before.</summary>
+        public static string VerifiedDisplay(string? text, bool ms)
+        {
+            var t = (text ?? "").Trim();
+            return ms && t.StartsWith(VerifiedPrefix, System.StringComparison.OrdinalIgnoreCase) ? VerifiedPrefixMs + t.Substring(VerifiedPrefix.Length) : t;
+        }
 
         /// <summary>The calm card's title: "Notes" (BM: "Nota").</summary>
         public static string NotesTitle(bool ms) => ms ? "Nota" : "Notes";

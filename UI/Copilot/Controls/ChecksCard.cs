@@ -28,7 +28,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         {
             var ms = lang == ReceiptLanguage.Ms;
             AddChecks(root, card, ms, actions, notes: false);   // doubts: amber, "Check N things"
-            AddVerified(root, card, actions);                    // r13: the write's read-back ("Checked: ..."): a green tick row, above Notes
+            AddVerified(root, card, ms, actions);                // r13: the write's read-back ("Checked: ..."): a green tick row, above Notes
             AddChecks(root, card, ms, actions, notes: true);    // severity info: calm, "Notes"
             AddNext(root, card, ms, actions);
         }
@@ -102,7 +102,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
         /// <summary>r13 (0.0.148): the server's "Checked: ..." line after a write (ChecksCardText.IsVerified), one compact row per line:
         /// a small green tick and the text, whole and wrapped, muted, no card and no header. Above Notes, under the amber doubts.</summary>
-        private static void AddVerified(StackPanel root, ResultCardModel card, TurnEvidenceActions actions)
+        private static void AddVerified(StackPanel root, ResultCardModel card, bool ms, TurnEvidenceActions actions)
         {
             var lines = card.Checks.Where(c => !RulesBlockText.RestatesRule(c.Text, c.Actions.Count > 0, actions.RuleIds))
                 .Where(c => ChecksCardText.IsVerified(c.Severity, c.Text, c.Actions.Count)).ToList();
@@ -114,7 +114,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 var tick = Icon(TickIcon, "Cp.Green", 2, 12);
                 tick.Margin = new Thickness(0, 2, 8, 0);
                 tick.VerticalAlignment = VerticalAlignment.Top;
-                var text = CardKit.Text(c.Text.Trim(), 12, "Cp.Muted");
+                var text = CardKit.Text(ChecksCardText.VerifiedDisplay(c.Text, ms), 12, "Cp.Muted");   // r21: "Disemak:" on a Malay card; the wire keeps "Checked:"
                 Grid.SetColumn(tick, 0); Grid.SetColumn(text, 1);
                 row.Children.Add(tick); row.Children.Add(text);
                 root.Children.Add(row);

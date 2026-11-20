@@ -35,7 +35,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             // design, rule 8: Undo next to what it undoes), the status chips with the "Steps" toggle, then the card (body only,
             // neutral border), then ONE action row (Undo last part, Redo, Save as command).
             var block = new StackPanel { Margin = new Thickness(0, 4, 0, 6) };
-            block.Children.Add(HeadlineRow(card, actions, canUndo, undone, undoOff));
+            block.Children.Add(HeadlineRow(card, actions, canUndo, undone, undoOff, ms));
             var chips = StatusChips(card, ms, actions);
             if (chips != null) block.Children.Add(chips);
             // A rule-set result's "4 kinds of issue" line is the Rules block's own header: not repeated above it.
@@ -60,7 +60,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             if (undone) root.Children.Add(UndoneBanner(card, lang, actions));
             // The section header: what the marks are, where, "Go to view" when they are in another view, "Hide marks" /
             // "Show in model". A selection has none unless its rows carry ids (r12: Found marks); HasMarks decides.
-            if (MarksHeader(actions) is FrameworkElement header) root.Children.Add(header);
+            if (MarksHeader(actions, lang) is FrameworkElement header) root.Children.Add(header);
 
             switch (card.Kind)
             {
@@ -89,9 +89,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         /// <summary>Below this width of the card header the buttons move under the words (a half-width dock).</summary>
         internal const double NarrowHeaderWidth = 380;
 
-        internal static FrameworkElement? MarksHeader(TurnEvidenceActions actions)
+        internal static FrameworkElement? MarksHeader(TurnEvidenceActions actions, ReceiptLanguage lang = ReceiptLanguage.En)
         {
-            var marks = MarksButton.Build(actions, ghost: true);
+            var ms = lang == ReceiptLanguage.Ms;
+            var marks = MarksButton.Build(actions, ghost: true, lang);
             if (marks == null) return null;
             string Safe(Func<string>? f) { try { return f?.Invoke() ?? ""; } catch { return ""; } }
             (long Id, string Name)? Other() { try { return actions.OtherView?.Invoke(); } catch { return null; } }
@@ -110,7 +111,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             Button? go = null;
             if (actions.GoToView != null)
             {
-                go = CardKit.Secondary(CardButtons.GoToView, () => { if (Other() is (long id, string _)) actions.GoToView(id); }, compact: true);
+                go = CardKit.Secondary(ms ? "Pergi ke view" : CardButtons.GoToView, () => { if (Other() is (long id, string _)) actions.GoToView(id); }, compact: true);
                 go.Margin = new Thickness(6, 0, 0, 0); go.VerticalAlignment = VerticalAlignment.Center;
                 side.Children.Add(go);
             }
@@ -139,8 +140,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             if (actions.SelectAll != null || actions.ZoomAll != null || actions.StepMarks != null)
             {
                 var tools = new WrapPanel { Margin = new Thickness(-6, 4, 0, 0) };
-                if (actions.SelectAll != null) tools.Children.Add(CardKit.Ghost("Select all", actions.SelectAll, compact: true));
-                if (actions.ZoomAll != null) tools.Children.Add(CardKit.Ghost("Zoom to all", actions.ZoomAll, compact: true));
+                if (actions.SelectAll != null) tools.Children.Add(CardKit.Ghost(ms ? "Pilih semua" : "Select all", actions.SelectAll, compact: true));
+                if (actions.ZoomAll != null) tools.Children.Add(CardKit.Ghost(ms ? "Zum ke semua" : "Zoom to all", actions.ZoomAll, compact: true));
                 if (actions.StepMarks != null)
                 {
                     // The stepper of what needs a look ("2 of 5", previous, next): it was on the removed key. Shown only while the turn has such marks.
@@ -175,7 +176,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 {
                     var other = Other();
                     go.Visibility = other != null ? Visibility.Visible : Visibility.Collapsed;
-                    go.ToolTip = other is (long _, string name) ? "Open " + name + " and show the marks there" : null;
+                    go.ToolTip = other is (long _, string name) ? (ms ? "Buka " + name + " dan tunjuk tanda di sana" : "Open " + name + " and show the marks there") : null;
                 }
             }
             Refresh();
@@ -192,19 +193,19 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         /// <summary>The headline, outside the card: a 22px check disc (amber when something needs a look), the one
         /// sentence at 17px/600 (design: "Copilot" label above, chips below), and Undo on the right: it undoes the whole
         /// turn the sentence names. When Undo is off (the model changed after the turn) it stays, greyed, and says why.</summary>
-        private static FrameworkElement HeadlineRow(ResultCardModel card, TurnEvidenceActions actions, bool canUndo, bool undone, string? undoOff)
+        private static FrameworkElement HeadlineRow(ResultCardModel card, TurnEvidenceActions actions, bool canUndo, bool undone, string? undoOff, bool ms = false)
         {
             var warn = card.HeadlineWarns;
             Button? undo = null;
             if (actions.Undo != null && canUndo && !undone)
             {
-                undo = CardKit.Secondary("Undo", actions.Undo, CardKit.Icons.Undo, compact: true);
-                undo.ToolTip = "Undo this turn: " + CardText.Headline(card.Headline);
+                undo = CardKit.Secondary(ms ? "Buat asal" : "Undo", actions.Undo, CardKit.Icons.Undo, compact: true);
+                undo.ToolTip = (ms ? "Buat asal giliran ini: " : "Undo this turn: ") + CardText.Headline(card.Headline);
             }
             // A write committed but Undo is off (something else changed the model after it): the button is still there, greyed, and says why.
             else if (actions.Undo != null && undoOff != null && !undone)
             {
-                var off = CardKit.Secondary("Undo", () => { }, CardKit.Icons.Undo, compact: true);
+                var off = CardKit.Secondary(ms ? "Buat asal" : "Undo", () => { }, CardKit.Icons.Undo, compact: true);
                 off.IsEnabled = false;
                 off.ToolTip = undoOff;
                 ToolTipService.SetShowOnDisabled(off, true);
