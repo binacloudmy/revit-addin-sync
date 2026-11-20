@@ -90,8 +90,8 @@ namespace BinaVibe.Copilot.Writes
                 catch (RevitBusyException ex)
                 {
                     foreach (var i in pending.Where(i => results[i] == null))
-                        results[i] = WriteEnvelopes.Failure(ErrorCodes.RevitBusy, ex.Message,
-                            state.CommitAttempted ? EnvelopePhase.Commit : EnvelopePhase.Preview);
+                        results[i] = BusyDialogs.With(WriteEnvelopes.Failure(ErrorCodes.RevitBusy, ex.Message,
+                            state.CommitAttempted ? EnvelopePhase.Commit : EnvelopePhase.Preview), ex);
                 }
                 catch (Exception ex)
                 {
@@ -236,7 +236,7 @@ namespace BinaVibe.Copilot.Writes
                     // The callback never started (IWriteEngine contract): free the keys.
                     foreach (var k in keys) _ledger.Fail(k, "revit_busy before the commit started");
                     foreach (var slot in writeSlots)
-                        results[slot] = WriteEnvelopes.Failure(ErrorCodes.RevitBusy, busy.Message, EnvelopePhase.Commit);
+                        results[slot] = BusyDialogs.With(WriteEnvelopes.Failure(ErrorCodes.RevitBusy, busy.Message, EnvelopePhase.Commit), busy);
                     return;
                 }
                 catch (OperationCanceledException)

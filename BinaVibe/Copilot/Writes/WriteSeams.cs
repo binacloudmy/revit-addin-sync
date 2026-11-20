@@ -179,5 +179,30 @@ namespace BinaVibe.Copilot.Writes
     public sealed class RevitBusyException : Exception
     {
         public RevitBusyException(string message) : base(message) { }
+
+        /// <summary>The dialog Revit last showed when the watchdog failed the work as a dialog: its id and its text
+        /// (a TaskDialog or message box shows a message, not a title). Null when Revit raised none.</summary>
+        public RevitBusyException(string message, string? dialogId, string? dialogText) : base(message)
+        {
+            DialogId = string.IsNullOrWhiteSpace(dialogId) ? null : dialogId;
+            DialogText = string.IsNullOrWhiteSpace(dialogText) ? null : dialogText;
+        }
+
+        public string? DialogId { get; }
+        public string? DialogText { get; }
+    }
+
+    /// <summary>The revit_busy envelope names the dialog when the add-in knows it (envelope <c>dialogs</c>: id, text, no answer given),
+    /// so the backend can tell the drafter which dialog blocks Revit instead of guessing.</summary>
+    public static class BusyDialogs
+    {
+        public static Envelope With(Envelope envelope, Exception? cause)
+        {
+            if (envelope == null || cause is not RevitBusyException busy || (busy.DialogId == null && busy.DialogText == null)) return envelope!;
+            var text = busy.DialogText ?? "";
+            if (text.Length > DialogPolicy.MaxTextChars) text = text.Substring(0, DialogPolicy.MaxTextChars - 1) + "…";
+            envelope.Dialogs = new System.Collections.Generic.List<DialogDto> { new DialogDto { Id = busy.DialogId ?? "", Text = text, AnsweredWith = null } };
+            return envelope;
+        }
     }
 }

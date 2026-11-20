@@ -978,7 +978,7 @@ namespace BinaVibe.Copilot.Writes
                 case WriteRefusal r:
                     return WriteEnvelopes.Failure(r.Code, r.Message, phase, r.Candidates);
                 case RevitBusyException busy:
-                    return WriteEnvelopes.Failure(ErrorCodes.RevitBusy, busy.Message, phase);
+                    return BusyDialogs.With(WriteEnvelopes.Failure(ErrorCodes.RevitBusy, busy.Message, phase), busy);
                 case NotImplementedException:
                     return WriteEnvelopes.Failure(ErrorCodes.NotImplemented, "This tool is not implemented in this add-in build; nothing was changed.", phase);
                 case System.ArgumentException:

@@ -69,7 +69,7 @@ namespace BinaVibe.Copilot.Read
             if (message == RevitWebAppSync.Services.UpdateGate.RefusalMessage)
                 return ReadEnvelope.Fail(ErrorCodes.NotAllowed, message);
             if (ex is RevitBusyException)             // never reached Revit's thread: busy or a modal dialog
-                return ReadEnvelope.Busy(message);
+                return BinaVibe.Copilot.Writes.BusyDialogs.With(ReadEnvelope.Busy(message), ex);
             return ReadEnvelope.Fail(ErrorCodes.RuntimeError, "The read failed in the add-in (" + message + "). Nothing was changed.");
         }
 

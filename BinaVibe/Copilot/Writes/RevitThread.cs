@@ -42,6 +42,8 @@ namespace BinaVibe.Copilot.Writes
         private static long _armedTicks;
         private static long _lastIdleTicks;
         private static long _lastDialogTicks;
+        private static string? _lastDialogId;     // what the last DialogBoxShowing said: id and (TaskDialog, message box) message
+        private static string? _lastDialogText;
         private static long _probePostedTicks;
         private static long _probeRanTicks;
         private static long _kickRaisedTicks;   // when the last kick was raised and has not run yet; 0 when none is pending (KickPolicy)
@@ -127,12 +129,28 @@ namespace BinaVibe.Copilot.Writes
             {
                 if (_attached) return;
                 app.Idling += OnIdling;
-                app.DialogBoxShowing += (s, e) => Volatile.Write(ref _lastDialogTicks, Now);
+                app.DialogBoxShowing += OnDialogShowing;
                 _ui = Dispatcher.CurrentDispatcher;
                 try { _kick = ExternalEvent.Create(new KickHandler()); }
                 catch (Exception) { _kick = null; /* Idling still drains */ }
                 _attached = true;
             }
+        }
+
+        /// <summary>Stamps when Revit last showed a dialog and what it said: a failed queue names it in revit_busy (BusyDialogs).
+        /// Never throws into Revit's event loop.</summary>
+        private static void OnDialogShowing(object? sender, DialogBoxShowingEventArgs e)
+        {
+            Volatile.Write(ref _lastDialogTicks, Now);
+            try
+            {
+                string? text = e is TaskDialogShowingEventArgs task ? task.Message
+                    : e is MessageBoxShowingEventArgs box ? box.Message
+                    : null;
+                Volatile.Write(ref _lastDialogId, e.DialogId);
+                Volatile.Write(ref _lastDialogText, text);
+            }
+            catch (Exception) { /* the id and text are a courtesy */ }
         }
 
         /// <summary>Have Revit take an idle turn now, when it would otherwise wait for the drafter's next mouse move (the
@@ -267,8 +285,11 @@ namespace BinaVibe.Copilot.Writes
             if (verdict == WatchdogVerdict.Wait) return;
 
             var message = WatchdogPolicy.Message(verdict);
+            var dialog = verdict == WatchdogVerdict.FailDialog;   // a dialog the drafter can see: name it when Revit told us which
+            var dialogId = dialog ? Volatile.Read(ref _lastDialogId) : null;
+            var dialogText = dialog ? Volatile.Read(ref _lastDialogText) : null;
             while (Queue.TryDequeue(out var work))
-                if (!work.IsDone) work.Fail(new RevitBusyException(message));
+                if (!work.IsDone) work.Fail(new RevitBusyException(message, dialogId, dialogText));
             StopWatchdog();
             Debug.WriteLine("[BINA][writes] watchdog: " + message);
         }
