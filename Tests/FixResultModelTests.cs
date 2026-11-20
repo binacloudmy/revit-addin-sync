@@ -7,6 +7,7 @@ namespace RevitWebAppSync.Tests
 {
     /// <summary>The Fix all result window's model: counts, grouping by reason,
     /// "show more", element labels, copy text and BM/EN.</summary>
+    [Xunit.Collection("PaneLanguage")]
     public class FixResultModelTests
     {
         private const string Ms = PanelStrings.Ms;

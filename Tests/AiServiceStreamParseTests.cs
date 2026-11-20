@@ -3,6 +3,7 @@ using Xunit;
 
 namespace Tests
 {
+    [Xunit.Collection("PaneLanguage")]
     public class AiServiceStreamParseTests
     {
         [Fact]

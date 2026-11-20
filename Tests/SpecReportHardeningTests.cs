@@ -17,6 +17,7 @@ namespace RevitWebAppSync.Tests
     /// of IssueMapper.FromModelResults (SpecModelIssues). No IssueVm, so these run on
     /// the Mac harness too.
     /// </summary>
+    [Xunit.Collection("PaneLanguage")]
     public class SpecReportHardeningTests
     {
         private static SpecResult Audit(string checker, string key, string status, bool na = false, string issueId = "", string note = "") =>

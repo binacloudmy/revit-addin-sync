@@ -6,6 +6,7 @@ namespace RevitWebAppSync.Tests
 {
     /// <summary>The "How to fix manually" card is never blank: backend steps, else
     /// its suggestion, else steps built from the fix data.</summary>
+    [Xunit.Collection("PaneLanguage")]
     public class JkrManualFixStepsTests
     {
         [Fact]

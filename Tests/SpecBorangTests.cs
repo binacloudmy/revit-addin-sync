@@ -16,6 +16,7 @@ namespace RevitWebAppSync.Tests
     /// headline and section numbers against the Results screen on the sample runs,
     /// the Borang remarks that follow the spec, and the fallback without a report.
     /// </summary>
+    [Xunit.Collection("PaneLanguage")]
     public class SpecBorangTests
     {
         // ── helpers ──

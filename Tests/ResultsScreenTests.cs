@@ -13,6 +13,7 @@ namespace RevitWebAppSync.Tests
     /// tiles, tabs, rows and requests (frames t-results, t-section, t-search,
     /// t-manual, t-empty, t-stale).
     /// </summary>
+    [Xunit.Collection("PaneLanguage")]
     public class ResultsScreenTests
     {
         private static IssueVm Issue(string id, string key, IssuePriority p = IssuePriority.Medium,

@@ -335,6 +335,8 @@ namespace RevitWebAppSync.Services
         [JsonProperty("element_name")] public string ElementName { get; set; } = "";
         [JsonProperty("element_id_label")] public string ElementIdLabel { get; set; } = "—";
         [JsonProperty("revit_element_id")] public long RevitElementId { get; set; }
+        /// <summary>All elements behind the issue; optional (absent in older snapshots, then RevitElementId alone).</summary>
+        [JsonProperty("revit_element_ids", NullValueHandling = NullValueHandling.Ignore)] public List<long> RevitElementIds { get; set; }
         [JsonProperty("required")] public string Required { get; set; } = "";
         [JsonProperty("actual")] public string Actual { get; set; } = "";
         [JsonProperty("example")] public string Example { get; set; } = "";
@@ -370,6 +372,7 @@ namespace RevitWebAppSync.Services
                 ElementName = vm.Element?.Name ?? "",
                 ElementIdLabel = vm.Element?.Id ?? "—",
                 RevitElementId = vm.RevitElementId,
+                RevitElementIds = vm.RevitElementIds != null && vm.RevitElementIds.Count > 0 ? new List<long>(vm.RevitElementIds) : null,
                 Required = vm.Required ?? "",
                 Actual = vm.Actual ?? "",
                 Example = vm.Example ?? "",
@@ -407,6 +410,7 @@ namespace RevitWebAppSync.Services
                 Description = Description ?? "",
                 Element = new ElementRef { Name = ElementName ?? "", Id = ElementIdLabel ?? "—" },
                 RevitElementId = RevitElementId,
+                RevitElementIds = RevitElementIds != null && RevitElementIds.Count > 0 ? new List<long>(RevitElementIds) : (RevitElementId > 0 ? new List<long> { RevitElementId } : new List<long>()),
                 Required = Required ?? "",
                 Actual = Actual ?? "",
                 Example = Example ?? "",

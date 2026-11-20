@@ -12,6 +12,7 @@ namespace RevitWebAppSync.Tests
     /// BM / EN switch (F8 decision toasts, F15 the BIM010 checker's "semak manual"
     /// remark). Every check passes the language explicitly.
     /// </summary>
+    [Xunit.Collection("PaneLanguage")]
     public class LiveFixTextTests
     {
         private const string Ms = PanelStrings.Ms;
