@@ -361,6 +361,14 @@ namespace RevitWebAppSync.Services
         [JsonProperty("revit_category")] public string RevitCategory { get; set; } = "";
         [JsonProperty("locate_count")] public int LocateCount { get; set; } = 1;
         [JsonProperty("needs_person")] public bool NeedsPerson { get; set; }
+        // Optional (AI-421): the English of title / description / required / actual for the add-in's own
+        // spec results. Snapshots written before have none; a restored issue then shows the BM text.
+        [JsonProperty("title_en", DefaultValueHandling = DefaultValueHandling.Ignore)] public string TitleEn { get; set; }
+        [JsonProperty("description_en", DefaultValueHandling = DefaultValueHandling.Ignore)] public string DescriptionEn { get; set; }
+        [JsonProperty("required_en", DefaultValueHandling = DefaultValueHandling.Ignore)] public string RequiredEn { get; set; }
+        [JsonProperty("actual_en", DefaultValueHandling = DefaultValueHandling.Ignore)] public string ActualEn { get; set; }
+
+        private static string NullIfEmpty(string s) => string.IsNullOrEmpty(s) ? null : s;
 
         public static IssueSnapshot From(IssueVm vm)
         {
@@ -397,6 +405,8 @@ namespace RevitWebAppSync.Services
                 RevitCategory = vm.RevitCategory ?? "",
                 LocateCount = vm.LocateCount,
                 NeedsPerson = vm.NeedsPerson,
+                TitleEn = NullIfEmpty(vm.TitleEn), DescriptionEn = NullIfEmpty(vm.DescriptionEn),
+                RequiredEn = NullIfEmpty(vm.RequiredEn), ActualEn = NullIfEmpty(vm.ActualEn),
             };
         }
 
@@ -441,6 +451,7 @@ namespace RevitWebAppSync.Services
                 RevitCategory = RevitCategory ?? "",
                 LocateCount = Math.Max(1, LocateCount),
                 Verification = NeedsPerson ? IssueVerification.Human : IssueVerification.Ai,
+                TitleEn = TitleEn ?? "", DescriptionEn = DescriptionEn ?? "", RequiredEn = RequiredEn ?? "", ActualEn = ActualEn ?? "",
             };
             if (Enum.TryParse<IssuePriority>(Priority ?? "Medium", ignoreCase: true, out var p))
                 vm.Priority = p;

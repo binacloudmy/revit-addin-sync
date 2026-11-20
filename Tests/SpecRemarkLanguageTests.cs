@@ -6,6 +6,7 @@ using System.Text.RegularExpressions;
 using BinaVibe.Mcp.Tools.Audit;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using RevitWebAppSync.Services;
 using RevitWebAppSync.Services.JkrSpec;
 using RevitWebAppSync.UI.Jkr.Export;
 using RevitWebAppSync.UI.Jkr.Panel.Core;
@@ -66,7 +67,7 @@ namespace RevitWebAppSync.Tests
         }
 
         [Theory, MemberData(nameof(Samples))]
-        public void English_Borang_has_no_Malay_remark_words(string file)
+        public void English_Borang_has_no_Malay_remark_words_for_the_sample_models(string file)
         {
             var (_, issues, summary) = Run(file);
             PaneLanguage.Set(PanelStrings.En);
@@ -77,7 +78,7 @@ namespace RevitWebAppSync.Tests
         }
 
         [Theory, MemberData(nameof(Samples))]
-        public void English_export_rows_have_no_Malay_in_Required_and_Actual(string file)
+        public void English_export_rows_have_no_Malay_in_Required_and_Actual_for_the_sample_models(string file)
         {
             var (_, issues, _) = Run(file);
             PaneLanguage.Set(PanelStrings.En);
@@ -93,7 +94,7 @@ namespace RevitWebAppSync.Tests
         }
 
         [Theory, MemberData(nameof(Samples))]
-        public void Every_spec_result_with_a_Malay_note_has_an_English_note(string file)
+        public void Every_spec_result_with_a_Malay_note_has_an_English_note_for_the_sample_models(string file)
         {
             var bad = SpecChecks.Run(Model(file))
                 .Where(r => Malay.IsMatch(StripLabel(r.Note)) && string.IsNullOrWhiteSpace(r.NoteEn))
@@ -102,7 +103,7 @@ namespace RevitWebAppSync.Tests
         }
 
         [Theory, MemberData(nameof(Samples))]
-        public void Every_spec_result_with_a_Malay_Required_or_Actual_has_an_English_one(string file)
+        public void Every_spec_result_with_a_Malay_Required_or_Actual_has_an_English_one_for_the_sample_models(string file)
         {
             var bad = new List<string>();
             foreach (var r in SpecChecks.Run(Model(file)))
@@ -121,6 +122,106 @@ namespace RevitWebAppSync.Tests
             Assert.Equal("every room (Room) has a value in the 'Department' parameter", IssueExportRows.Cells(i)[5]);
             PaneLanguage.Set(PanelStrings.Ms);
             Assert.Equal(i.Required, IssueExportRows.Cells(i)[5]);
+        }
+
+        // ── structural: every non-empty BM text has a non-empty English twin ──
+
+        // Values that read the same in both languages: numbers / units / ids / codes (no letters apart from
+        // units and code-like tokens), or one of these explicit names (a Revit parameter, a mode word).
+        private static readonly HashSet<string> Neutral = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "Loaded", "NotFound", "solid core", "hollow core", "material", "Model",
+            // model data / English already: a material name, Revit's default project value, a set name.
+            "Glass (door)", "Enter address here", "template BOMBA", "template PBT", "template Dokumen",
+        };
+
+        private static bool IsNeutral(string s)
+        {
+            s = (s ?? "").Trim();
+            if (s.Length == 0 || Neutral.Contains(s)) return true;
+            // numbers, units, comparison signs, ids, element / family / sheet names and codes are data:
+            // no lower-case word of 3+ letters standing apart from a code (jkrAR_…, PT1p_850x2100, 12345).
+            return !Regex.IsMatch(s, @"(?<![\w_])[a-z]{3,}(?![\w_])");
+        }
+
+        private static void NeedsTwin(List<string> bad, string who, string field, string bm, string en)
+        {
+            if (!IsNeutral(bm) && string.IsNullOrWhiteSpace(en)) bad.Add(who + " " + field + ": " + bm);
+        }
+
+        [Theory, MemberData(nameof(Samples))]
+        public void Every_SpecResult_text_has_an_English_twin(string file)
+        {
+            var bad = new List<string>();
+            foreach (var r in SpecChecks.Run(Model(file)))
+            {
+                var who = r.CheckId;
+                NeedsTwin(bad, who, "Note", r.Note, r.NoteEn);
+                NeedsTwin(bad, who, "Actual", r.Actual, r.ActualEn);
+                NeedsTwin(bad, who, "Required", r.Required, r.RequiredEn);
+            }
+            Assert.True(bad.Count == 0, "No English twin:" + Environment.NewLine + string.Join(Environment.NewLine, bad.Distinct()));
+        }
+
+        [Theory, MemberData(nameof(Samples))]
+        public void Every_IssueVm_text_has_an_English_twin(string file)
+        {
+            var (_, issues, _) = Run(file);
+            var bad = new List<string>();
+            foreach (var i in issues)
+            {
+                NeedsTwin(bad, i.Id, "Title", i.Title, i.TitleEn);
+                NeedsTwin(bad, i.Id, "Description", i.Description, i.DescriptionEn);
+                NeedsTwin(bad, i.Id, "Required", i.Required, i.RequiredEn);
+                NeedsTwin(bad, i.Id, "Actual", i.Actual, i.ActualEn);
+            }
+            Assert.True(bad.Count == 0, "No English twin:" + Environment.NewLine + string.Join(Environment.NewLine, bad.Distinct()));
+        }
+
+        // ── the audit snapshot keeps the English (restored Fixed issues) ──
+
+        private static IssueVm FirstSpecIssueWithText(string file) =>
+            Run(file).issuesBm.First(i => Malay.IsMatch(i.Description + " " + i.Title) && !string.IsNullOrEmpty(i.DescriptionEn));
+
+        [Fact]
+        public void Snapshot_round_trip_keeps_the_English_and_the_Borang_and_export_show_it()
+        {
+            var vm = FirstSpecIssueWithText("jkr_run_failing.json");
+            var json = JsonConvert.SerializeObject(IssueSnapshot.From(vm));
+            var back = JsonConvert.DeserializeObject<IssueSnapshot>(json).ToIssueVm(vm.Id);
+            Assert.Equal(vm.TitleEn, back.TitleEn);
+            Assert.Equal(vm.DescriptionEn, back.DescriptionEn);
+            Assert.Equal(vm.RequiredEn, back.RequiredEn);
+            Assert.Equal(vm.ActualEn, back.ActualEn);
+
+            // A restored Fixed issue and an Ignored one print English on the English Borang remark and export.
+            foreach (var status in new[] { IssueStatus.Fixed, IssueStatus.Ignored })
+            {
+                back.Status = status; back.FixVerified = false;
+                back.BorangKey = back.BorangKey.Length > 0 ? back.BorangKey : "A1";
+                PaneLanguage.Set(PanelStrings.En);
+                var (remark, _) = BorangDoc.RemarkFor(back.BorangKey, "n", null, new[] { back });
+                Assert.False(Malay.IsMatch(StripLabel(remark)), status + ": " + remark);
+                var cells = IssueExportRows.Cells(back);
+                Assert.Equal(vm.TitleEn, cells[1]);
+                Assert.False(Malay.IsMatch(cells[5] + " " + cells[6]), string.Join(" | ", cells));
+                PaneLanguage.Set(PanelStrings.Ms);
+            }
+        }
+
+        [Fact]
+        public void An_old_snapshot_without_the_English_fields_still_loads_and_falls_back_to_BM()
+        {
+            const string old = "{\"title\":\"A1.1 · Ketinggian siling\",\"description\":\"Aras 01: siling 2700 mm\",\"required\":\"≥ 3000 mm\",\"actual\":\"2700 mm\"}";
+            var snap = JsonConvert.DeserializeObject<IssueSnapshot>(old);
+            var vm = snap.ToIssueVm("SPEC-A1.1-x");
+            Assert.Equal("", vm.TitleEn);
+            Assert.Equal("A1.1 · Ketinggian siling", vm.Title);
+            PaneLanguage.Set(PanelStrings.En);
+            Assert.Equal("A1.1 · Ketinggian siling", IssueExportRows.Cells(vm)[1]);   // BM fallback, no crash
+            PaneLanguage.Set(PanelStrings.Ms);
+            // and a snapshot written now omits empty English fields (old readers ignore them anyway)
+            Assert.DoesNotContain("title_en", JsonConvert.SerializeObject(IssueSnapshot.From(new IssueVm { Title = "x" })));
         }
 
         [Fact]

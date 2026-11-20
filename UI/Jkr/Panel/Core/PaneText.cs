@@ -259,7 +259,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             ("nama family/type title block mengandungi 'JKR'", "the title block family/type name contains 'JKR'"),
             ("setiap Revit link berstatus 'Loaded'", "every Revit link has the status 'Loaded'"),
             (">=3 segmen dipisah '-' atau '_'", ">=3 segments separated by '-' or '_'"),
-            (GridRuleBm, GridRuleEn2),
+            (GridRuleBm, GridRuleStatementEn),
             ("grid > 0 dan aras > 0; setiap grid dan aras ada nama yang unik (tiada nama kosong/berganda); setiap pelan lantai terikat pada satu aras",
              "grids > 0 and levels > 0; every grid and level has a unique name (no empty or duplicate names); every floor plan is tied to one level"),
             ("Project Name/Number/Address/Client Name/Status/Issue Date terisi dan bukan nilai lalai Revit",
@@ -320,7 +320,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         // The base-point (grid) checker's remarks (AuditCheckers.BasePoint).
         private const string GridRuleBm = "Project Base Point berada <=10 mm dari persilangan grid 'A' dan '1'";
         private const string GridRuleEn = "the Project Base Point to be within 10 mm of the intersection of grids 'A' and '1'";
-        private const string GridRuleEn2 = "the Project Base Point is within 10 mm of the intersection of grids 'A' and '1'";
+        private const string GridRuleStatementEn = "the Project Base Point is within 10 mm of the intersection of grids 'A' and '1'";
         private static readonly Regex GridModelHas = R(@"^Model ada (\d+) grid( \([^)]*\))? tetapi tiada yang bernama (.+?) \(atau berawalan projek, cth 'PT-A' / 'PT1'\)\. ");
         private static readonly Regex GridCurved = R(@"^Grid (.+?) bukan garisan lurus, jadi persilangan tidak boleh dihitung\. ");
         private static readonly Regex GridParallel = R(@"^Grid '(.*)' dan grid '(.*)' selari pada pelan, jadi tiada persilangan untuk diukur — semak manual\.$");
