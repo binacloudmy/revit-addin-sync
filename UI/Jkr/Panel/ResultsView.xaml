@@ -475,6 +475,67 @@
             </Button>
         </StackPanel>
 
+        <!-- Project Checklist (AI-436): rules 1, 21-24, 26 are about the project, not an element, so
+             they are not in the issue list. Each item flips only on its own re-check; rule 26 is a
+             live bar fed by every element-rule run. DataContext: ResultsScreenModel.ProjectChecklist. -->
+        <StackPanel Margin="16,4,16,12" Visibility="{Binding ShowOverview, Converter={StaticResource B2V}}"
+                    DataContext="{Binding ProjectChecklist}" AutomationProperties.Name="{Binding Heading}">
+            <Grid Margin="0,0,0,6">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="{Binding Heading}" FontSize="15" FontWeight="SemiBold" Foreground="{StaticResource Bz.Text}"/>
+                <TextBlock Grid.Column="1" Text="{Binding Summary}" FontSize="12" Foreground="{StaticResource Bz.TextBody}" VerticalAlignment="Center"/>
+            </Grid>
+            <TextBlock Text="{Binding Intro}" FontSize="12" LineHeight="17" Foreground="{StaticResource Bz.TextBody}" TextWrapping="Wrap" Margin="0,0,0,8"/>
+            <ItemsControl ItemsSource="{Binding Items}" Focusable="False">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Border BorderBrush="{StaticResource Bz.Line}" BorderThickness="0,1,0,0" Padding="0,10,0,10">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Ellipse Width="10" Height="10" Margin="0,4,10,0" VerticalAlignment="Top">
+                                    <Ellipse.Style>
+                                        <Style TargetType="Ellipse">
+                                            <Setter Property="Fill" Value="{StaticResource Bz.Text3}"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Tone}" Value="pass"><Setter Property="Fill" Value="{StaticResource Bz.Tone.Pass}"/></DataTrigger>
+                                                <DataTrigger Binding="{Binding Tone}" Value="fail"><Setter Property="Fill" Value="{StaticResource Bz.Tone.Fail}"/></DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Ellipse.Style>
+                                </Ellipse>
+                                <StackPanel Grid.Column="1">
+                                    <TextBlock FontSize="13" LineHeight="18" TextWrapping="Wrap" Foreground="{StaticResource Bz.Text}">
+                                        <Run Text="{Binding Title, Mode=OneWay}" FontWeight="SemiBold"/><Run Text=" · "/><Run Text="{Binding StateText, Mode=OneWay}" Foreground="{StaticResource Bz.TextBody}"/>
+                                    </TextBlock>
+                                    <ProgressBar Minimum="0" Maximum="100" Value="{Binding Percent, Mode=OneWay}" Height="6" Margin="0,6,0,0"
+                                                 Foreground="{StaticResource Bz.Tone.Pass}" Background="{StaticResource Bz.Track}" BorderThickness="0"
+                                                 Visibility="{Binding HasProgress, Converter={StaticResource B2V}}"/>
+                                    <TextBlock Text="{Binding Detail}" FontSize="12" LineHeight="17" TextWrapping="Wrap" Foreground="{StaticResource Bz.TextBody}" Margin="0,4,0,0"
+                                               Visibility="{Binding ShowDetail, Converter={StaticResource B2V}}"/>
+                                    <TextBlock Text="{Binding Guidance}" FontSize="12" LineHeight="17" TextWrapping="Wrap" Foreground="{StaticResource Bz.Text3}" Margin="0,4,0,0"
+                                               Visibility="{Binding ShowGuidance, Converter={StaticResource B2V}}"/>
+                                    <WrapPanel Margin="-8,4,0,0">
+                                        <Button Style="{StaticResource TextBtn}" Content="{Binding ActionLabel}" Tag="{Binding Rule}" Click="ProjectAct_Click"
+                                                IsEnabled="{Binding Idle}"
+                                                Visibility="{Binding ShowAction, Converter={StaticResource B2V}}"/>
+                                        <Button Style="{StaticResource TextBtn}" Content="{Binding RecheckLabel}" Tag="{Binding Rule}" Click="ProjectRecheck_Click"
+                                                IsEnabled="{Binding Idle}"
+                                                Visibility="{Binding CanRecheck, Converter={StaticResource B2V}}"/>
+                                    </WrapPanel>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </StackPanel>
+
         <!-- Issues view: the verdict in one line (Clear Sheet issues); it opens the full result -->
         <Grid Visibility="{Binding ShowVerdictBar, Converter={StaticResource B2V}}">
         <Button Style="{StaticResource RowBtn}" Click="Checklist_Click" Padding="16,0,16,0" MinHeight="44"

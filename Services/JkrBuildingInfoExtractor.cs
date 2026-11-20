@@ -151,6 +151,25 @@ namespace RevitWebAppSync.Services
             return result;
         }
 
+        /// <summary>The Project Information text parameter the Project Checklist's Confirm BPEP writes (rule 22).</summary>
+        public const string BpepConfirmedParam = "BPEP_Confirmed";
+
+        /// <summary>
+        /// AI-436: only the project-level part (file name, template, shared parameters, Project
+        /// Information) as a request's project block, for a project re-check. No element walk.
+        /// </summary>
+        public static JkrProjectMetadata ExtractProject(Document doc, int lodLevel, string discipline)
+        {
+            var result = new JkrExtractionResult
+            {
+                ProjectName = System.IO.Path.GetFileNameWithoutExtension(doc.PathName ?? "Untitled"),
+                FileName = System.IO.Path.GetFileNameWithoutExtension(doc.PathName ?? ""),
+            };
+            result.Discipline = string.IsNullOrEmpty(discipline) ? DetectDiscipline(result.FileName) : discipline;
+            ExtractProjectMetadata(doc, result);
+            return result.ToV2Request(lodLevel: lodLevel).Project;
+        }
+
         /// <summary>
         /// Extract project-level metadata: template, shared params, linked models.
         /// Each section is wrapped in its own try/catch so one failure (e.g. one
@@ -214,6 +233,8 @@ namespace RevitWebAppSync.Services
                     ReadProjectInfoField(projInfo, "Project Address", result);
                     ReadProjectInfoField(projInfo, "Building Name", result);
                     ReadProjectInfoField(projInfo, "Organization Name", result);
+                    // AI-436: rule 22 (BPEP exists) reads this text parameter, "Yes" once the user confirmed.
+                    ReadProjectInfoField(projInfo, BpepConfirmedParam, result);
                 }
             }
             catch (Exception ex)

@@ -186,6 +186,7 @@
     <Compile Include="..\UI\Jkr\Panel\Core\RunScreenModel.cs" Link="Panel\RunScreenModel.cs" />
     <Compile Include="..\UI\Jkr\Panel\Core\ResultsAdapter.cs" Link="Panel\ResultsAdapter.cs" />
     <Compile Include="..\UI\Jkr\Panel\Core\ResultsScreenModel.cs" Link="Panel\ResultsScreenModel.cs" />
+    <Compile Include="..\UI\Jkr\Panel\Core\ProjectChecklistModel.cs" Link="Panel\ProjectChecklistModel.cs" />
     <!-- JKR Model Audit spec checklist (catalog, run → spec mapping, rows). -->
     <Compile Include="..\UI\Jkr\Panel\Core\SpecCatalog.cs" Link="Panel\SpecCatalog.cs" />
     <Compile Include="..\UI\Jkr\Panel\Core\SpecReport.cs" Link="Panel\SpecReport.cs" />

@@ -36,6 +36,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel
             PreviewMouseDown += (_, e) => JkrPaneLog.Write("ResultsView press " + e.ChangedButton + " on " + (e.OriginalSource as FrameworkElement)?.GetType().Name
                                                            + " (window active=" + (Window.GetWindow(this)?.IsActive.ToString() ?? "no window") + ", keyboard focus within=" + IsKeyboardFocusWithin + ")");
             BodyContent.RequestBringIntoView += OnBodyBringIntoView;
+            // Rule 21: its setting is the LOD box on the tools bar (the pane's, not a Revit one).
+            model.ProjectChecklist.FocusLodRequested += () => { BodyScroll.ScrollToTop(); LodBox.Focus(); };
         }
 
         // ── clicks ──
@@ -56,6 +58,10 @@ namespace RevitWebAppSync.UI.Jkr.Panel
         private void ClearQuery_Click(object s, RoutedEventArgs e) => _model.ClearQuery();
         private void Reset_Click(object s, RoutedEventArgs e) => _model.Reset();
         private void Export_Click(object s, RoutedEventArgs e) => _model.Export();
+
+        // Project Checklist (AI-436): the item's action, and its own re-check.
+        private void ProjectAct_Click(object s, RoutedEventArgs e) => _model.ProjectChecklist.Act((int)((FrameworkElement)s).Tag);
+        private void ProjectRecheck_Click(object s, RoutedEventArgs e) => _model.ProjectChecklist.Recheck((int)((FrameworkElement)s).Tag);
 
         // Checklist (JKR Model Audit spec view)
         private void Checklist_Click(object s, RoutedEventArgs e) => _model.ShowChecklistTab();
