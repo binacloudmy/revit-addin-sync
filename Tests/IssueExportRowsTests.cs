@@ -43,10 +43,43 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void Seven_columns_and_csv_quoting()
+        public void Element_id_and_rule_code_columns_are_written()
         {
-            Assert.Equal(7, IssueExportRows.Header.Length);
-            Assert.Equal(7, IssueExportRows.Cells(Sample()[0]).Length);
+            var i = new IssueVm
+            {
+                Id = "abc", Title = "Door too narrow", CheckId = "SPEC-A1.1-3f9c0a1b2c3d", BorangKey = "A1",
+                RevitElementId = 123456, Status = IssueStatus.Open,
+            };
+            var header = IssueExportRows.Header;
+            var cells = IssueExportRows.Cells(i);
+            Assert.Equal(header.Length, cells.Length);
+            Assert.Equal("123456", cells[7]);
+            Assert.Equal("A1.1", cells[8]);
+            // BM or EN, by the pane language
+            Assert.Contains(header[7], new[] { "ID Elemen", "Element ID" });
+            Assert.Contains(header[8], new[] { "Kod Peraturan", "Rule code" });
+        }
+
+        [Theory]
+        [InlineData("SPEC-C5.1.1", "C5.1.1")]
+        [InlineData("SPEC-Dd.1", "Dd.1")]
+        [InlineData("BIM010-A6", "A6")]
+        [InlineData("backend_rule_7", "backend_rule_7")]
+        [InlineData("", "")]
+        public void Rule_code_drops_the_prefix(string checkId, string code) =>
+            Assert.Equal(code, IssueExportRows.RuleCodeOf(new IssueVm { CheckId = checkId }));
+
+        [Fact]
+        public void Element_id_is_blank_for_a_project_level_issue()
+        {
+            Assert.Equal("", IssueExportRows.Cells(new IssueVm { Id = "p", RevitElementId = 0 })[7]);
+        }
+
+        [Fact]
+        public void Nine_columns_and_csv_quoting()
+        {
+            Assert.Equal(9, IssueExportRows.Header.Length);
+            Assert.Equal(9, IssueExportRows.Cells(Sample()[0]).Length);
             Assert.Equal("\"a,\"\"b\"\"\"", IssueExportRows.CsvCell("a,\"b\""));
             Assert.Equal("", IssueExportRows.CsvCell(null));
         }
