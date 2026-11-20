@@ -38,6 +38,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         public Action? ShowMarks;
         /// <summary>Result card: hide this turn's marks and key ("Hide marks"); the pill stays in the view.</summary>
         public Action? HideMarks;
+        /// <summary>r21: the language of the card these actions serve (its header and marks button follow it); set by ResultCardView.Build.</summary>
+        public ReceiptLanguage CardLanguage = ReceiptLanguage.En;
         /// <summary>What the model shows of this turn's result now.</summary>
         public Func<Highlights.MarksState>? MarksState;
         /// <summary>Something of the shown result is drawn in the view; false: Hide marks has nothing to hide (the button says so).</summary>

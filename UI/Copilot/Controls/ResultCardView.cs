@@ -35,7 +35,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             // design, rule 8: Undo next to what it undoes), the status chips with the "Steps" toggle, then the card (body only,
             // neutral border), then ONE action row (Undo last part, Redo, Save as command).
             var block = new StackPanel { Margin = new Thickness(0, 4, 0, 6) };
-            block.Children.Add(HeadlineRow(card, actions, canUndo, undone, undoOff, ms));
+            actions.CardLanguage = lang;   // r21: the header, the marks button and Undo follow the card's language
+            block.Children.Add(HeadlineRow(card, actions, canUndo, undone, undoOff));
             var chips = StatusChips(card, ms, actions);
             if (chips != null) block.Children.Add(chips);
             // A rule-set result's "4 kinds of issue" line is the Rules block's own header: not repeated above it.
@@ -60,7 +61,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             if (undone) root.Children.Add(UndoneBanner(card, lang, actions));
             // The section header: what the marks are, where, "Go to view" when they are in another view, "Hide marks" /
             // "Show in model". A selection has none unless its rows carry ids (r12: Found marks); HasMarks decides.
-            if (MarksHeader(actions, lang) is FrameworkElement header) root.Children.Add(header);
+            if (MarksHeader(actions) is FrameworkElement header) root.Children.Add(header);
 
             switch (card.Kind)
             {
@@ -89,10 +90,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         /// <summary>Below this width of the card header the buttons move under the words (a half-width dock).</summary>
         internal const double NarrowHeaderWidth = 380;
 
-        internal static FrameworkElement? MarksHeader(TurnEvidenceActions actions, ReceiptLanguage lang = ReceiptLanguage.En)
+        internal static FrameworkElement? MarksHeader(TurnEvidenceActions actions)
         {
-            var ms = lang == ReceiptLanguage.Ms;
-            var marks = MarksButton.Build(actions, ghost: true, lang);
+            var ms = actions.CardLanguage == ReceiptLanguage.Ms;
+            var marks = MarksButton.Build(actions, ghost: true);
             if (marks == null) return null;
             string Safe(Func<string>? f) { try { return f?.Invoke() ?? ""; } catch { return ""; } }
             (long Id, string Name)? Other() { try { return actions.OtherView?.Invoke(); } catch { return null; } }
@@ -193,9 +194,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         /// <summary>The headline, outside the card: a 22px check disc (amber when something needs a look), the one
         /// sentence at 17px/600 (design: "Copilot" label above, chips below), and Undo on the right: it undoes the whole
         /// turn the sentence names. When Undo is off (the model changed after the turn) it stays, greyed, and says why.</summary>
-        private static FrameworkElement HeadlineRow(ResultCardModel card, TurnEvidenceActions actions, bool canUndo, bool undone, string? undoOff, bool ms = false)
+        private static FrameworkElement HeadlineRow(ResultCardModel card, TurnEvidenceActions actions, bool canUndo, bool undone, string? undoOff)
         {
             var warn = card.HeadlineWarns;
+            var ms = actions.CardLanguage == ReceiptLanguage.Ms;
             Button? undo = null;
             if (actions.Undo != null && canUndo && !undone)
             {

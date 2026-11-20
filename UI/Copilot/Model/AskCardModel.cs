@@ -144,7 +144,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
         // An option that reads like "no": the card shows it as the quiet ghost button, last in the list.
         private static readonly Regex Decline = new Regex(
-            @"\b(cancel\w*|batal\w*|do\s+not|don'?t|no\s+thanks?|skip|none|nothing|jangan|tidak\s+perlu|abaikan|never\s*mind)\b",
+            @"\b(cancel\w*|batal\w*|do\s+not|don'?t|no\s+thanks?|skip|none|nothing|jangan|tidak\s+perlu|abaikan|never\s*mind|langkau|tiada\s+apa)\b",   // r21: the Malay card's Langkau, tiada apa
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
         /// <summary>True for a label that reads like declining or cancelling ("Cancel", "Batal", "Do not write",
@@ -184,7 +184,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
         // "Make 1 circuit", "Move 7 levels", "Delete 2 elements", "Padam 3 ...": a plan or write card's one action.
         private static readonly Regex ActionCount = new Regex(
-            @"^\s*(make|move|change|write|delete|run|create|swap|buat|padam|ubah|tulis|pindah|tukar|cipta|jalankan)\b.*\d",
+            @"^\s*(make|move|change|write|delete|run|create|swap|buat|padam|ubah|tulis|pindah|tukar|cipta|jalankan|alihkan)\b.*\d",   // r21: "Alihkan 7 aras"
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
         /// <summary>The options answer one exclusive question, so they stay a single choice even when the frame says multi

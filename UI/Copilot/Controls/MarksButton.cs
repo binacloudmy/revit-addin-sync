@@ -20,10 +20,11 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             lang != ReceiptLanguage.Ms ? LabelFor(state) : state == MarksState.Shown ? "Sembunyikan tanda" : "Tunjuk dalam model";
 
         /// <summary>The button, or null when the turn has nothing to mark or the pane has no model layer.</summary>
-        public static Button? Build(TurnEvidenceActions actions, bool ghost = false, ReceiptLanguage lang = ReceiptLanguage.En)
+        public static Button? Build(TurnEvidenceActions actions, bool ghost = false)
         {
             if (actions.ShowMarks == null || actions.HideMarks == null) return null;
             if (!Safe(actions.HasMarks, true)) return null;
+            var lang = actions.CardLanguage;
             MarksState State() { try { return actions.MarksState?.Invoke() ?? MarksState.None; } catch { return MarksState.None; } }
             Button? button = null;
             void Click()
