@@ -57,6 +57,11 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// <summary>No ready-made fix, but the row can ask the backend AI fixer for one (never Fix all).</summary>
         public bool AiFix;
 
+        /// <summary>AI-434: several valid codes; the row's input is a dropdown of <see cref="Options"/> and
+        /// <see cref="PickCode"/> (the AI's choice, or "") is preselected. Never in Fix all.</summary>
+        public bool Pick;
+        public string PickCode = "";
+
         /// <summary>Why the AI fixer proposed <see cref="Prop"/> ("Closest match in the JKR material
         /// list…"). Only with a proposal.</summary>
         public Text AiReason;

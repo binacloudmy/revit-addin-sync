@@ -53,8 +53,11 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 FixError = PaneText.FixReason(i.FixError ?? "", lang),
                 AiFix = i.AiFixCandidate,
                 AiAsked = i.AiAsked,
-                AiReason = i.AiFixCandidate && !string.IsNullOrWhiteSpace(i.AiProposal?.Reason) ? Text.Same(i.AiProposal.Reason.Trim()) : null,
-                Options = i.ReferenceValues ?? Array.Empty<string>(),
+                AiReason = i.IsPick && !string.IsNullOrWhiteSpace(i.AiSuggestionReason) ? Text.Same(i.AiSuggestionReason.Trim())
+                         : i.AiFixCandidate && !string.IsNullOrWhiteSpace(i.AiProposal?.Reason) ? Text.Same(i.AiProposal.Reason.Trim()) : null,
+                Pick = i.IsPick,
+                PickCode = i.IsPick ? i.AiSuggestedCode : "",
+                Options = i.IsPick ? i.ValidOptions : i.ReferenceValues ?? Array.Empty<string>(),
                 Status = human ? (i.Reviewed ? ItemStatus.Reviewed : ItemStatus.Open) : StatusOf(i.Status),
                 Passed = i.Status == IssueStatus.Fixed && i.FixVerified,
                 MarkedManual = i.Status == IssueStatus.ManualFixNeeded,

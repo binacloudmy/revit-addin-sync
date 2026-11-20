@@ -109,6 +109,9 @@ namespace RevitWebAppSync.Services
                     ActualValue = issue.ActualValue ?? "",
                     ExpectedValue = Cap(issue.ExpectedValue, maxTextLength),
                     Reason = Cap(issue.Reason, maxTextLength),
+                    // AI-434: the picker's inputs, untouched (a few short codes).
+                    ValidOptions = issue.ValidOptions == null ? null : new List<string>(issue.ValidOptions),
+                    RequiresUserChoice = issue.RequiresUserChoice,
                 });
             }
 

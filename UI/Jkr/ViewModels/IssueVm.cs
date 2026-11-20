@@ -226,6 +226,39 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// Empty = free text, validated against the rule before the write.</summary>
         public System.Collections.Generic.IReadOnlyList<string> ReferenceValues { get; set; } = System.Array.Empty<string>();
 
+        // ── AI-434: the multi-valid-code picker ──
+
+        /// <summary>The codes the rule accepts for this element (Kod_Jenis / Sistem / Sub_Sistem). Empty from an
+        /// older backend or for a rule with one right answer.</summary>
+        public System.Collections.Generic.IReadOnlyList<string> ValidOptions { get; private set; } = System.Array.Empty<string>();
+        /// <summary>The AI's pick among <see cref="ValidOptions"/>, or "". Advisory: never written without a person.</summary>
+        public string AiSuggestedCode { get; private set; } = "";
+        public string AiSuggestionReason { get; private set; } = "";
+        /// <summary>The backend says the person must choose (several valid codes).</summary>
+        public bool RequiresUserChoice { get; private set; }
+
+        /// <summary>The row is a picker: several valid codes and a person has to choose. Fix all never writes it.</summary>
+        public bool IsPick => RequiresUserChoice && ValidOptions.Count > 0 && !NeedsPerson;
+
+        /// <summary>Fix all (and the checklist's Fix n) may write this row: a ready-made fix, never a pick row.</summary>
+        public bool BulkFixable => AutoFixable && !IsPick;
+
+        /// <summary>Take the backend's picker fields. Tolerates absent ones (older backends): no options, no pick.
+        /// A suggestion that is not one of the options is dropped; a pick row is never AutoFixable.</summary>
+        public void SetPick(System.Collections.Generic.IEnumerable<string> options, string suggestedCode, string reason, bool requiresUserChoice)
+        {
+            var list = new System.Collections.Generic.List<string>();
+            foreach (var o in options ?? System.Array.Empty<string>())
+                if (!string.IsNullOrWhiteSpace(o) && !list.Contains(o.Trim())) list.Add(o.Trim());
+            ValidOptions = list;
+            RequiresUserChoice = requiresUserChoice;
+            var code = (suggestedCode ?? "").Trim();
+            var hit = list.Find(o => string.Equals(o, code, System.StringComparison.OrdinalIgnoreCase));
+            AiSuggestedCode = hit ?? "";
+            AiSuggestionReason = hit != null ? (reason ?? "").Trim() : "";
+            if (IsPick) AutoFixable = false;
+        }
+
         /// <summary>Load the AI proposal into the Fix* fields for ONE accepted write (the
         /// confirm lists it as an AI proposal). AutoFixable stays false.</summary>
         public void UseAiSuggestion()
