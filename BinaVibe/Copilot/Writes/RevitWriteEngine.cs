@@ -600,6 +600,9 @@ namespace BinaVibe.Copilot.Writes
             public Dictionary<long, string> DeletedSide = new();
             /// <summary>r19: added ids the envelope counts as side effects, with their category (an addition a later call deleted is taken back out).</summary>
             public Dictionary<long, string> AddedSide = new();
+            /// <summary>r21: modified ids the envelope counts as side effects, with their category, and the ids the call wrote (touched).</summary>
+            public Dictionary<long, string> ModifiedSide = new();
+            public HashSet<long> Touched = new();
             /// <summary>Code previews (live-test L15): values of the first edited elements after the
             /// code ran (read again as "before" once the preview rolled back), and how many were edited.</summary>
             public Dictionary<long, IReadOnlyList<ValueCell>>? ValuesAfter;
@@ -612,6 +615,7 @@ namespace BinaVibe.Copilot.Writes
         private static int FoldAddedThenDeleted(IReadOnlyList<(Envelope? Env, CallRun Run)> calls)
         {
             if (calls.Count < 2) return 0;
+            FoldRepeatedModified(calls);   // r21 (live H3 0a1dff76)
             var gone = BornIds.AddedThenDeleted(calls.Select(c => ((IEnumerable<long>?)c.Run.Changes?.Added, (IEnumerable<long>?)c.Run.Changes?.Deleted)).ToList());
             if (gone.Count == 0) return 0;
             foreach (var (env, run) in calls)
@@ -621,6 +625,18 @@ namespace BinaVibe.Copilot.Writes
                 run.Existing.RemoveAll(gone.Contains);
             }
             return gone.Count;
+        }
+
+        /// <summary>r21 (live L4 H3, 0a1dff76): the Height call listed the fittings the Width call had already adjusted, and the result added
+        /// them up ("adjusted 4 Duct Fittings, 2 Air Terminals" for 2 and 1). Each call keeps only the side-effect modifications no earlier
+        /// call counted (BatchSideEffects.Repeated); envelope counts only.</summary>
+        private static void FoldRepeatedModified(IReadOnlyList<(Envelope? Env, CallRun Run)> calls)
+        {
+            var drop = BatchSideEffects.Repeated(calls.Select(c => new BatchSideEffects.Call
+            {
+                ModifiedSide = c.Run.ModifiedSide, Touched = c.Run.Touched, Added = c.Run.Changes?.Added, Deleted = c.Run.Changes?.Deleted,
+            }).ToList());
+            for (var k = 0; k < calls.Count; k++) BatchSideEffects.DropModified(calls[k].Env, calls[k].Run.ModifiedSide, drop[k]);
         }
 
         private static CallRun RunCall(Document doc, IWriteTool tool, ToolContext ctx, ToolCallDto call, WritePlan plan,
@@ -724,6 +740,9 @@ namespace BinaVibe.Copilot.Writes
                     else run.DeletedSide[id] = cat;
                 }
                 var bookkeeping = new HashSet<long>(ChangeSetMath.BookkeepingIds(labelled));
+                run.Touched.UnionWith(touchedSet);
+                foreach (var id in labelled.Modified.Where(id => !benign.Contains(id) && !touchedSet.Contains(id) && !bookkeeping.Contains(id)))   // as ChangeSetMath.Split counts them
+                    run.ModifiedSide[id] = labelled.CategoryOf.TryGetValue(id, out var c) && !string.IsNullOrWhiteSpace(c) ? c : EnvelopeChanges.UnknownCategory;
                 foreach (var id in labelled.Added.Where(id => !benign.Contains(id) && !touchedSet.Contains(id) && !bookkeeping.Contains(id)))
                     run.AddedSide[id] = labelled.CategoryOf.TryGetValue(id, out var c) && !string.IsNullOrWhiteSpace(c) ? c : EnvelopeChanges.UnknownCategory;
                 builder.AddCall(
