@@ -49,8 +49,8 @@ namespace BinaVibe.Copilot.Writes
         /// to; -1 for model elements. Part of the shape key, so a commit landing in another view
         /// than the preview drifts (final review I-3).</summary>
         public long OwnerViewId = -1;
-        /// <summary>r18: a new element type, a view-specific element or one of a non-model category (annotation, analytical,
-        /// internal). It changes no model geometry, so the force path never calls it unconnected (JudgeConnected).</summary>
+        /// <summary>r18: an allow-listed annotation (tag, dimension, text note, generic annotation) or an element type this write added
+        /// (NonModelPolicy). The force path never calls it unconnected (JudgeConnected).</summary>
         public bool NonModel;
     }
 

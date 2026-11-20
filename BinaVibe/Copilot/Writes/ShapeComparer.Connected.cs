@@ -17,8 +17,8 @@
 // the card before and the result after.
 // r18 (live 4e70cf53): the pairs above (1543386/1543387, 1550728/1550729) proved not to be fittings but elements Revit created and removed
 // inside the same write, reported deleted and never added; BornIds now drops them before any comparison, so that resize matches. The force
-// path stays for a drift in real connected elements; view-specific and non-model elements (nonModel, AddedShape.NonModel) never count as
-// unconnected.
+// path stays for a drift in real connected elements; only allow-listed annotation and added element types (NonModelPolicy: nonModel,
+// AddedShape.NonModel) never count as unconnected. Datums, views, sheets, analytical and detail elements always do.
 
 using System;
 using System.Collections.Generic;
@@ -118,7 +118,7 @@ namespace BinaVibe.Copilot.Writes
         /// <summary>Judges a drift against the elements connected to the batch's targets (ConnectedDrift). <paramref name="before"/>:
         /// id -> category of what was connected before the commit ran; <paramref name="after"/>: the same after it ran (new fittings
         /// included). A null preview (estimate-only card) is never connected-only. <paramref name="nonModel"/> (r18): existing ids that are
-        /// view-specific or of a non-model category (a tag, an analytical element); like an added element type or annotation
+        /// allow-listed annotation (NonModelPolicy: tags, dimensions, text notes, generic annotation); like an added element type
         /// (AddedShape.NonModel) they are listed but never make the drift unconnected.</summary>
         public static ConnectedVerdict JudgeConnected(BatchShape? previewShape, BatchShape commitShape,
                                                       IReadOnlyDictionary<long, string> before, IReadOnlyDictionary<long, string> after,
@@ -193,7 +193,7 @@ namespace BinaVibe.Copilot.Writes
 
         /// <summary>A forced commit's own check (safety audit r17, P1): every existing element the commit deleted or changed must be a target or
         /// connected to one, whether or not the shape matched the preview (a default fix Revit applied in both runs would match). Uncategorised
-        /// class:* ids are Revit's bookkeeping, as in Compare; r18: <paramref name="nonModel"/> ids (view-specific, non-model categories) are
+        /// class:* ids are Revit's bookkeeping, as in Compare; r18: <paramref name="nonModel"/> ids (allow-listed annotation, NonModelPolicy) are
         /// allowed as in JudgeConnected. Returns the first id outside, or null.</summary>
         public static long? ForcedOutside(BatchShape commit, ISet<long> allowed, IReadOnlyCollection<long>? nonModel = null)
         {

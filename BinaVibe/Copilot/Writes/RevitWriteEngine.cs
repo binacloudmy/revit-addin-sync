@@ -456,7 +456,7 @@ namespace BinaVibe.Copilot.Writes
                     st.Mark("value fingerprints");
                     var verdict = ShapeComparer.Compare(fresh, preview.Shape, shape);
                     var connectedAfter = batch.ForceConnected || !verdict.IsMatch ? ConnectedSet.Of(doc!, targetIds) : new Dictionary<long, string>();
-                    // r18: existing ids that are view-specific or non-model (tags, analytical elements) never make a drift unconnected.
+                    // r18: existing allow-listed annotation (tags, dimensions, text, generic annotation; NonModelPolicy) never makes a drift unconnected.
                     var nonModel = batch.ForceConnected || !verdict.IsMatch
                         ? NonModelIds(doc!, shape.Modified.Concat(shape.Deleted)
                             .Concat(preview.Shape?.Modified ?? Enumerable.Empty<long>()).Concat(preview.Shape?.Deleted ?? Enumerable.Empty<long>()))
@@ -1126,17 +1126,15 @@ namespace BinaVibe.Copilot.Writes
             };
         }
 
-        /// <summary>r18: an element whose change cannot move model geometry: view-specific (a tag, a dimension), of a non-model category
-        /// (annotation, analytical, internal), or, when the write added it, an element type (a new FamilySymbol or DuctType). An existing
-        /// type is NOT one: editing it changes every instance. Unreadable: false.</summary>
+        /// <summary>r18 audit: an allow-listed annotation (tag, dimension, text note, generic annotation) or, when the write added it, an
+        /// element type (NonModelPolicy). Datums, views, sheets, analytical and detail elements are never one. Unreadable: false.</summary>
         private static bool IsNonModel(Element e, bool added)
         {
             try
             {
-                if (added && e is ElementType) return true;
-                if (e.ViewSpecific) return true;
-                var c = e.Category;
-                return c != null && c.CategoryType != CategoryType.Model;
+                var chain = new List<string>();
+                for (var type = e.GetType(); type != null && type != typeof(object); type = type.BaseType) chain.Add(type.Name);
+                return NonModelPolicy.IsExempt(chain, added);
             }
             catch (Exception)
             {
