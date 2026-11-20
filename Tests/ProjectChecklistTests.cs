@@ -192,6 +192,79 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(ProjectCheckState.NotChecked, m.Item(26).State);
         }
 
+        // ── AI-440: a failed re-check or write is shown, never silent ──
+
+        [Theory]
+        [InlineData("en", "Recheck error: 500 InternalServerError — boom")]
+        [InlineData("ms", "Recheck error: 500 InternalServerError — boom")]
+        public void A_failed_recheck_puts_the_error_on_the_row(string lang, string error)
+        {
+            var m = new ProjectChecklistModel(); m.SetLang(lang);
+            m.Begin(22);
+            m.ApplyRecheck(22, Reply(false, error: error));
+            var it = m.Item(22);
+            Assert.Equal(ProjectCheckState.Unavailable, it.State);
+            Assert.Equal(error, it.Error);
+            Assert.True(it.ShowError);
+        }
+
+        [Theory]
+        [InlineData("en", "no answer")]
+        [InlineData("ms", "tiada jawapan")]
+        public void A_missing_answer_still_shows_a_words_error_in_the_pane_language(string lang, string expected)
+        {
+            var m = new ProjectChecklistModel(); m.SetLang(lang);
+            m.ApplyRecheck(23, null);
+            Assert.True(m.Item(23).ShowError);
+            Assert.Contains(expected, m.Item(23).Error, System.StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
+        public void The_error_clears_when_the_next_check_starts_and_when_it_answers()
+        {
+            var m = new ProjectChecklistModel();
+            m.ApplyRecheck(24, Reply(false, error: "down"));
+            m.Begin(24);
+            Assert.False(m.Item(24).ShowError);
+            m.ApplyRecheck(24, Reply(false, error: "down"));
+            m.ApplyRecheck(24, Reply(true));
+            Assert.False(m.Item(24).ShowError);
+        }
+
+        [Fact]
+        public void A_failed_write_shows_on_the_row_and_keeps_the_state()
+        {
+            var m = new ProjectChecklistModel();
+            m.ApplyRecheck(22, Reply(false, reason: "BPEP not confirmed"));
+            m.ApplyActionError(22, "BPEP_Confirmed cannot be written");
+            Assert.Equal(ProjectCheckState.Fail, m.Item(22).State);
+            Assert.True(m.Item(22).ShowError);
+            Assert.Equal("BPEP_Confirmed cannot be written", m.Item(22).Error);
+        }
+
+        [Theory]
+        [InlineData("en", "Could not check")]
+        [InlineData("ms", "Tidak dapat menyemak")]
+        public void The_toast_names_the_rule_and_the_reason(string lang, string lead)
+        {
+            var t = ProjectChecklistText.RecheckFailedToast(22, "HTTP 503", lang);
+            Assert.StartsWith(lead, t);
+            Assert.Contains("HTTP 503", t);
+            Assert.Contains(ProjectChecklistText.Title(22, lang), t);
+        }
+
+        [Fact]
+        public void A_non_200_error_text_carries_the_backends_detail_or_body()
+        {
+            Assert.Equal("Recheck error: 422 UnprocessableEntity — bad project",
+                ProjectChecklistModel.HttpErrorText(422, "UnprocessableEntity", "{\"detail\":\"bad project\"}"));
+            Assert.Equal("Recheck error: 502 BadGateway — upstream down",
+                ProjectChecklistModel.HttpErrorText(502, "BadGateway", "upstream down"));
+            Assert.Equal("Recheck error: 500 InternalServerError",
+                ProjectChecklistModel.HttpErrorText(500, "InternalServerError", ""));
+            Assert.True(ProjectChecklistModel.HttpErrorText(500, "X", new string('a', 5000)).Length < 400);
+        }
+
         // ── wire ──
 
         [Theory]

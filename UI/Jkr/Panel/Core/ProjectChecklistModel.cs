@@ -70,6 +70,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public string Detail { get; internal set; } = "";
         /// <summary>Rule 26: 0..100, null until a scan has answered.</summary>
         public double? PercentValue { get; internal set; }
+        /// <summary>AI-440: why the last re-check or write failed (backend, network, auth, Revit). Cleared by the next check.</summary>
+        public string Error { get; internal set; } = "";
+        public bool ShowError => !string.IsNullOrEmpty(Error);
 
         public double Percent => PercentValue ?? 0;
         public bool ShowProgress => Rule == ProjectChecklistModel.NamingRule;
@@ -145,6 +148,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         {
             var it = Item(rule);
             it.State = ProjectCheckState.Checking;
+            it.Error = "";
             it.Raise();
             RaiseAll();
         }
@@ -156,10 +160,12 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public void ApplyRecheck(int rule, JkrProjectRecheckResponse r)
         {
             var it = Item(rule);
+            it.Error = "";
             if (r == null || !string.IsNullOrEmpty(r.Error))
             {
                 it.State = ProjectCheckState.Unavailable;
-                it.Detail = r?.Error ?? "";
+                it.Detail = "";
+                it.Error = string.IsNullOrEmpty(r?.Error) ? ProjectChecklistText.NoAnswer(Lang) : r.Error;
             }
             else if (!r.Applicable)
             {
@@ -180,6 +186,34 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             }
             it.Raise();
             RaiseAll();
+        }
+
+        /// <summary>AI-440: a button's own work failed (the BPEP write). Shown on the row; the state is the last answer's.</summary>
+        public void ApplyActionError(int rule, string message)
+        {
+            var it = Item(rule);
+            it.Error = string.IsNullOrEmpty(message) ? ProjectChecklistText.NoAnswer(Lang) : message;
+            it.Raise();
+            RaiseAll();
+        }
+
+        /// <summary>Error text for a non-200 re-check: status, plus the backend's "detail" (or the body, cut short).</summary>
+        public static string HttpErrorText(int code, string status, string body)
+        {
+            var text = $"Recheck error: {code} {status}";
+            string why = null;
+            if (!string.IsNullOrWhiteSpace(body))
+            {
+                try
+                {
+                    var d = Newtonsoft.Json.Linq.JObject.Parse(body)["detail"];
+                    why = d == null ? null : (d.Type == Newtonsoft.Json.Linq.JTokenType.String ? (string)d : d.ToString(Newtonsoft.Json.Formatting.None));
+                }
+                catch { why = body.Trim(); }
+            }
+            if (string.IsNullOrWhiteSpace(why)) return text;
+            if (why.Length > 200) why = why.Substring(0, 200) + "…";
+            return text + " — " + why;
         }
 
         /// <summary>
@@ -324,6 +358,12 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 default: return L(lang, "Belum disemak", "Not checked");
             }
         }
+
+        public static string NoAnswer(string lang) =>
+            L(lang, "Semakan tiada jawapan. Cuba semak semula.", "The check returned no answer. Try again.");
+
+        public static string RecheckFailedToast(int rule, string error, string lang) =>
+            L(lang, $"Tidak dapat menyemak \"{Title(rule, lang)}\": {error}", $"Could not check \"{Title(rule, lang)}\": {error}");
 
         public static string NamingDetail(int named, int total, string lang) =>
             L(lang, $"{named} daripada {total} elemen guna nama JKR", $"{named} of {total} elements use JKR names");

@@ -200,7 +200,7 @@ namespace RevitWebAppSync.Services
                     return new RevitWebAppSync.UI.Jkr.Panel.Core.JkrProjectRecheckResponse { RuleNumber = rule, Error = LoginRequiredMessage };
                 if (resp.StatusCode == HttpStatusCode.NotFound)
                     return new RevitWebAppSync.UI.Jkr.Panel.Core.JkrProjectRecheckResponse { RuleNumber = rule, Error = "Project re-check not available on this backend — update bina-ai." };
-                return new RevitWebAppSync.UI.Jkr.Panel.Core.JkrProjectRecheckResponse { RuleNumber = rule, Error = $"Recheck error: {(int)resp.StatusCode} {resp.StatusCode}" };
+                return new RevitWebAppSync.UI.Jkr.Panel.Core.JkrProjectRecheckResponse { RuleNumber = rule, Error = RevitWebAppSync.UI.Jkr.Panel.Core.ProjectChecklistModel.HttpErrorText((int)resp.StatusCode, resp.StatusCode.ToString(), body) };
             }
             catch (Exception ex)
             {
