@@ -29,7 +29,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public string Quote { get; set; } = "";
     }
 
-    public class IssueVm : INotifyPropertyChanged
+    public class IssueVm : INotifyPropertyChanged, IRecheckRow
     {
         public string Id { get; set; } = "";
 
@@ -232,6 +232,12 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// fails): counts as passed. A fix not yet re-scanned is "fixed, re-scan
         /// pending" (prototype: fixed ≠ passed until re-scan).</summary>
         public bool FixVerified { get; set; }
+
+        /// <summary>How the targeted re-check (JkrRecheck) treats this row.</summary>
+        public RecheckState RecheckState =>
+            Status == IssueStatus.Fixed ? RecheckState.Fixed
+            : Status == IssueStatus.Open && !NeedsPerson ? RecheckState.Open
+            : RecheckState.Other;
 
         /// <summary>Items that need a person: "Mark as reviewed" was clicked. Kept in
         /// the audit file next to the model; never a verdict and never in the %.</summary>
