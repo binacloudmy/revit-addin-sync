@@ -452,6 +452,10 @@ Dialogs seen inside a scope are logged to `%APPDATA%\RevitWebAppSync\import-dial
 - `links`: `name`, `loaded`, `origin_mm`, `basis_x/y/z`
 - `walls` (one level) or `walls_by_level`, when `include_walls` is set
 - `runs`, when `include_runs` is set: `id`, `kind` (`conduit` or `cable_tray`), `type`, `level`, `start_mm`, `end_mm`, and `diameter_mm` or `width_mm` and `height_mm`
+- `cad_imports`: every `ImportInstance` of the document (linked or imported, whatever the level): `id`, `file` (the file name from `DwgReader.PathOf`, null when there is none), `is_linked`, and from `GetTotalTransform()`: `origin_mm`, `basis_length_x/y/z` (unitless) and `scale_guess`. `scale_guess` is `"unit"` when all three lengths are 1 (within 1e-6), the length when all three agree, else the three lengths. It answers whether the total transform carries the drawing's unit scale. A transform that cannot be read gives `transform_error`.
+- `device_types`: one row per device `FamilySymbol` among the dumped devices, in first-seen order: `family_type`, `category`, `count`, `sample_id` (the instance read), `has_connector_manager` (its `MEPModel` has a `ConnectorManager`), `connectors` (`id`, `domain` as the Revit enum name, such as `DomainCableTrayConduit` or `DomainElectrical`, `connector_type`, and `direction`, the connector's Z axis) and `has_conduit_connector` (a `DomainCableTrayConduit` connector exists). It answers whether the socket families have conduit connectors.
+
+The tool result adds the `cad_imports` and `device_types` counts.
 
 ### Headless
 

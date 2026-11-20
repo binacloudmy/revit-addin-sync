@@ -649,6 +649,9 @@ namespace BinaVibe.Mcp.Tools.Electrical
             }
 
             var devices = new List<object?>();
+            // One placed instance per device FamilySymbol, in first-seen order, for device_types.
+            var byType = new Dictionary<long, (FamilyInstance First, int Count)>();
+            var typeOrder = new List<long>();
             var filter = new ElementMulticategoryFilter(DeviceCategories.ToList());
             foreach (Element el in new FilteredElementCollector(doc).WhereElementIsNotElementType().WherePasses(filter))
             {
@@ -656,6 +659,13 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 var fi = el as FamilyInstance;
                 Level? on = DeviceLevel(doc, el);
                 if (level != null && (on == null || on.Id != level.Id)) continue;
+
+                if (fi?.Symbol != null)
+                {
+                    long typeId = fi.Symbol.Id.Value;
+                    if (byType.TryGetValue(typeId, out var seen)) byType[typeId] = (seen.First, seen.Count + 1);
+                    else { byType[typeId] = (fi, 1); typeOrder.Add(typeId); }
+                }
 
                 // A face-hosted device faces out of its host face; its FacingOrientation lies in
                 // that face (up, on a wall) and would read [0,0] in plan.
@@ -697,12 +707,17 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 });
             }
 
+            var deviceTypes = typeOrder.Select(id => (object?)DeviceTypeRow(byType[id].First, byType[id].Count)).ToList();
+            List<object?> cadImports = CadImportRows(doc);
+
             var dump = new Dictionary<string, object?>
             {
                 ["schema"] = "cad.electrical.reference/1",
                 ["level"] = level?.Name,
                 ["devices"] = devices,
                 ["links"] = links,
+                ["cad_imports"] = cadImports,
+                ["device_types"] = deviceTypes,
             };
 
             int wallCount = 0;
@@ -755,6 +770,95 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 ["links"] = links.Count,
                 ["walls"] = wallCount,
                 ["runs"] = runCount,
+                ["cad_imports"] = cadImports.Count,
+                ["device_types"] = deviceTypes.Count,
+            };
+        }
+
+        /// <summary>Every CAD import or link of the document and its total transform: does the
+        /// transform carry the drawing's unit scale? Origin in mm; basis lengths unitless.</summary>
+        private static List<object?> CadImportRows(Document doc)
+        {
+            var rows = new List<object?>();
+            foreach (ImportInstance imp in new FilteredElementCollector(doc).OfClass(typeof(ImportInstance))
+                         .Cast<ImportInstance>())
+            {
+                string? file = null;
+                try
+                {
+                    string path = DwgReader.PathOf(doc, imp);
+                    file = string.IsNullOrEmpty(path) ? null : Path.GetFileName(path);
+                }
+                catch { file = null; }
+
+                var row = new Dictionary<string, object?>
+                {
+                    ["id"] = imp.Id.Value,
+                    ["file"] = file,
+                    ["is_linked"] = imp.IsLinked,
+                };
+                try
+                {
+                    Transform t = imp.GetTotalTransform();
+                    foreach (var pair in ReferenceDumpFacts.TransformFacts(Xyz(t.Origin), Xyz(t.BasisX), Xyz(t.BasisY), Xyz(t.BasisZ)))
+                        row[pair.Key] = pair.Value;
+                }
+                catch (Exception ex) { row["transform_error"] = ex.Message; }
+                rows.Add(row);
+            }
+            return rows;
+        }
+
+        private static double[] Xyz(XYZ v) => new[] { v.X, v.Y, v.Z };
+
+        /// <summary>One device type of the dump: its count and the connectors of one placed
+        /// instance (MEPModel's ConnectorManager), by domain. Do socket families have conduit
+        /// connectors?</summary>
+        private static Dictionary<string, object?> DeviceTypeRow(FamilyInstance sample, int count)
+        {
+            var connectors = new List<object?>();
+            var domains = new List<string>();
+            bool hasManager = false;
+            try
+            {
+                ConnectorManager? cm = MutatorsMepRouting.GetConnectorManager(sample);
+                if (cm != null)
+                {
+                    hasManager = true;
+                    foreach (Connector c in cm.Connectors)
+                    {
+                        string domain = c.Domain.ToString();
+                        domains.Add(domain);
+                        var row = new Dictionary<string, object?>
+                        {
+                            ["id"] = c.Id,
+                            ["domain"] = domain,
+                            ["connector_type"] = c.ConnectorType.ToString(),
+                        };
+                        try
+                        {
+                            XYZ z = c.CoordinateSystem.BasisZ;
+                            row["direction"] = new List<object?> { Math.Round(z.X, 4), Math.Round(z.Y, 4), Math.Round(z.Z, 4) };
+                        }
+                        catch { row["direction"] = null; }
+                        connectors.Add(row);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                connectors.Add(new Dictionary<string, object?> { ["error"] = ex.Message });
+            }
+
+            return new Dictionary<string, object?>
+            {
+                ["family_type"] = FullName(sample.Symbol),
+                ["category"] = sample.Category?.Name ?? "",
+                ["count"] = count,
+                ["sample_id"] = sample.Id.Value,
+                ["has_connector_manager"] = hasManager,
+                ["connectors"] = connectors,
+                ["has_conduit_connector"] = ReferenceDumpFacts.HasConduitConnector(domains),
             };
         }
 
