@@ -155,7 +155,6 @@ namespace BinaVibe.Copilot.Writes
             var openViews = OpenViewIds(uidoc);
             using (CallbackScope.Enter(doc, CallbackKind.Preview))
             using (FailureScope.Begin(doc.Application))
-            using (batch.ForceConnected ? BinaVibe.Copilot.Guard.ForceScope.Begin(PreviewForceIds(doc, writePlans)) : null)
             {
                 var group = new TransactionGroup(doc, outcome.GroupName);
                 try
@@ -378,7 +377,7 @@ namespace BinaVibe.Copilot.Writes
             // The force path (ConnectedDrift): what is connected to the targets, read BEFORE the calls run (a fitting Revit removes
             // cannot be read afterwards). Read for every batch with targets, so a refused drift can say whether it was connected-only.
             var targetIds = fresh.SelectMany(p => p.TargetIds ?? Array.Empty<long>()).Distinct().ToList();
-            var connectedBefore = ConnectedSet.Of(doc!, targetIds);
+            var connectedBefore = ConnectedSet.Of(doc!, targetIds, out var measured);
             st.Mark("connected set (" + connectedBefore.Count + ")");
             using (CallbackScope.Enter(doc!, CallbackKind.Commit))
             using (FailureScope.Begin(doc!.Application))
@@ -413,21 +412,38 @@ namespace BinaVibe.Copilot.Writes
                     RevitValueFingerprints.Fill(doc!, shape, builder.AddedIds);   // R75, compared with the preview's
                     st.Mark("value fingerprints");
                     var verdict = ShapeComparer.Compare(fresh, preview.Shape, shape);
+                    var connectedAfter = batch.ForceConnected || !verdict.IsMatch ? ConnectedSet.Of(doc!, targetIds) : new Dictionary<long, string>();
+                    if (batch.ForceConnected)
+                    {
+                        // Safety audit P1: a forced commit may delete or change only targets and connected elements, matched preview or not.
+                        var allowed = new HashSet<long>(targetIds.Concat(connectedBefore.Keys).Concat(connectedAfter.Keys));
+                        var outside = ShapeComparer.ForcedOutside(shape, allowed);
+                        if (!measured || outside != null)
+                        {
+                            RollBackIfOpen(group);
+                            var what = outside == null ? "the elements connected to the targets could not all be read"
+                                : "Revit would also change element " + outside.Value.ToString(CultureInfo.InvariantCulture) +
+                                  " (" + shape.CategoryOfId(outside.Value) + "), which is not connected to the changed element(s)";
+                            return Failed(batch, 0, WriteEnvelopes.Failure(ErrorCodes.PolicyRejected,
+                                "The forced change was refused: " + what + ". It was rolled back; nothing was changed.", EnvelopePhase.Commit));
+                        }
+                    }
                     capWarning = ValueFingerprint.CapWarning(shape);
                     if (preview.Shape != null) unreadWarning = ValueFingerprint.UnreadWarning(preview.Shape, shape);
                     if (!verdict.IsMatch)
                     {
                         // Judged against what is connected to the targets before and after the calls ran: a forced batch keeps a
                         // connected-only drift and reports it; anything else rolls back and says what differed (DriftData).
-                        var connected = ShapeComparer.JudgeConnected(preview.Shape, shape, connectedBefore, ConnectedSet.Of(doc!, targetIds), targetIds);
-                        if (batch.ForceConnected && connected.ConnectedOnly)
+                        var connected = ShapeComparer.JudgeConnected(preview.Shape, shape, connectedBefore, connectedAfter, targetIds, measured);
+                        // Safety audit P2: only what the Force card listed (ForceApproval) may be kept.
+                        if (batch.ForceConnected && connected.ConnectedOnly && batch.ForceApproval != null && batch.ForceApproval.Covers(connected))
                         {
                             forcedWarning = ConnectedDrift.ForcedWarning(connected);
                         }
                         else
                         {
                             RollBackIfOpen(group);
-                            return new CommitOutcome { Kind = CommitKind.Drift, Reason = verdict.Reason, DriftData = ConnectedDrift.Data(connected) };
+                            return new CommitOutcome { Kind = CommitKind.Drift, Reason = verdict.Reason, DriftData = ConnectedDrift.Data(connected), Connected = connected };
                         }
                     }
 
@@ -497,13 +513,6 @@ namespace BinaVibe.Copilot.Writes
             }
             foreach (var e in envelopes.Where(e => e != null)) EnvelopeChanges.Recheck(e);
             return new CommitOutcome { Kind = CommitKind.Committed, Envelopes = envelopes, UndoEntry = !noop };
-        }
-
-        /// <summary>The ids a forced preview may let Revit resolve errors on: the targets and what is connected to them.</summary>
-        private static IEnumerable<long> PreviewForceIds(Document doc, IEnumerable<WritePlan> plans)
-        {
-            var targets = plans.SelectMany(p => p.TargetIds ?? Array.Empty<long>()).Distinct().ToList();
-            return targets.Concat(ConnectedSet.Of(doc, targets).Keys);
         }
 
         private static CommitOutcome Failed(WriteBatch batch, int failedIndex, Envelope failure)

@@ -92,7 +92,7 @@ namespace BinaVibe.Copilot.Writes
         }
 
         private static readonly System.Text.RegularExpressions.Regex Destructive = new System.Text.RegularExpressions.Regex(
-            @"\b(save|saving|delet\w*|remov\w*|discard\w*|overwrit\w*|purg\w*|clos(e|ing)|lose|lost|simpan|padam|buang)\b",
+            @"\b(save|saved|saves|saving|delet\w*|remov\w*|discard\w*|overwrit\w*|purg\w*|clos(e|es|ed|ing)|lose|lost|simpan\w*|disimpan|padam\w*|dipadam|buang\w*|dibuang)\b",
             System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
         /// <summary>The dialog's id or words say it saves, deletes, removes, discards, overwrites, purges, closes or loses something.</summary>

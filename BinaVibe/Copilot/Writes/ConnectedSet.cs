@@ -19,11 +19,20 @@ namespace BinaVibe.Copilot.Writes
 {
     public static class ConnectedSet
     {
-        /// <summary>id -> category name of what is connected to <paramref name="targets"/> now (the targets themselves excluded).</summary>
-        public static Dictionary<long, string> Of(Document doc, IReadOnlyCollection<long> targets)
+        /// <summary>Longest a set may take to read; past it the set is incomplete.</summary>
+        public static readonly TimeSpan Budget = TimeSpan.FromMilliseconds(1500);
+
+        public static Dictionary<long, string> Of(Document doc, IReadOnlyCollection<long> targets) => Of(doc, targets, out _);
+
+        /// <summary>id -> category name of what is connected to <paramref name="targets"/> now (the targets themselves excluded).
+        /// <paramref name="complete"/> is false when nothing was read (no target, more than MaxTargets) or the read stopped early (the cap,
+        /// the time budget): then no drift may be called connected-only.</summary>
+        public static Dictionary<long, string> Of(Document doc, IReadOnlyCollection<long> targets, out bool complete)
         {
             var found = new Dictionary<long, string>();
+            complete = false;
             if (doc == null || targets == null || targets.Count == 0 || targets.Count > ConnectedDrift.MaxTargets) return found;
+            var clock = System.Diagnostics.Stopwatch.StartNew();
             var targetSet = new HashSet<long>(targets);
             var hop1 = new List<long>();
             foreach (var id in targetSet)
@@ -33,15 +42,16 @@ namespace BinaVibe.Copilot.Writes
                 foreach (var n in ConnectorNeighbours(e)) if (Add(doc, found, targetSet, n)) hop1.Add(n);
                 foreach (var n in Joined(doc, e)) Add(doc, found, targetSet, n);
                 foreach (var n in Dependents(e)) Add(doc, found, targetSet, n);
-                if (found.Count >= ConnectedDrift.MaxConnected) return found;
+                if (found.Count >= ConnectedDrift.MaxConnected || clock.Elapsed > Budget) return found;
             }
             foreach (var id in hop1)
             {
                 var e = Get(doc, id);
                 if (e == null) continue;
                 foreach (var n in ConnectorNeighbours(e)) Add(doc, found, targetSet, n);
-                if (found.Count >= ConnectedDrift.MaxConnected) break;
+                if (found.Count >= ConnectedDrift.MaxConnected || clock.Elapsed > Budget) return found;
             }
+            complete = true;
             return found;
         }
 
@@ -105,9 +115,11 @@ namespace BinaVibe.Copilot.Writes
             catch (Exception) { return Enumerable.Empty<long>(); }
         }
 
+        /// <summary>Dependents of an instance only (a duct, pipe, fitting, wall, floor): a type's or a level's dependents are the whole model.</summary>
         private static IEnumerable<long> Dependents(Element e)
         {
-            try { return e.GetDependentElements(null).Select(id => (long)id.Value).ToList(); }
+            if (!(e is FamilyInstance || e is MEPCurve || e is HostObject)) return Enumerable.Empty<long>();
+            try { return e.GetDependentElements(null).Take(ConnectedDrift.MaxConnected).Select(id => (long)id.Value).ToList(); }
             catch (Exception) { return Enumerable.Empty<long>(); }
         }
     }

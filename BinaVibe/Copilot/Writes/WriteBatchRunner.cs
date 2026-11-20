@@ -122,6 +122,20 @@ namespace BinaVibe.Copilot.Writes
             var active = pending;
             // Only a request whose every call carries the drafter's click (tool_request force = "connected") may accept a connected drift.
             var force = pending.Count > 0 && pending.All(i => string.Equals(calls[i].Force, ConnectedDrift.ForceConnected, StringComparison.Ordinal));
+            // Bound to what the Force card showed (safety audit P2): the same calls as the turn's last connected-only drift, else refused.
+            ForceApproval? approval = null;
+            if (force)
+            {
+                approval = ForceApprovals.Find(req.TurnId, pending.Select(i => ForceApproval.Signature(calls[i])).ToList());
+                if (approval == null)
+                {
+                    foreach (var i in pending)
+                        results[i] = WriteEnvelopes.Failure(ErrorCodes.PolicyRejected,
+                            "Not approved: a forced change is accepted only for the same change whose connected effects the Force card listed in this turn. Nothing was changed.",
+                            EnvelopePhase.Preview);
+                    return;
+                }
+            }
             for (var attempt = 0; ; attempt++)
             {
                 var batch = new WriteBatch
@@ -133,6 +147,7 @@ namespace BinaVibe.Copilot.Writes
                     Description = req.Description,
                     ExpectedDoc = expected,
                     ForceConnected = force,
+                    ForceApproval = approval,
                 };
 
                 _notice?.PreviewStarting(req.RequestId, batch.Calls.Count);
@@ -193,6 +208,7 @@ namespace BinaVibe.Copilot.Writes
                     ExpectedDoc = expected,
                     RequestIndexes = writes.Select(j => active[j]).ToArray(),
                     ForceConnected = force,
+                    ForceApproval = approval,
                 };
                 var writePreview = new PreviewOutcome
                 {
@@ -274,6 +290,8 @@ namespace BinaVibe.Copilot.Writes
                             active = writeSlots;   // reads already answered; re-preview the writes only
                             continue;
                         }
+                        if (outcome.Kind == CommitKind.Drift && outcome.Connected?.ConnectedOnly == true && !force)
+                            ForceApprovals.Record(req.TurnId, ForceApproval.From(writeBatch.Calls.Select(ForceApproval.Signature), outcome.Connected));
                         foreach (var slot in writeSlots)
                             results[slot] = outcome.Kind == CommitKind.Drift
                                 ? WithDriftData(WriteEnvelopes.Drift(outcome.Reason), outcome.DriftData)

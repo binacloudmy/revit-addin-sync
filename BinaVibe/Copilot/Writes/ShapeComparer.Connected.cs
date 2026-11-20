@@ -116,7 +116,7 @@ namespace BinaVibe.Copilot.Writes
         /// included). A null preview (estimate-only card) is never connected-only.</summary>
         public static ConnectedVerdict JudgeConnected(BatchShape? previewShape, BatchShape commitShape,
                                                       IReadOnlyDictionary<long, string> before, IReadOnlyDictionary<long, string> after,
-                                                      IReadOnlyCollection<long>? targets = null)
+                                                      IReadOnlyCollection<long>? targets = null, bool measured = true)
         {
             var own = new HashSet<long>(targets ?? Array.Empty<long>());   // the targets themselves may differ too (a resized duct's length and connectors)
             if (commitShape == null) throw new ArgumentNullException(nameof(commitShape));
@@ -126,6 +126,12 @@ namespace BinaVibe.Copilot.Writes
             if (previewShape == null)
             {
                 verdict.Outside = "the change had no measured preview";
+                return verdict;
+            }
+            if (!measured)
+            {
+                // More targets than ConnectedDrift.MaxTargets, or a set cut short: what is connected is unknown, so nothing is connected-only.
+                verdict.Outside = "the elements connected to the targets could not all be read";
                 return verdict;
             }
 
@@ -176,6 +182,78 @@ namespace BinaVibe.Copilot.Writes
 
             verdict.ConnectedOnly = verdict.Outside == null && (verdict.Extras.Count > 0 || leftover.Count > 0);
             return verdict;
+        }
+
+        /// <summary>A forced commit's own check (safety audit r17, P1): every existing element the commit deleted or changed must be a target or
+        /// connected to one, whether or not the shape matched the preview (a default fix Revit applied in both runs would match). Uncategorised
+        /// class:* ids are Revit's bookkeeping, as in Compare. Returns the first id outside, or null.</summary>
+        public static long? ForcedOutside(BatchShape commit, ISet<long> allowed)
+        {
+            if (commit == null) throw new ArgumentNullException(nameof(commit));
+            foreach (var id in commit.Deleted.Concat(commit.Modified).OrderBy(i => i))
+                if (!ChangeClassifier.IsClassKey(commit.CategoryOfId(id)) && (allowed == null || !allowed.Contains(id)))
+                    return id;
+            return null;
+        }
+    }
+
+    /// <summary>What the drafter saw on the Force card (safety audit r17, P2): the drifted calls and the extras the card listed. A forced
+    /// request is honoured only for the same calls, and the forced commit may differ from its preview only in those ids (an added element by
+    /// category and count: a new fitting gets a new id in every run).</summary>
+    public sealed class ForceApproval
+    {
+        public HashSet<string> Signatures = new(StringComparer.Ordinal);
+        public HashSet<long> Ids = new();
+        public Dictionary<string, int> Added = new(StringComparer.Ordinal);
+
+        public static ForceApproval From(IEnumerable<string> signatures, ConnectedVerdict verdict)
+        {
+            var a = new ForceApproval();
+            a.Signatures.UnionWith(signatures);
+            foreach (var e in verdict.Extras)
+            {
+                if (e.Kind == ConnectedDrift.Added) a.Added[e.Category] = (a.Added.TryGetValue(e.Category, out var n) ? n : 0) + 1;
+                else a.Ids.Add(e.Id);
+            }
+            return a;
+        }
+
+        /// <summary>Every extra of the forced commit was on the card.</summary>
+        public bool Covers(ConnectedVerdict verdict)
+        {
+            foreach (var g in verdict.Extras.Where(e => e.Kind == ConnectedDrift.Added).GroupBy(e => e.Category))
+                if (!Added.TryGetValue(g.Key, out var n) || g.Count() > n) return false;
+            return verdict.Extras.Where(e => e.Kind != ConnectedDrift.Added).All(e => Ids.Contains(e.Id));
+        }
+
+        /// <summary>A call's identity: its tool and its arguments as the add-in got them.</summary>
+        public static string Signature(BinaVibe.Copilot.Contracts.ToolCallDto call) =>
+            (call?.Tool ?? "") + "|" + (call == null || call.Args.ValueKind == JsonValueKind.Undefined ? "" : JsonSerializer.Serialize(call.Args));
+    }
+
+    /// <summary>The last connected-only drift of each turn (in memory; a restarted add-in forgets it, and a forced request is then refused).</summary>
+    public static class ForceApprovals
+    {
+        private static readonly object Gate = new();
+        private static readonly Dictionary<string, ForceApproval> ByTurn = new(StringComparer.Ordinal);
+
+        public static void Record(string turnId, ForceApproval approval)
+        {
+            lock (Gate)
+            {
+                if (ByTurn.Count > 50) ByTurn.Clear();
+                ByTurn[turnId ?? ""] = approval;
+            }
+        }
+
+        /// <summary>The approval for exactly these calls in this turn, or null.</summary>
+        public static ForceApproval? Find(string turnId, IReadOnlyCollection<string> signatures)
+        {
+            lock (Gate)
+            {
+                if (!ByTurn.TryGetValue(turnId ?? "", out var a)) return null;
+                return signatures.Count > 0 && signatures.All(a.Signatures.Contains) && a.Signatures.All(signatures.Contains) ? a : null;
+            }
         }
     }
 }

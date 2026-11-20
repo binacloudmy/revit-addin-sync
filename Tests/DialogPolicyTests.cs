@@ -26,7 +26,7 @@ namespace RevitAddinSync.Tests
         public void ADialogThatSavesDeletesOrDiscards_IsNeverAnswered_EvenForAListedId()
         {
             // Tester feedback 20 Nov: only harmless dialogs get an automatic answer; anything that saves, deletes or discards waits for the drafter.
-            foreach (var text in new[] { "Do you want to save changes to MRSM1-run.rvt?", "2 elements will be deleted. Continue?", "Discard the changes?", "Padam elemen ini?" })
+            foreach (var text in new[] { "Do you want to save changes to MRSM1-run.rvt?", "2 elements will be deleted. Continue?", "Discard the changes?", "Padam elemen ini?", "The file was saved.", "Revit closes the view.", "Elemen akan dipadam." })
             {
                 var d = DialogPolicy.Decide("Dialog_Revit_DocWarnDialog", text, inOurCallback: true);
                 Assert.Equal(DialogAction.Busy, d.Action);

@@ -175,8 +175,9 @@ namespace RevitAddinSync.Tests
             public Task<CommitOutcome> CommitAsync(WriteBatch batch, PreviewOutcome preview, string planHash, CancellationToken ct)
             {
                 Batches.Add(batch);
-                var data = ConnectedDrift.Data(ShapeComparer.JudgeConnected(preview.Shape, new BatchShape { Modified = { Duct }, Deleted = { 1543386, 1543387 } }, Fittings, new Dictionary<long, string>()));
-                return Task.FromResult(new CommitOutcome { Kind = CommitKind.Drift, Reason = "The commit deleted 2 elements the preview did not delete (ids 1543386, 1543387).", DriftData = data });
+                var verdict = ShapeComparer.JudgeConnected(preview.Shape, new BatchShape { Modified = { Duct }, Deleted = { 1543386, 1543387 } }, Fittings, new Dictionary<long, string>());
+                return Task.FromResult(new CommitOutcome { Kind = CommitKind.Drift, Reason = "The commit deleted 2 elements the preview did not delete (ids 1543386, 1543387).",
+                                                           DriftData = ConnectedDrift.Data(verdict), Connected = verdict });
             }
         }
 
@@ -185,15 +186,15 @@ namespace RevitAddinSync.Tests
             public Task<DocIdentity?> ActiveAsync(CancellationToken ct) => Task.FromResult<DocIdentity?>(new DocIdentity("project", "SnowdonHVAC", "hash", "n1"));
         }
 
-        private static WriteBatchRequest Request(string? force) => new WriteBatchRequest
+        private static WriteBatchRequest Request(string? force, string turn = "t1", string width = "11.81") => new WriteBatchRequest
         {
-            TurnId = "t1",
+            TurnId = turn,
             RequestId = "req_03",
             Snapshot = new SnapshotModel { Doc = new SnapshotDoc { Kind = "project", Title = "SnowdonHVAC", PathHash = "hash", SessionNonce = "n1", Mode = "standalone" } },
             Calls = new[]
             {
-                new ToolCallDto { CallId = "c1", IdempotencyKey = "t1:c1" + force, Tool = ToolNames.SetParameters, Force = force,
-                                  Args = JsonDocument.Parse("{\"param\":\"Width\",\"value\":\"11.81\",\"target\":{\"ids\":[1382112]}}").RootElement.Clone() },
+                new ToolCallDto { CallId = "c1", IdempotencyKey = turn + ":c1" + force + width, Tool = ToolNames.SetParameters, Force = force,
+                                  Args = JsonDocument.Parse("{\"param\":\"Width\",\"value\":\"" + width + "\",\"target\":{\"ids\":[1382112]}}").RootElement.Clone() },
             },
         };
 
@@ -214,6 +215,57 @@ namespace RevitAddinSync.Tests
             await runner.RunAsync(Request(ConnectedDrift.ForceConnected), CancellationToken.None);
             Assert.NotEmpty(engine.Batches);
             Assert.All(engine.Batches, b => Assert.True(b.ForceConnected));
+        }
+
+        [Fact]
+        public async Task Runner_RefusesAForceTheCardNeverShowed()
+        {
+            var engine = new Engine();
+            var runner = new WriteBatchRunner(null, engine, new Docs(), new OperationLedgerCommits(new OperationLedger()));
+
+            // No connected-only drift in this turn: refused before any preview.
+            var cold = await runner.RunAsync(Request(ConnectedDrift.ForceConnected, turn: "t2"), CancellationToken.None);
+            Assert.Equal(ErrorCodes.PolicyRejected, cold[0].Error!.Code);
+            Assert.StartsWith("Not approved:", cold[0].Error!.Message);
+            Assert.Empty(engine.Batches);
+
+            // The card was for Width 11.81; a forced request with another value is not that change.
+            await runner.RunAsync(Request(null, turn: "t3"), CancellationToken.None);
+            engine.Batches.Clear();
+            var other = await runner.RunAsync(Request(ConnectedDrift.ForceConnected, turn: "t3", width: "20"), CancellationToken.None);
+            Assert.Equal(ErrorCodes.PolicyRejected, other[0].Error!.Code);
+            Assert.Empty(engine.Batches);
+            await runner.RunAsync(Request(ConnectedDrift.ForceConnected, turn: "t3"), CancellationToken.None);
+            Assert.All(engine.Batches, b => { Assert.True(b.ForceConnected); Assert.Contains(1543386L, b.ForceApproval!.Ids); });
+        }
+
+        [Fact]
+        public void ForcedCommit_MayChangeOnlyTargetsAndConnectedElements_EvenWhenTheShapeMatches()
+        {
+            // A default fix applied in preview and commit alike matches the preview, so the forced commit checks every id itself.
+            var commit = Shape(modified: new[] { Duct }, deleted: new long[] { 1543386, 880001 });
+            commit.CategoryOf[880001] = "Walls";
+            var allowed = new HashSet<long>(new[] { Duct }.Concat(Fittings.Keys));
+            Assert.Equal(880001L, ShapeComparer.ForcedOutside(commit, allowed));
+            Assert.Null(ShapeComparer.ForcedOutside(Shape(modified: new[] { Duct }, deleted: new long[] { 1543386 }), allowed));
+            var noise = Shape(modified: new[] { Duct, 990001L });
+            noise.CategoryOf[990001] = ChangeClassifier.ClassKey("SketchPlane");
+            Assert.Null(ShapeComparer.ForcedOutside(noise, allowed));   // Revit's uncategorised bookkeeping, as in Compare
+        }
+
+        [Fact]
+        public void AnUnmeasuredSet_IsNeverConnectedOnly_AndTheApprovalCoversOnlyWhatTheCardListed()
+        {
+            var preview = Shape(modified: new[] { Duct });
+            var commit = Shape(modified: new[] { Duct }, deleted: new long[] { 1543386, 1543387 });
+            Assert.False(ShapeComparer.JudgeConnected(preview, commit, Fittings, Fittings, new[] { Duct }, measured: false).ConnectedOnly);
+
+            var card = ShapeComparer.JudgeConnected(preview, Shape(modified: new[] { Duct }, deleted: new long[] { 1543386 }, added: new[] { Fitting(1600001, 0) }),
+                                                    Fittings, new Dictionary<long, string> { [1600001] = "Duct Fittings" });
+            var approval = ForceApproval.From(new[] { "sig" }, card);
+            Assert.True(approval.Covers(ShapeComparer.JudgeConnected(preview, Shape(modified: new[] { Duct }, deleted: new long[] { 1543386 }, added: new[] { Fitting(1700001, 0) }),
+                                                                     Fittings, new Dictionary<long, string> { [1700001] = "Duct Fittings" })));   // a new fitting: a new id, same category
+            Assert.False(approval.Covers(ShapeComparer.JudgeConnected(preview, commit, Fittings, new Dictionary<long, string>())));   // 1543387 was not on the card
         }
 
         [Fact]
