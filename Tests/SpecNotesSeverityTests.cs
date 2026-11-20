@@ -222,5 +222,15 @@ namespace RevitWebAppSync.Tests
             var text = PdfRemark(Run("C4.2.1", m), "C4.2");
             Assert.DoesNotContain("more", text);
         }
+
+        [Fact]
+        public void PDF_the_no_issue_fallback_shows_the_summary_exactly_once()
+        {
+            var list = Run("C1.5.2", SixLevelsTwoWith3D());
+            var summary = SpecBorang.Build(SpecReport.Build(list), list);
+            var (text, _) = BorangDoc.RemarkFor("C1.5", summary.Rows["C1.5"].Mark, summary, new List<IssueVm>());   // no live issues
+            Assert.Contains("no Dokumen 3D view: Tanah, Pentas, Langkan, Aras Bumbung", text);
+            Assert.Equal(1, System.Text.RegularExpressions.Regex.Matches(text, "no Dokumen 3D view:").Count);
+        }
     }
 }
