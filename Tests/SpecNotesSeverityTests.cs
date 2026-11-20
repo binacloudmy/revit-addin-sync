@@ -131,6 +131,9 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(4, report.For("C1.5.2").AllNotes.Count);          // pane: all four per-item notes
             var text = RowText(SpecBorang.Build(report, list), "C1.5");
             Assert.Contains("2/6", text);                                   // the count is right
+            Assert.Contains("(no Dokumen 3D view: Tanah, Pentas, Langkan, Aras Bumbung)", text);   // says what is missing, exactly
+            var bm = report.For("C1.5.2").SummaryNote;
+            Assert.Contains("(tiada 3D view dalam set Dokumen: Tanah, Pentas, Langkan, Aras Bumbung)", bm);
             foreach (var lv in new[] { "Tanah", "Pentas", "Langkan", "Aras Bumbung" })   // and the list matches it
                 Assert.True(text.Contains(lv), "Borang remark misses '" + lv + "': " + text);
             Assert.EndsWith("+2 more", text);                                // 2 of the 4 per-item notes beyond the summary
@@ -147,7 +150,7 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(0, report.For("C1.5.2").NotesHidden);
             var text = RowText(SpecBorang.Build(report, list), "C1.5");
             Assert.DoesNotContain("more", text);
-            Assert.DoesNotContain("missing:", text);
+            Assert.DoesNotContain("no Dokumen 3D view:", text);
         }
 
         // ---------- AI-420 ----------
@@ -208,7 +211,7 @@ namespace RevitWebAppSync.Tests
             var text = PdfRemark(Run("C1.5.2", SixLevelsTwoWith3D()), "C1.5");
             foreach (var lv in new[] { "Tanah", "Pentas", "Langkan", "Aras Bumbung" })
                 Assert.Contains(lv, text);
-            Assert.StartsWith("3D view for every level: 2/6", text);
+            Assert.StartsWith("3D view for every level: 2/6 ✗ (no Dokumen 3D view: Tanah, Pentas, Langkan, Aras Bumbung)", text);
         }
 
         [Fact]
@@ -218,6 +221,16 @@ namespace RevitWebAppSync.Tests
             for (var i = 1; i <= 3; i++) m.Sheets.Add(new SpecSheet { Id = i, Number = "A-" + i, Name = "S" + i, TitleBlock = "" });
             var text = PdfRemark(Run("C4.2.1", m), "C4.2");
             Assert.DoesNotContain("more", text);
+        }
+
+        [Fact]
+        public void PDF_the_no_issue_fallback_shows_the_summary_exactly_once()
+        {
+            var list = Run("C1.5.2", SixLevelsTwoWith3D());
+            var summary = SpecBorang.Build(SpecReport.Build(list), list);
+            var (text, _) = BorangDoc.RemarkFor("C1.5", summary.Rows["C1.5"].Mark, summary, new List<IssueVm>());   // no live issues
+            Assert.Contains("no Dokumen 3D view: Tanah, Pentas, Langkan, Aras Bumbung", text);
+            Assert.Equal(1, System.Text.RegularExpressions.Regex.Matches(text, "no Dokumen 3D view:").Count);
         }
     }
 }

@@ -728,8 +728,8 @@ namespace RevitWebAppSync.Services.JkrSpec
                     // One note naming every missing level: the Borang caps its notes, this one still says it all.
                     firstMissing = false;
                     var names = string.Join(", ", missing.Select(x => x.Name));
-                    last.Summary("3D view setiap aras: " + have + "/" + levels.Count + " ✗ (tiada: " + names + ")",
-                                 "3D view for every level: " + have + "/" + levels.Count + " ✗ (missing: " + names + ")");
+                    last.Summary("3D view setiap aras: " + have + "/" + levels.Count + " ✗ (tiada 3D view dalam set Dokumen: " + names + ")",
+                                 "3D view for every level: " + have + "/" + levels.Count + " ✗ (no Dokumen 3D view: " + names + ")");
                 }
                 yield return last;
             }
