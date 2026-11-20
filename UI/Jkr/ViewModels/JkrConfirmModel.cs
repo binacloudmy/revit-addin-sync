@@ -29,6 +29,30 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// ready-made fix from the scan).</summary>
         public bool IsAiProposal { get; }
 
+        /// <summary>The parameter the fix writes ("" when none, e.g. a type rename).</summary>
+        public string ParameterName { get; }
+        /// <summary>Elements the issue covers (a batch row lists many); 1 = one element.</summary>
+        public int AffectedCount { get; }
+        /// <summary>The backend's confidence in the fix ("high"/"medium"/"low"), shown as
+        /// given; "" when it sent none. Display only.</summary>
+        public string Confidence { get; }
+
+        /// <summary>"Parameter: X · affects N elements · Confidence: high" in the dialog's
+        /// language; only the parts the row has. Set by <see cref="JkrConfirmModel"/>.</summary>
+        public string Detail { get; internal set; } = "";
+        public bool HasDetail => Detail.Length > 0;
+
+        internal static string BuildDetail(JkrConfirmRow r, string lang)
+        {
+            bool ms = string.Equals(lang, "ms", StringComparison.OrdinalIgnoreCase);
+            var parts = new List<string>();
+            if (r.ParameterName.Length > 0) parts.Add("Parameter: " + r.ParameterName);
+            if (r.AffectedCount > 1)
+                parts.Add(ms ? $"melibatkan {r.AffectedCount} elemen" : $"affects {r.AffectedCount} elements");
+            if (r.Confidence.Length > 0) parts.Add((ms ? "Keyakinan: " : "Confidence: ") + r.Confidence);
+            return string.Join(" · ", parts);
+        }
+
         /// <summary>The old value as shown: <see cref="Actual"/>, or "(missing)" in the
         /// dialog's language when the model has none. Set by <see cref="JkrConfirmModel"/>.</summary>
         public string Old { get; internal set; }
@@ -41,8 +65,13 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public string Caption => Scope.Length == 0 ? Title : $"{Title} · {Scope}";
 
         public JkrConfirmRow(string item, string title, string actual, string proposed,
-                             long elementId = 0, bool isAiProposal = false)
+                             long elementId = 0, bool isAiProposal = false,
+                             string parameterName = "", int affectedCount = 1, string confidence = "")
         {
+            ParameterName = parameterName ?? "";
+            AffectedCount = Math.Max(1, affectedCount);
+            Confidence = confidence ?? "";
+            Detail = BuildDetail(this, "en");
             Item = item ?? "";
             Title = title ?? "";
             ElementId = elementId;
@@ -62,7 +91,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             if (actual == "(none)" || actual == "(empty)" || actual == "—") actual = "";
             var where = !string.IsNullOrWhiteSpace(issue.RevitCategory) ? issue.RevitCategory : issue.Category;
             return new JkrConfirmRow(where, issue.Title, actual, issue.FixValue,
-                                     issue.RevitElementId, issue.FixProposedByAi);
+                                     issue.RevitElementId, issue.FixProposedByAi,
+                                     issue.FixParameterName, issue.LocateCount, issue.Confidence);
         }
     }
 
@@ -119,7 +149,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             Rows = (rows ?? Enumerable.Empty<JkrConfirmRow>()).ToList();
             AffectedElements = Math.Max(0, affectedElements);
             Lang = T.ContainsKey(lang ?? "") ? lang.ToLowerInvariant() : "en";
-            foreach (var r in Rows) r.Old = r.Actual.Length > 0 ? r.Actual : MissingIn(Lang);
+            foreach (var r in Rows) { r.Old = r.Actual.Length > 0 ? r.Actual : MissingIn(Lang); r.Detail = JkrConfirmRow.BuildDetail(r, Lang); }
             ReadyRows = Rows.Where(r => !r.IsAiProposal).ToList();
             AiRows = Rows.Where(r => r.IsAiProposal).ToList();
         }
