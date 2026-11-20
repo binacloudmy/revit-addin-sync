@@ -188,14 +188,15 @@ namespace RevitWebAppSync.UI.Copilot.Model
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
         /// <summary>The options answer one exclusive question, so they stay a single choice even when the frame says multi
-        /// (r17): the server's write gate (write_all / write_cancel / write_narrow), fewer than two real options (one action
+        /// (r17): the server's write questions (write_all / write_cancel / write_narrow, write_force / force_cancel), fewer than two real options (one action
         /// and its Skip or Cancel), a scope (Whole model / This view / Selection), a yes/no, or a plan or write card's counted
         /// action ("Move 7 levels"). Every other multi question keeps its tick boxes.</summary>
         public static bool ExclusiveChoice(IReadOnlyList<AskOptionModel>? options)
         {
             if (options == null) return true;
-            if (options.Any(o => o.Id == WideWriteModel.WriteAllId || o.Id == WideWriteModel.WriteCancelId || o.Id == WideWriteModel.WriteNarrowId))
-                return true;
+            if (options.Any(o => o.Id == WideWriteModel.WriteAllId || o.Id == WideWriteModel.WriteCancelId || o.Id == WideWriteModel.WriteNarrowId
+                                 || o.Id == "write_force" || o.Id == "force_cancel"))
+                return true;   // the server's own write questions (gate, force): one click each
             var real = options.Where(o => !o.IsSkip && !IsDeclineLike(o.Label)).ToList();
             if (real.Count < 2) return true;
             if (real.Any(o => ScopeWords.IsMatch(o.Label) || ActionCount.IsMatch(o.Label))) return true;

@@ -171,10 +171,20 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         /// (r17: Edit on their bubble, Up in an empty box). Opens no @ or "/" list and sends nothing.</summary>
         public void PutPrompt(string text)
         {
-            _chips.Clear();
             ClosePicker();
             CloseSlash();
-            SetText(text ?? "", (text ?? "").Length);
+            var draft = Editor.Text ?? "";
+            if (!string.IsNullOrWhiteSpace(draft))
+            {
+                // An unsent draft is never lost (audit r17): the prompt goes under it, the draft and its chips stay.
+                var joined = draft.TrimEnd() + "\n" + (text ?? "");
+                SetText(joined, joined.Length);
+            }
+            else
+            {
+                _chips.Clear();
+                SetText(text ?? "", (text ?? "").Length);
+            }
             Editor.Focus();
         }
 

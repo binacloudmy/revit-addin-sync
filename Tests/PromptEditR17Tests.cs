@@ -148,6 +148,21 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void TheForceQuestion_StaysSingle()
+        {
+            Assert.False(Card(true, Opt("write_force", "Write anyway"), Opt("force_cancel", "Cancel")).Multi);
+        }
+
+        [Fact]
+        public void EditingKeepsAnUnsentDraft()
+        {
+            var input = Src(Path.Combine("UI", "Copilot", "Controls", "MentionInput.xaml.cs"));
+            var put = input.Substring(input.IndexOf("public void PutPrompt(string text)"));
+            put = put.Substring(0, put.IndexOf("private void SetText("));
+            Assert.Contains("draft.TrimEnd() + \"\\n\" + (text ?? \"\")", put);   // appended under the draft, never replacing it
+        }
+
+        [Fact]
         public void Skip_StandsAlone_OnAMultiOptionsCard()
         {
             var card = Card(true, Opt("L1", "Level 1"), Opt("L2", "Level 2"), Opt("L3", "Level 3"), Opt("Skip", "Skip", "skip"));

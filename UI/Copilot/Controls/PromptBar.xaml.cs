@@ -233,8 +233,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         /// and hands back a character the card does not use (AskCardFocus).</summary>
         internal TextBox MessageBox => Input?.Editor;
 
-        /// <summary>A prompt the drafter sent before, back in the composer to change (r17: Edit on their bubble). Replaces
-        /// what the box holds (the drafter asked for it); a pending "/" command is dropped, since the prompt was plain text.
+        /// <summary>A prompt the drafter sent before, back in the composer to change (r17: Edit on their bubble). An unsent
+        /// draft stays: the prompt goes on a new line under it. A pending "/" command is dropped, since the prompt was plain
+        /// text. @ mentions come back as their plain text (the thread keeps no chip data).
         /// Sends nothing: their own Enter or Send starts a new turn with the edited text.</summary>
         public void EditPrompt(string text)
         {
