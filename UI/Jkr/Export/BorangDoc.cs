@@ -261,6 +261,10 @@ namespace RevitWebAppSync.UI.Jkr.Export
                 var manualNotes = new HashSet<string>(rm.ManualNotes ?? new List<string>());
                 fails = rm.Notes.Where(n => !manualNotes.Contains(n) && n != rm.NotCheckedNote).Select(Clean).Where(n => n.Length > 0).Distinct().ToList();
             }
+            // A check that lists everything in one note (every missing level / link): it comes first,
+            // so the cap of the issue texts below still leaves the whole list in the remark.
+            if (fails.Count > 0 && rm.SummaryNotes != null)
+                fails.InsertRange(0, rm.SummaryNotes.Select(CleanEn).Where(n => n.Length > 0).Distinct());
             if (fails.Count > 0) parts.Add(string.Join("; ", Cap(fails)));
 
             var reasons = manualIssues.Select(i => DescriptionEn(i).Length > 0 ? DescriptionEn(i) : FailText(i))

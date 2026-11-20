@@ -136,6 +136,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// <summary>How many of <see cref="AllNotes"/> the capped <see cref="Notes"/> leave out
         /// (the Borang says "+N more"); 0 when none is cut.</summary>
         public int NotesHidden;
+        /// <summary>The one note naming everything the check found (BM / EN), "" when the check has none
+        /// or its notes are not capped. In <see cref="Notes"/> first; never in <see cref="AllNotes"/>.</summary>
+        public string SummaryNote = "", SummaryNoteEn = "";
         /// <summary>The rules that answered it (what was actually tested).</summary>
         public List<string> Rules = new List<string>();
         /// <summary>Backend results mapped here that do not count because the add-in's own
@@ -648,6 +651,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                     res.Notes = new[] { sum.Bm }.Concat(res.AllNotes.Take(cap - 1)).ToList();
                     res.NotesEn = new[] { sum.En }.Concat(res.AllNotesEn.Take(cap - 1)).ToList();
                     res.NotesHidden = res.AllNotes.Count - (cap - 1);
+                    res.SummaryNote = sum.Bm;
+                    res.SummaryNoteEn = sum.En;
                 }
                 report.Checks.Add(res);
             }

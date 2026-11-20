@@ -181,6 +181,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             foreach (var c in scored.Where(c => c.State == SpecState.Fail))
             {
                 fails.AddRange(NotesOf(c));
+                if (!string.IsNullOrWhiteSpace(c.SummaryNoteEn)) rm.SummaryNotes.Add(StripManual(c.SummaryNoteEn));
                 AddIds(rm.FailIssueIds, c.IssueIds);
             }
             foreach (var c in scored.Where(c => c.State == SpecState.NeedsPerson || c.State == SpecState.Partial))
