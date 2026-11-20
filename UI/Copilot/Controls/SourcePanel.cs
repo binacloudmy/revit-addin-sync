@@ -42,7 +42,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 badge.Child = CardKit.Text(badgeText, 10.5, ok ? "Cp.Ink" : "Cp.AmberFg", FontWeights.SemiBold);
                 DockPanel.SetDock(badge, Dock.Right); head.Children.Add(badge);
             }
-            var title = string.IsNullOrEmpty(row.Source) ? CreatedSummary.PromptSource(lang) : row.Source;   // r18: "Prompt anda" in Malay (L3 aa736b6e)
+            var title = string.IsNullOrEmpty(row.Source) ? CreatedSummary.PromptSource(lang) : row.Source;   // r18: the prompt label follows the card language (L3 aa736b6e)
             head.Children.Add(CardKit.Text((ms ? "Sumber · " : "Source · ") + title, 11, "Cp.Ink2", FontWeights.Medium));
             sp.Children.Add(head);
 
