@@ -84,6 +84,8 @@ namespace Tests
         [Theory]
         [InlineData("300", 300)]
         [InlineData("45.5", 45.5)]
+        [InlineData("2.5", 2.5)]      // the engine formats with %g
+        [InlineData("1e+02", 100)]    // %g switches to exponent form for large/small values
         [InlineData(null, 300)]
         [InlineData("", 300)]
         [InlineData("abc", 300)]
@@ -330,6 +332,121 @@ namespace Tests
             Assert.Equal(ToolLabels.Label("list_levels", NoArgs), t.Labels.Single());
             EngineWriteGate.CancelOpen("done");
             await ask;
+        }
+
+        // ─── Leg ids (X-Bina-Leg-Id): one model leg = one card ──────────
+
+        private const string LegA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        private const string LegB = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+        [Theory]
+        [InlineData(LegA, LegA, true)]
+        [InlineData(null, null, true)]
+        [InlineData("", null, true)]
+        [InlineData(" ", "", true)]
+        [InlineData(LegA, LegB, false)]
+        [InlineData(LegA, null, false)]
+        [InlineData(null, LegA, false)]
+        public void SameBatch_truth_table(string openLeg, string leg, bool expected)
+        {
+            Assert.Equal(expected, EngineWriteGate.SameBatch(openLeg, leg));
+        }
+
+        [Fact]
+        public async Task Same_leg_joins_the_open_card()
+        {
+            var ui = Install();
+            var a = EngineWriteGate.AskAsync("place_socket_points", NoArgs, false, Long, LegA);
+            var t = await WaitForOpen();
+            var b = EngineWriteGate.AskAsync("route_pipe", NoArgs, false, Long, LegA);
+            Assert.Single(ui.Shown);
+            Assert.Single(ui.Updated);
+            Assert.Equal(2, t.Labels.Count);
+            EngineWriteGate.Resolve(t.Id, approve: true);
+            Assert.Equal(WriteVerdict.Run, await a);
+            Assert.Equal(WriteVerdict.Run, await b);
+        }
+
+        [Fact]
+        public async Task No_leg_ids_on_either_side_join_the_open_card()
+        {
+            // MCP facade clients send X-Bina-Mutate but no leg id.
+            var ui = Install();
+            var a = EngineWriteGate.AskAsync("route_pipe", NoArgs, false, Long, null);
+            var t = await WaitForOpen();
+            var b = EngineWriteGate.AskAsync("route_pipe", NoArgs, false, Long, null);
+            Assert.Single(ui.Shown);
+            Assert.Single(ui.Updated);
+            EngineWriteGate.Resolve(t.Id, approve: false);
+            Assert.Equal(WriteVerdict.Declined, await a);
+            Assert.Equal(WriteVerdict.Declined, await b);
+        }
+
+        [Fact]
+        public async Task Another_leg_waits_for_the_open_card_then_gets_its_own()
+        {
+            var ui = Install();
+            var a = EngineWriteGate.AskAsync("place_socket_points", NoArgs, false, Long, LegA);
+            var t1 = await WaitForOpen();
+            var b = EngineWriteGate.AskAsync("route_pipe", NoArgs, false, Long, LegB);
+            await Task.Delay(50);
+            Assert.Single(ui.Shown);          // b did not join, and has no card yet
+            Assert.Empty(ui.Updated);
+            Assert.False(b.IsCompleted);
+            Assert.Single(t1.Labels);
+
+            EngineWriteGate.Resolve(t1.Id, approve: false);
+            Assert.Equal(WriteVerdict.Declined, await a);
+
+            var t2 = await WaitForTicketOtherThan(t1);
+            Assert.Equal(LegB, t2.LegId);
+            Assert.Equal(2, ui.Shown.Count);
+            Assert.False(b.IsCompleted);      // a's Tidak is not b's answer
+            EngineWriteGate.Resolve(t2.Id, approve: true);
+            Assert.Equal(WriteVerdict.Run, await b);
+        }
+
+        [Fact]
+        public async Task A_write_without_a_leg_id_does_not_join_a_leg_card()
+        {
+            var ui = Install();
+            var a = EngineWriteGate.AskAsync("route_pipe", NoArgs, false, Long, LegA);
+            var t1 = await WaitForOpen();
+            var b = EngineWriteGate.AskAsync("route_pipe", NoArgs, false, Long, null);
+            await Task.Delay(50);
+            Assert.Single(ui.Shown);
+            Assert.Empty(ui.Updated);
+            EngineWriteGate.Resolve(t1.Id, approve: true);
+            await a;
+            var t2 = await WaitForTicketOtherThan(t1);
+            Assert.Null(t2.LegId);
+            EngineWriteGate.Resolve(t2.Id, approve: false);
+            Assert.Equal(WriteVerdict.Declined, await b);
+        }
+
+        [Fact]
+        public async Task Waiting_behind_another_leg_counts_against_the_writes_own_wait()
+        {
+            var ui = Install();
+            var a = EngineWriteGate.AskAsync("route_pipe", NoArgs, false, Long, LegA);
+            var t1 = await WaitForOpen();
+            var b = await EngineWriteGate.AskAsync("route_pipe", NoArgs, false, TimeSpan.FromMilliseconds(80), LegB);
+            Assert.Equal(WriteVerdict.TimedOut, b);
+            Assert.Single(ui.Shown);          // it never got a card
+            Assert.False(t1.Resolved);        // and it did not touch a's card
+            EngineWriteGate.Resolve(t1.Id, approve: true);
+            Assert.Equal(WriteVerdict.Run, await a);
+        }
+
+        private static async Task<WriteTicket> WaitForTicketOtherThan(WriteTicket previous)
+        {
+            for (int i = 0; i < 200; i++)
+            {
+                var t = EngineWriteGate.OpenTicket;
+                if (t != null && !ReferenceEquals(t, previous)) return t;
+                await Task.Delay(10);
+            }
+            throw new TimeoutException("no new ticket opened");
         }
     }
 }
