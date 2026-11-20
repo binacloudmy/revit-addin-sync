@@ -258,11 +258,15 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         public void OpenCommandPalette()
         {
             if (Input?.Editor == null) return;
+            // r17 (tester: "the / button inserted only a slash, no tools menu"): a composer with no palette attached never gets a lone "/";
+            // a draft keeps its text and the palette opens over it.
+            if (!Input.HasSlashPalette) { Input.Editor.Focus(); return; }
             if (string.IsNullOrWhiteSpace(Input.Editor.Text))
             {
                 Input.Editor.Text = "/";
                 Input.Editor.CaretIndex = 1;
             }
+            else Input.OpenSlashOverDraft();
             Input.Editor.Focus();
         }
 
