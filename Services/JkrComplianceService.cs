@@ -174,6 +174,41 @@ namespace RevitWebAppSync.Services
         }
 
         /// <summary>
+        /// AI-436: re-run ONE project-level rule (1, 21, 22, 23, 24) on the project's state:
+        /// POST /v1/compliance/project-recheck/{file-name|lod|bpep|template|shared-params}.
+        /// Never throws; a failure comes back in <c>Error</c> and is never a pass.
+        /// </summary>
+        public async Task<RevitWebAppSync.UI.Jkr.Panel.Core.JkrProjectRecheckResponse> ProjectRecheckAsync(int rule, JkrProjectMetadata project)
+        {
+            var path = RevitWebAppSync.UI.Jkr.Panel.Core.ProjectChecklistModel.EndpointPath(rule);
+            if (path == null)
+                return new RevitWebAppSync.UI.Jkr.Panel.Core.JkrProjectRecheckResponse { RuleNumber = rule, Error = "Rule " + rule + " has no project re-check." };
+            try
+            {
+                var json = JsonConvert.SerializeObject(new { project });
+                using var req = new HttpRequestMessage(HttpMethod.Post, _baseUrl + path)
+                {
+                    Content = new StringContent(json, Encoding.UTF8, "application/json"),
+                };
+                AttachAuth(req);
+                var resp = await _httpClient.SendAsync(req);
+                var body = await resp.Content.ReadAsStringAsync();
+                if (resp.IsSuccessStatusCode)
+                    return JsonConvert.DeserializeObject<RevitWebAppSync.UI.Jkr.Panel.Core.JkrProjectRecheckResponse>(body)
+                        ?? new RevitWebAppSync.UI.Jkr.Panel.Core.JkrProjectRecheckResponse { RuleNumber = rule, Error = "Failed to parse the re-check answer." };
+                if (resp.StatusCode == HttpStatusCode.Unauthorized)
+                    return new RevitWebAppSync.UI.Jkr.Panel.Core.JkrProjectRecheckResponse { RuleNumber = rule, Error = LoginRequiredMessage };
+                if (resp.StatusCode == HttpStatusCode.NotFound)
+                    return new RevitWebAppSync.UI.Jkr.Panel.Core.JkrProjectRecheckResponse { RuleNumber = rule, Error = "Project re-check not available on this backend — update bina-ai." };
+                return new RevitWebAppSync.UI.Jkr.Panel.Core.JkrProjectRecheckResponse { RuleNumber = rule, Error = $"Recheck error: {(int)resp.StatusCode} {resp.StatusCode}" };
+            }
+            catch (Exception ex)
+            {
+                return new RevitWebAppSync.UI.Jkr.Panel.Core.JkrProjectRecheckResponse { RuleNumber = rule, Error = ErrorText(ex) };
+            }
+        }
+
+        /// <summary>
         /// V2: Full JKR BIM compliance check with domain grouping, value validation, AI agents.
         /// Falls back to V1 response shape for UI compatibility.
         /// </summary>

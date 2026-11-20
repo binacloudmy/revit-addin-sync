@@ -313,6 +313,14 @@ namespace RevitWebAppSync.UI
         /// <summary>That scan ended: the BIM010 summary, or why it failed (null = ok).</summary>
         public event Action<BinaVibe.Mcp.Tools.Audit.Bim010Summary, string> ScanCompleted;
 
+        /// <summary>AI-436: the element rules just ran (scan or re-check); null = the backend failed.
+        /// Feeds the Project Checklist's rule 26 bar.</summary>
+        public event Action<ModelCheckResponse> ElementRulesRan;
+
+        /// <summary>The pane's LOD and discipline: what a project re-check sends.</summary>
+        public int CurrentLod => SelectedLodLevel;
+        public string CurrentDiscipline => _vm.SelectedDiscipline;
+
         /// <summary>The Binazone shell shows scan progress and errors on its Running
         /// screen, so the panel does not also raise error dialogs for them.</summary>
         public bool HostShowsScanProgress { get; set; }
@@ -1361,6 +1369,7 @@ namespace RevitWebAppSync.UI
                 response = new ModelCheckResponse();
             }
             SetAuthRequired(false);
+            ElementRulesRan?.Invoke(backendError == null ? response : null);
 
             var issues = IssueMapper.MapAll(response);
 
