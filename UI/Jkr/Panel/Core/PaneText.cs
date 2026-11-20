@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.RegularExpressions;
 
 namespace RevitWebAppSync.UI.Jkr.Panel.Core
@@ -243,7 +244,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 var noteEn = ContextEn(note);
                 return noteEn == null ? null : NoCheckEn + ". " + noteEn + tail;
             }
-            return SectionHeadingEn(s) ?? GridRemarkEn(s) ?? DepartmentRemarkEn(s) ?? EmptyCategoryRemarkEn(s);
+            return SectionHeadingEn(s) ?? GridRemarkEn(s) ?? DepartmentRemarkEn(s) ?? EmptyCategoryRemarkEn(s) ?? LegacyRemarkEn(s);
         }
 
         // The rules the BIM010 checker states (AuditCheckers: RulePattern, "Peraturan: …"), BM → EN.
@@ -272,8 +273,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public static string AuditRuleEn(string rule)
         {
             var s = (rule ?? "").Trim();
-            foreach (var (ms, en) in CheckerRules) if (s == ms) return en;
-            return rule ?? "";
+            return RuleKnownEn(s) ?? rule ?? "";
         }
 
         private static readonly Regex EmptyExpected = R(@"^(\d+) elemen (.+?) dijumpai dalam model walaupun kategori ini biasanya wajib bagi model seni bina — sahkan sama ada memang tiada dalam skop projek\. \(Kualiti/maklumat/geometri: semak manual\.\)$");
@@ -397,6 +397,255 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 en.Add(done);
             }
             return "Model context: " + string.Join("; ", en) + ".";
+        }
+
+
+        // ── the BIM010 checker's remaining remarks (AI-421 round 2) ──
+        // The checkers (shared BinaVibe code, not edited here) write BM only. Each template below
+        // mirrors one Remark branch in AuditCheckers.cs / AuditTools.cs; RemarkLanguageTests pins the
+        // source fragments and fails when a new Remark appears without a template. A text that matches
+        // no template stays BM (better all BM than half translated). The label "semak manual" stays.
+
+        private static Regex RL(string pattern) => new Regex(pattern, RegexOptions.Singleline | RegexOptions.CultureInvariant);
+
+        private static readonly (Regex Re, Func<Match, string> En)[] LegacyRuleTemplates =
+        {
+            (RL(@"^sekurang-kurangnya satu view dengan '(.*)' dalam namanya$"), m => $"at least one view with '{m.Groups[1].Value}' in its name"),
+            (RL(@"^setiap view dengan '(.*)' dalam namanya ada View Template$"), m => $"every view with '{m.Groups[1].Value}' in its name has a View Template"),
+            (RL(@"^nama jadual mengandungi \(termasuk awalan JKR\): (.*) / jadual komponen \((.*)\)$"),
+                m => $"schedule name contains (including the JKR prefix): {m.Groups[1].Value} / component schedule ({m.Groups[2].Value})"),
+        };
+
+        /// <summary>The English of a rule the checkers state (fixed or built from a token); null when unknown.</summary>
+        private static string RuleKnownEn(string rule)
+        {
+            var s = (rule ?? "").Trim();
+            foreach (var (ms, en) in CheckerRules) if (s == ms) return en;
+            foreach (var (re, en) in LegacyRuleTemplates) { var m = re.Match(s); if (m.Success) return en(m); }
+            return null;
+        }
+
+        private static readonly (string Ms, string En)[] Populations =
+        {
+            ("grid, aras atau pelan lantai", "grids, levels or floor plans"),
+            ("elemen Walls/Floors/Ceilings/Roofs", "Walls/Floors/Ceilings/Roofs elements"),
+            ("elemen Project Information", "Project Information elements"),
+            ("view grafik", "graphical views"),
+            ("Revit link", "Revit links"),
+        };
+
+        // Sentences the checkers append at the END of a remark (peeled from the end, any order).
+        private static readonly (Regex Re, Func<Match, string> En)[] LegacyTails =
+        {
+            (RL(@"\s*\(Kualiti/maklumat/geometri: semak manual\.\)$"), m => "(Quality/information/geometry: semak manual.)"),
+            (RL(@"\s*Senarai penuh (\d+) item ada dalam draft_export \(element_ids\)\.$"), m => $"The full list of {m.Groups[1].Value} items is in draft_export (element_ids)."),
+            (RL(@"\s*Imbasan dihadkan kepada (\d+) elemen; elemen selebihnya tidak disemak\.$"), m => $"The scan was limited to {m.Groups[1].Value} elements; the remaining elements were not checked."),
+            (RL(@"\s*\((\d+) bilik tidak dapat dibaca, tidak dikira\.\)$"), m => $"({m.Groups[1].Value} rooms could not be read and are not counted.)"),
+            (RL(@"\s*(\d+) elemen tanpa jenis tidak dapat dinilai\.$"), m => $"{m.Groups[1].Value} elements without a type could not be assessed."),
+            (RL(@"\s*(\d+) jenis tanpa contoh diletakkan tidak dikira \(lihat unused_types\)\.$"), m => $"{m.Groups[1].Value} types with no placed instance are not counted (see unused_types)."),
+            (RL(@"\s*(\d+) boleh tindakan, (\d+) tiada template jenis tersebut wujud dalam model \((.*?)\) — tidak boleh disapukan sehingga template jenis itu diwujudkan\.$"),
+                m => $"{m.Groups[1].Value} actionable, {m.Groups[2].Value} have no template of that type in the model ({m.Groups[3].Value}) — cannot be applied until a template of that type is created."),
+        };
+
+        private static string Tk(Group g) => g.Success ? g.Value + " " : "";
+
+        // Remarks that do not start with "Peraturan: …".
+        private static readonly (Regex Re, Func<Match, string> En)[] LegacyBare =
+        {
+            (RL(@"^Tiada (.+?) dalam model, jadi peraturan ""(.+)"" tiada data untuk disemak \(0 diperiksa\) — semak manual\.$"), m =>
+            {
+                string pop = null; foreach (var (ms, en) in Populations) if (m.Groups[1].Value == ms) pop = en;
+                var rule = RuleKnownEn(m.Groups[2].Value);
+                return pop == null || rule == null ? null : $"There are no {pop} in the model, so the rule \"{rule}\" has no data to check (0 checked) — semak manual.";
+            }),
+            (RL(@"^Format dijangka: (.+?); dijumpai: ""(.*)"" \((\d+) segmen\) — patuh\.$"), m =>
+            {
+                var rule = RuleKnownEn(m.Groups[1].Value);
+                return rule == null ? null : $"Expected format: {rule}; found: \"{m.Groups[2].Value}\" ({m.Groups[3].Value} segments) — complies.";
+            }),
+            (RL(@"^Format dijangka: (.+?); dijumpai: ""(.*)"" \((\d+) segmen\)\. (?:Cadangan nama: ""(.*)""\.|(Tiada cadangan automatik yang yakin — namakan semula fail secara manual mengikut garis panduan penamaan\.))$"), m =>
+            {
+                var rule = RuleKnownEn(m.Groups[1].Value);
+                if (rule == null) return null;
+                var head = $"Expected format: {rule}; found: \"{m.Groups[2].Value}\" ({m.Groups[3].Value} segments). ";
+                return head + (m.Groups[5].Success ? "No confident automatic suggestion — rename the file manually following the naming guideline." : $"Suggested name: \"{m.Groups[4].Value}\".");
+            }),
+            (RL(@"^Had dijangka: <=10 mm dari persilangan (.+?); dijumpai sisihan (\S+) mm(?: — (patuh)\.|\. Selaraskan kedudukan model ke grid (.+)\.)$"), m =>
+            {
+                var head = $"Expected limit: <=10 mm from the intersection of {m.Groups[1].Value}; found offset {m.Groups[2].Value} mm";
+                return m.Groups[3].Success ? head + " — complies." : head + $". Adjust the model position to grid {m.Groups[4].Value.Replace(" dan ", " and ")}.";
+            }),
+            (RL(@"^Dokumen tiada elemen Project Information untuk dibaca — semak manual di Manage > Project Information\.$"),
+                m => "The document has no Project Information element to read — semak manual in Manage > Project Information."),
+            (RL(@"^Tiada Revit link dalam model, jadi tiada status pautan untuk disemak — sahkan secara manual sama ada pautan memang tidak diperlukan\.$"),
+                m => "No Revit links in the model, so there is no link status to check — confirm manually whether links are really not needed."),
+            (RL(@"^Baris tidak menyatakan set view \(BOMBA/PBT\) yang dimaksudkan — semak manual\.$"),
+                m => "The row does not state which view set (BOMBA/PBT) is meant — semak manual."),
+            (RL(@"^0 bilik diletakkan dalam model dan kategori ini tidak wajib — baris ini tidak berkenaan, atau semak manual jika sepatutnya ada\.$"),
+                m => "0 rooms placed in the model and this category is not required — this row does not apply, or semak manual if there should be some."),
+            (RL(@"^(\d+) elemen (.+?) tetapi 0 jenis \(ElementType\) untuk disemak, jadi peraturan ""(.+)"" tidak terpakai di sini — semak manual\.$"), m =>
+            {
+                var rule = RuleKnownEn(m.Groups[3].Value);
+                return rule == null ? null : $"{m.Groups[1].Value} {m.Groups[2].Value} elements but 0 types (ElementType) to check, so the rule \"{rule}\" does not apply here — semak manual.";
+            }),
+            (RL(@"^Semakan automatik gagal \((.*)\) — semak manual\.$"), m => $"The automatic check failed ({m.Groups[1].Value}) — semak manual."),
+        };
+
+        // The body after "Peraturan: {rule}. " (tails already peeled).
+        private static readonly (Regex Re, Func<Match, string> En)[] LegacyBody =
+        {
+            // grids / levels
+            (RL(@"^Dijumpai (\d+) grid \((.*)\), (\d+) aras, semua bernama unik; semua (\d+) pelan lantai terikat pada aras — patuh\.$"), m =>
+            {
+                var sp = RL(@"^(\d+) huruf, (\d+) nombor(?:, (\d+) sub-grid)?(?:; awalan projek '(.*)' pada (\d+) grid)?$").Match(m.Groups[2].Value);
+                if (!sp.Success) return null;
+                var split = $"{sp.Groups[1].Value} letters, {sp.Groups[2].Value} numbers"
+                    + (sp.Groups[3].Success ? $", {sp.Groups[3].Value} sub-grids" : "")
+                    + (sp.Groups[4].Success ? $"; project prefix '{sp.Groups[4].Value}' on {sp.Groups[5].Value} grids" : "");
+                return $"Found {m.Groups[1].Value} grids ({split}), {m.Groups[3].Value} levels, all uniquely named; all {m.Groups[4].Value} floor plans are tied to a level — complies.";
+            }),
+            (RL(@"^Dijumpai (\d+) grid, (\d+) aras\. (.+)\.$"), m =>
+            {
+                var en = new List<string>();
+                foreach (var p in m.Groups[3].Value.Split(new[] { ". " }, StringSplitOptions.None))
+                {
+                    var t = GridProblemEn(p);
+                    if (t == null) return null;
+                    en.Add(t);
+                }
+                return $"Found {m.Groups[1].Value} grids, {m.Groups[2].Value} levels. " + string.Join(". ", en) + ".";
+            }),
+            // materials
+            (RL(@"^(\d+) elemen pertama semuanya ada material \((.*)\), tetapi model melebihi had imbasan jadi elemen selebihnya tidak disemak — semak manual\.$"),
+                m => $"The first {m.Groups[1].Value} elements all have a material ({m.Groups[2].Value}), but the model exceeds the scan limit so the remaining elements were not checked — semak manual."),
+            (RL(@"^Semua (\d+) elemen ada material \((.*)\) — patuh\.$"), m => $"All {m.Groups[1].Value} elements have a material ({m.Groups[2].Value}) — complies."),
+            (RL(@"^(\d+)/(\d+) elemen tiada material \(tanpa material/diimbas: (.*?); cth: (.*)\)\. Tetapkan material pada jenis elemen berkenaan\.$"),
+                m => $"{m.Groups[1].Value}/{m.Groups[2].Value} elements have no material (without material/scanned: {m.Groups[3].Value}; e.g. {m.Groups[4].Value}). Assign a material to the type of the elements concerned."),
+            // project information
+            (RL(@"^Keenam-enam medan terisi \(Project Name ""(.*)"", Project Number ""(.*)""\) — patuh\.$"),
+                m => $"All six fields are filled (Project Name \"{m.Groups[1].Value}\", Project Number \"{m.Groups[2].Value}\") — complies."),
+            (RL(@"^(\d+)/(\d+) medan belum dikemaskini: (.*)\. Isi di Manage > Project Information\.$"), m =>
+            {
+                var list = m.Groups[3].Value.Replace(" (kosong)", " (empty)").Replace(" — nilai lalai)", " — Revit default)");
+                return $"{m.Groups[1].Value}/{m.Groups[2].Value} fields not yet updated: {list}. Fill them in under Manage > Project Information.";
+            }),
+            // view templates (also the BOMBA / PBT view sets)
+            (RL(@"^Semua (\d+) view(?: (BOMBA|PBT))? ada template — patuh\.$"), m => $"All {m.Groups[1].Value} {Tk(m.Groups[2])}views have a template — complies."),
+            (RL(@"^(\d+)/(\d+) view(?: (BOMBA|PBT))? tiada template \(cth: (.*?)\)\. Sapukan (?:template daripada templat seni bina|template (BOMBA|PBT))\.$"), m =>
+                $"{m.Groups[1].Value}/{m.Groups[2].Value} {Tk(m.Groups[3])}views have no template (e.g. {m.Groups[4].Value}). "
+                + (m.Groups[5].Success ? $"Apply the {m.Groups[5].Value} template." : "Apply a template from the architectural template.")),
+            (RL(@"^(\d+)/(\d+) view(?: (BOMBA|PBT))? ada template; (\d+) view(?: (?:BOMBA|PBT))? tiada template tetapi tiada template jenis tersebut wujud dalam model \((.*?); cth: (.*)\) — tidak boleh tindakan\. Wujudkan template jenis itu dahulu jika dikehendaki, kemudian semak semula\.$"), m =>
+                $"{m.Groups[1].Value}/{m.Groups[2].Value} {Tk(m.Groups[3])}views have a template; {m.Groups[4].Value} {Tk(m.Groups[3])}views have no template but no template of that type exists in the model ({m.Groups[5].Value}; e.g. {m.Groups[6].Value}) — not actionable. Create a template of that type first if wanted, then check again."),
+            (RL(@"^Tiada nama view mengandungi '(.*?)' daripada (\d+) view yang disemak — wujudkan view \1 dan sapukan view template\.$"),
+                m => $"No view name contains '{m.Groups[1].Value}' out of {m.Groups[2].Value} views checked — create a {m.Groups[1].Value} view and apply a view template."),
+            // view buckets, Area Plan, Legend
+            (RL(@"^Dijumpai (\d+) view \(cth: (.*)\) — patuh\.$"), m => $"Found {m.Groups[1].Value} views (e.g. {m.Groups[2].Value}) — complies."),
+            (RL(@"^Tiada nama view mengandungi '(.*?)' daripada (\d+) view yang disemak\. Wujudkan view \1 untuk tujuan tersebut\.$"),
+                m => $"No view name contains '{m.Groups[1].Value}' out of {m.Groups[2].Value} views checked. Create a {m.Groups[1].Value} view for that purpose."),
+            (RL(@"^Dijumpai (\d+) Area Plan \((.*)\) — patuh\.$"), m => $"Found {m.Groups[1].Value} Area Plans ({m.Groups[2].Value}) — complies."),
+            (RL(@"^Dijumpai 0 Area Plan dalam model — jana analisis ruang/zon daripada Area Plan\.$"),
+                m => "Found 0 Area Plans in the model — generate the space/zone analysis from an Area Plan."),
+            (RL(@"^Dijumpai (\d+) Legend \((.*)\) — patuh\.$"), m => $"Found {m.Groups[1].Value} Legends ({m.Groups[2].Value}) — complies."),
+            (RL(@"^Dijumpai 0 view Legend dalam model — sediakan Legend untuk komponen dan nota am\.$"),
+                m => "Found 0 Legend views in the model — provide a Legend for components and general notes."),
+            // schedules
+            (RL(@"^Ketiga-tiga jadual wajib dijumpai daripada (\d+) jadual dalam model \((.*)\) — patuh\.$"),
+                m => $"All three required schedules were found among {m.Groups[1].Value} schedules in the model ({m.Groups[2].Value}) — complies."),
+            (RL(@"^Tiada nama jadual yang sepadan untuk: (.*) \((\d+) jadual dalam model disemak\)\. Jana jadual tersebut\.$"),
+                m => $"No schedule name matches: {m.Groups[1].Value} ({m.Groups[2].Value} schedules in the model checked). Generate those schedules."),
+            // sheets, title blocks, links
+            (RL(@"^Dijumpai 0 Sheet dalam model — sediakan helaian lukisan seni bina\.$"),
+                m => "Found 0 Sheets in the model — prepare architectural drawing sheets."),
+            (RL(@"^Semua (\d+) sheet mengandungi view — patuh\.$"), m => $"All {m.Groups[1].Value} sheets contain a view — complies."),
+            (RL(@"^(\d+)/(\d+) sheet kosong \(cth: (.*)\)\. Susun view pada sheet berkenaan\.$"),
+                m => $"{m.Groups[1].Value}/{m.Groups[2].Value} sheets are empty (e.g. {m.Groups[3].Value}). Arrange views on those sheets."),
+            (RL(@"^Dijumpai 0 title block pada mana-mana sheet — gunakan JKR Title Block\.$"),
+                m => "Found 0 title blocks on any sheet — use the JKR Title Block."),
+            (RL(@"^Semua (\d+) title block sepadan — patuh\.$"), m => $"All {m.Groups[1].Value} title blocks match — complies."),
+            (RL(@"^(\d+)/(\d+) title block tidak sepadan \(cth: (.*)\)\. Tukar kepada JKR Title Block\.$"),
+                m => $"{m.Groups[1].Value}/{m.Groups[2].Value} title blocks do not match (e.g. {m.Groups[3].Value}). Change to the JKR Title Block."),
+            (RL(@"^Semua (\d+) link berstatus Loaded — patuh\.$"), m => $"All {m.Groups[1].Value} links have the status Loaded — complies."),
+            (RL(@"^(\d+)/(\d+) link bukan Loaded: (.*)\. Reload atau betulkan laluan link\.$"),
+                m => $"{m.Groups[1].Value}/{m.Groups[2].Value} links are not Loaded: {m.Groups[3].Value}. Reload or correct the link path."),
+            // type naming (D rows with instances)
+            (RL(@"^(\d+) elemen (.+?) tetapi tiada satu pun menggunakan (\d+) jenis kategori ini \(0 contoh diletakkan bagi setiap jenis\) — tiada nama jenis yang digunakan untuk dinilai; semak manual\.$"),
+                m => $"{m.Groups[1].Value} {m.Groups[2].Value} elements but none uses the {m.Groups[3].Value} types of this category (0 instances placed for each type) — there is no used type name to assess; semak manual."),
+            (RL(@"^(\d+) elemen, (\d+) jenis digunakan — semua nama jenis yang digunakan patuh\.$"),
+                m => $"{m.Groups[1].Value} elements, {m.Groups[2].Value} types used — all the used type names comply."),
+            (RL(@"^(\d+)/(\d+) jenis yang digunakan tidak patuh, meliputi (\d+)/(\d+) elemen \(cth: (.*?)\)\.(?: Cadangan: (.*?)\.)?(?: (\d+) nama tiada cadangan automatik yang yakin — namakan semula secara manual mengikut format JKR\.)?$"), m =>
+                $"{m.Groups[1].Value}/{m.Groups[2].Value} used types do not comply, covering {m.Groups[3].Value}/{m.Groups[4].Value} elements (e.g. {m.Groups[5].Value})."
+                + (m.Groups[6].Success ? $" Suggestion: {m.Groups[6].Value}." : "")
+                + (m.Groups[7].Success ? $" {m.Groups[7].Value} names have no confident automatic suggestion — rename manually following the JKR format." : "")),
+            // rooms (Number and Name)
+            (RL(@"^Dijumpai 0 bilik yang diletakkan \(placed Room\) (?:dalam model\.|— (\d+) Room wujud tetapi tidak diletakkan \(Area 0\)\.) Letak Room dahulu sebelum Number/Name boleh disemak\.$"), m =>
+                (m.Groups[1].Success ? $"Found 0 placed rooms — {m.Groups[1].Value} Rooms exist but are not placed (Area 0). " : "Found 0 placed rooms in the model. ")
+                + "Place Rooms first before Number/Name can be checked."),
+            (RL(@"^(\d+) bilik diletakkan tetapi parameter Number/Name tidak dapat dibaca — semak manual\.$"),
+                m => $"{m.Groups[1].Value} rooms placed but the Number/Name parameters could not be read — semak manual."),
+            (RL(@"^Semua (\d+) bilik yang diletakkan ada Number dan Name — patuh\.$"), m => $"All {m.Groups[1].Value} placed rooms have a Number and a Name — complies."),
+            (RL(@"^(\d+)/(\d+) bilik tidak lengkap \((\d+) tiada Number, (\d+) tiada Name; cth: (.*)\)\. Isi Number dan Name untuk bilik tersebut\.$"),
+                m => $"{m.Groups[1].Value}/{m.Groups[2].Value} rooms incomplete ({m.Groups[3].Value} without Number, {m.Groups[4].Value} without Name; e.g. {m.Groups[5].Value}). Fill in Number and Name for those rooms."),
+        };
+
+        private static string GridProblemEn(string p)
+        {
+            if (p == "Tiada grid dalam model") return "No grids in the model";
+            if (p == "Tiada aras dalam model") return "No levels in the model";
+            Match m;
+            if ((m = RL(@"^(\d+)/(\d+) grid tanpa nama$").Match(p)).Success) return $"{m.Groups[1].Value}/{m.Groups[2].Value} grids without a name";
+            if ((m = RL(@"^(\d+) nama grid berganda \(cth: (.*)\)$").Match(p)).Success) return $"{m.Groups[1].Value} duplicate grid names (e.g. {m.Groups[2].Value})";
+            if ((m = RL(@"^(\d+)/(\d+) aras tanpa nama$").Match(p)).Success) return $"{m.Groups[1].Value}/{m.Groups[2].Value} levels without a name";
+            if ((m = RL(@"^(\d+) nama aras berganda \(cth: (.*)\)$").Match(p)).Success) return $"{m.Groups[1].Value} duplicate level names (e.g. {m.Groups[2].Value})";
+            if ((m = RL(@"^(\d+)/(\d+) pelan lantai tanpa aras \(cth: (.*)\)$").Match(p)).Success) return $"{m.Groups[1].Value}/{m.Groups[2].Value} floor plans without a level (e.g. {m.Groups[3].Value})";
+            return null;
+        }
+
+        private static string FirstMatch((Regex Re, Func<Match, string> En)[] templates, string s)
+        {
+            foreach (var (re, en) in templates)
+            {
+                var m = re.Match(s);
+                if (!m.Success) continue;
+                var r = en(m);
+                if (r != null) return r;
+            }
+            return null;
+        }
+
+        /// <summary>Every other remark of AuditCheckers / AuditTools in English; null when it is not one of them.</summary>
+        private static string LegacyRemarkEn(string s)
+        {
+            // Trailing sentences first (they follow any branch), then the branch itself.
+            var body = s;
+            var tails = new List<string>();
+            for (var peeled = true; peeled;)
+            {
+                peeled = false;
+                foreach (var (re, en) in LegacyTails)
+                {
+                    var m = re.Match(body);
+                    if (!m.Success || m.Index == 0) continue;
+                    tails.Insert(0, en(m));
+                    body = body.Substring(0, m.Index).TrimEnd();
+                    peeled = true;
+                    break;
+                }
+            }
+            string Join(string core) => string.Join(" ", new[] { core }.Concat(tails));
+
+            var bare = FirstMatch(LegacyBare, body);
+            if (bare != null) return Join(bare);
+
+            const string head = "Peraturan: ";
+            if (!body.StartsWith(head, StringComparison.Ordinal)) return null;
+            for (var cut = body.IndexOf(". ", head.Length, StringComparison.Ordinal); cut > 0; cut = body.IndexOf(". ", cut + 1, StringComparison.Ordinal))
+            {
+                var ruleEn = RuleKnownEn(body.Substring(head.Length, cut - head.Length));
+                if (ruleEn == null) continue;
+                var core = FirstMatch(LegacyBody, body.Substring(cut + 2).Trim());
+                if (core != null) return Join("Rule: " + ruleEn + ". " + core);
+            }
+            return null;
         }
 
         public static string ExportNeedsScan(string lang = null) =>
