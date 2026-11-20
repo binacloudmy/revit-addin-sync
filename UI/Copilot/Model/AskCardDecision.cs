@@ -414,12 +414,12 @@ namespace RevitWebAppSync.UI.Copilot.Model
             {
                 if (!IsAnswered(f))
                 {
-                    if (IsChoiceField(f)) lines.Add(new AskOutcomeLine { Label = f.Label, Detail = WaitingText, State = AskOutcomeState.Waiting });
+                    if (IsChoiceField(f)) lines.Add(new AskOutcomeLine { Label = f.Label, Detail = Say(WaitingText), State = AskOutcomeState.Waiting });
                     continue;
                 }
                 var c = Picked(f);
                 if (c != null && c.IsSkip) lines.Add(new AskOutcomeLine { Label = f.Label, State = AskOutcomeState.Skipped });
-                else if (c != null && c.IsCreate) lines.Add(new AskOutcomeLine { Label = f.Label, Detail = NewLabel(c.Label), State = AskOutcomeState.New });
+                else if (c != null && c.IsCreate) lines.Add(new AskOutcomeLine { Label = f.Label, Detail = NewLabel(c.Label, Language), State = AskOutcomeState.New });
                 else if (c != null) lines.Add(new AskOutcomeLine { Label = f.Label, Detail = c.Label, State = AskOutcomeState.Picked });
                 else lines.Add(new AskOutcomeLine { Label = f.Label, Detail = TypedText(f), State = AskOutcomeState.Picked });
             }
@@ -443,13 +443,15 @@ namespace RevitWebAppSync.UI.Copilot.Model
         }
 
         /// <summary>The one line for many ready items: "18 sheets ready to make", or "18 ready" without a noun.</summary>
-        public string ReadySummary => Noun != null ? CountOf(Ready.Count, Noun) + " ready to make" : Ready.Count.ToString(CultureInfo.InvariantCulture) + " ready";
+        public string ReadySummary => Language == ReceiptLanguage.Ms
+            ? (Noun != null ? CountOf(Ready.Count, Noun, Language) + " sedia dibuat" : Ready.Count.ToString(CultureInfo.InvariantCulture) + " sedia")
+            : Noun != null ? CountOf(Ready.Count, Noun) + " ready to make" : Ready.Count.ToString(CultureInfo.InvariantCulture) + " ready";
 
         /// <summary>The ready items plus the fields answered with anything but a skip.</summary>
         public int MadeCount => Ready.Count + Fields.Count(f => IsAnswered(f) && !(Picked(f)?.IsSkip ?? false));
 
         /// <summary>The preview's count ("3 sheets so far", "5 sheets"), or null without a noun.</summary>
-        public string? PreviewCount => !KnowsTotal ? null : CountOf(MadeCount, Noun!) + (Unanswered > 0 ? " so far" : "");
+        public string? PreviewCount => !KnowsTotal ? null : CountOf(MadeCount, Noun!, Language) + (Unanswered > 0 ? (Language == ReceiptLanguage.Ms ? " setakat ini" : " so far") : "");
 
         /// <summary>The card can count what will be made: it has a noun AND the frame carried a ready list (an empty one
         /// counts: nothing is ready). Without the list it does not know the total (live R4: a frame with "sheet" and no
@@ -493,14 +495,14 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 if (Kind == AskCardKind.Fields)
                 {
                     var open = Unanswered;
-                    if (!CanSend && IsSingleQuestion) return HasMulti ? SendWithCount(0) : ContinueLabel;              // r18 C1: no "Answer 1 more"
-                    if (!CanSend) return open > 0 ? "Answer " + open.ToString(CultureInfo.InvariantCulture) + " more" : ContinueLabel;
-                    if (!KnowsTotal) return HasMulti && TickCount > 0 ? SendWithCount(TickCount) : ContinueLabel;   // r13: "Send (2)"
+                    if (!CanSend && IsSingleQuestion) return HasMulti ? SendWithCount(0, Language) : Say(ContinueLabel);              // r18 C1: no "Answer 1 more"
+                    if (!CanSend) return open > 0 ? AnswerMoreLabel(open, Language) : Say(ContinueLabel);
+                    if (!KnowsTotal) return HasMulti && TickCount > 0 ? SendWithCount(TickCount, Language) : Say(ContinueLabel);   // r13: "Send (2)"
                     var n = MadeCount;
-                    return n == 0 ? "Make nothing" : "Make " + CountOf(n, Noun!);
+                    return n == 0 ? Say(MakeNothingLabel) : MakeLabel(n, Noun!, Language);
                 }
-                if (Kind == AskCardKind.Options && Multi) return SendWithCount(TickCount);                          // r13: "Send", "Send (2)"
-                return ContinueLabel;
+                if (Kind == AskCardKind.Options && Multi) return SendWithCount(TickCount, Language);                          // r13: "Send", "Send (2)"
+                return Say(ContinueLabel);
             }
         }
 
@@ -557,10 +559,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
             {
                 var ids = TickedIds(f, Picks.TryGetValue(f.Id, out var raw) ? raw : "");
                 var skipOnly = ids.Count == 1 && f.Choices.Any(x => x.Id == ids[0] && x.IsSkip);
-                return skipOnly ? SkippedText : string.Join(", ", ids.Select(id => f.Choices.First(x => x.Id == id).Label));
+                return skipOnly ? Say(SkippedText) : string.Join(", ", ids.Select(id => f.Choices.First(x => x.Id == id).Label));
             }
             var c = Picked(f);
-            if (c != null) return c.IsSkip ? SkippedText : c.Label;
+            if (c != null) return c.IsSkip ? Say(SkippedText) : c.Label;
             return TypedText(f);
         }
 

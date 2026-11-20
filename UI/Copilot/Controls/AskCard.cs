@@ -63,7 +63,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         {
             var outer = CardKit.Card("Cp.Line", "Cp.Bg");
             var sp = new StackPanel { Margin = new Thickness(14, 11, 14, 11) };
-            sp.Children.Add(Kicker(AskCardModel.AnsweredHeading, new Thickness(0, 0, 0, 6)));
+            sp.Children.Add(Kicker(m.Say(AskCardModel.AnsweredHeading), new Thickness(0, 0, 0, 6)));
             var lines = m.AnsweredLines;
             if (lines != null && lines.Count > 0 && m.AnsweredSummary != null)
             {
@@ -75,7 +75,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 var q = CardKit.Text(Clip(m.Question, 240), 12, "Cp.Muted", margin: new Thickness(0, 0, 0, 4));
                 if (m.Question.Length > 240) q.ToolTip = m.Question;
                 sp.Children.Add(q);
-                sp.Children.Add(AnsweredRow("", m.AnsweredSummary ?? "answered"));
+                sp.Children.Add(AnsweredRow("", m.AnsweredSummary ?? m.Say(AskCardModel.AnsweredText)));
             }
             outer.Child = sp;
             return outer;
@@ -183,7 +183,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 if (m.OffersDecline && m.Kind != AskCardKind.Credential) sp.Children.Add(DeclineRow());
 
                 if (m.SomethingWasDropped)
-                    sp.Children.Add(CardKit.Text("Some choices were hidden because they looked like approval, and BINA never asks for passwords or tokens here.",
+                    sp.Children.Add(CardKit.Text(m.Say(AskCardModel.DroppedNote),
                         10.5, "Cp.Faint", margin: new Thickness(14, 0, 14, 12)));
 
                 _outer.PreviewKeyDown += OnKey;
@@ -324,7 +324,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     var count = CardKit.Text("", 11.5, "Cp.Muted", FontWeights.Medium, wrap: false, mono: true);
                     count.VerticalAlignment = VerticalAlignment.Top;
                     count.Margin = new Thickness(12, 2, 0, 0);
-                    _refresh.Add(() => { count.Text = _m.ProgressText; count.ToolTip = _m.ProgressText.Replace(" / ", " of ") + " answered"; });
+                    _refresh.Add(() => { count.Text = _m.ProgressText; count.ToolTip = AskCardModel.AnsweredTip(_m.ProgressFields.Count(_m.IsAnswered), _m.ProgressFields.Count, _m.Language); });
                     Grid.SetColumn(count, 1);
                     grid.Children.Add(count);
                 }
@@ -343,7 +343,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                         var on = _m.Segments;
                         for (var i = 0; i < bars.Count && i < on.Count; i++)
                             bars[i].SetResourceReference(Border.BackgroundProperty, on[i] ? "Cp.Accent" : "Cp.Hair2");
-                        segs.ToolTip = on.Count(x => x) + " of " + on.Count + " answered";
+                        segs.ToolTip = AskCardModel.AnsweredTip(on.Count(x => x), on.Count, _m.Language);
                     });
                     Grid.SetColumn(segs, 1);
                     grid.Children.Add(segs);
@@ -354,7 +354,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             private FrameworkElement ReadyPills()
             {
                 var wrap = new WrapPanel { Margin = new Thickness(14, 0, 14, 10) };
-                var kick = CardKit.Text(AskCardModel.ReadyHeading, 11, "Cp.Faint", wrap: false);
+                var kick = CardKit.Text(_m.Say(AskCardModel.ReadyHeading), 11, "Cp.Faint", wrap: false);
                 kick.VerticalAlignment = VerticalAlignment.Center;
                 kick.Margin = new Thickness(0, 0, 6, 4);
                 wrap.Children.Add(kick);
@@ -395,7 +395,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                         var visible = _m.VisibleReady(open);
                         for (var k = 0; k < extra.Count; k++)
                             extra[k].Visibility = AskCardModel.ReadyPreview + k < visible ? Visibility.Visible : Visibility.Collapsed;
-                        label.Text = AskCardModel.ReadyToggleLabel(hidden, open);
+                        label.Text = AskCardModel.ReadyToggleLabel(hidden, open, _m.Language);
                         more.ToolTip = open ? null : names;
                     }
                     more.Click += (_, __) => { open = !open; Show(); };
@@ -467,7 +467,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 }
                 var skip = _m.MultiSkip;
                 if (skip != null) body.Children.Add(SkipRow(skip.Label, () => { _m.ToggleMulti(skip.Id); Refresh(); }, () => _m.MultiPicks.Contains(skip.Id)));
-                body.Children.Add(CardKit.Text(AskCardModel.TypeOwnHint, 11, "Cp.Faint", margin: new Thickness(2, 2, 0, 0)));
+                body.Children.Add(CardKit.Text(_m.Say(AskCardModel.TypeOwnHint), 11, "Cp.Faint", margin: new Thickness(2, 2, 0, 0)));
                 return body;
             }
 
@@ -485,7 +485,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             private FrameworkElement FreeTextBody()
             {
                 var body = new StackPanel { Margin = new Thickness(14, 0, 14, 12) };
-                var (frame, box) = Input(_m.FreeTextDraft, number: false, placeholder: "Type your answer");
+                var (frame, box) = Input(_m.FreeTextDraft, number: false, placeholder: _m.Say(AskCardModel.TypeAnswerHint));
                 box.TextChanged += (_, __) => { _m.FreeTextDraft = box.Text; Refresh(); };
                 body.Children.Add(frame);
                 return body;
@@ -507,8 +507,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     if (bulk)
                     {
                         var links = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-                        links.Children.Add(LinkButton("Create all", () => { _m.Bulk(g, AskOptionKinds.Create); Refresh(); }));
-                        var skipAll = LinkButton("Skip all", () => { _m.Bulk(g, AskOptionKinds.Skip); Refresh(); });
+                        links.Children.Add(LinkButton(_m.Say(AskCardModel.CreateAllLabel), () => { _m.Bulk(g, AskOptionKinds.Create); Refresh(); }));
+                        var skipAll = LinkButton(_m.Say(AskCardModel.SkipAllLabel), () => { _m.Bulk(g, AskOptionKinds.Skip); Refresh(); });
                         skipAll.Margin = new Thickness(8, 0, 0, 0);
                         links.Children.Add(skipAll);
                         DockPanel.SetDock(links, Dock.Right);
@@ -529,7 +529,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     _refresh.Add(() =>
                     {
                         var leftN = _m.LeftIn(g);
-                        badgeText.Text = AskCardModel.CountLabel(leftN);
+                        badgeText.Text = AskCardModel.CountLabel(leftN, _m.Language);
                         badge.SetResourceReference(Border.BackgroundProperty, leftN > 0 ? "Cp.AmberBg" : "Cp.OkBg");
                         badgeText.SetResourceReference(TextBlock.ForegroundProperty, leftN > 0 ? "Cp.AmberFg" : "Cp.Green");
                     });
@@ -545,7 +545,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 foreach (var f in g.Fields) { var row = FieldBlock(f); rows.Add(row); sp.Children.Add(row); }
                 if (hiddenRows > 0)
                 {
-                    var toggle = ToggleRow(AskCardModel.ShowMoreLabel(hiddenRows), () => { expanded = !expanded; Refresh(); });
+                    var toggle = ToggleRow(AskCardModel.ShowMoreLabel(hiddenRows, _m.Language), () => { expanded = !expanded; Refresh(); });
                     sp.Children.Add(toggle.Row);
                     // The keyboard moving onto a hidden row opens the group (Up/Down only, so "Show fewer" stays folded).
                     _reveal.Add(f => { if (!expanded && g.Fields.IndexOf(f) >= AskCardModel.GroupPreview) expanded = true; });
@@ -554,7 +554,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                         var visible = AskCardModel.VisibleIn(g, expanded);
                         for (var i = 0; i < rows.Count; i++)
                             rows[i].Visibility = i < visible ? Visibility.Visible : Visibility.Collapsed;
-                        toggle.Set(expanded ? AskCardModel.ShowFewerLabel : AskCardModel.ShowMoreLabel(hiddenRows));
+                        toggle.Set(expanded ? _m.Say(AskCardModel.ShowFewerLabel) : AskCardModel.ShowMoreLabel(hiddenRows, _m.Language));
                     });
                 }
                 return block;
@@ -686,7 +686,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 var sp = new StackPanel();
                 sp.Children.Add(FieldName(f, new Thickness(0, 0, 2, AskCardModel.FieldShowsMultiHint(f) ? 2 : 7)));
                 if (AskCardModel.FieldShowsMultiHint(f)) sp.Children.Add(MultiHintLine(new Thickness(0, 0, 2, 7)));   // r13: "Pick any"
-                var (frame, box) = Input("", number: false, placeholder: AskCardModel.FilterHint, icon: SearchIcon);
+                var (frame, box) = Input("", number: false, placeholder: _m.Say(AskCardModel.FilterHint), icon: SearchIcon);
                 frame.Margin = new Thickness(0, 0, 0, 6);
                 sp.Children.Add(frame);
                 var rows = new StackPanel();
@@ -719,7 +719,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                         rows.Children.Add(row.Button);
                     }
                     var hidden = all.Count - shown.Count;
-                    more.Content = "Show " + hidden + " more";
+                    more.Content = AskCardModel.ShowMoreLabel(hidden, _m.Language);
                     more.Visibility = hidden > 0 ? Visibility.Visible : Visibility.Collapsed;
                     empty.Visibility = all.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
                     foreach (var r in rowRefresh) r();
@@ -769,7 +769,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 var sp = new StackPanel();
                 sp.Children.Add(FieldName(f, new Thickness(0, 0, 2, 6)));
                 _m.Picks.TryGetValue(f.Id, out var current);
-                var (frame, box) = Input(current ?? "", number, placeholder: number ? "Type a number" : "Type here");
+                var (frame, box) = Input(current ?? "", number, placeholder: _m.Say(number ? AskCardModel.TypeNumberHint : AskCardModel.TypeHereHint));
                 box.TextChanged += (_, __) => { _m.SetText(f.Id, box.Text); Refresh(); };
                 sp.Children.Add(frame);
                 return sp;
@@ -788,7 +788,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 var count = CardKit.Text("", 12, "Cp.Muted", wrap: false);
                 DockPanel.SetDock(count, Dock.Right);
                 head.Children.Add(count);
-                head.Children.Add(Kicker(AskCardModel.PreviewHeading, new Thickness(0)));
+                head.Children.Add(Kicker(_m.Say(AskCardModel.PreviewHeading), new Thickness(0)));
                 sp.Children.Add(head);
                 var list = new StackPanel();
                 sp.Children.Add(list);
@@ -804,12 +804,12 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     list.Children.Clear();
                     foreach (var line in lines) list.Children.Add(OutcomeRow(line));
                     toggle.Row.Visibility = hidden > 0 ? Visibility.Visible : Visibility.Collapsed;
-                    toggle.Set(expanded ? AskCardModel.ShowFewerLabel : AskCardModel.ShowMoreLabel(hidden));
+                    toggle.Set(expanded ? _m.Say(AskCardModel.ShowFewerLabel) : AskCardModel.ShowMoreLabel(hidden, _m.Language));
                 });
                 return block;
             }
 
-            private static FrameworkElement OutcomeRow(AskOutcomeLine line)
+            private FrameworkElement OutcomeRow(AskOutcomeLine line)
             {
                 var grid = new Grid { Margin = new Thickness(0, 2, 0, 2) };
                 grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -819,7 +819,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 {
                     case AskOutcomeState.Waiting:
                         t.Inlines.Add(Ink(line.Label, "Cp.AmberFg", FontWeights.SemiBold));
-                        t.Inlines.Add(Ink(" · " + (line.Detail ?? AskCardModel.WaitingText), "Cp.AmberFg", FontWeights.Normal));
+                        t.Inlines.Add(Ink(" · " + (line.Detail ?? _m.Say(AskCardModel.WaitingText)), "Cp.AmberFg", FontWeights.Normal));
                         break;
                     case AskOutcomeState.Skipped:
                         var r = Ink(line.Label, "Cp.Faint", FontWeights.Medium);
@@ -842,7 +842,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 {
                     var tag = new Border { CornerRadius = new CornerRadius(4), Padding = new Thickness(5, 0, 5, 1), Margin = new Thickness(8, 1, 0, 0), VerticalAlignment = VerticalAlignment.Top };
                     tag.SetResourceReference(Border.BackgroundProperty, "Cp.BlueSoft");
-                    tag.Child = CardKit.Text(AskCardModel.NewTag, 10.5, "Cp.BlueText", FontWeights.SemiBold, wrap: false);
+                    tag.Child = CardKit.Text(_m.Say(AskCardModel.NewTag), 10.5, "Cp.BlueText", FontWeights.SemiBold, wrap: false);
                     Grid.SetColumn(tag, 1);
                     grid.Children.Add(tag);
                 }

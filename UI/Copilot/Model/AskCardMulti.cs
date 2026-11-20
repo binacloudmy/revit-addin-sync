@@ -63,7 +63,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public AskOptionModel? MultiSkip => Multi ? Options.FirstOrDefault(o => o.IsSkip) : null;
 
         /// <summary>The collapsed record of a sent multi options card: the ticked labels, or "Skipped" for a skip.</summary>
-        public string MultiSummary => MultiPicked.Count == 1 && MultiPicked[0].IsSkip ? SkippedText : string.Join(", ", MultiPicked.Select(o => o.Label));
+        public string MultiSummary => MultiPicked.Count == 1 && MultiPicked[0].IsSkip ? Say(SkippedText) : string.Join(", ", MultiPicked.Select(o => o.Label));
 
         /// <summary>"Send (2)": the send label with the tick count, "Send" with none.</summary>
         public static string SendWithCount(int n) =>
