@@ -233,7 +233,16 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         }
 
         /// <summary>The English of a known checker remark; null when there is none.</summary>
-        public static string AuditRemarkEn(string remark)
+        public static string AuditRemarkEn(string remark) => TranslateOrNull(AuditRemarkEnCore, remark);
+
+        /// <summary>Runs a translator; a regex match timeout means "no English text" (null), the remark stays BM.</summary>
+        internal static string TranslateOrNull(Func<string, string> translate, string text)
+        {
+            try { return translate(text); }
+            catch (RegexMatchTimeoutException) { return null; }
+        }
+
+        private static string AuditRemarkEnCore(string remark)
         {
             var s = (remark ?? "").Trim();
             if (s == NoCheckBm + " — semak manual.") return NoCheckEn + " — semak manual.";
@@ -272,8 +281,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// <summary>A rule the BIM010 checker states, in English; the text itself when it is not one it knows.</summary>
         public static string AuditRuleEn(string rule)
         {
-            var s = (rule ?? "").Trim();
-            return RuleKnownEn(s) ?? rule ?? "";
+            try { return RuleKnownEn((rule ?? "").Trim()) ?? rule ?? ""; }
+            catch (RegexMatchTimeoutException) { return rule ?? ""; }
         }
 
         private static readonly Regex EmptyExpected = R(@"^(\d+) elemen (.+?) dijumpai dalam model walaupun kategori ini biasanya wajib bagi model seni bina — sahkan sama ada memang tiada dalam skop projek\. \(Kualiti/maklumat/geometri: semak manual\.\)$");
@@ -300,11 +309,11 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             if (!s.StartsWith(head, StringComparison.Ordinal)) return null;
             var ruleEn = "Rule: " + AuditRuleEn(rule) + ". ";
             var rest = s.Substring(head.Length);
-            var all = Regex.Match(rest, @"^Semua (\d+) bilik ada nilai Department — patuh\.$");
+            var all = RL(@"^Semua (\d+) bilik ada nilai Department — patuh\.$").Match(rest);
             if (all.Success) return ruleEn + "All " + all.Groups[1].Value + " rooms have a Department value — complies.";
             if (rest == "Dijumpai 0 bilik yang diletakkan (placed Room) dalam model — letak Room dahulu sebelum kategori jabatan boleh disemak.")
                 return ruleEn + "Found 0 placed rooms in the model — place Rooms first before the department can be checked.";
-            var miss = Regex.Match(rest, @"^(\d+)/(\d+) bilik tiada nilai \(cth: (.*)\)\. Isi parameter Department untuk bilik tersebut\.(.*)$", RegexOptions.Singleline);
+            var miss = RL(@"^(\d+)/(\d+) bilik tiada nilai \(cth: (.*)\)\. Isi parameter Department untuk bilik tersebut\.(.*)$").Match(rest);
             if (miss.Success && (string.IsNullOrWhiteSpace(miss.Groups[4].Value) || FullListNoteEn(miss.Groups[4].Value).Length > 0))
                 return ruleEn + miss.Groups[1].Value + "/" + miss.Groups[2].Value + " rooms have no value (e.g. " + miss.Groups[3].Value
                        + "). Fill in the Department parameter for those rooms." + FullListNoteEn(miss.Groups[4].Value);
@@ -314,7 +323,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         // AuditCheckers.FullListNote: "" or " Senarai penuh N item ada dalam draft_export (element_ids)."
         private static string FullListNoteEn(string note)
         {
-            var m = Regex.Match(note ?? "", @"^\s*Senarai penuh (\d+) item ada dalam draft_export \(element_ids\)\.\s*$");
+            var m = RL(@"^\s*Senarai penuh (\d+) item ada dalam draft_export \(element_ids\)\.\s*$").Match(note ?? "");
             return m.Success ? " The full list of " + m.Groups[1].Value + " items is in draft_export (element_ids)." : "";
         }
 
@@ -338,6 +347,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         private const string GridRuleEn = "the Project Base Point to be within 10 mm of the intersection of grids 'A' and '1'";
         private const string GridRuleStatementEn = "the Project Base Point is within 10 mm of the intersection of grids 'A' and '1'";
         private static readonly Regex GridModelHas = R(@"^Model ada (\d+) grid( \([^)]*\))? tetapi tiada yang bernama (.+?) \(atau berawalan projek, cth 'PT-A' / 'PT1'\)\. ");
+        private static readonly Regex GridMissing = R(@"^('[A1]')(?: atau ('[A1]'))?$");
+        private static readonly Regex GridQuotedPair = R(@"^'(.*?)'(?: dan '(.*)')?$");
         private static readonly Regex GridCurved = R(@"^Grid (.+?) bukan garisan lurus, jadi persilangan tidak boleh dihitung\. ");
         private static readonly Regex GridParallel = R(@"^Grid '(.*)' dan grid '(.*)' selari pada pelan, jadi tiada persilangan untuk diukur — semak manual\.$");
 
@@ -360,15 +371,22 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             if (m.Success)
             {
                 var n = m.Groups[1].Value;
+                // the missing names are the fixed labels 'A' / '1' joined by "atau": rebuilt, never string-replaced
+                var miss = GridMissing.Match(m.Groups[3].Value);
+                if (!miss.Success) return null;
                 en.Append("The model has " + n + (n == "1" ? " grid" : " grids") + m.Groups[2].Value
-                          + " but none is named " + m.Groups[3].Value.Replace(" atau ", " or ")
+                          + " but none is named " + miss.Groups[1].Value + (miss.Groups[2].Success ? " or " + miss.Groups[2].Value : "")
                           + " (or prefixed with the project, e.g. 'PT-A' / 'PT1'). ");
                 rest = rest.Substring(m.Length);
             }
             var c = GridCurved.Match(rest);
             if (c.Success)
             {
-                en.Append("Grid " + c.Groups[1].Value.Replace(" dan ", " and ") + " is not a straight line, so the intersection cannot be calculated. ");
+                // 'name' or 'name' dan 'name': the connector is translated, the names are copied as captured
+                var q = GridQuotedPair.Match(c.Groups[1].Value);
+                if (!q.Success) return null;
+                en.Append("Grid '" + q.Groups[1].Value + "'" + (q.Groups[2].Success ? " and '" + q.Groups[2].Value + "'" : "")
+                          + " is not a straight line, so the intersection cannot be calculated. ");
                 rest = rest.Substring(c.Length);
             }
             return rest == tail ? en + tail : null;
@@ -406,7 +424,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         // source fragments and fails when a new Remark appears without a template. A text that matches
         // no template stays BM (better all BM than half translated). The label "semak manual" stays.
 
-        private static Regex RL(string pattern) => new Regex(pattern, RegexOptions.Singleline | RegexOptions.CultureInvariant);
+        private static Regex RL(string pattern) => new Regex(pattern, RegexOptions.Singleline | RegexOptions.CultureInvariant, MatchTimeout);
+
+        private static readonly Regex ProjectInfoItem = RL(@"(?:, )?(Project Name|Project Number|Address|Client Name|Status|Issue Date) (?:\(kosong\)|\(""([^""]*)"" — nilai lalai\))");
 
         private static readonly (Regex Re, Func<Match, string> En)[] LegacyRuleTemplates =
         {
@@ -473,7 +493,15 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             (RL(@"^Had dijangka: <=10 mm dari persilangan (.+?); dijumpai sisihan (\S+) mm(?: — (patuh)\.|\. Selaraskan kedudukan model ke grid (.+)\.)$"), m =>
             {
                 var head = $"Expected limit: <=10 mm from the intersection of {m.Groups[1].Value}; found offset {m.Groups[2].Value} mm";
-                return m.Groups[3].Success ? head + " — complies." : head + $". Adjust the model position to grid {m.Groups[4].Value.Replace(" dan ", " and ")}.";
+                if (m.Groups[3].Success) return head + " — complies.";
+                // the checker wrote pair.Replace("/", " dan "), pair taken from "grid pair" or "grid pair (Grid A/1)"
+                var used = RL(@"^grid (.+?)(?: \(Grid A/1\))?$").Match(m.Groups[1].Value);
+                if (!used.Success) return null;
+                var pair = used.Groups[1].Value;
+                if (pair.Replace("/", " dan ") != m.Groups[4].Value) return null;
+                var slash = pair.IndexOf('/');
+                var pairEn = slash >= 0 && slash == pair.LastIndexOf('/') ? pair.Substring(0, slash) + " and " + pair.Substring(slash + 1) : pair;
+                return head + $". Adjust the model position to grid {pairEn}.";
             }),
             (RL(@"^Dokumen tiada elemen Project Information untuk dibaca — semak manual di Manage > Project Information\.$"),
                 m => "The document has no Project Information element to read — semak manual in Manage > Project Information."),
@@ -526,7 +554,19 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 m => $"All six fields are filled (Project Name \"{m.Groups[1].Value}\", Project Number \"{m.Groups[2].Value}\") — complies."),
             (RL(@"^(\d+)/(\d+) medan belum dikemaskini: (.*)\. Isi di Manage > Project Information\.$"), m =>
             {
-                var list = m.Groups[3].Value.Replace(" (kosong)", " (empty)").Replace(" — nilai lalai)", " — Revit default)");
+                // rebuilt item by item: field label + (kosong) | ("value" — nilai lalai); the value is copied as captured
+                var items = new List<string>();
+                var pos = 0;
+                var src = m.Groups[3].Value;
+                while (pos < src.Length)
+                {
+                    var it = ProjectInfoItem.Match(src, pos);
+                    if (!it.Success || it.Index != pos) return null;
+                    items.Add(it.Groups[1].Value + (it.Groups[2].Success ? " (\"" + it.Groups[2].Value + "\" — Revit default)" : " (empty)"));
+                    pos += it.Length;
+                }
+                if (items.Count == 0) return null;
+                var list = string.Join(", ", items);
                 return $"{m.Groups[1].Value}/{m.Groups[2].Value} fields not yet updated: {list}. Fill them in under Manage > Project Information.";
             }),
             // view templates (also the BOMBA / PBT view sets)
@@ -663,7 +703,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         {
             if (name == "Element") return L(lang, "Elemen", "Element");
             if (name == "Model") return "Model";
-            var m = Regex.Match(name ?? "", @"^(\d+) elements$");
+            var m = RL(@"^(\d+) elements$").Match(name ?? "");
             if (m.Success) return L(lang, m.Groups[1].Value + " elemen", name);
             return name;
         }
@@ -699,7 +739,10 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             (R(@"^Failed to set '(.*)'$"), "Gagal menetapkan '{1}'.", null),
         };
 
-        private static Regex R(string pattern) => new Regex(pattern, RegexOptions.Compiled | RegexOptions.Singleline);
+        /// <summary>Every translator regex has this match timeout (a remark can carry long user names); on a timeout the text stays BM.</summary>
+        internal static TimeSpan MatchTimeout => TimeSpan.FromMilliseconds(250); // a property: static field initialisers above this line use it
+
+        private static Regex R(string pattern) => new Regex(pattern, RegexOptions.Compiled | RegexOptions.Singleline, MatchTimeout);
 
         /// <summary>A recorded fix-failure reason in the pane's language.</summary>
         public static string FixReason(string reason, string lang = null)
@@ -707,7 +750,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             if (string.IsNullOrEmpty(reason) || En(lang)) return reason ?? "";
             foreach (var (re, ms, _) in Reasons)
             {
-                var m = re.Match(reason);
+                Match m;
+                try { m = re.Match(reason); } catch (RegexMatchTimeoutException) { return reason; }
                 if (!m.Success) continue;
                 var s = ms;
                 for (var g = 1; g < m.Groups.Count; g++) s = s.Replace("{" + g + "}", m.Groups[g].Value);
