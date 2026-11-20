@@ -166,5 +166,65 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(1, real.OtherFailing);
             Assert.Contains("1 other JKR rule", SpecChecklist.VerdictTitle(real, PanelStrings.En) + SpecChecklist.OthersNote(real, PanelStrings.En));
         }
+
+        [Fact]
+        public void A_FailOnly_spec_pass_does_not_hide_a_legacy_fail()
+        {
+            // A7.1 is FailOnly: its pass proves only part of the check, so the legacy
+            // materials_assigned FAIL is real evidence and must stay in the list.
+            var records = new[] { Rec("materials_assigned", "A", "7") };
+            var modelResults = new[] { new SpecResult { Source = SpecReport.Model, CheckId = "A7.1", Status = "pass", Coverage = SpecCoverage.FailOnly } };
+            var kept = IssueMapper.FromAuditRecordsNotInSpec(records, new IssueVm[0], modelResults);
+            Assert.Single(kept);
+            Assert.Equal("BIM010-A7", kept[0].CheckId);
+            // A FailOnly FAIL does judge the check.
+            var failing = new[] { new SpecResult { Source = SpecReport.Model, CheckId = "A7.1", Status = "fail", Coverage = SpecCoverage.FailOnly } };
+            Assert.Empty(IssueMapper.FromAuditRecordsNotInSpec(records, new IssueVm[0], failing));
+        }
+
+        [Fact]
+        public void A_SPEC_issue_of_another_check_does_not_cover_the_legacy_row()
+        {
+            // A7.2 (non-JKR materials) is another check than A7.1 (materials_assigned).
+            var records = new[] { Rec("materials_assigned", "A", "7") };
+            var modelResults = new[] { Spec("A7.2", "fail", "spec-a72") };
+            var specIssues = IssueMapper.FromModelResults(modelResults, PanelStrings.En);
+            Assert.Single(specIssues);
+            Assert.Single(IssueMapper.FromAuditRecordsNotInSpec(records, specIssues, modelResults));
+        }
+
+        [Fact]
+        public void Two_records_on_one_key_a_covered_one_is_dropped_and_a_Context_one_stays()
+        {
+            // Same Borang key A6: a Full-mapped checker (file_naming, forced onto A6) is covered by A2.1's
+            // SPEC- issue, the rooms_department (Context) record on that key survives.
+            var covered = Rec("file_naming", "A", "6");
+            var context = Rec("rooms_department", "A", "6");
+            var spec = new[] { Spec("A2.1", "fail", "spec-a2") };
+            var kept = IssueMapper.FromAuditRecordsNotInSpec(new[] { covered, context }, IssueMapper.FromModelResults(spec, PanelStrings.En), spec);
+            Assert.Single(kept);
+            Assert.Equal(IssueVerification.Human, kept[0].Verification);   // the A6 info-only one
+        }
+
+        [Fact]
+        public void A_section_D_record_is_covered_through_its_Da_1_check_id()
+        {
+            // The D legacy key is "D10"; the SPEC- issue's Borang key may be "D": only the check id compares.
+            var records = new[] { Rec("family_category", "D", "10") };
+            var spec = new[] { Spec("Da.1", "fail", "spec-da1") };
+            var specIssues = IssueMapper.FromModelResults(spec, PanelStrings.En);
+            Assert.Single(specIssues);
+            Assert.Empty(IssueMapper.FromAuditRecordsNotInSpec(records, specIssues, spec));
+        }
+
+        [Fact]
+        public void The_info_only_rule_match_is_explicit_not_a_prefix()
+        {
+            Assert.True(SpecReport.IsInfoOnlyLegacyRule("Levels", "Level Naming Convention L##"));
+            Assert.True(SpecReport.IsInfoOnlyLegacyRule("Levels", "Level naming convention"));
+            Assert.False(SpecReport.IsInfoOnlyLegacyRule("Levels", "Level Naming Convention is missing a prefix"));
+            Assert.False(SpecReport.IsInfoOnlyLegacyRule("Doors", "Level Naming Convention L##"));
+            Assert.False(SpecReport.IsInfoOnlyLegacyRule(null, null));
+        }
     }
 }
