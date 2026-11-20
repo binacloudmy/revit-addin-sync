@@ -1,5 +1,5 @@
 #nullable enable
-// r12 (0.0.145): Revit's own Undo/Redo (Ctrl+Z, the Undo list) of a BINA entry leaves a small "You undid: …" line in the
+// r12 (0.0.145): Revit's own Undo/Redo (Ctrl+Z, the Undo list) of a BINA entry leaves a small "Undone: …" line in the
 // chat thread, one line per burst, never in the saved history or the model's transcript. The pane's own button is not noted.
 using System;
 using System.IO;
@@ -29,7 +29,7 @@ namespace RevitAddinSync.Tests
             var log = new UndoNotices();
             Assert.True(log.Record(C(UndoChangeKind.Undone, "BINA: Set parameter Mark"), 4, T0));
             Assert.Single(log.Items);
-            Assert.Equal("You undid: Set parameter Mark", log.Items[0].Text);
+            Assert.Equal("Undone: Set parameter Mark", log.Items[0].Text);
             Assert.Equal(4, log.Items[0].After);
             Assert.Single(log.After(3));
             Assert.Empty(log.After(2));
@@ -40,7 +40,7 @@ namespace RevitAddinSync.Tests
         {
             var log = new UndoNotices();
             log.Record(C(UndoChangeKind.Redone, "BINA: Tag doors"), 2, T0);
-            Assert.Equal("You redid: Tag doors", log.Items[0].Text);
+            Assert.Equal("Redone: Tag doors", log.Items[0].Text);
         }
 
         [Fact]
@@ -63,14 +63,14 @@ namespace RevitAddinSync.Tests
             log.Record(C(UndoChangeKind.Undone, "BINA: Set Mark (batch 1)"), 3, T0.AddMilliseconds(5));
             log.Record(C(UndoChangeKind.Undone, "BINA: Set Mark (batch 1)"), 3, T0.AddSeconds(1));   // a repeated name once
             Assert.Single(log.Items);
-            Assert.Equal("You undid: Set Mark (batch 2) and Set Mark (batch 1)", log.Items[0].Text);
+            Assert.Equal("Undone: Set Mark (batch 2) and Set Mark (batch 1)", log.Items[0].Text);
         }
 
         [Fact]
         public void ManyNames_SayHowManyMore()
         {
-            Assert.Equal("You undid: A, B, C and 2 more", UndoNotices.TextOf(UndoChangeKind.Undone, new[] { "A", "B", "C", "D", "E" }));
-            Assert.Equal("You undid: A, B and C", UndoNotices.TextOf(UndoChangeKind.Undone, new[] { "A", "B", "C" }));
+            Assert.Equal("Undone: A, B, C and 2 more", UndoNotices.TextOf(UndoChangeKind.Undone, new[] { "A", "B", "C", "D", "E" }));
+            Assert.Equal("Undone: A, B and C", UndoNotices.TextOf(UndoChangeKind.Undone, new[] { "A", "B", "C" }));
         }
 
         [Fact]

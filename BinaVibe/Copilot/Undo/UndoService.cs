@@ -372,7 +372,7 @@ namespace BinaVibe.Copilot.Undo
             Status = EnvelopeStatus.Done,
             Phase = EnvelopePhase.Commit,
             Summary = EnvelopeFactory.Shorten(
-                (job.Redo ? "Redid " : "Undid ") + job.Undone.Count +" BINA change(s) in Revit: " + string.Join("; ", job.Undone) + ".",
+                UndoWords.LineOfEntries(job.Redo, job.Undone),   // r18: the pane's thread line after its Undo/Redo button, worded as every undo line
                 EnvelopeLimits.SummaryMaxChars),
             Count = job.Undone.Count,
             Verified = new VerifiedDto { Method = VerifyMethods.CountDelta, Checked = job.Undone.Count },

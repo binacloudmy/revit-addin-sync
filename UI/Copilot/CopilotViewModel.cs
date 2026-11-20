@@ -1787,7 +1787,7 @@ namespace RevitWebAppSync.UI.Copilot
                 var summary = redo
                     ? await Revit.RedoTurnAsync(m.TurnId)
                     : await Revit.UndoTurnAsync(m.TurnId, lastBatchOnly);
-                text = summary ?? (redo ? (ms ? "Buat semula selesai." : "Redone.") : (ms ? "Buat asal selesai." : "Undone."));
+                text = summary ?? BinaVibe.Copilot.Undo.UndoWords.Line(redo, null);   // r18: one undo wording ("Undone: …")
                 moved = true;
             }
             catch (Exception ex)

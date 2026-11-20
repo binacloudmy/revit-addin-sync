@@ -341,6 +341,7 @@
     <Compile Include="..\BinaVibe\Copilot\Writes\FittingWatchPolicy.cs" Link="Copilot\Writes\FittingWatchPolicy.cs" />
     <Compile Include="..\BinaVibe\Copilot\Undo\UndoModel.cs" Link="Copilot\Undo\UndoModel.cs" />
     <Compile Include="..\BinaVibe\Copilot\Undo\BinaTransactionNames.cs" Link="Copilot\Undo\BinaTransactionNames.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Undo\UndoWords.cs" Link="Copilot\Undo\UndoWords.cs" />
   </ItemGroup>
 
   <!-- W4 -->
