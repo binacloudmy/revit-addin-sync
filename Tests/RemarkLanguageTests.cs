@@ -102,6 +102,41 @@ namespace RevitWebAppSync.Tests
             Assert.Equal("some rule we do not know", PaneText.AuditRuleEn("some rule we do not know"));
         }
 
+        [Theory]
+        [InlineData("0", "Columns")]
+        [InlineData("0", "structural column")]
+        [InlineData("3", "Structural Column")]
+        public void Empty_expected_category_remark_has_english_text(string n, string label)
+        {
+            var bm = $"{n} elemen {label} dijumpai dalam model walaupun kategori ini "
+                + "biasanya wajib bagi model seni bina — sahkan sama ada memang "
+                + "tiada dalam skop projek. (Kualiti/maklumat/geometri: semak manual.)";
+            var en = PaneText.AuditRemarkEn(bm);
+            Assert.Equal($"{n} {label} elements found in the model although this category is normally required in an architectural model"
+                + " — confirm whether it is really outside the project scope. (Quality/information/geometry: semak manual.)", en);
+            Assert.Equal(bm, PaneText.AuditRemark(bm).In(PanelStrings.Ms));
+        }
+
+        [Fact]
+        public void Empty_optional_category_remark_has_english_text()
+        {
+            var bm = "0 elemen Columns dijumpai dalam model dan kategori ini tidak wajib — "
+                + "baris ini tidak berkenaan, atau semak manual jika sepatutnya ada.";
+            Assert.Equal("0 Columns elements found in the model and this category is not required — this row does not apply, or semak manual if there should be some.",
+                PaneText.AuditRemarkEn(bm));
+        }
+
+        [Fact]
+        public void Borang_D_row_remark_of_an_empty_category_is_in_English()
+        {
+            const string bm = "0 elemen Columns dijumpai dalam model walaupun kategori ini biasanya wajib bagi model seni bina — sahkan sama ada memang tiada dalam skop projek. (Kualiti/maklumat/geometri: semak manual.)";
+            var summary = AuditSummary.Build(new[] { new Bim010Cell { Key = "D18", Verdict = Bim010Verdict.Manual, Note = bm } });
+            var (text, _) = BorangDoc.RemarkFor("D18", "m", summary, new[] { ManualIssue("D18", bm) });
+            Assert.DoesNotContain("dijumpai", text);
+            Assert.DoesNotContain("sahkan", text);
+            Assert.Contains("elements found in the model", text);
+        }
+
         [Fact]
         public void Unknown_remark_stays_as_written_in_both_languages()
         {
@@ -153,6 +188,9 @@ namespace RevitWebAppSync.Tests
                 "(atau berawalan projek, cth 'PT-A' / 'PT1'). ", "bukan garisan lurus, jadi persilangan ",
                 "tidak boleh dihitung. ", "+ \"Semak manual.\"", "selari pada pelan, jadi tiada ",
                 "persilangan untuk diukur — semak manual.", " atau ", " dan ",
+                "$\"0 elemen {label} dijumpai dalam model walaupun kategori ini \"", "biasanya wajib bagi model seni bina — sahkan sama ada memang ",
+                "tiada dalam skop projek. (Kualiti/maklumat/geometri: semak manual.)", "dijumpai dalam model dan kategori ini tidak wajib — ",
+                "baris ini tidak berkenaan, atau semak manual jika sepatutnya ada.",
                 "Peraturan: {rule}. ", " bilik tiada nilai (cth: ", "Isi parameter ", "Department untuk bilik tersebut.",
                 "Semua {rooms.Count} bilik ada nilai Department — patuh.", "setiap bilik (Room) ada nilai parameter 'Department'",
             })
