@@ -473,8 +473,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// <summary>Open issues, in the filtered section if one is (the Issues view opens on its Open tab).</summary>
         public int IssuesTabN => _core.TabCounts()[PanelTab.Open];
         public bool IssuesTabOn => ShowList;
-        /// <summary>The issue view's one-line verdict is shown (issue tabs of a run with a spec report).</summary>
-        public bool ShowVerdictBar => ShowList && HasSpec;
+        /// <summary>The headline card (verdict, % compliant, n fail) is pinned above the scroll on every tab and state of a run with a spec report.</summary>
+        public bool ShowHeadlineCard => HasSpec;
         public void ShowIssues() => SelectTab(PanelTab.Open);
 
         /// <summary>Inside a section: "12 issues in this section" (hidden when none, and in an
