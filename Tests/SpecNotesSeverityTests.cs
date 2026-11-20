@@ -148,5 +148,35 @@ namespace RevitWebAppSync.Tests
             Assert.DoesNotContain("more", text);
             Assert.DoesNotContain("missing:", text);
         }
+
+        // ---------- AI-420 ----------
+
+        [Fact]
+        public void AI420_C422_5_sheets_x_2_fields_Author_all_10_issues_exist_and_the_Borang_shows_3_plus_7_more()
+        {
+            var m = new SpecModel { Discipline = "AR" };
+            for (var sh = 1; sh <= 5; sh++)
+                m.Sheets.Add(new SpecSheet
+                {
+                    Id = sh * 100, Number = "A-" + sh, Name = "Sheet S" + sh, TitleBlock = "jkrAR_TitleBlock_A1 : A1",
+                    Params = new Dictionary<string, string>
+                    {
+                        ["Project Name"] = "Ibu Pejabat JKR", ["Sheet Name"] = "Sheet S" + sh,
+                        ["Drawn By"] = "Author", ["Sheet Issue Date"] = "Author",
+                    },
+                });
+            var list = Run("C4.2.2", m);
+            var fails = list.Where(r => r.Status == "fail").ToList();
+            Assert.Equal(10, fails.Count);
+            // Pane: one issue per sheet x field (no dedupe).
+            Assert.Equal(10, IssueMapper.FromModelResults(list, PanelStrings.En).Count);
+            var report = SpecReport.Build(list);
+            var c = report.For("C4.2.2");
+            Assert.Equal(10, c.AllNotes.Count);
+            Assert.Equal(3, c.Notes.Count);
+            var notes = SpecBorang.Build(report, list).Rows["C4.2"].Notes;
+            Assert.Equal(3, notes.Count(n => n.StartsWith("Sheet ")));      // the cap is unchanged: 3 shown ...
+            Assert.Contains("+7 more", notes);                              // ... and the 7 left out are named, not silent
+        }
     }
 }
