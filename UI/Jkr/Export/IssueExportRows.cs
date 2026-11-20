@@ -25,22 +25,11 @@ namespace RevitWebAppSync.UI.Jkr.Export
 
         private static string Pick(string ms, string en) => RevitWebAppSync.UI.Jkr.Panel.Core.PaneLanguage.Pick(ms, en);
 
-        /// <summary>The issues the export writes: open ones and/or the rest (resolved or ignored).
-        /// A legacy "BIM010-" issue whose Borang row a "SPEC-" issue also covers is left out:
-        /// the spec issue is the one source for that row.</summary>
-        public static IssueVm[] Select(IEnumerable<IssueVm> issues, bool includeOpen, bool includeResolved)
-        {
-            var all = (issues ?? Enumerable.Empty<IssueVm>()).Where(i => i != null).ToArray();
-            var specRows = new HashSet<string>(
-                all.Where(i => IsSpec(i) && !string.IsNullOrEmpty(i.BorangKey)).Select(i => i.BorangKey));
-            return all
-                .Where(i => !(IsLegacy(i) && specRows.Contains(i.BorangKey ?? "")))
+        /// <summary>The issues the export writes: open ones and/or the rest (resolved or ignored).</summary>
+        public static IssueVm[] Select(IEnumerable<IssueVm> issues, bool includeOpen, bool includeResolved) =>
+            (issues ?? Enumerable.Empty<IssueVm>())
                 .Where(i => { var open = IsInOpenBucket(i); return (includeOpen && open) || (includeResolved && !open); })
                 .ToArray();
-        }
-
-        private static bool IsSpec(IssueVm i) => (i.CheckId ?? "").StartsWith("SPEC-", System.StringComparison.Ordinal);
-        private static bool IsLegacy(IssueVm i) => (i.CheckId ?? "").StartsWith("BIM010-", System.StringComparison.Ordinal);
 
         private static readonly System.Text.RegularExpressions.Regex RuleCode =
             new System.Text.RegularExpressions.Regex(@"^(?:SPEC-|BIM010-)([A-Za-z][A-Za-z0-9]*(?:\.[A-Za-z0-9]+)*)");

@@ -76,14 +76,15 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void Legacy_BIM010_issue_on_a_row_a_spec_issue_covers_is_not_written()
+        public void Export_writes_exactly_the_issues_it_is_given_no_hidden_drops()
         {
+            // Legacy-vs-spec duplicates are removed upstream (the scan merge), so the export
+            // does not filter by Borang row: a BIM010- issue beside a SPEC- one on the same row is written.
             var spec = new IssueVm { Id = "s1", CheckId = "SPEC-A1.1", BorangKey = "A1", Status = IssueStatus.Open };
-            var dup = new IssueVm { Id = "l1", CheckId = "BIM010-A1", BorangKey = "A1", Status = IssueStatus.Open };
-            var only = new IssueVm { Id = "l2", CheckId = "BIM010-C9", BorangKey = "C9", Status = IssueStatus.Open };
-            var written = IssueExportRows.Select(new[] { spec, dup, only }, true, true).Select(x => x.Id).ToArray();
-            Assert.Equal(new[] { "s1", "l2" }, written);
-            Assert.Equal(2, IssueExportRows.DefaultCount(new[] { spec, dup, only }));
+            var other = new IssueVm { Id = "l1", CheckId = "BIM010-A1", BorangKey = "A1", Status = IssueStatus.Open };
+            var all = new[] { spec, other };
+            Assert.Equal(new[] { "s1", "l1" }, IssueExportRows.Select(all, true, true).Select(x => x.Id).ToArray());
+            Assert.Equal(2, IssueExportRows.DefaultCount(all));
         }
 
         [Fact]
