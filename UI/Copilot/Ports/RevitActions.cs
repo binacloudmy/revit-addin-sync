@@ -52,13 +52,14 @@ namespace RevitWebAppSync.UI.Copilot.Ports
                     // Revit wants a transaction around it ("Cannot modify the model outside of a transaction"), on its own thread.
                     // If Revit records it in the Undo list, the pane sees a commit it did not make, and the card says Undo is off
                     // because the model changed after the turn: that is true, and Revit's own Undo list is still the way back.
+                    // r17: through TxGuard like every Copilot transaction, so a warning never pops a dialog over the pane.
                     using (var tx = new Autodesk.Revit.DB.Transaction(view.Document, "Reset isolate"))
                     {
-                        tx.Start();
+                        BinaVibe.Mcp.Tools.TxGuard.StartSwallowing(tx);
                         try
                         {
                             view.DisableTemporaryViewMode(Autodesk.Revit.DB.TemporaryViewMode.TemporaryHideIsolate);
-                            tx.Commit();
+                            BinaVibe.Mcp.Tools.TxGuard.CommitOrThrow(tx);
                         }
                         catch (Exception)
                         {

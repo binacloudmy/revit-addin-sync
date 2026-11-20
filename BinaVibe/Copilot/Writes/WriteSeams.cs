@@ -29,6 +29,11 @@ namespace BinaVibe.Copilot.Writes
         public DocIdentity? ExpectedDoc;
         /// <summary>Each call's index in the model's request, when Calls is a subset (null: same order).</summary>
         public int[]? RequestIndexes;
+        /// <summary>The drafter clicked "Force the change": a drift limited to elements connected to the targets is accepted
+        /// and reported (ConnectedDrift); any other drift still refuses.</summary>
+        public bool ForceConnected;
+        /// <summary>What the drafter saw on the Force card (ForceApprovals); set with ForceConnected.</summary>
+        public ForceApproval? ForceApproval;
     }
 
     /// <summary>What a preview measured, one slot per call of the batch.
@@ -109,6 +114,10 @@ namespace BinaVibe.Copilot.Writes
         public string? Reason;
         /// <summary>The batch committed changes and has an undo entry (false for a no-op).</summary>
         public bool UndoEntry;
+        /// <summary>A drift's measured differences ({"drift": …}, ConnectedDrift.Data) for the diff_drift envelope; null when not measured.</summary>
+        public System.Text.Json.JsonElement? DriftData;
+        /// <summary>The drift judged against the connected set (null when not judged), for ForceApprovals.</summary>
+        public ConnectedVerdict? Connected;
     }
 
     /// <summary>Revit-thread half of the runner.</summary>

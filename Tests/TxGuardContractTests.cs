@@ -16,7 +16,7 @@ namespace RevitAddinSync.Tests
 {
     public class TxGuardContractTests
     {
-        private static readonly string[] ScanRoots = { "BinaVibe/Mcp/Tools", "BinaVibe/Copilot" };
+        private static readonly string[] ScanRoots = { "BinaVibe/Mcp/Tools", "BinaVibe/Copilot", "UI/Copilot/Ports" };   // r17: the pane's own Revit actions too
 
         private static readonly Regex CommitCall = new Regex(@"\bCommit\s*\(", RegexOptions.CultureInvariant);
 

@@ -313,6 +313,10 @@
         "description": {
           "type": "string",
           "description": "The assistant's own words about the batch; the confirm card shows them on a labelled line."
+        },
+        "force": {
+          "enum": ["connected"],
+          "description": "Write requests only, and only after the drafter clicked Force on the server's card following a diff_drift whose envelope said the drift was limited to elements connected to the targets: the commit may then accept that drift and reports it. Typed text never sets it."
         }
       },
       "allOf": [

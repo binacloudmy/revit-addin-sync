@@ -47,6 +47,8 @@ namespace BinaVibe.Copilot.Writes
         private static long _probePostedTicks;
         private static long _probeRanTicks;
         private static long _kickRaisedTicks;   // when the last kick was raised and has not run yet; 0 when none is pending (KickPolicy)
+        private static uint _uiThread;          // Revit's UI thread id and main window, for ModalWindows (r17)
+        private static long _mainWindow;
 
         private static long Now => Stopwatch.GetTimestamp();
 
@@ -131,6 +133,9 @@ namespace BinaVibe.Copilot.Writes
                 app.Idling += OnIdling;
                 app.DialogBoxShowing += OnDialogShowing;
                 _ui = Dispatcher.CurrentDispatcher;
+                _uiThread = ModalWindows.CurrentThread();
+                try { _mainWindow = app.MainWindowHandle.ToInt64(); }
+                catch (Exception) { _mainWindow = 0; }
                 try { _kick = ExternalEvent.Create(new KickHandler()); }
                 catch (Exception) { _kick = null; /* Idling still drains */ }
                 _attached = true;
@@ -149,6 +154,9 @@ namespace BinaVibe.Copilot.Writes
                     : null;
                 Volatile.Write(ref _lastDialogId, e.DialogId);
                 Volatile.Write(ref _lastDialogText, text);
+                // r17: live 65eb84e7 and 095aea2f named a dialog "0" with no text; the click log now says which kind Revit raised.
+                BinaVibe.Copilot.Guard.StageTimer.Sink("revit dialog shown: id '" + (e.DialogId ?? "") + "', " + e.GetType().Name +
+                    (string.IsNullOrEmpty(text) ? "" : ", " + (text!.Length > 120 ? text.Substring(0, 120) : text)));
             }
             catch (Exception) { /* the id and text are a courtesy */ }
         }
@@ -218,6 +226,9 @@ namespace BinaVibe.Copilot.Writes
         private static void DrainOne(UIApplication app)
         {
             Volatile.Write(ref _lastIdleTicks, Now);
+            if (Volatile.Read(ref _mainWindow) == 0)
+                try { Volatile.Write(ref _mainWindow, app.MainWindowHandle.ToInt64()); }   // not known at startup: read it on Revit's thread
+                catch (Exception) { /* stays unknown: the watchdog keeps its old rule */ }
             while (Queue.TryDequeue(out var work))
             {
                 if (work.IsDone) continue;   // the watchdog already failed it
@@ -280,9 +291,22 @@ namespace BinaVibe.Copilot.Writes
 
             var probeRan = Volatile.Read(ref _probeRanTicks);
             var uiPumped = probedSinceArm && probeRan >= Volatile.Read(ref _probePostedTicks);
+            // r17: Revit pumps messages but gave no idle turn. Look for the window that blocks it on its UI thread: none means no dialog, so the
+            // work keeps waiting (and the kick is raised again) instead of failing as "busy or showing a dialog".
+            ThreadWindow? blocking = null;
+            bool? modalOpen = null;
+            if (uiPumped)
+            {
+                var main = Volatile.Read(ref _mainWindow);
+                modalOpen = ModalPolicy.Open(ModalWindows.Of(_uiThread), main, ModalWindows.IsEnabled(main), out blocking);
+            }
             var verdict = WatchdogPolicy.Decide(sinceArmed, idleSinceArm, uiPumped, uiPumped ? Since(probeRan) : TimeSpan.Zero,
-                Since(Volatile.Read(ref _lastDialogTicks)));
-            if (verdict == WatchdogVerdict.Wait) return;
+                Since(Volatile.Read(ref _lastDialogTicks)), modalOpen);
+            if (verdict == WatchdogVerdict.Wait)
+            {
+                if (uiPumped && modalOpen == false) RaiseKick();   // Revit pumps, no dialog: ask for an idle turn again (coalesced: at most one every 2 s)
+                return;
+            }
 
             var message = WatchdogPolicy.Message(verdict);
             // Name the dialog only when Revit showed it just now (WatchdogPolicy.NameDialog): the UI-pumped verdict can come long after, and the
@@ -290,6 +314,17 @@ namespace BinaVibe.Copilot.Writes
             var dialog = verdict == WatchdogVerdict.FailDialog && WatchdogPolicy.NameDialog(Since(Volatile.Read(ref _lastDialogTicks)));
             var dialogId = dialog ? Volatile.Read(ref _lastDialogId) : null;
             var dialogText = dialog ? Volatile.Read(ref _lastDialogText) : null;
+            if (verdict == WatchdogVerdict.FailDialog && blocking != null)
+            {
+                // The window itself, read now: its title names it, and it is brought to the front so the drafter sees it.
+                var name = ModalPolicy.Name(blocking);
+                message = WatchdogPolicy.NamedMessage(name);
+                dialogId = "window:" + blocking.ClassName;
+                dialogText = name;
+                ModalWindows.BringToFront(blocking.Handle);
+                try { BinaVibe.Copilot.Guard.StageTimer.Sink("watchdog: Revit blocked by window '" + name + "' (" + blocking.ClassName + ")"); }
+                catch (Exception) { /* a log line only */ }
+            }
             while (Queue.TryDequeue(out var work))
                 if (!work.IsDone) work.Fail(new RevitBusyException(message, dialogId, dialogText));
             StopWatchdog();

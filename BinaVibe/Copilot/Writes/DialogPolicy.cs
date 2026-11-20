@@ -72,7 +72,9 @@ namespace BinaVibe.Copilot.Writes
             var text = Cut(message);
             if (!inOurCallback) return new DialogDecision { Action = DialogAction.Ignore, Text = text };
 
-            if (!string.IsNullOrEmpty(dialogId) && Known.TryGetValue(dialogId!, out var answer))
+            // Never answered for the drafter, even for a listed id: a dialog that saves, deletes, removes, discards, overwrites, purges
+            // or closes something (tester feedback 20 Nov). It waits for the drafter, who sees what it says.
+            if (!string.IsNullOrEmpty(dialogId) && Known.TryGetValue(dialogId!, out var answer) && !IsDestructive(dialogId, message))
                 return new DialogDecision
                 {
                     Action = DialogAction.Answer,
@@ -88,6 +90,14 @@ namespace BinaVibe.Copilot.Writes
                 Text = "Revit is showing " + id + (text.Length > 0 ? ": " + text : "") + ". The drafter must answer it in Revit before the change can continue.",
             };
         }
+
+        private static readonly System.Text.RegularExpressions.Regex Destructive = new System.Text.RegularExpressions.Regex(
+            @"\b(save|saved|saves|saving|delet\w*|remov\w*|discard\w*|overwrit\w*|purg\w*|clos(e|es|ed|ing)|lose|lost|simpan\w*|disimpan|padam\w*|dipadam|buang\w*|dibuang)\b",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+        /// <summary>The dialog's id or words say it saves, deletes, removes, discards, overwrites, purges, closes or loses something.</summary>
+        public static bool IsDestructive(string? dialogId, string? message) =>
+            Destructive.IsMatch((dialogId ?? "").Replace('_', ' ')) || Destructive.IsMatch(message ?? "");
 
         private static string Cut(string? s)
         {

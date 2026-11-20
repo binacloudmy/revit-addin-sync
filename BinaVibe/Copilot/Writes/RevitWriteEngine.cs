@@ -372,9 +372,16 @@ namespace BinaVibe.Copilot.Writes
                         before[id] = known;
             string? capWarning = null;
             string? unreadWarning = null;
+            string? forcedWarning = null;
             var noop = false;
+            // The force path (ConnectedDrift): what is connected to the targets, read BEFORE the calls run (a fitting Revit removes
+            // cannot be read afterwards). Read for every batch with targets, so a refused drift can say whether it was connected-only.
+            var targetIds = fresh.SelectMany(p => p.TargetIds ?? Array.Empty<long>()).Distinct().ToList();
+            var connectedBefore = ConnectedSet.Of(doc!, targetIds, out var measured);
+            st.Mark("connected set (" + connectedBefore.Count + ")");
             using (CallbackScope.Enter(doc!, CallbackKind.Commit))
             using (FailureScope.Begin(doc!.Application))
+            using (batch.ForceConnected ? BinaVibe.Copilot.Guard.ForceScope.Begin(targetIds.Concat(connectedBefore.Keys)) : null)
             {
                 var group = new TransactionGroup(doc, preview.GroupName);
                 try
@@ -405,12 +412,39 @@ namespace BinaVibe.Copilot.Writes
                     RevitValueFingerprints.Fill(doc!, shape, builder.AddedIds);   // R75, compared with the preview's
                     st.Mark("value fingerprints");
                     var verdict = ShapeComparer.Compare(fresh, preview.Shape, shape);
+                    var connectedAfter = batch.ForceConnected || !verdict.IsMatch ? ConnectedSet.Of(doc!, targetIds) : new Dictionary<long, string>();
+                    if (batch.ForceConnected)
+                    {
+                        // Safety audit P1: a forced commit may delete or change only targets and connected elements, matched preview or not.
+                        var allowed = new HashSet<long>(targetIds.Concat(connectedBefore.Keys).Concat(connectedAfter.Keys));
+                        var outside = ShapeComparer.ForcedOutside(shape, allowed);
+                        if (!measured || outside != null)
+                        {
+                            RollBackIfOpen(group);
+                            var what = outside == null ? "the elements connected to the targets could not all be read"
+                                : "Revit would also change element " + outside.Value.ToString(CultureInfo.InvariantCulture) +
+                                  " (" + shape.CategoryOfId(outside.Value) + "), which is not connected to the changed element(s)";
+                            return Failed(batch, 0, WriteEnvelopes.Failure(ErrorCodes.PolicyRejected,
+                                "The forced change was refused: " + what + ". It was rolled back; nothing was changed.", EnvelopePhase.Commit));
+                        }
+                    }
                     capWarning = ValueFingerprint.CapWarning(shape);
                     if (preview.Shape != null) unreadWarning = ValueFingerprint.UnreadWarning(preview.Shape, shape);
                     if (!verdict.IsMatch)
                     {
-                        RollBackIfOpen(group);
-                        return new CommitOutcome { Kind = CommitKind.Drift, Reason = verdict.Reason };
+                        // Judged against what is connected to the targets before and after the calls ran: a forced batch keeps a
+                        // connected-only drift and reports it; anything else rolls back and says what differed (DriftData).
+                        var connected = ShapeComparer.JudgeConnected(preview.Shape, shape, connectedBefore, connectedAfter, targetIds, measured);
+                        // Safety audit P2: only what the Force card listed (ForceApproval) may be kept.
+                        if (batch.ForceConnected && connected.ConnectedOnly && batch.ForceApproval != null && batch.ForceApproval.Covers(connected))
+                        {
+                            forcedWarning = ConnectedDrift.ForcedWarning(connected);
+                        }
+                        else
+                        {
+                            RollBackIfOpen(group);
+                            return new CommitOutcome { Kind = CommitKind.Drift, Reason = verdict.Reason, DriftData = ConnectedDrift.Data(connected), Connected = connected };
+                        }
                     }
 
                     if (!anyChange)
@@ -453,6 +487,11 @@ namespace BinaVibe.Copilot.Writes
             if (!noop) Undo.UndoService.NoteBatchCommitted(doc!, batch.TurnId, preview.GroupName);
             if (capWarning != null && n > 0) AddWarning(envelopes[0], capWarning);
             if (unreadWarning != null && n > 0) AddWarning(envelopes[0], unreadWarning);
+            if (forcedWarning != null && n > 0)
+            {
+                envelopes[0].Warnings ??= new List<WarningDto>();
+                envelopes[0].Warnings.Insert(0, new WarningDto { Text = forcedWarning, Severity = WarningSeverity.Warning });   // first: the drafter chose it
+            }
 
             // R76: the tools' queued UI work runs now — committed and assimilated, or a noop with
             // nothing to roll back — in call order; a failing step is a warning, never a failed
@@ -460,12 +499,18 @@ namespace BinaVibe.Copilot.Writes
             // then only measured, after that work ran, so the envelope describes the selection
             // and view the drafter actually has.
             var queued = contexts.Any(c => c.AfterCommit != null && c.AfterCommit.Count > 0);
-            if (queued && AfterCommitRunner.ShouldRun(CommitKind.Committed, undoEntry: !noop))
-                foreach (var f in AfterCommitRunner.Run(contexts.Select(c => (IReadOnlyList<Action>)c.AfterCommit).ToList()))
-                    AddWarning(envelopes[f.Call], AfterCommitRunner.WarningText(f));
-            // r13 (0.0.148), live fb713fc2: the commit no longer selects what it touched (it left 10 elements selected after a section box);
-            // the highlight is only measured. A run's own select request (queued UI work) still sets the selection before this.
-            if (!noop) Highlight(uidoc!, doc!, envelopes, builder.AddedIds, select: false);
+            // r17: the UI work after the commit (opening a view, a selection) is ours too: a known harmless dialog it raises is answered
+            // and reported, any other waits for the drafter and is named (DialogWatch), instead of sitting unseen behind the pane.
+            using (var later = DialogWatch.Collect())
+            {
+                if (queued && AfterCommitRunner.ShouldRun(CommitKind.Committed, undoEntry: !noop))
+                    foreach (var f in AfterCommitRunner.Run(contexts.Select(c => (IReadOnlyList<Action>)c.AfterCommit).ToList()))
+                        AddWarning(envelopes[f.Call], AfterCommitRunner.WarningText(f));
+                // r13 (0.0.148), live fb713fc2: the commit no longer selects what it touched (it left 10 elements selected after a section box);
+                // the highlight is only measured. A run's own select request (queued UI work) still sets the selection before this.
+                if (!noop) Highlight(uidoc!, doc!, envelopes, builder.AddedIds, select: false);
+                if (n > 0) AddDialogs(envelopes[0], later.Snapshot());
+            }
             foreach (var e in envelopes.Where(e => e != null)) EnvelopeChanges.Recheck(e);
             return new CommitOutcome { Kind = CommitKind.Committed, Envelopes = envelopes, UndoEntry = !noop };
         }
