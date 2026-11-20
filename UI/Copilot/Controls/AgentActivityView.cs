@@ -95,7 +95,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             // ── Header ──────────────────────────────────────────────────────
             _iconSlot = new Grid { Width = 14, Height = 14, Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center };
 
-            var kicker = new TextBlock
+            var kicker = _kicker = new TextBlock
             {
                 Text = "AGENT ACTIVITY", FontSize = 10.5,
                 VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0),
@@ -503,7 +503,13 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         private bool _clockRunning;
 
         /// <summary>The drafter's language, for the step label ("Step 3" / "Langkah 3").</summary>
-        public ReceiptLanguage Language { get; set; } = ReceiptLanguage.En;
+        public ReceiptLanguage Language
+        {
+            get => _language;
+            set { _language = value; if (_kicker != null) _kicker.Text = value == ReceiptLanguage.Ms ? "AKTIVITI EJEN" : "AGENT ACTIVITY"; }
+        }
+        private ReceiptLanguage _language = ReceiptLanguage.En;
+        private TextBlock _kicker;
 
         private string HeaderText(string dur, bool running, IReadOnlyList<ProgressStep> steps) =>
             RunningText.HeaderText(dur, running, steps, Language);
