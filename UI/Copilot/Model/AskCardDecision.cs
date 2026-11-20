@@ -526,9 +526,15 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>The ticked options of a multi-select question, in the card's order.</summary>
         public IReadOnlyList<AskOptionModel> MultiPicked => Options.Where(o => MultiPicks.Contains(o.Id)).ToList();
 
+        /// <summary>Ticks or unticks an option of a multi-select question. A skip option stands alone (as on a multi field):
+        /// ticking it clears the other ticks, and ticking any other option clears it (r17).</summary>
         public void ToggleMulti(string optionId)
         {
-            if (!MultiPicks.Remove(optionId)) MultiPicks.Add(optionId);
+            if (MultiPicks.Remove(optionId)) return;
+            var skip = Options.FirstOrDefault(o => o.Id == optionId)?.IsSkip ?? false;
+            if (skip) MultiPicks.Clear();
+            else MultiPicks.RemoveWhere(id => Options.Any(o => o.Id == id && o.IsSkip));
+            MultiPicks.Add(optionId);
         }
 
         /// <summary>Marks the card answered from the card itself (the collapsed record shows these lines).</summary>

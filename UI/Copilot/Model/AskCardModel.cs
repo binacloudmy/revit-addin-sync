@@ -177,6 +177,31 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return Math.Max(0, Math.Min(count - 1, index + delta));
         }
 
+        private static readonly Regex ScopeWords = new Regex(
+            @"^\s*(whole\s+model|this\s+view|selection|selected|active\s+view|current\s+view|seluruh\s+model|pandangan\s+ini|pilihan)\b",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+        private static readonly Regex YesNoWords = new Regex(@"^\s*(yes|no|ya|tidak|tak)\b",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+        // "Make 1 circuit", "Move 7 levels", "Delete 2 elements", "Padam 3 ...": a plan or write card's one action.
+        private static readonly Regex ActionCount = new Regex(
+            @"^\s*(make|move|change|write|delete|run|create|swap|buat|padam|ubah|tulis|pindah|tukar|cipta|jalankan)\b.*\d",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+        /// <summary>The options answer one exclusive question, so they stay a single choice even when the frame says multi
+        /// (r17): the server's write gate (write_all / write_cancel / write_narrow), fewer than two real options (one action
+        /// and its Skip or Cancel), a scope (Whole model / This view / Selection), a yes/no, or a plan or write card's counted
+        /// action ("Move 7 levels"). Every other multi question keeps its tick boxes.</summary>
+        public static bool ExclusiveChoice(IReadOnlyList<AskOptionModel>? options)
+        {
+            if (options == null) return true;
+            if (options.Any(o => o.Id == WideWriteModel.WriteAllId || o.Id == WideWriteModel.WriteCancelId || o.Id == WideWriteModel.WriteNarrowId))
+                return true;
+            var real = options.Where(o => !o.IsSkip && !IsDeclineLike(o.Label)).ToList();
+            if (real.Count < 2) return true;
+            if (real.Any(o => ScopeWords.IsMatch(o.Label) || ActionCount.IsMatch(o.Label))) return true;
+            return real.All(o => YesNoWords.IsMatch(o.Label));
+        }
+
         public static bool IsApprovalLike(string? label) => !string.IsNullOrWhiteSpace(label) && Approval.IsMatch(label!);
 
         public static bool IsCredentialLike(string? idOrLabel) => !string.IsNullOrWhiteSpace(idOrLabel) && Credential.IsMatch(idOrLabel!);
@@ -238,6 +263,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
             // The gate's two options (write_all, write_cancel) are the one exception to the approval filter: the server's own
             // gate for a wide write sends them. Exactly those two ids, and only when both are present (and not a several-of
             // question); every other option is filtered as before, and the credential rules still apply.
+            // Several picks only where several make sense (r17): the server sends multi for a list question; the pane never
+            // turns a card into tick boxes on its own, it only keeps an exclusive question single (ExclusiveChoice), so a
+            // multi pick can never approve a write or answer "which scope" twice.
+            if (card.Multi && ExclusiveChoice(options)) card.Multi = false;
             var gate = !card.Multi && WideWriteModel.IsGateOptions(options);
             var safe = options.Where(o => !IsApprovalLike(o.Label)
                                           || (gate && (o.Id == WideWriteModel.WriteAllId || o.Id == WideWriteModel.WriteCancelId))).ToList();
