@@ -585,7 +585,7 @@ namespace RevitWebAppSync.UI.Copilot
             public void OnProgress(ProgressDto progress)
             {
                 if (progress == null) return;
-                var label = string.IsNullOrWhiteSpace(progress.Text) ? progress.Kind : progress.Text;
+                var label = StepLabels.Server(string.IsNullOrWhiteSpace(progress.Text) ? progress.Kind : progress.Text, _turn.Language == ReceiptLanguage.Ms);
                 _turn.Progress(progress.Seq, progress.Kind, label,
                     progress.Kind == ProgressKinds.RevitBusy ? StepState.Error : StepState.Running, progress.Step);
                 _router.Publish(_turn);
@@ -617,7 +617,7 @@ namespace RevitWebAppSync.UI.Copilot
                 foreach (var c in request.Calls)
                 {
                     _turn.ToolsUsed.Add(c.Tool);
-                    _turn.Step("call:" + c.CallId, "tool", ToolStepLabel(c.Tool, ms), StepState.Running);
+                    _turn.ToolStep("call:" + c.CallId, StepLabels.For(c, ms), ms);   // r17: what the step does; repeats are one row, a retry says so
                     _turn.Annotate("call:" + c.CallId, note: RunningCard.ActiveNote(c.Tool, _turn.Snapshot?.View?.Name, ms));
                 }
 
@@ -677,19 +677,6 @@ namespace RevitWebAppSync.UI.Copilot
                 return envelopes;
             }
         }
-
-        /// <summary>Add-in-owned step labels for the 7 add-in tools.</summary>
-        private static string ToolStepLabel(string tool, bool ms) => tool switch
-        {
-            ToolNames.ModelOverview => ms ? "Membaca gambaran model" : "Reading the model overview",
-            ToolNames.FindElements => ms ? "Mencari elemen" : "Finding elements",
-            ToolNames.Inspect => ms ? "Memeriksa parameter" : "Inspecting parameters",
-            ToolNames.Check => ms ? "Menyemak peraturan" : "Checking the rules",
-            ToolNames.SetParameters => ms ? "Menetapkan parameter" : "Setting parameters",
-            ToolNames.Look => ms ? "Mengambil imej model" : "Taking a picture of the model",
-            ToolNames.RunRevitCode => ms ? "Menjalankan kod Revit" : "Running Revit code",
-            _ => tool,
-        };
 
         private static string Trim(string? s, int max) =>
             string.IsNullOrEmpty(s) ? "" : s!.Length <= max ? s : s.Substring(0, max - 1) + "…";
@@ -753,12 +740,25 @@ namespace RevitWebAppSync.UI.Copilot
             /// <summary>True from a batch's second preview on.</summary>
             public bool PreviewAgain(string batchId) { lock (_lock) return !_previewed.Add(batchId); }
 
+            private readonly Dictionary<string, string> _alias = new Dictionary<string, string>(StringComparer.Ordinal);
+
             public void Step(string id, string phase, string label, StepState state, string? detail = null)
             {
                 lock (_lock)
                 {
+                    id = StepCollapse.Resolve(_alias, id);
                     ProgressReducer.Apply(_steps, id, phase, label, detail ?? "", state);
                     _lastStepId = id;
+                }
+            }
+
+            /// <summary>A tool call's row (r17): the server's generic "Running the code in Revit" row before it goes, a repeat folds into the row before.</summary>
+            public void ToolStep(string id, string label, bool ms)
+            {
+                lock (_lock)
+                {
+                    StepCollapse.DropServerRun(_steps);
+                    _lastStepId = StepCollapse.AddTool(_steps, _alias, id, label, ms);
                 }
             }
 
@@ -767,7 +767,7 @@ namespace RevitWebAppSync.UI.Copilot
             {
                 lock (_lock)
                     foreach (var s in _steps)
-                        if (s.StepId == id)
+                        if (s.StepId == StepCollapse.Resolve(_alias, id))
                         {
                             if (outcome != null) s.Outcome = outcome;
                             if (note != null) s.Note = note;

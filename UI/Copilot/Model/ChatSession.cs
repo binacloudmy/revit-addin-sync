@@ -249,7 +249,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
         {
             var turn = Live(turnId);
             if (turn == null || progress == null) return;
-            var label = string.IsNullOrWhiteSpace(progress.Text) ? progress.Kind : progress.Text;
+            var label = StepLabels.Server(string.IsNullOrWhiteSpace(progress.Text) ? progress.Kind : progress.Text, turn.Language == ReceiptLanguage.Ms);
             turn.Progress(progress.Seq, progress.Kind, label,
                 progress.Kind == ProgressKinds.RevitBusy ? StepState.Error : StepState.Running, progress.Step);
         }
@@ -280,7 +280,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
             foreach (var c in request.Calls)
             {
                 turn.AddTool(c.Tool);
-                turn.Step("call:" + c.CallId, "tool", Labels.Tool(c.Tool, ms), StepState.Running);
+                turn.ToolStep("call:" + c.CallId, StepLabels.For(c, ms), ms);   // r17: what the step does; repeats are one row, a retry says so
             }
             if (request.Kind == ToolRequestKinds.Write)
             {
@@ -451,17 +451,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
             public static string Preview(bool ms) => ms ? "Pratonton perubahan dalam Revit…" : "Previewing the change in Revit…";
             public static string PreviewAgain(bool ms) => ms ? "Pratonton semula perubahan dalam Revit…" : "Previewing the change in Revit again…";
 
-            public static string Tool(string tool, bool ms) => tool switch
-            {
-                ToolNames.ModelOverview => ms ? "Membaca gambaran model" : "Reading the model overview",
-                ToolNames.FindElements => ms ? "Mencari elemen" : "Finding elements",
-                ToolNames.Inspect => ms ? "Memeriksa parameter" : "Inspecting parameters",
-                ToolNames.Check => ms ? "Menyemak peraturan" : "Checking the rules",
-                ToolNames.SetParameters => ms ? "Menetapkan parameter" : "Setting parameters",
-                ToolNames.Look => ms ? "Mengambil imej model" : "Taking a picture of the model",
-                ToolNames.RunRevitCode => ms ? "Menjalankan kod Revit" : "Running Revit code",
-                _ => tool,
-            };
+            public static string Tool(string tool, bool ms) => StepLabels.Generic(tool, ms);
         }
     }
 }
