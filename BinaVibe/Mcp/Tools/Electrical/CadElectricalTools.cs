@@ -562,7 +562,8 @@ namespace BinaVibe.Mcp.Tools.Electrical
             if (runHeightArg.HasValue && runRows.Count == 0)
                 notes.Add("run_height_mm was given but the mapping has no conduit or trunking layer; it was not used");
             if (provisional)
-                notes.Add("the alignment is provisional (score under 0.80): check a few points before placing");
+                notes.Add("the alignment is provisional (score under 0.80): the drawing very likely sits correctly; " +
+                          "check a few points before placing. This is not a misalignment.");
 
             Dictionary<string, object?>? conduitBlock = null;
             if (runRows.Count > 0)

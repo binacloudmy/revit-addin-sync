@@ -255,6 +255,18 @@ A run layer row plans no runs and is listed under the conduit block's `unplanned
 
 **Fit outcomes:** `accepted` at a score of 0.80 or more, `provisional` at 0.50 or more, otherwise `failed`. A provisional fit flags every point `provisional_alignment` and adds a note.
 
+**What provisional means:** a provisional fit is *not* a misalignment. The drawing very likely sits correctly on the level; only the wall overlap score is below the confident threshold (a drawing's walls rarely match the model's exactly). The points are placed and flagged so the drafter can spot-check a few. Do not tell the user the DWG is not aligned. The review's `alignment.meaning` says this in one line, and the headline reads "Alignment 0.51 (provisional: likely right, spot-check)."
+
+`alignment.meaning` by outcome:
+
+| `outcome` | `meaning` |
+|---|---|
+| `accepted` | "Confident fit: the drawing's walls lie on this level's walls. Points are placed as planned." |
+| `provisional` | "Provisional fit: the drawing very likely sits correctly on this level, but the wall overlap score is below the confident threshold. Points are placed and flagged so the drafter can spot-check a few. This is not a misalignment." |
+| `failed` | "Failed fit: the drawing's walls do not lie on this level's walls well enough to place anything. Check the level and the background layers; or link the DWG into the model, move it onto the building, and run plan_cad_electrical again." |
+
+A failed fit returns `alignment_failed` rather than a review, so `failed` is listed for completeness.
+
 ### Footprint crop
 
 The score is measured inside the level's **model footprint**:
@@ -340,7 +352,9 @@ Both stay at the drawn centre, with no facing. The room is looked up there.
     "alignment": {
       "level": "Level 1", "cluster": 0, "rotation_deg": 0, "score": 0.91,
       "score_uncropped": 0.47, "inside_share": 0.52, "model_coverage": 0.6,
-      "outcome": "accepted", "method": "fit", "pick": null
+      "outcome": "accepted",
+      "meaning": "Confident fit: the drawing's walls lie on this level's walls. Points are placed as planned.",
+      "method": "fit", "pick": null
     },
     "drawn": 24,
     "will_place": 22,

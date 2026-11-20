@@ -74,7 +74,9 @@ namespace BinaVibe.Mcp.Tools.Electrical
             string headline = (level.Length > 0 ? level + ": " : "") +
                               Count(drawn) + " drawn, " + Count(place) + " will be placed, " +
                               Count(drawn - place) + " excluded.";
-            if (plan.Alignment != null) headline += " Alignment " + Round2(plan.Alignment.Score) + ".";
+            if (plan.Alignment != null)
+                headline += " Alignment " + Round2(plan.Alignment.Score) +
+                            (plan.Alignment.Outcome == "provisional" ? " (provisional: likely right, spot-check)" : "") + ".";
             if (conduit != null) headline += ConduitSentence(plan, conduit);
 
             var rooms = points
@@ -630,9 +632,28 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     ["inside_share"] = Math.Round(a.InsideShare, 3),
                     ["model_coverage"] = Math.Round(a.ModelCoverage, 3),
                     ["outcome"] = a.Outcome,
+                    ["meaning"] = AlignmentMeaning(a.Outcome),
                     ["method"] = a.Method,
                     ["pick"] = a.Pick >= 0 ? a.Pick : (int?)null,
                 };
+
+        public const string ProvisionalMeaning =
+            "Provisional fit: the drawing very likely sits correctly on this level, but the wall overlap score " +
+            "is below the confident threshold. Points are placed and flagged so the drafter can spot-check a few. " +
+            "This is not a misalignment.";
+
+        public const string AcceptedMeaning =
+            "Confident fit: the drawing's walls lie on this level's walls. Points are placed as planned.";
+
+        public const string FailedMeaning =
+            "Failed fit: the drawing's walls do not lie on this level's walls well enough to place anything. " +
+            "Check the level and the background layers; or link the DWG into the model, move it onto the " +
+            "building, and run plan_cad_electrical again.";
+
+        /// <summary>One line on what an alignment outcome means for the points, for the AI to
+        /// pass on: a provisional fit is not a misalignment.</summary>
+        public static string AlignmentMeaning(string outcome) =>
+            outcome == "accepted" ? AcceptedMeaning : outcome == "provisional" ? ProvisionalMeaning : FailedMeaning;
 
         private static string Count(int n) => n.ToString(CultureInfo.InvariantCulture);
 

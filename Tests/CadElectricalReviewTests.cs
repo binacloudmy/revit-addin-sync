@@ -205,6 +205,40 @@ namespace Tests
         }
 
         [Fact]
+        public void Provisional_alignment_says_it_is_likely_right()
+        {
+            SocketPlan plan = Plan();
+            plan.Alignment!.Score = 0.512;
+            plan.Alignment.Outcome = "provisional";
+
+            Dictionary<string, object?> review = CadElectricalReview.PlanReview(plan, Unmapped, 0);
+
+            Assert.Equal("Level 1: 5 drawn, 3 will be placed, 2 excluded. Alignment 0.51 (provisional: likely right, spot-check).",
+                         review["headline"]);
+            string meaning = (string)Row(review["alignment"])["meaning"]!;
+            Assert.Equal(CadElectricalReview.ProvisionalMeaning, meaning);
+            Assert.StartsWith("Provisional fit: the drawing very likely sits correctly on this level", meaning);
+            Assert.EndsWith("This is not a misalignment.", meaning);
+        }
+
+        [Fact]
+        public void Accepted_and_failed_alignment_each_get_one_line()
+        {
+            SocketPlan plan = Plan();
+
+            Dictionary<string, object?> review = CadElectricalReview.PlanReview(plan, Unmapped, 0);
+
+            Assert.Equal(CadElectricalReview.AcceptedMeaning, Row(review["alignment"])["meaning"]);
+            Assert.DoesNotContain("provisional", (string)review["headline"]!);
+            Assert.DoesNotContain('\n', CadElectricalReview.AcceptedMeaning);
+
+            string failed = CadElectricalReview.AlignmentMeaning("failed");
+            Assert.Equal(CadElectricalReview.FailedMeaning, failed);
+            Assert.Contains("link the DWG into the model, move it onto the building", failed);
+            Assert.DoesNotContain('\n', failed);
+        }
+
+        [Fact]
         public void Review_carries_no_coordinates()
         {
             string json = Json(CadElectricalReview.PlanReview(Plan(), Unmapped, 3));
