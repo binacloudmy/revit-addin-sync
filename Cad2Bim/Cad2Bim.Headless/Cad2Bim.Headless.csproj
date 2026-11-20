@@ -28,6 +28,16 @@
     <Compile Include="..\..\Services\CadToBim\CadSourceVerdict.cs" Link="Shared\CadSourceVerdict.cs" />
   </ItemGroup>
 
+  <!-- The phase 1 exit check (the fit and compare-devices options): the pure fit and
+       placement comparison, with the plan and resolve types they read. -->
+  <ItemGroup>
+    <Compile Include="..\..\BinaVibe\Mcp\Tools\Electrical\CadModelFit.cs" Link="Shared\CadModelFit.cs" />
+    <Compile Include="..\..\BinaVibe\Mcp\Tools\Electrical\PlacementCompare.cs" Link="Shared\PlacementCompare.cs" />
+    <Compile Include="..\..\BinaVibe\Mcp\Tools\Electrical\SocketPlanCache.cs" Link="Shared\SocketPlanCache.cs" />
+    <Compile Include="..\..\BinaVibe\Mcp\Tools\Electrical\CadSymbolResolve.cs" Link="Shared\CadSymbolResolve.cs" />
+    <Compile Include="..\..\BinaVibe\Mcp\Tools\Electrical\SocketLayout.cs" Link="Shared\SocketLayout.cs" />
+  </ItemGroup>
+
   <!-- WPF-only sources that live at the project root next to the model. -->
   <ItemGroup>
     <Compile Remove="..\cad2bim\App.xaml.cs" />

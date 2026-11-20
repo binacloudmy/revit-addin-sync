@@ -67,6 +67,8 @@ namespace RevitWebAppSync.Services
             ["place_family_instance"]      = "Placing family instances",
             ["place_in_each_room"]         = "Placing elements in rooms",
             ["suggest_socket_points"]      = "Suggesting socket positions",
+            ["read_cad_electrical"]        = "Reading the electrical drawing",
+            ["plan_cad_electrical"]        = "Planning devices from the drawing",
             ["place_socket_points"]        = "Placing sockets",
             ["place_socket_on_wall"]       = "Placing a socket on the wall",
             ["place_view_on_sheet"]        = "Placing the view on the sheet",

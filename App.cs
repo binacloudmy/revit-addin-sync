@@ -609,8 +609,16 @@ namespace RevitWebAppSync
                 // see docs/superpowers/specs/2026-06-30-revit-tool-execution-reliability-design.md).
                 BinaVibe.Mcp.McpJobPump.Init(application, McpToolHandler, McpToolEvent);
                 // A Revit modal dialog blocks idling entirely — note it so a
-                // fast-fail tells the user to close the dialog.
-                application.DialogBoxShowing += (s, e) => BinaVibe.Mcp.McpJobPump.NoteDialogShown();
+                // fast-fail tells the user to close the dialog. A dialog a DWG
+                // read raises (extents past 1E9) is answered instead, inside
+                // the read's ImportDialogGuard scope only.
+                application.DialogBoxShowing += (s, e) =>
+                {
+                    var message = (e as Autodesk.Revit.UI.Events.TaskDialogShowingEventArgs)?.Message
+                                      ?? (e as Autodesk.Revit.UI.Events.MessageBoxShowingEventArgs)?.Message;
+                    if (!BinaVibe.Mcp.Tools.ImportDialogGuard.OnDialog(e.DialogId, message, result => e.OverrideResult(result)))
+                        BinaVibe.Mcp.McpJobPump.NoteDialogShown();
+                };
 
                 // Warm-up: pays the one-time first-regen at doc-open so the
                 // user's first build doesn't freeze (see WarmupHandler).
@@ -981,6 +989,7 @@ namespace RevitWebAppSync
             try { BinaVibe.Mcp.Tools.DwgScratchCache.CloseAll(); } catch { }
             try { BinaVibe.Mcp.Tools.PdfAttachmentCache.CloseAll(); } catch { }
             try { BinaVibe.Mcp.Tools.Electrical.SocketPlanCache.CloseAll(); } catch { }
+            try { BinaVibe.Mcp.Tools.Electrical.CadElectricalTools.CloseAll(); } catch { }
 
             // 'clean' shutdown marker: a session with 'started' but neither
             // 'ready' nor 'clean' reads as a dirty exit in the scorecard.

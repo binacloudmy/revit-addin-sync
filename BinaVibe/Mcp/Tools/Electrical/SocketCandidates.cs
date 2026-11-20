@@ -45,15 +45,6 @@ namespace BinaVibe.Mcp.Tools.Electrical
         /// versions and could not be pinned in a golden test.</summary>
         private const double ChordMm = 100.0;
 
-        /// <summary>Linguistic fallback only — see the file header. A bare call
-        /// must not silently place sockets in a bathroom.</summary>
-        private static readonly string[] DefaultWetKeywords =
-        {
-            "bilik air", "bilik mandi", "tandas", "jamban",
-            "bathroom", "toilet", "washroom", "wc", "shower",
-            "dapur", "kitchen", "pantri", "pantry", "basuh", "laundry",
-        };
-
         public static Dictionary<string, object?> Suggest(Document doc, JsonElement args)
         {
             // ── rule args (mm) ────────────────────────────────────────────
@@ -91,7 +82,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
             bool includeIslands = ArgsHelp.GetBool(args, "include_islands") ?? false;
 
             var wetKeywords = ArgsHelp.GetStringList(args, "wet_room_keywords");
-            if (wetKeywords.Count == 0) wetKeywords = DefaultWetKeywords.ToList();
+            if (wetKeywords.Count == 0) wetKeywords = SocketLayout.DefaultWetKeywords.ToList();
 
             var opts = new LayoutOptions
             {

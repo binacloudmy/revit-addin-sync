@@ -299,6 +299,19 @@
          drawing facts. Cad2Bim engine + CadSourceVerdict (linked above) and System only. -->
     <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\ElectricalCensus.cs" Link="ElectricalCensus.cs" />
     <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\ElectricalCensusSummary.cs" Link="ElectricalCensusSummary.cs" />
+    <!-- CAD electrical phase 1 (sockets): the pure steps between the census and the Revit
+         tools - mapping table, fit, resolve, review. System, System.Text.Json and the Cad2Bim
+         engine only. -->
+    <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\CadElectricalMapping.cs" Link="CadElectricalMapping.cs" />
+    <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\CadModelFit.cs" Link="CadModelFit.cs" />
+    <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\SocketPlanSelect.cs" Link="SocketPlanSelect.cs" />
+    <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\CadSymbolResolve.cs" Link="CadSymbolResolve.cs" />
+    <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\CadElectricalReview.cs" Link="CadElectricalReview.cs" />
+    <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\PlacementCompare.cs" Link="PlacementCompare.cs" />
+    <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\OverheadPlacement.cs" Link="OverheadPlacement.cs" />
+    <!-- The DWG read's dialog guard: which Revit dialog it answers (ImportDialogGuardTests).
+         App passes the dialog's id and text in, so the file holds no Revit type. -->
+    <Compile Include="..\BinaVibe\Mcp\Tools\ImportDialogGuard.cs" Link="ImportDialogGuard.cs" />
     <!-- read_schedule / write_schedule decision logic: which updates survive
          validation, where the row window falls, whether rows map 1:1 to
          elements. Split out of Schedules.cs (which needs a live Document) for
