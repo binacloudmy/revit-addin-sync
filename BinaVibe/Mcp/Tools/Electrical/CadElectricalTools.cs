@@ -348,6 +348,12 @@ namespace BinaVibe.Mcp.Tools.Electrical
             var drawn = new Dictionary<int, (double X, double Y, double Half)>();
             var unmapped = new Dictionary<string, UnmappedClass>(StringComparer.Ordinal);
             var dropped = new List<object?>();
+            // The rest of the drawn symbols, so that `dropped` and `points` together list every
+            // symbol drawn on the plan (the exit check's not_in_drawing): ignored and other
+            // non-placeable classes, then other plans' placeable symbols. Listed after the real
+            // drops, so a cap cuts these first.
+            var unplaceable = new List<object?>();
+            var otherPlanDrops = new List<object?>();
             int otherPlans = 0, outsideFootprint = 0;
             int total = scan.Symbols.Count;
             var levelBand = CadElectricalResolver.LevelBand(model.Levels, level);
@@ -366,32 +372,45 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 fit.Transform.Apply(symbol.X, symbol.Y, out double mx, out double my);
                 bool inside = footprint != null ? footprint.Contains(mx, my) : symbol.Cluster == cluster;
                 string membership = CadSymbolResolve.Membership(symbol.Cluster, cluster, inside);
+                string symbolClass = row?.Role ?? "unmapped";
+                // Unmapped blocks that are not symbol-sized or sit on a wall layer (containers,
+                // title blocks, the background's own blocks) are not symbols.
+                bool notASymbol = row == null && (symbol.IsContainer || Math.Max(symbol.WidthMm, symbol.HeightMm) > symbolMax ||
+                                                  wallLike.Contains(symbol.Layer));
                 if (membership != "plan")
                 {
                     bool placeable = row != null && CadElectricalMapping.IsPlaceable(row.Role);
-                    if (!placeable) continue;
+                    if (!placeable)
+                    {
+                        if (membership != "other_plan" && !notASymbol)
+                            Drop(unplaceable, symbol.Key, membership, mx, my, levelZMm, symbolClass);
+                        continue;
+                    }
                     if (membership == "other_plan")
                     {
                         otherPlans++;
+                        Drop(otherPlanDrops, symbol.Key, membership, mx, my, levelZMm, symbolClass);
                     }
                     else if (!CadSymbolResolve.NestedInMapped(scan.Symbols, i, isMappedPlaceable))
                     {
                         outsideFootprint++;
-                        Drop(dropped, symbol.Key, membership, mx, my, levelZMm);
+                        Drop(dropped, symbol.Key, membership, mx, my, levelZMm, symbolClass);
                     }
                     continue;
                 }
 
-                // Ignored classes, and unmapped ones that are not symbol-sized or sit on a wall
-                // layer (containers, title blocks, the background's own blocks), say nothing.
-                if (row != null && row.Role == "ignore") continue;
-                if (row == null && (symbol.IsContainer || Math.Max(symbol.WidthMm, symbol.HeightMm) > symbolMax ||
-                                    wallLike.Contains(symbol.Layer)))
+                // Ignored classes and non-symbols say nothing in the review; an ignored symbol is
+                // still listed, as drawn.
+                if (row != null && row.Role == "ignore")
+                {
+                    Drop(unplaceable, symbol.Key, "ignored_class", mx, my, levelZMm, symbolClass);
                     continue;
+                }
+                if (notASymbol) continue;
 
                 if (CadSymbolResolve.NestedInMapped(scan.Symbols, i, isMappedPlaceable))
                 {
-                    Drop(dropped, symbol.Key, "nested_in_mapped", mx, my, levelZMm);
+                    Drop(dropped, symbol.Key, "nested_in_mapped", mx, my, levelZMm, symbolClass);
                     continue;
                 }
 
@@ -401,7 +420,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     if (!unmapped.TryGetValue(symbol.Key, out UnmappedClass? u))
                         unmapped[symbol.Key] = u = new UnmappedClass { Block = symbol.Key, Reason = reason };
                     u.Instances++;
-                    Drop(dropped, symbol.Key, reason, mx, my, levelZMm);
+                    Drop(dropped, symbol.Key, reason, mx, my, levelZMm, symbolClass);
                     continue;
                 }
 
@@ -600,8 +619,12 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     ["excluded"] = p.Excluded,
                 }).ToList();
                 result["points_truncated"] = points.Count > MaxPointRows;
-                result["dropped"] = dropped.Take(MaxPointRows).ToList();
-                result["dropped_truncated"] = dropped.Count > MaxPointRows;
+                int ownSymbols = dropped.Count + unplaceable.Count;
+                result["dropped"] = dropped.Concat(unplaceable).Concat(otherPlanDrops).Take(MaxPointRows).ToList();
+                result["dropped_truncated"] = ownSymbols + otherPlanDrops.Count > MaxPointRows;
+                // True when points and dropped together list every symbol drawn on this plan:
+                // only other plans' symbols were cut, if any.
+                result["dropped_lists_every_symbol"] = ownSymbols <= MaxPointRows && points.Count <= MaxPointRows;
                 result["runs"] = runs.Take(MaxPointRows).Select(r => (object?)new Dictionary<string, object?>
                 {
                     ["index"] = r.Index,
@@ -971,10 +994,14 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 ? scan.TitlesIn(minX, minY, maxX, maxY)
                 : new List<string>();
 
-        private static void Drop(List<object?> dropped, string block, string reason, double x, double y, double z) =>
+        /// <summary>One `dropped` row. <paramref name="symbolClass"/> is the mapping row's role,
+        /// or "unmapped".</summary>
+        private static void Drop(List<object?> dropped, string block, string reason, double x, double y, double z,
+                                 string symbolClass) =>
             dropped.Add(new Dictionary<string, object?>
             {
                 ["block"] = block,
+                ["class"] = symbolClass,
                 ["reason"] = reason,
                 ["xyz_mm"] = new List<object?> { Math.Round(x, 1), Math.Round(y, 1), Math.Round(z, 1) },
             });

@@ -285,7 +285,7 @@ When the drawing's wall length inside the footprint is under 0.25 × the model's
 
 **Membership:** a symbol belongs to the plan when, carried onto the model, it lies inside the footprint, whatever its census cluster. A symbol outside the footprint is:
 - `outside_model_footprint` when it is in the chosen cluster. It is counted in the review and listed in `dropped`.
-- counted as another plan's when it is in a different cluster.
+- counted as another plan's when it is in a different cluster. With `include_points` it is listed last in `dropped` as `other_plan`.
 
 ### Rivals and `pick`
 
@@ -384,7 +384,11 @@ The review carries no coordinates.
 
 **`include_points`** adds:
 - `points`: `index`, `role`, `block`, `room`, `host`, `xyz_mm`, `height_above_level_mm`, `facing`, `flags`, `excluded`. `xyz_mm` is absolute; `height_above_level_mm` is its Z less the plan level's elevation.
-- `dropped`: `block`, `reason`, `xyz_mm`
+- `dropped`: `block`, `class` (the mapping row's role, or `unmapped`), `reason`, `xyz_mm`. With `points`, it lists every symbol drawn on the plan, so the exit check can tell a socket the drawing does not show:
+  - first the real drops: `outside_model_footprint`, `nested_in_mapped`, `not_in_mapping` and the other unplanned reasons
+  - then the symbols that are never placed: `ignored_class` (a row with role `ignore`), and non-placeable symbols outside the footprint (`outside_model_footprint`). Containers and unmapped blocks that are not symbol-sized or sit on a wall layer are not symbols and are left out.
+  - then other plans' placeable symbols (`other_plan`)
+- `dropped_lists_every_symbol`: true when the 2000-row caps cut nothing but `other_plan` rows
 - `runs`: `index`, `layer`, `kind`, `points_mm`, `start` and `end` (`kind`, `point_index`, `element_id`, `drop_mm`), `length_mm`, `flags`, `excluded`
 
 **Other errors:**
