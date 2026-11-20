@@ -176,6 +176,7 @@ namespace RevitWebAppSync.Services.JkrSpec
         {
             const string id = "Db.1";
             if (m.Lod < PbCommonLoi) yield break;
+            var loi = SpecPbData.LoiOf(m.Lod);   // LOD 450 sits under the book's LOi 400 column
             var ok = new Dictionary<string, int>(StringComparer.Ordinal);
             foreach (var t in TypesIn(m, PbElementCategories))
             {
@@ -185,9 +186,9 @@ namespace RevitWebAppSync.Services.JkrSpec
                 if (empty.Count == 0) { Bump(ok, t.Category); continue; }
                 var list = string.Join(", ", empty);
                 yield return FailType(id, t,
-                    $"{t.Category}: type '{t.TypeName}' — {empty.Count}/{present.Count} parameter wajib LOi {m.Lod} kosong: {list}",
-                    $"{t.Category}: type '{t.TypeName}' — {empty.Count}/{present.Count} mandatory LOi {m.Lod} parameters empty: {list}",
-                    SpecCoverage.FailOnly, actual: "kosong: " + list, required: "terisi (PB, LOi " + m.Lod + ")");
+                    $"{t.Category}: type '{t.TypeName}' — {empty.Count}/{present.Count} parameter wajib LOi {loi} kosong: {list}",
+                    $"{t.Category}: type '{t.TypeName}' — {empty.Count}/{present.Count} mandatory LOi {loi} parameters empty: {list}",
+                    SpecCoverage.FailOnly, actual: "kosong: " + list, required: "terisi (PB, LOi " + loi + ")");
             }
             foreach (var kv in ok)
                 yield return Pass(id, $"{kv.Key}: {kv.Value} type: parameter wajib semua kategori AR (LOi {PbCommonLoi}+) terisi — senarai penuh per kategori belum disemak", kv.Value, SpecCoverage.FailOnly)
