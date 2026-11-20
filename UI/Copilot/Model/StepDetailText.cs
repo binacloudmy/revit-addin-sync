@@ -8,8 +8,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
 {
     public static class StepDetailText
     {
-        private static readonly Regex ZeroDelete = new Regex(@",\s*deletes?\s+0(?=\s*[;)])", RegexOptions.CultureInvariant);
-        private static readonly Regex ZeroAdd = new Regex(@"\(\s*adds?\s+0\s*,\s*", RegexOptions.CultureInvariant);
+        private static readonly Regex ZeroDelete = new Regex(@",\s*delete[sd]?\s+0(?=\s*[;)])", RegexOptions.CultureInvariant);
+        private static readonly Regex ZeroAdd = new Regex(@"\(\s*add(?:s|ed)?\s+0\s*,\s*", RegexOptions.CultureInvariant);
 
         /// <summary>The tool summary for the step row: "(added 6, deleted 0; ...)" reads "(added 6; ...)", "(added 0, deleted 2; ...)"
         /// reads "(deleted 2; ...)"; every other text is unchanged. The envelope the server reads keeps the whole summary.</summary>
