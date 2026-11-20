@@ -91,6 +91,38 @@ namespace BinaVibe.Mcp.Tools.Electrical
             // 1. The drawing.
             var dwgRef = ArgsHelp.GetString(args, "dwg_ref") ?? "";
             string path = ResolvePath(doc, dwgRef);
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+
+            // link_id: the drawing is placed where the user moved this CAD link or import, and
+            // the automatic fit is not run. Checked before the drawing is read: a link of
+            // another drawing (the architect's model) fails here, fast.
+            long? linkArg = ArgsHelp.GetLong(args, "link_id");
+            LinkBasis? givenLink = null;
+            FitTransform? givenTransform = null;
+            if (linkArg.HasValue)
+            {
+                if (!(doc.GetElement(ElemIds.From(linkArg.Value)) is ImportInstance givenImp))
+                {
+                    Dictionary<string, object?> missing = Failed(dwgRef, "link_not_found",
+                        "no CAD link or import with id " + linkArg.Value + " in this model — call list_cad_links");
+                    missing["link_id"] = linkArg.Value;
+                    return missing;
+                }
+                givenLink = ReadLink(doc, givenImp, out string? unreadable);
+                LinkDrawingMismatch? other = CadLinkAlign.OtherDrawing(linkArg.Value, givenLink.FullPath, path);
+                if (other != null) return LinkIsOtherDrawing(dwgRef, other);
+                givenTransform = unreadable == null ? CadLinkAlign.FromBasis(givenLink, out unreadable) : null;
+                if (givenTransform == null)
+                {
+                    Dictionary<string, object?> unusable = Failed(dwgRef, "link_unusable",
+                        "link " + linkArg.Value + " is " + unreadable + ": only a link that is turned and moved, " +
+                        "not mirrored, tilted or scaled, can place the drawing");
+                    unusable["link_id"] = linkArg.Value;
+                    unusable["reason"] = unreadable;
+                    return unusable;
+                }
+            }
+
             ElectricalScan scan = ScanFor(path);
             if (scan.Census.Drawing.AecRefused) return AecRefused(dwgRef, scan.Census);
 
@@ -172,33 +204,6 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     "no wall layer to align the drawing on — name the background layers in the mapping");
 
             List<FitSegment> cad = scan.WallCentrelines(cluster, background, pairAcross);
-
-            // link_id: the drawing is placed where the user moved this CAD link or import, and
-            // the automatic fit is not run.
-            long? linkArg = ArgsHelp.GetLong(args, "link_id");
-            LinkBasis? givenLink = null;
-            FitTransform? givenTransform = null;
-            if (linkArg.HasValue)
-            {
-                if (!(doc.GetElement(ElemIds.From(linkArg.Value)) is ImportInstance givenImp))
-                {
-                    Dictionary<string, object?> missing = Failed(dwgRef, "link_not_found",
-                        "no CAD link or import with id " + linkArg.Value + " in this model — call list_cad_links");
-                    missing["link_id"] = linkArg.Value;
-                    return missing;
-                }
-                givenLink = ReadLink(doc, givenImp, out string? unreadable);
-                givenTransform = unreadable == null ? CadLinkAlign.FromBasis(givenLink, out unreadable) : null;
-                if (givenTransform == null)
-                {
-                    Dictionary<string, object?> unusable = Failed(dwgRef, "link_unusable",
-                        "link " + linkArg.Value + " is " + unreadable + ": only a link that is turned and moved, " +
-                        "not mirrored, tilted or scaled, can place the drawing");
-                    unusable["link_id"] = linkArg.Value;
-                    unusable["reason"] = unreadable;
-                    return unusable;
-                }
-            }
 
             // Fit and host on structural walls only (finish walls under 50 mm left out).
             var structural = new Dictionary<string, List<ModelWall>>(StringComparer.Ordinal);
@@ -315,11 +320,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 linkUsed = linkArg!.Value;
                 if (fit.Outcome == "failed" && (fit.FailReason == "alignment_failed" || fit.FailReason == "crop_too_small"))
                     return LinkMisaligned(dwgRef, scan, background, pairAcross, cluster, level.Name, linkArg.Value,
-                                          modelByLevel[level.Name], fit, fitOptions);
-                if (givenLink != null && givenLink.File != null &&
-                    !string.Equals(givenLink.File, Path.GetFileName(path), StringComparison.OrdinalIgnoreCase))
-                    fitNotes.Add("link " + linkArg.Value + " is of " + givenLink.File + ", not " + Path.GetFileName(path) +
-                                 ": its position was used for this drawing");
+                                          modelByLevel[level.Name], fit, fitOptions, clock);
             }
             else
             {
@@ -797,6 +798,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 Id = imp.Id.Value,
                 IsLinked = imp.IsLinked,
                 File = string.IsNullOrEmpty(path) ? null : Path.GetFileName(path),
+                FullPath = string.IsNullOrEmpty(path) ? null : path,
             };
             try
             {
@@ -875,11 +877,23 @@ namespace BinaVibe.Mcp.Tools.Electrical
         private static Dictionary<string, object?> LinkMisaligned(string dwgRef, ElectricalScan scan, List<string> background,
                                                                   bool pairAcross, int cluster, string level, long linkId,
                                                                   IReadOnlyList<FitSegment> levelWalls, FitResult fit,
-                                                                  FitOptions fitOptions)
+                                                                  FitOptions fitOptions, System.Diagnostics.Stopwatch clock)
         {
-            List<(int Cluster, double Score)> scores = CadLinkAlign.ClusterScores(scan.Clusters.Count,
-                c => scan.WallCentrelines(c, background, pairAcross),
-                levelWalls, fit.Transform, fitOptions);
+            // Bounded (the add-in's HTTP call is capped at 50 s): the walls are paired once for
+            // every cluster, clusters without walls are skipped, at most MaxMeasuredClusters
+            // others are measured, and none once the plan has run LinkScoreBudget.
+            bool truncated = scan.Clusters.Count > 1;
+            var scores = new List<(int Cluster, double Score)>();
+            if (clock.Elapsed < LinkScoreBudget)
+            {
+                List<List<FitSegment>> byCluster = scan.WallCentrelinesByCluster(background, pairAcross);
+                scores = CadLinkAlign.ClusterScores(scan.Clusters.Count,
+                    c => c == cluster ? (IReadOnlyList<FitSegment>)new List<FitSegment>() : byCluster[c],
+                    levelWalls, fit.Transform, fitOptions, CadLinkAlign.MaxMeasuredClusters,
+                    () => clock.Elapsed >= LinkScoreBudget, out truncated);
+            }
+            scores.Add((cluster, fit.Score));
+            scores = scores.OrderByDescending(s => s.Score).ThenBy(s => s.Cluster).ToList();
             var titles = scan.Census.Plans.GroupBy(p => p.Cluster).ToDictionary(g => g.Key, g => g.First().Titles);
             (int Cluster, double Score) better = scores.FirstOrDefault(s => s.Cluster != cluster && s.Score >= CadLinkAlign.FloorScore &&
                                                                             s.Score > fit.Score);
@@ -908,7 +922,20 @@ namespace BinaVibe.Mcp.Tools.Electrical
             failed["score_uncropped"] = Math.Round(fit.ScoreUncropped, 3);
             failed["inside_share"] = Math.Round(fit.InsideShare, 3);
             failed["reason"] = fit.FailReason;
+            failed["clusters_truncated"] = truncated;
             foreach (var pair in CadLinkAlign.TransformFields(fit.Transform)) failed[pair.Key] = pair.Value;
+            return failed;
+        }
+
+        /// <summary>Plan time after which link_misaligned measures no more clusters.</summary>
+        private static readonly TimeSpan LinkScoreBudget = TimeSpan.FromSeconds(30);
+
+        private static Dictionary<string, object?> LinkIsOtherDrawing(string dwgRef, LinkDrawingMismatch other)
+        {
+            Dictionary<string, object?> failed = Failed(dwgRef, CadLinkAlign.OtherDrawingError, other.Message);
+            failed["link_id"] = other.LinkId;
+            failed["link_file"] = other.LinkFile;
+            failed["drawing_file"] = other.DrawingFile;
             return failed;
         }
 

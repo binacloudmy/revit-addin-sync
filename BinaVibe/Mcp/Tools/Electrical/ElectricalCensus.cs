@@ -568,7 +568,23 @@ namespace BinaVibe.Mcp.Tools.Electrical
         public List<FitSegment> WallCentrelines(int cluster, IReadOnlyCollection<string> layers, bool pairAcrossLayers)
         {
             if (cluster < 0 || cluster >= Clusters.Count) throw new ArgumentOutOfRangeException(nameof(cluster));
-            ScanCluster box = Clusters[cluster];
+            return InCluster(PairedCentrelines(layers, pairAcrossLayers), cluster);
+        }
+
+        /// <summary>
+        /// Every plan's wall centrelines from one pairing of the layers (WallCentrelines pairs
+        /// the whole drawing on each call, so asking it per cluster costs one pairing each).
+        /// </summary>
+        public List<List<FitSegment>> WallCentrelinesByCluster(IReadOnlyCollection<string> layers, bool pairAcrossLayers)
+        {
+            List<FitSegment> all = PairedCentrelines(layers, pairAcrossLayers);
+            var byCluster = new List<List<FitSegment>>(Clusters.Count);
+            for (int c = 0; c < Clusters.Count; c++) byCluster.Add(InCluster(all, c));
+            return byCluster;
+        }
+
+        private List<FitSegment> PairedCentrelines(IReadOnlyCollection<string> layers, bool pairAcrossLayers)
+        {
             double sMin = Units.DefaultMinWallThicknessMm, sMax = Units.DefaultMaxWallThicknessMm;
 
             IEnumerable<IEnumerable<string>> groups = pairAcrossLayers
@@ -584,16 +600,27 @@ namespace BinaVibe.Mcp.Tools.Electrical
                                                             _options.MaxWallTestSegments, out _));
             }
 
-            double margin = _options.NearWallMm;
             var centrelines = new List<FitSegment>();
             foreach (Wall wall in CadClassifier.DeduplicateWalls(walls))
             {
                 Segment c = wall.Centerline;
-                double mx = (c.P1.x + c.P2.x) / 2, my = (c.P1.y + c.P2.y) / 2;
-                if (mx < box.MinX - margin || mx > box.MaxX + margin || my < box.MinY - margin || my > box.MaxY + margin) continue;
                 centrelines.Add(new FitSegment(c.P1.x, c.P1.y, c.P2.x, c.P2.y));
             }
             return centrelines;
+        }
+
+        private List<FitSegment> InCluster(List<FitSegment> centrelines, int cluster)
+        {
+            ScanCluster box = Clusters[cluster];
+            double margin = _options.NearWallMm;
+            var kept = new List<FitSegment>();
+            foreach (FitSegment s in centrelines)
+            {
+                double mx = (s.X1 + s.X2) / 2, my = (s.Y1 + s.Y2) / 2;
+                if (mx < box.MinX - margin || mx > box.MaxX + margin || my < box.MinY - margin || my > box.MaxY + margin) continue;
+                kept.Add(s);
+            }
+            return kept;
         }
     }
 

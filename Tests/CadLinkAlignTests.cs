@@ -321,5 +321,84 @@ namespace Tests
             Assert.Null(c.Best);
             Assert.Equal("none", CadLinkAlign.Choose(new LinkMeasure[0], automatic: true).Status);
         }
+
+        // ─── link_id of another drawing ────────────────────────────────
+
+        [Fact]
+        public void A_link_of_another_drawing_is_link_is_other_drawing()
+        {
+            LinkDrawingMismatch? other = CadLinkAlign.OtherDrawing(4711,
+                @"C:\projects\tower\ARCH-MODEL-L1-L4.dwg", @"C:\Users\someone\Downloads\ELEC-SOCKETS-L2.dwg");
+
+            Assert.NotNull(other);
+            Assert.Equal("link_is_other_drawing", CadLinkAlign.OtherDrawingError);
+            Assert.Equal(4711, other!.LinkId);
+            Assert.Equal("ARCH-MODEL-L1-L4.dwg", other.LinkFile);
+            Assert.Equal("ELEC-SOCKETS-L2.dwg", other.DrawingFile);
+            Assert.Contains("list_cad_links", other.Message);
+            Assert.Contains("ELEC-SOCKETS-L2.dwg", other.Message);
+        }
+
+        [Fact]
+        public void A_link_of_the_same_drawing_proceeds()
+        {
+            // The same file elsewhere (an attachment from Downloads, the link from the project folder).
+            Assert.Null(CadLinkAlign.OtherDrawing(5, @"C:\projects\tower\elec-sockets-l2.DWG",
+                                                  @"C:\Users\someone\Downloads\ELEC-SOCKETS-L2.dwg"));
+            // The same path.
+            Assert.Null(CadLinkAlign.OtherDrawing(5, @"C:\projects\tower\ELEC-SOCKETS-L2.dwg",
+                                                  @"C:\projects\tower\ELEC-SOCKETS-L2.dwg"));
+            // An import has no file: it cannot be told apart and is measured as before.
+            Assert.Null(CadLinkAlign.OtherDrawing(5, null, @"C:\projects\tower\ELEC-SOCKETS-L2.dwg"));
+            Assert.Null(CadLinkAlign.OtherDrawing(5, "", @"C:\projects\tower\ELEC-SOCKETS-L2.dwg"));
+        }
+
+        // ─── the bounded cluster measure ───────────────────────────────
+
+        [Fact]
+        public void Cluster_scores_measure_at_most_the_cap_and_skip_clusters_without_walls()
+        {
+            FitTransform link = Turn(0, 0, 0);
+            List<FitSegment> model = LPlan();
+            var asked = new List<int>();
+            IReadOnlyList<FitSegment> CadOf(int c)
+            {
+                asked.Add(c);
+                // Every third cluster is a title block or a legend: no walls.
+                return c % 3 == 0 ? new List<FitSegment>() : LPlan();
+            }
+
+            List<(int Cluster, double Score)> scores = CadLinkAlign.ClusterScores(60, CadOf, model, link, null,
+                maxClusters: 5, outOfTime: () => false, out bool truncated);
+
+            Assert.Equal(5, scores.Count);
+            Assert.True(truncated);
+            Assert.DoesNotContain(scores, s => s.Cluster % 3 == 0);
+            Assert.Equal(new[] { 1, 2, 4, 5, 7 }, scores.Select(s => s.Cluster).OrderBy(c => c));
+            Assert.True(asked.Count < 60);
+        }
+
+        [Fact]
+        public void Cluster_scores_stop_when_the_clock_runs_out()
+        {
+            FitTransform link = Turn(0, 0, 0);
+            int measured = 0;
+            List<(int Cluster, double Score)> scores = CadLinkAlign.ClusterScores(20, c => LPlan(), LPlan(), link, null,
+                maxClusters: 12, outOfTime: () => measured++ >= 3, out bool truncated);
+
+            Assert.Equal(3, scores.Count);
+            Assert.True(truncated);
+        }
+
+        [Fact]
+        public void Cluster_scores_under_the_cap_are_not_truncated()
+        {
+            FitTransform link = Turn(0, 0, 0);
+            List<(int Cluster, double Score)> scores = CadLinkAlign.ClusterScores(3, c => c == 1 ? new List<FitSegment>() : LPlan(),
+                LPlan(), link, null, CadLinkAlign.MaxMeasuredClusters, () => false, out bool truncated);
+
+            Assert.Equal(new[] { 0, 2 }, scores.Select(s => s.Cluster));
+            Assert.False(truncated);
+        }
     }
 }

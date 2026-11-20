@@ -15,7 +15,11 @@
 //    automatically (no link_id), several links of the drawing are ambiguous: automatic use
 //    takes a single matching link only.
 // 4. ClusterScores: under a link that misses its cluster, how every cluster of the sheet
-//    scores, so the user sees which plan the link was laid on.
+//    scores, so the user sees which plan the link was laid on. Bounded: clusters without
+//    walls are skipped, at most MaxMeasuredClusters are measured, and it stops when the
+//    caller's clock runs out (the add-in's HTTP call is capped at 50 s).
+// 5. SameDrawing: a link_id must be an instance of the drawing behind dwg_ref, by full path
+//    or file name; a link of another drawing (the architect's model) is link_is_other_drawing.
 //
 // Millimetres. Cad2Bim engine and System only; must compile on net48.
 
@@ -35,6 +39,8 @@ namespace BinaVibe.Mcp.Tools.Electrical
         public bool IsLinked;
         /// <summary>The linked file's name; null for an import.</summary>
         public string? File;
+        /// <summary>The linked file's full path; null for an import.</summary>
+        public string? FullPath;
         public double[] OriginMm = new double[3];
         public double[] BasisX = { 1, 0, 0 };
         public double[] BasisY = { 0, 1, 0 };
@@ -49,6 +55,15 @@ namespace BinaVibe.Mcp.Tools.Electrical
         public string? Unusable;
         /// <summary>The measured placement; null when the link is unusable.</summary>
         public FitResult? Fit;
+    }
+
+    /// <summary>link_id names a link of another drawing than dwg_ref's.</summary>
+    internal sealed class LinkDrawingMismatch
+    {
+        public long LinkId;
+        public string LinkFile = "";
+        public string DrawingFile = "";
+        public string Message = "";
     }
 
     internal sealed class LinkChoice
@@ -72,6 +87,8 @@ namespace BinaVibe.Mcp.Tools.Electrical
         public const double FloorScore = 0.25;
         /// <summary>Two links within this of each other at different places tie.</summary>
         public const double TieMargin = 0.05;
+        /// <summary>At most this many clusters are measured for link_misaligned.</summary>
+        public const int MaxMeasuredClusters = 12;
         /// <summary>Basis length and orthogonality tolerance.</summary>
         public const double BasisTolerance = 1e-6;
 
@@ -205,16 +222,84 @@ namespace BinaVibe.Mcp.Tools.Electrical
         public static List<(int Cluster, double Score)> ClusterScores(int clusterCount,
                                                                      Func<int, IReadOnlyList<FitSegment>> cadOf,
                                                                      IReadOnlyList<FitSegment> model, FitTransform t,
-                                                                     FitOptions? o = null)
+                                                                     FitOptions? o = null) =>
+            ClusterScores(clusterCount, cadOf, model, t, o, MaxMeasuredClusters, () => false, out _);
+
+        /// <summary>
+        /// The bounded form: clusters with too few walls to measure (under 4) are skipped, at
+        /// most <paramref name="maxClusters"/> are measured, and none once
+        /// <paramref name="outOfTime"/> says so. <paramref name="truncated"/> is true when a
+        /// cluster with walls was left unmeasured.
+        /// </summary>
+        public static List<(int Cluster, double Score)> ClusterScores(int clusterCount,
+                                                                     Func<int, IReadOnlyList<FitSegment>> cadOf,
+                                                                     IReadOnlyList<FitSegment> model, FitTransform t,
+                                                                     FitOptions? o, int maxClusters, Func<bool> outOfTime,
+                                                                     out bool truncated)
         {
             o = o ?? new FitOptions();
+            truncated = false;
             var scores = new List<(int Cluster, double Score)>();
             for (int c = 0; c < clusterCount; c++)
             {
-                FitResult r = Measure(cadOf(c), model, t, o);
+                IReadOnlyList<FitSegment> cad = cadOf(c);
+                if (cad.Count < 4) continue;
+                if (scores.Count >= maxClusters || outOfTime())
+                {
+                    truncated = true;
+                    break;
+                }
+                FitResult r = Measure(cad, model, t, o);
                 scores.Add((c, r.Score));
             }
             return scores.OrderByDescending(s => s.Score).ThenBy(s => s.Cluster).ToList();
+        }
+
+        /// <summary>
+        /// Whether a CAD link is an instance of the drawing at <paramref name="drawingPath"/>:
+        /// the same full path, else the same file name (ignoring case). An import has no file
+        /// (<paramref name="linkPath"/> null or empty) and cannot be told apart, so it passes.
+        /// </summary>
+        public static bool SameDrawing(string? linkPath, string drawingPath)
+        {
+            if (string.IsNullOrEmpty(linkPath)) return true;
+            if (string.Equals(SafeFullPath(linkPath!), SafeFullPath(drawingPath), StringComparison.OrdinalIgnoreCase))
+                return true;
+            return string.Equals(FileNameOf(linkPath!), FileNameOf(drawingPath), StringComparison.OrdinalIgnoreCase);
+        }
+
+        public const string OtherDrawingError = "link_is_other_drawing";
+
+        /// <summary>
+        /// link_id checked against dwg_ref's drawing before any measuring: null when the link
+        /// is of the drawing (or an import), else the link_is_other_drawing refusal with both
+        /// file names, so the AI can pick the right link from list_cad_links.
+        /// </summary>
+        public static LinkDrawingMismatch? OtherDrawing(long linkId, string? linkPath, string drawingPath)
+        {
+            if (SameDrawing(linkPath, drawingPath)) return null;
+            string linkFile = FileNameOf(linkPath!), drawingFile = FileNameOf(drawingPath);
+            return new LinkDrawingMismatch
+            {
+                LinkId = linkId,
+                LinkFile = linkFile,
+                DrawingFile = drawingFile,
+                Message = "link " + linkId + " is of " + linkFile + ", not of the drawing " + drawingFile +
+                          ". Call list_cad_links and pass the link_id of the link whose name matches " + drawingFile + ".",
+            };
+        }
+
+        /// <summary>The file name of a path, with either separator.</summary>
+        public static string FileNameOf(string path)
+        {
+            int cut = Math.Max(path.LastIndexOf('\\'), path.LastIndexOf('/'));
+            return cut >= 0 ? path.Substring(cut + 1) : path;
+        }
+
+        private static string SafeFullPath(string path)
+        {
+            try { return System.IO.Path.GetFullPath(path); }
+            catch (Exception) { return path; }
         }
 
         /// <summary>

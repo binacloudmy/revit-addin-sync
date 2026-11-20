@@ -186,6 +186,19 @@ namespace Tests
         }
 
         [Fact]
+        public void Wall_centrelines_by_cluster_match_the_per_cluster_call()
+        {
+            ElectricalScan scan = ElectricalCensus.Scan(Staggered(bridge: true));
+            var layers = new[] { "A-WALL" };
+
+            List<List<FitSegment>> byCluster = scan.WallCentrelinesByCluster(layers, false);
+
+            Assert.Equal(scan.Clusters.Count, byCluster.Count);
+            for (int c = 0; c < scan.Clusters.Count; c++)
+                Assert.Equal(scan.WallCentrelines(c, layers, false), byCluster[c]);
+        }
+
+        [Fact]
         public void A_wall_bridging_three_plans_keeps_one_cluster()
         {
             ElectricalScan scan = ElectricalCensus.Scan(Staggered(bridge: true));

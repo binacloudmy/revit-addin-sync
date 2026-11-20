@@ -294,7 +294,7 @@ When the fit cannot place the drawing, the user can link the DWG (`link_file`) a
 - Without it, only after both the centreline fit and the face fit fail. A passing fit is never overridden.
 
 **Which links:**
-- `link_id` names one instance, linked or imported.
+- `link_id` names one instance, linked or imported. A link must be of the drawing behind `dwg_ref` (same full path, else same file name); a link of another drawing is refused at once with `link_is_other_drawing`, before the drawing is read.
 - Without it, the model's CAD links of the same file: by full path, else by file name. Imports have no file, so they need `link_id`.
 - An `att:` ref resolves to the file the pane attached, not to a copy. A link of that file matches by path. A link made from a copy elsewhere matches by file name.
 
@@ -321,8 +321,9 @@ The crop guard holds: too little drawing wall inside the footprint fails as for 
 | Error | When | Extra fields |
 |---|---|---|
 | `link_not_found` | `link_id` is not a CAD link or import of this model | `link_id` |
+| `link_is_other_drawing` | `link_id` is a CAD link of another file than `dwg_ref`'s drawing (for example the architect's model). Checked first, so it fails fast | `link_id`, `link_file`, `drawing_file`. Call `list_cad_links` and pick the link whose name matches `drawing_file` |
 | `link_unusable` | The link is mirrored, tilted or scaled, or its transform cannot be read | `link_id`, `reason`: `mirrored`, `tilted`, `scaled`, `without a readable transform` |
-| `link_misaligned` | `link_id` scores below 0.25 on the level, or lays too little of the drawing inside it | `link_id`, `level`, `cluster`, `score`, `score_uncropped`, `inside_share`, `reason` (`alignment_failed` or `crop_too_small`), `rotation_deg`, `tx_mm`, `ty_mm` (the link's placement). `candidates`: every cluster's `{cluster, titles, score}` under the link, best first. When another cluster scores better, the message names it. |
+| `link_misaligned` | `link_id` scores below 0.25 on the level, or lays too little of the drawing inside it | `link_id`, `level`, `cluster`, `score`, `score_uncropped`, `inside_share`, `reason` (`alignment_failed` or `crop_too_small`), `rotation_deg`, `tx_mm`, `ty_mm` (the link's placement). `candidates`: the clusters' `{cluster, titles, score}` under the link, best first. Bounded under the 50 s HTTP cap: clusters without walls are skipped, at most 12 others are measured, and none after 30 s of plan time; `clusters_truncated` is true when a cluster was left out. When another cluster scores better, the message names it. |
 | `link_ambiguous` | No `link_id`, the fit failed, and the model holds several links of the drawing, one of them clearing 0.25 | `level`, `cluster`. `candidates`: `{link_id, score, outcome, unusable, rotation_deg, tx_mm, ty_mm}`, best first |
 | `level_ambiguous` | With `link_id` and no level given, two levels score within 0.05 | `cluster`, `link_id`. `candidates`: `{level, score, outcome}` |
 
