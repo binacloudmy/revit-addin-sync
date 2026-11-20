@@ -167,9 +167,11 @@ namespace RevitWebAppSync.Services.JkrSpec
         /// must be filled. The full per-category × LOi set is the backend's (BackendDE). The
         /// add-in tests the part it can prove from the book alone: at project LOD ≥ 400, the
         /// parameters every AR category makes mandatory (<see cref="PbMandatoryAllArFromLoi400"/>)
-        /// that the type (or its first placed instance) carries but leaves empty → fail.
-        /// A parameter the model does not carry is not judged (it may not be text-typed or
-        /// may be read under another name). FailOnly. Below LOD 400 this part has nothing
+        /// that the type (or its first placed instance) leaves empty → fail ("kosong"), or does
+        /// not carry at all → fail ("tiada pada type": B1.1 treats a missing field the same
+        /// way). Carried but not text-typed → not judged. A snapshot that did not read the
+        /// type's parameter names (SpecType.ParamNamesRead false) judges only what its texts
+        /// hold. FailOnly. Below LOD 400 this part has nothing
         /// the book makes mandatory for every category, so it returns nothing.
         /// </summary>
         private static IEnumerable<SpecResult> DbMandatoryParameters(SpecModel m)
@@ -179,15 +181,27 @@ namespace RevitWebAppSync.Services.JkrSpec
             var ok = new Dictionary<string, int>(StringComparer.Ordinal);
             foreach (var t in TypesIn(m, PbElementCategories))
             {
-                var present = PbMandatoryAllArFromLoi400.Where(p => t.Texts.ContainsKey(p)).ToList();
-                if (present.Count == 0) continue;
-                var empty = present.Where(p => string.IsNullOrWhiteSpace(t.Texts[p])).ToList();
-                if (empty.Count == 0) { Bump(ok, t.Category); continue; }
+                // Judged = the type's text holds it (empty or filled), or the reader saw the type's
+                // parameters and it is not among them (missing). Unread snapshots judge only the former.
+                var states = PbMandatoryAllArFromLoi400
+                    .Select(p => (Name: p, State: SpecExtractionRules.MandatoryState(t, p)))
+                    .Where(x => x.State.HasValue).ToList();
+                if (states.Count == 0) continue;
+                var empty = states.Where(x => x.State == SpecParamState.Empty).Select(x => x.Name).ToList();
+                var missing = states.Where(x => x.State == SpecParamState.Missing).Select(x => x.Name).ToList();
+                if (empty.Count + missing.Count == 0) { Bump(ok, t.Category); continue; }
+                var bad = empty.Count + missing.Count;
                 var list = string.Join(", ", empty);
-                yield return FailType(id, t,
-                    $"{t.Category}: type '{t.TypeName}' — {empty.Count}/{present.Count} parameter wajib LOi {m.Lod} kosong: {list}",
-                    $"{t.Category}: type '{t.TypeName}' — {empty.Count}/{present.Count} mandatory LOi {m.Lod} parameters empty: {list}",
-                    SpecCoverage.FailOnly, actual: "kosong: " + list, required: "terisi (PB, LOi " + m.Lod + ")");
+                var missList = string.Join(", ", missing);
+                var bm = $"{t.Category}: type '{t.TypeName}' — {bad}/{states.Count} parameter wajib LOi {m.Lod} tidak terisi"
+                         + (empty.Count > 0 ? $"; kosong: {list}" : "")
+                         + (missing.Count > 0 ? $"; tiada pada type: {missList}" : "");
+                var en = $"{t.Category}: type '{t.TypeName}' — {bad}/{states.Count} mandatory LOi {m.Lod} parameters not filled"
+                         + (empty.Count > 0 ? $"; empty: {list}" : "")
+                         + (missing.Count > 0 ? $"; not on the type: {missList}" : "");
+                var actual = (empty.Count > 0 ? "kosong: " + list : "") + (empty.Count > 0 && missing.Count > 0 ? "; " : "")
+                             + (missing.Count > 0 ? "tiada: " + missList : "");
+                yield return FailType(id, t, bm, en, SpecCoverage.FailOnly, actual: actual, required: "terisi (PB, LOi " + m.Lod + ")");
             }
             foreach (var kv in ok)
                 yield return Pass(id, $"{kv.Key}: {kv.Value} type: parameter wajib semua kategori AR (LOi {PbCommonLoi}+) terisi — senarai penuh per kategori belum disemak", kv.Value, SpecCoverage.FailOnly)

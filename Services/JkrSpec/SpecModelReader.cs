@@ -31,6 +31,11 @@ namespace RevitWebAppSync.Services.JkrSpec
     /// • SpecView.FolderPath / FolderBy: the view's folders in the current Project Browser
     ///   organisation and the parameters they group by; SetParam: View_jkr_pit. SpecSchedule
     ///   RowCategories: the categories of the listed elements (multi-category / takeoffs).
+    /// • Built model only (AI-471): host document, never linked content; elements in a
+    ///   non-primary design option and elements demolished by the project's final phase are
+    ///   left out of rooms, floors, ceilings, roofs, types and category counts
+    ///   (SpecModel.Excluded counts them). Door "Thickness" is read from the built-in
+    ///   parameters first, the display name only as a fallback.
     /// • Nested shared components (FamilyInstance.SuperComponent set) are not "placed"
     ///   elements and are not counted.
     /// Read-only: no transactions.
@@ -81,14 +86,15 @@ namespace RevitWebAppSync.Services.JkrSpec
             try { m.FileName = System.IO.Path.GetFileName(doc.PathName ?? ""); }
             catch (Exception ex) { m.ReadErrors.Add("FileName: " + ex.Message); }
 
+            var scope = new Scope(doc, m);
             Part(m, "Levels", () => ReadLevels(doc, m));
             Part(m, "Grids", () => ReadGrids(doc, m));
             Part(m, "BasePoint", () => ReadBasePoint(doc, m));
-            Part(m, "Rooms", () => ReadRooms(doc, m));
-            Part(m, "Floors", () => ReadFloors(doc, m));
-            Part(m, "Ceilings", () => ReadCeilings(doc, m));
-            Part(m, "Roofs", () => ReadRoofs(doc, m));
-            Part(m, "Types", () => ReadTypes(doc, m));
+            Part(m, "Rooms", () => ReadRooms(scope));
+            Part(m, "Floors", () => ReadFloors(scope));
+            Part(m, "Ceilings", () => ReadCeilings(scope));
+            Part(m, "Roofs", () => ReadRoofs(scope));
+            Part(m, "Types", () => ReadTypes(scope));
             Part(m, "Materials", () => ReadMaterials(doc, m));
             Part(m, "Views", () => ReadViews(doc, m));
             Part(m, "Schedules", () => ReadSchedules(doc, m));
@@ -117,16 +123,23 @@ namespace RevitWebAppSync.Services.JkrSpec
             try { return e?.Name ?? ""; } catch { return ""; }
         }
 
-        private static string Shown(Parameter p)
+        /// <summary>The parameter as Revit shows it, with whether it was there at all:
+        /// null parameter = Missing; no value / blank = Empty (<see cref="SpecExtractionRules.Classify"/>).</summary>
+        private static SpecParamValue ShownState(Parameter p)
         {
             try
             {
-                if (p == null) return "";
-                if (p.StorageType == StorageType.String) return p.AsString() ?? "";
-                return p.AsValueString() ?? "";
+                if (p == null) return SpecExtractionRules.Classify(false, "");
+                var text = p.StorageType == StorageType.String ? p.AsString() : (p.HasValue ? p.AsValueString() : "");
+                return SpecExtractionRules.Classify(true, text);
             }
-            catch { return ""; }
+            catch { return SpecExtractionRules.Classify(p != null, ""); }
         }
+
+        /// <summary>The shown text; "" for both a missing and an empty parameter. Callers that must tell
+        /// them apart use <see cref="ShownState"/> (or, for a dictionary from <see cref="AllParams"/>,
+        /// an absent key = missing, "" = empty).</summary>
+        private static string Shown(Parameter p) => ShownState(p).Text;
 
         private static double? Length(Element e, BuiltInParameter bip)
         {
@@ -178,14 +191,65 @@ namespace RevitWebAppSync.Services.JkrSpec
             catch { return ""; }
         }
 
-        /// <summary>Elements of a category that are placed: instances, not nested shared components.</summary>
-        private static List<Element> Placed(Document doc, BuiltInCategory bic)
+        /// <summary>
+        /// What belongs to the built model under audit (AI-471). Host document only (linked content is
+        /// never read, see <see cref="SpecExtractionRules.CountLinkedContent"/>: every collector below is
+        /// built on the host document, which never returns a link's elements); leaves out non-primary
+        /// design-option elements and elements demolished by the project's final phase. Phase = the last
+        /// phase in the project, not the active view's. Left-out counts go to <see cref="SpecModel.Excluded"/>.
+        /// </summary>
+        private sealed class Scope
         {
+            public readonly Document Doc;
+            public readonly SpecModel M;
+            private readonly ElementId _finalPhase;
+
+            public Scope(Document doc, SpecModel m)
+            {
+                Doc = doc; M = m;
+                try
+                {
+                    var phases = doc.Phases;
+                    if (phases != null && phases.Size > 0) _finalPhase = phases.get_Item(phases.Size - 1).Id;
+                }
+                catch { _finalPhase = null; }
+            }
+
+            /// <summary>True = read the element. Never throws: an element whose facts cannot be read is kept.</summary>
+            public bool Keep(Element e)
+            {
+                var option = SpecDesignOptionKind.None;
+                var phase = SpecPhaseState.Unknown;
+                try
+                {
+                    var dop = e.DesignOption;
+                    if (dop != null) option = dop.IsPrimary ? SpecDesignOptionKind.Primary : SpecDesignOptionKind.NonPrimary;
+                }
+                catch { }
+                try
+                {
+                    if (_finalPhase != null && e.CreatedPhaseId != ElementId.InvalidElementId)
+                        phase = SpecExtractionRules.PhaseOf(e.GetPhaseStatus(_finalPhase).ToString());
+                }
+                catch { }
+                var why = SpecExtractionRules.ExcludeReason(false, option, phase);
+                if (why == null) return true;
+                M.Excluded[why] = (M.Excluded.TryGetValue(why, out var n) ? n : 0) + 1;
+                return false;
+            }
+        }
+
+        /// <summary>Elements of a category that are placed: instances, not nested shared components,
+        /// in the built model (<see cref="Scope"/>).</summary>
+        private static List<Element> Placed(Scope sc, BuiltInCategory bic)
+        {
+            var doc = sc.Doc;
             var list = new List<Element>();
             foreach (var e in new FilteredElementCollector(doc).OfCategory(bic).WhereElementIsNotElementType())
             {
                 try
                 {
+                    if (!sc.Keep(e)) continue;
                     if (e is FamilyInstance fi && fi.SuperComponent != null) continue;
                     if (e is Room r && !(r.Area > 0)) continue;
                     if (e is Autodesk.Revit.DB.Area a && !(a.Area > 0)) continue;
@@ -269,11 +333,13 @@ namespace RevitWebAppSync.Services.JkrSpec
             return d;
         }
 
-        private static void ReadRooms(Document doc, SpecModel m)
+        private static void ReadRooms(Scope sc)
         {
+            var doc = sc.Doc; var m = sc.M;
             foreach (var r in new FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_Rooms)
                          .WhereElementIsNotElementType().OfType<Room>())
             {
+                if (!sc.Keep(r)) continue;
                 var x = new SpecRoom { Id = IdOf(r.Id) };
                 try { x.Name = r.get_Parameter(BuiltInParameter.ROOM_NAME)?.AsString() ?? ""; } catch { }
                 try { x.Number = r.Number ?? ""; } catch { }
@@ -419,10 +485,12 @@ namespace RevitWebAppSync.Services.JkrSpec
             try { return NameOf(doc.GetElement(e.GetTypeId())); } catch { return ""; }
         }
 
-        private static void ReadFloors(Document doc, SpecModel m)
+        private static void ReadFloors(Scope sc)
         {
+            var doc = sc.Doc; var m = sc.M;
             foreach (var f in new FilteredElementCollector(doc).OfClass(typeof(Floor)).Cast<Floor>())
             {
+                if (!sc.Keep(f)) continue;
                 var x = new SpecFloor { Id = IdOf(f.Id), TypeName = TypeNameOf(doc, f) };
                 try { x.LevelName = LevelName(doc, f.LevelId); } catch { }
                 try
@@ -477,11 +545,13 @@ namespace RevitWebAppSync.Services.JkrSpec
         /// carries its underside's plan loops and elevation, so A1.1 measures it from the
         /// floor under it.
         /// </summary>
-        private static void ReadCeilings(Document doc, SpecModel m)
+        private static void ReadCeilings(Scope sc)
         {
+            var doc = sc.Doc; var m = sc.M;
             foreach (var c in new FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_Ceilings)
                          .WhereElementIsNotElementType().OfType<Ceiling>())
             {
+                if (!sc.Keep(c)) continue;
                 var x = new SpecCeiling { Id = IdOf(c.Id), TypeName = TypeNameOf(doc, c) };
                 try { x.LevelName = LevelName(doc, c.LevelId); } catch { }
                 x.HeightOffset = Math.Round(Length(c, BuiltInParameter.CEILING_HEIGHTABOVELEVEL_PARAM) ?? 0, 1);
@@ -505,10 +575,12 @@ namespace RevitWebAppSync.Services.JkrSpec
             }
         }
 
-        private static void ReadRoofs(Document doc, SpecModel m)
+        private static void ReadRoofs(Scope sc)
         {
+            var doc = sc.Doc; var m = sc.M;
             foreach (var r in new FilteredElementCollector(doc).OfClass(typeof(RoofBase)).Cast<RoofBase>())
             {
+                if (!sc.Keep(r)) continue;
                 var x = new SpecRoof { Id = IdOf(r.Id), TypeName = TypeNameOf(doc, r) };
                 try
                 {
@@ -568,12 +640,13 @@ namespace RevitWebAppSync.Services.JkrSpec
 
         // ─── types ───
 
-        private static void ReadTypes(Document doc, SpecModel m)
+        private static void ReadTypes(Scope sc)
         {
+            var doc = sc.Doc; var m = sc.M;
             foreach (var (name, bic) in Categories)
             {
                 List<Element> placed;
-                try { placed = Placed(doc, bic); }
+                try { placed = Placed(sc, bic); }
                 catch (Exception ex) { m.ReadErrors.Add("Types/" + name + ": " + ex.Message); continue; }
                 m.CategoryCounts[name] = placed.Count;
                 if (bic == BuiltInCategory.OST_Rooms || bic == BuiltInCategory.OST_Areas) continue;
@@ -611,6 +684,7 @@ namespace RevitWebAppSync.Services.JkrSpec
             try { t.FamilyName = type?.FamilyName ?? ""; } catch { }
             if (type != null) ReadTypeParams(type, t);
             ReadInstanceTexts(first, t);
+            ReadParamNames(type, first, t);
             ReadNumbers(doc, category, type, instances, t);
             ReadTypeMaterials(doc, type, first, t);
             return t;
@@ -665,6 +739,27 @@ namespace RevitWebAppSync.Services.JkrSpec
             catch { }
         }
 
+        /// <summary>Every parameter name the type or first instance carries, any storage type: Db.1
+        /// tells a parameter that is missing from one that is empty (<see cref="SpecExtractionRules.MandatoryState"/>).</summary>
+        private static void ReadParamNames(ElementType type, Element first, SpecType t)
+        {
+            var names = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var e in new Element[] { type, first })
+            {
+                if (e == null) continue;
+                try
+                {
+                    foreach (Parameter p in e.Parameters)
+                    {
+                        try { var n = p.Definition?.Name ?? ""; if (n.Length > 0) names.Add(n); } catch { }
+                    }
+                }
+                catch { return; }   // parameters not readable: leave ParamNamesRead false, nothing is judged missing
+            }
+            t.ParamNames = names.OrderBy(n => n, StringComparer.Ordinal).ToList();
+            t.ParamNamesRead = true;
+        }
+
         private static void Set(SpecType t, string key, double? mm)
         {
             if (mm.HasValue && !double.IsNaN(mm.Value)) t.Numbers[key] = Math.Round(mm.Value, 1);
@@ -702,7 +797,14 @@ namespace RevitWebAppSync.Services.JkrSpec
                     Set(t, "Rough Width", Length(type, BuiltInParameter.FAMILY_ROUGH_WIDTH_PARAM));
                     Set(t, "Rough Height", Length(type, BuiltInParameter.FAMILY_ROUGH_HEIGHT_PARAM));
                     if (door)
-                        Set(t, "Thickness", LengthByName(type, "Thickness") ?? LengthByName(type, "Door Thickness")
+                        // Built-in parameters first: the display name "Thickness" is translated in a
+                        // localised Revit and then reads as missing (A1.3 would fail every main door).
+                        // The names are only a fallback for families whose thickness is a family parameter.
+                        Set(t, "Thickness", Length(type, BuiltInParameter.DOOR_THICKNESS)
+                                            ?? Length(type, BuiltInParameter.FAMILY_THICKNESS_PARAM)
+                                            ?? Length(first, BuiltInParameter.DOOR_THICKNESS)
+                                            ?? Length(first, BuiltInParameter.FAMILY_THICKNESS_PARAM)
+                                            ?? LengthByName(type, "Thickness") ?? LengthByName(type, "Door Thickness")
                                             ?? LengthByName(first, "Thickness"));
                     break;
                 }

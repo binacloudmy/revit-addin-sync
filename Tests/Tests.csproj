@@ -197,6 +197,7 @@
     <!-- The add-in's own JKR spec evaluators (pure; the Revit reader is not linked). -->
     <Compile Include="..\Services\JkrSpec\SpecModel.cs" Link="JkrSpec\SpecModel.cs" />
     <Compile Include="..\Services\JkrSpec\SpecEval.cs" Link="JkrSpec\SpecEval.cs" />
+    <Compile Include="..\Services\JkrSpec\SpecExtractionRules.cs" Link="JkrSpec\SpecExtractionRules.cs" />
     <Compile Include="..\Services\JkrSpec\SpecChecks.A.cs" Link="JkrSpec\SpecChecks.A.cs" />
     <Compile Include="..\Services\JkrSpec\SpecChecks.BC.cs" Link="JkrSpec\SpecChecks.BC.cs" />
     <Compile Include="..\Services\JkrSpec\SpecChecks.DE.cs" Link="JkrSpec\SpecChecks.DE.cs" />
