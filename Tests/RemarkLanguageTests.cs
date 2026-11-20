@@ -116,5 +116,40 @@ namespace RevitWebAppSync.Tests
             Assert.Contains("The model has 3 grids", remark);
             Assert.DoesNotContain("Semakan perlukan", remark);
         }
+
+        // AuditCheckers needs a live Revit Document and cannot run here. So this pins the
+        // checker SOURCE: every BM fragment the translator expects must still be written
+        // by the checker. If someone rewords a remark there, this fails and the English
+        // (PaneText.AuditRemarkEn) must be updated with it.
+        private static string SourceOf(string relative)
+        {
+            var dir = new System.IO.DirectoryInfo(System.AppContext.BaseDirectory);
+            while (dir != null && !System.IO.File.Exists(System.IO.Path.Combine(dir.FullName, relative))) dir = dir.Parent;
+            Assert.True(dir != null, "source file not found: " + relative);
+            return System.IO.File.ReadAllText(System.IO.Path.Combine(dir.FullName, relative));
+        }
+
+        [Fact]
+        public void Checker_source_still_writes_the_remarks_the_translator_knows()
+        {
+            var checkers = SourceOf(@"BinaVibe\Mcp\Tools\Audit\AuditCheckers.cs");
+            foreach (var frag in new[]
+            {
+                "Project Base Point berada <=10 mm dari persilangan grid 'A' dan '1'",
+                "$\"Semakan perlukan {rule}. \"", "Project Base Point tidak dijumpai. ", " tetapi tiada yang bernama ",
+                "(atau berawalan projek, cth 'PT-A' / 'PT1'). ", "bukan garisan lurus, jadi persilangan ",
+                "tidak boleh dihitung. ", "+ \"Semak manual.\"", "selari pada pelan, jadi tiada ",
+                "persilangan untuk diukur — semak manual.", " atau ", " dan ",
+            })
+                Assert.Contains(frag, checkers);
+
+            var tools = SourceOf(@"BinaVibe\Mcp\Tools\Audit\AuditTools.cs");
+            foreach (var frag in new[]
+            {
+                "Tajuk seksyen — tiada kriteria untuk diskor. ", " Lihat baris di bawah.",
+                "Tiada semakan automatik untuk baris ini. ", " Semak manual.", "Tiada semakan automatik untuk baris ini — semak manual.",
+            })
+                Assert.Contains(frag, tools);
+        }
     }
 }
