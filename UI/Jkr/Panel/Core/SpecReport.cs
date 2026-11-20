@@ -200,8 +200,12 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         // ─── status ───
         // Known statuses: pass, fail, warning, cannot_verify (+ not_applicable).
         // Anything else is "could not be judged": never a pass, never a fail.
-        public static bool IsPass(string s) => Norm(s) == "pass";
-        public static bool IsFail(string s) { var n = Norm(s); return n == "fail" || n == "warning"; }
+        // A backend "warning" counts as a pass (Ashraf, 20 Nov, AI-466): in the %, in the
+        // gagal count and in OtherFailing. The Issues tab still lists it: see IsWarning.
+        public static bool IsPass(string s) { var n = Norm(s); return n == "pass" || n == "warning"; }
+        public static bool IsFail(string s) => Norm(s) == "fail";
+        /// <summary>"warning": scored as a pass, but still a finding that gives an issue.</summary>
+        public static bool IsWarning(string s) => Norm(s) == "warning";
         /// <summary>"not_applicable" / "n/a": the check does not apply (never a pass).</summary>
         public static bool IsNotApplicableStatus(string s)
         {
@@ -502,7 +506,11 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                     if (rl.Length == 0 && source == Model) rl = (r.CheckId ?? "").Trim();
                     var key = where + "\u0001" + rl;
                     if (!others.TryGetValue(key, out var o)) others[key] = o = new OtherResult { Where = where, Rule = rl };
-                    if (IsPass(r.Status)) o.Passed++;
+                    if (IsPass(r.Status))
+                    {
+                        o.Passed++;
+                        if (IsWarning(r.Status) && !string.IsNullOrEmpty(r.IssueId) && !o.IssueIds.Contains(r.IssueId)) o.IssueIds.Add(r.IssueId);
+                    }
                     else
                     {
                         if (IsFail(r.Status)) o.Failed++; else o.Unjudged++;
@@ -552,6 +560,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 if (one && !grouped.ContainsKey(id)) grouped[id] = new OneResult();
                 if (IsPass(r.Status))
                 {
+                    if (IsWarning(r.Status) && !string.IsNullOrEmpty(r.IssueId)) res.IssueIds.Add(r.IssueId);
                     if (source != Backend) (cov == SpecCoverage.Full ? localFull : localPartial).Add(id);
                     if (one) { if (cov == SpecCoverage.Full) grouped[id].Passed = true; else grouped[id].Partly = true; }
                     else if (cov == SpecCoverage.Full) res.Passed++;
@@ -796,14 +805,14 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             if (r.NotApplicable || SpecReport.IsNotApplicableStatus(r.Status)) return false;
             if (r.Coverage == SpecCoverage.Listing) return false;
             if (r.Coverage == SpecCoverage.Context) return true;
-            return !SpecReport.IsPass(r.Status);
+            return !SpecReport.IsPass(r.Status) || SpecReport.IsWarning(r.Status);
         }
 
         /// <summary>An AI verdict ("not compliant"): a failure on an AI-verifiable check
         /// under a rule that gives verdicts. Everything else that gives an issue needs a person.</summary>
         public static bool IsAiVerdict(SpecResult r)
         {
-            if (r == null || !SpecReport.IsFail(r.Status)) return false;
+            if (r == null || !(SpecReport.IsFail(r.Status) || SpecReport.IsWarning(r.Status))) return false;
             if (r.Coverage == SpecCoverage.Context || r.Coverage == SpecCoverage.Listing) return false;
             var check = SpecCatalog.Find(SpecReport.ResolveCheckId(r.CheckId) ?? "");
             return check != null && check.Class == SpecCellClass.Ai;
