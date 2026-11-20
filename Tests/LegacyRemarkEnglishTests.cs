@@ -243,5 +243,90 @@ namespace RevitWebAppSync.Tests
             var covered = Registry.SelectMany(r => r.Names).ToHashSet();
             Assert.Empty(Samples.Keys.Where(k => !covered.Contains(k)));
         }
+
+        // ── review nits (L-n1 .. L-n3) ──
+
+        private const string GridRule = "Project Base Point berada <=10 mm dari persilangan grid 'A' dan '1'";
+
+        [Fact]
+        public void A_regex_timeout_leaves_the_remark_in_BM()
+        {
+            Assert.Null(PaneText.TranslateOrNull(_ => throw new RegexMatchTimeoutException("x", "y", System.TimeSpan.FromMilliseconds(1)), "text"));
+            Assert.Equal("ok", PaneText.TranslateOrNull(s => "ok", "text"));
+
+            // a real catastrophic-backtracking match with a tiny timeout really throws, and is caught
+            var slow = new Regex("^(a+)+$", RegexOptions.None, System.TimeSpan.FromMilliseconds(1));
+            var input = new string('a', 60) + "b";
+            Assert.Throws<RegexMatchTimeoutException>(() => slow.IsMatch(input));
+            Assert.Null(PaneText.TranslateOrNull(s => slow.IsMatch(s) ? "x" : "y", input));
+        }
+
+        [Fact]
+        public void Every_translator_regex_has_a_match_timeout()
+        {
+            var seen = 0;
+            foreach (var f in typeof(PaneText).GetFields(System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public))
+            {
+                var v = f.GetValue(null);
+                var items = v is System.Array arr ? arr.Cast<object>() : new[] { v };
+                foreach (var item in items)
+                {
+                    var regexes = item is Regex r ? new[] { r }
+                        : item is System.Runtime.CompilerServices.ITuple tup
+                            ? Enumerable.Range(0, tup.Length).Select(i => tup[i]).OfType<Regex>().ToArray()
+                            : new Regex[0];
+                    foreach (var re in regexes)
+                    {
+                        seen++;
+                        Assert.True(re.MatchTimeout != Regex.InfiniteMatchTimeout, $"{f.Name}: regex without a match timeout: {re}");
+                    }
+                }
+            }
+            Assert.True(seen > 60, "expected to inspect the translator regexes, saw " + seen);
+        }
+
+        [Fact]
+        public void Grid_names_with_the_connector_word_are_not_rewritten()
+        {
+            var curved = $"Semakan perlukan {GridRule}. Grid 'Blok A dan B' dan '1' bukan garisan lurus, jadi persilangan tidak boleh dihitung. Semak manual.";
+            Assert.Equal($"The check needs the Project Base Point to be within 10 mm of the intersection of grids 'A' and '1'. Grid 'Blok A dan B' and '1' is not a straight line, so the intersection cannot be calculated. Semak manual.",
+                PaneText.AuditRemarkEn(curved));
+            var single = $"Semakan perlukan {GridRule}. Grid 'Blok A dan B' bukan garisan lurus, jadi persilangan tidak boleh dihitung. Semak manual.";
+            Assert.Contains("Grid 'Blok A dan B' is not a straight line", PaneText.AuditRemarkEn(single));
+
+            var missing = $"Semakan perlukan {GridRule}. Model ada 2 grid (G1, G2) tetapi tiada yang bernama 'A' atau '1' (atau berawalan projek, cth 'PT-A' / 'PT1'). Semak manual.";
+            Assert.Contains("none is named 'A' or '1' (or prefixed", PaneText.AuditRemarkEn(missing));
+            // an unexpected missing-name text is not guessed at
+            Assert.Null(PaneText.AuditRemarkEn(missing.Replace("'A' atau '1'", "'Blok A atau B'")));
+
+            var bp = "Had dijangka: <=10 mm dari persilangan grid Blok A dan B/1 (Grid A/1); dijumpai sisihan 25.4 mm. Selaraskan kedudukan model ke grid Blok A dan B dan 1.";
+            Assert.Equal("Expected limit: <=10 mm from the intersection of grid Blok A dan B/1 (Grid A/1); found offset 25.4 mm. Adjust the model position to grid Blok A dan B and 1.",
+                PaneText.AuditRemarkEn(bp));
+            // two slashes in a name: the names are kept verbatim, nothing is split
+            var bp2 = "Had dijangka: <=10 mm dari persilangan grid A/B/1 (Grid A/1); dijumpai sisihan 25.4 mm. Selaraskan kedudukan model ke grid A dan B dan 1.";
+            Assert.Contains("Adjust the model position to grid A/B/1.", PaneText.AuditRemarkEn(bp2));
+            // inconsistent text: stays BM
+            Assert.Null(PaneText.AuditRemarkEn(bp.Replace("grid Blok A dan B dan 1", "grid X")));
+        }
+
+        [Fact]
+        public void Project_information_values_with_the_marker_words_are_not_rewritten()
+        {
+            var pass = $"Peraturan: {RProj}. Keenam-enam medan terisi (Project Name \"Klinik (kosong) nilai lalai\", Project Number \"P (kosong)\") — patuh.";
+            Assert.Contains("(Project Name \"Klinik (kosong) nilai lalai\", Project Number \"P (kosong)\")", PaneText.AuditRemarkEn(pass));
+
+            var fail = $"Peraturan: {RProj}. 2/6 medan belum dikemaskini: Project Name (kosong), Client Name (\"Own (kosong) nilai lalai er\" — nilai lalai). Isi di Manage > Project Information.";
+            Assert.Equal("Rule: Project Name/Number/Address/Client Name/Status/Issue Date are filled and not the Revit default. 2/6 fields not yet updated: Project Name (empty), Client Name (\"Own (kosong) nilai lalai er\" — Revit default). Fill them in under Manage > Project Information.",
+                PaneText.AuditRemarkEn(fail));
+            // a list that is not made of the checker's items stays BM
+            Assert.Null(PaneText.AuditRemarkEn(fail.Replace("Project Name (kosong)", "Nama Projek (kosong)")));
+        }
+
+        [Fact]
+        public void The_source_scan_also_sees_Remark_plus_equals()
+        {
+            var src = string.Join(System.Environment.NewLine, "o.Remark = \"Satu.\";", " o.Remark += \" Dua.\";", " Remark += \" Tiga.\";", " var r = o.Remark;");
+            Assert.Equal(3, LegacyRemarkSites.In(src).Count);
+        }
     }
 }
