@@ -25,9 +25,12 @@ namespace RevitAddinSync.Tests
             var s = Src("UI/Copilot/Ports/RevitActions.cs");
 
             var tx = s.IndexOf("new Autodesk.Revit.DB.Transaction(view.Document, \"Reset isolate\")", System.StringComparison.Ordinal);
-            var start = s.IndexOf("tx.Start();", System.StringComparison.Ordinal);
+            // r17: the start and commit go through TxGuard (StartSwallowing calls tx.Start() then sets the warning swallower;
+            // CommitOrThrow calls tx.Commit() and throws on any status but Committed), so the reset is still one named,
+            // Undo-able transaction in the same order, now without a warning dialog over the pane.
+            var start = s.IndexOf("TxGuard.StartSwallowing(tx);", System.StringComparison.Ordinal);
             var disable = s.IndexOf("view.DisableTemporaryViewMode(", System.StringComparison.Ordinal);
-            var commit = s.IndexOf("tx.Commit();", System.StringComparison.Ordinal);
+            var commit = s.IndexOf("TxGuard.CommitOrThrow(tx);", System.StringComparison.Ordinal);
             Assert.True(tx > 0 && tx < start && start < disable && disable < commit, "transaction, start, disable, commit in that order");
             Assert.Contains("tx.RollBack();", s);                                     // a failure leaves nothing half done
             Assert.Contains("RevitThread.RunAsync<string>(app =>", s);

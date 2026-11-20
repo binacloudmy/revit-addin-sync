@@ -282,7 +282,9 @@ namespace RevitAddinSync.Tests
             Assert.DoesNotContain(t.Steps, x => x.StepId == "p:2");
             var rows = Rows(t.StepsSnapshot());
             Assert.Equal(new[] { "thinking", "p:1", "call:call_a", "p:5" }, rows.Select(r => r.Id).ToArray());
-            Assert.Equal("Finding elements", rows.First(r => r.Id == "call:call_a").Label);
+            // r17 (StepLabels): a find row names the category it searched (find_elements {"category":"Doors"}), no longer the
+            // generic "Finding elements"; the one-row-per-repeated-progress check above is unchanged.
+            Assert.Equal("Finding Doors", rows.First(r => r.Id == "call:call_a").Label);
             Assert.All(rows, r => Assert.Equal(StepState.Done, r.State));    // all closed at the end
             Assert.Equal("ses_round", t.SessionId);
             Assert.Equal(34, Assert.Single(t.Evidence.Evidence).Count);
