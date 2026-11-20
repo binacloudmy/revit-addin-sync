@@ -212,6 +212,7 @@
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
                     <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
                 <!-- Header, 52 px: ‹ › on the left, "Issue n of m open" centred, × on the right;
@@ -473,7 +474,21 @@
                 </ScrollViewer>
 
                 <!-- Action bar, 68 px: Locate in 3D · Ignore (A) · Mark as Manual | the primary on the right -->
-                <Border Grid.Row="2" MinHeight="68" Background="{StaticResource Bz.Sunken}" BorderBrush="{StaticResource Bz.Line}" BorderThickness="0,1,0,0"
+                <!-- AI-443: loading state (Ask AI / Apply / re-check): text, n of N, a bar -->
+                <Border Grid.Row="2" Background="{StaticResource Bz.BrandTint}" BorderBrush="{StaticResource Bz.BrandTintLine}" BorderThickness="0,1,0,0" Padding="16,8,16,8"
+                        Visibility="{Binding IsBusy, Converter={StaticResource B2V}}">
+                    <StackPanel>
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                            <TextBlock Text="{Binding BusyText}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource Bz.BrandTintText}" TextWrapping="Wrap"/>
+                            <TextBlock Grid.Column="1" Text="{Binding BusyProgressText}" FontSize="12" FontWeight="SemiBold" Margin="12,0,0,0" Foreground="{StaticResource Bz.BrandTintText}"/>
+                        </Grid>
+                        <ProgressBar Height="3" Margin="0,6,0,0" Minimum="0" Maximum="1" Value="{Binding BusyFraction, Mode=OneWay}" IsIndeterminate="{Binding BusyIndeterminate, Mode=OneWay}"
+                                     Foreground="{StaticResource Bz.BrandTintText}" Background="Transparent" BorderThickness="0"/>
+                    </StackPanel>
+                </Border>
+
+                <Border Grid.Row="3" MinHeight="68" Background="{StaticResource Bz.Sunken}" BorderBrush="{StaticResource Bz.Line}" BorderThickness="0,1,0,0"
                         CornerRadius="0,0,11,11" Padding="16,10,16,10">
                     <!-- The left group wraps to a second line before it runs under the primary (long BM labels) -->
                     <Grid VerticalAlignment="Center">

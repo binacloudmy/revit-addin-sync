@@ -307,6 +307,12 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public string HowToFixLabel => T("howToFix");
         /// <summary>Writes are off while a fix batch runs.</summary>
         public bool CanAct => _results.CanAct;
+        /// <summary>AI-443: the same loading state the Results screen shows, so Ask AI / Apply show it in this window too.</summary>
+        public bool IsBusy => _results.IsBusy;
+        public string BusyText => _results.BusyText ?? "";
+        public string BusyProgressText => _results.BusyProgressText;
+        public bool BusyIndeterminate => _results.BusyIndeterminate;
+        public double BusyFraction => _results.BusyFraction;
 
         private DetailCard MakeCard(PanelItem c)
         {
