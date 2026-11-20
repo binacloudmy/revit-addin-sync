@@ -500,6 +500,13 @@ namespace BinaVibe.Copilot.Writes
                         var connected = ShapeComparer.JudgeConnected(preview.Shape, shape, connectedBefore, connectedAfter, targetIds, measured, nonModel);
 #if DEBUG
                         if (injected != null) connected = DriftInjector.Apply(connected, injected);
+                        if (injected != null && !batch.ForceConnected)
+                        {
+                            // Read-only forecast for the tester: would "Force the change" pass the forced commit's own audit (P1 above)?
+                            var wouldBeOutside = ShapeComparer.ForcedOutside(shape, new HashSet<long>(targetIds.Concat(connectedBefore.Keys).Concat(connectedAfter.Keys)), nonModel);
+                            st.Mark("inject connected drift: a forced commit " + (wouldBeOutside == null ? "would pass the connected-only audit"
+                                : "would be refused (element " + wouldBeOutside.Value.ToString(CultureInfo.InvariantCulture) + ", " + shape.CategoryOfId(wouldBeOutside.Value) + ", is not connected)"));
+                        }
 #endif
                         // Safety audit P2: only what the Force card listed (ForceApproval) may be kept.
                         if (batch.ForceConnected && connected.ConnectedOnly && batch.ForceApproval != null && batch.ForceApproval.Covers(connected))
