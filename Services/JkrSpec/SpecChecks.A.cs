@@ -1185,7 +1185,20 @@ namespace RevitWebAppSync.Services.JkrSpec
             var passed = 0;
             foreach (var t in types)
             {
-                if (t.Materials.Any(x => !string.IsNullOrWhiteSpace(x))) { passed++; continue; }
+                if (t.Materials.Any(x => !string.IsNullOrWhiteSpace(x)))
+                {
+                    // AI-419: the type has a material (e.g. a Material-typed parameter) but the placed
+                    // elements themselves carry none — a per-instance gap the type level hides.
+                    if (t.NoMaterialInstanceIds != null && t.NoMaterialInstanceIds.Count > 0)
+                    {
+                        var k = Math.Max(t.NoMaterialInstanceCount, t.NoMaterialInstanceIds.Count);
+                        list.Add(Fail(id, $"{K.Or(t.Category)} | {K.TypeLabel(t)} | {k} elemen: tiada material pada elemen (material hanya pada jenis)", elementName: K.ElementLabel(t),
+                                      actual: "tiada material pada elemen", required: "material", key: K.TypeKey(t) + "|inst", elementIds: t.NoMaterialInstanceIds)
+                            .En($"{K.Or(t.Category)} | {K.TypeLabel(t)} | {k} elements: no material on the element (material only on the type)"));
+                        continue;
+                    }
+                    passed++; continue;
+                }
                 var n = K.Count(t);
                 list.Add(Fail(id, $"{K.Or(t.Category)} | {K.TypeLabel(t)} | {n} elemen: tiada material", elementName: K.ElementLabel(t),
                               actual: "tiada material", required: "material", key: K.TypeKey(t), elementIds: t.InstanceIds)

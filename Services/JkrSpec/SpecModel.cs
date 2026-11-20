@@ -81,7 +81,7 @@ namespace RevitWebAppSync.Services.JkrSpec
             foreach (var x in Floors) { x.TypeName = x.TypeName ?? ""; x.LevelName = x.LevelName ?? ""; x.Loops = CleanLoops(x.Loops); }
             foreach (var x in Ceilings) { x.TypeName = x.TypeName ?? ""; x.LevelName = x.LevelName ?? ""; x.Loops = CleanLoops(x.Loops); }
             foreach (var x in Roofs) { x.TypeName = x.TypeName ?? ""; x.LevelName = x.LevelName ?? ""; x.Materials = x.Materials ?? new List<string>(); x.LayerFunctions = x.LayerFunctions ?? new List<string>(); }
-            foreach (var x in Types) { x.Category = x.Category ?? ""; x.FamilyName = x.FamilyName ?? ""; x.TypeName = x.TypeName ?? ""; x.InstanceIds = x.InstanceIds ?? new List<long>(); x.Numbers = x.Numbers ?? new Dictionary<string, double>(); x.Texts = x.Texts ?? new Dictionary<string, string>(); x.Materials = x.Materials ?? new List<string>(); }
+            foreach (var x in Types) { x.Category = x.Category ?? ""; x.FamilyName = x.FamilyName ?? ""; x.TypeName = x.TypeName ?? ""; x.InstanceIds = x.InstanceIds ?? new List<long>(); x.Numbers = x.Numbers ?? new Dictionary<string, double>(); x.Texts = x.Texts ?? new Dictionary<string, string>(); x.Materials = x.Materials ?? new List<string>(); x.NoMaterialInstanceIds = x.NoMaterialInstanceIds ?? new List<long>(); }
             foreach (var x in Materials) { x.Name = x.Name ?? ""; x.Class = x.Class ?? ""; }
             foreach (var x in Views) { x.Name = x.Name ?? ""; x.Kind = x.Kind ?? ""; x.LevelName = x.LevelName ?? ""; x.TemplateName = x.TemplateName ?? ""; x.SheetNumber = x.SheetNumber ?? ""; }
             foreach (var x in Schedules) { x.Name = x.Name ?? ""; x.Category = x.Category ?? ""; x.Fields = x.Fields ?? new List<string>(); x.RowElementIds = x.RowElementIds ?? new List<long>(); }
@@ -220,6 +220,12 @@ namespace RevitWebAppSync.Services.JkrSpec
         public Dictionary<string, string> Texts = new Dictionary<string, string>();
         /// <summary>Material names on the type (layers or material parameters); empty = no material.</summary>
         public List<string> Materials = new List<string>();
+        /// <summary>Placed instances whose own GetMaterialIds(false) is empty (capped like InstanceIds).
+        /// Empty = none found, or not read (older snapshots). A7.1 uses it when the type has a material
+        /// only through a Material-typed parameter (AI-419).</summary>
+        public List<long> NoMaterialInstanceIds = new List<long>();
+        /// <summary>Total count of such instances (uncapped).</summary>
+        public int NoMaterialInstanceCount;
     }
 
     public sealed class SpecMaterial
