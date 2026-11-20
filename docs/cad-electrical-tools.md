@@ -74,11 +74,29 @@ Units are millimetres in project-internal coordinates unless a field says otherw
 Block classes are ranked symbol-sized non-container first. When the census is over its budget, it is shrunk from the lowest-ranked class up, one step at a time, until it fits:
 1. near texts past the first 2
 2. attributes
-3. whole classes down to the first 30 (sets `blocks_truncated`)
-4. layers, from the end, down to the first 30 (sets `layers_truncated`)
-5. the rest of the classes, then the rest of the layers
+3. the symbol lists of the plans past the first 10, from the last plan: `symbol_layers` is dropped and `symbols_by_block` keeps 3
+4. whole classes down to the first 30 (sets `blocks_truncated`)
+5. layers, from the end, down to the first 30 (sets `layers_truncated`)
+6. the rest of the classes, then the rest of the layers
 
 `budget_trimmed` counts the entries shrunk or dropped; 0 when the census fit.
+
+**Plans:** each census `plans` entry is one cluster of walls on the sheet, biggest first:
+
+```json
+{
+  "cluster": 0, "width_m": 42.5, "height_m": 18.2, "walls": 310,
+  "titles": ["LEVEL 1 POWER LAYOUT"], "symbols": 212,
+  "symbols_by_block": [{ "block": "SOCKET", "count": 96 }, { "block": "LIGHT-A", "count": 4 }],
+  "symbol_layers": [{ "layer": "E-POWER", "count": 98 }, { "layer": "E-LIGHT", "count": 4 }]
+}
+```
+
+- `symbols_by_block`: the top 8 symbol-sized, non-container block classes drawn inside the plan, by instance count. Symbol-sized and container are judged per class, as the block ranking does.
+- `symbol_layers`: the top 5 layers of those instances.
+- Counts only, no coordinates.
+
+**Picking the plan:** one sheet often holds several plans of the same floor: the power layout, the lighting layout, the small power or data layout. Their titles and sizes can be alike. Pick the plan whose `symbols_by_block` and `symbol_layers` match the request: sockets for a socket request, lights for a lighting request. Ask the user only when two plans carry the same symbols.
 
 **`conduit_types` and `cable_tray_types`:** up to 50 each, as `Family : Type`. `with_fittings` says whether bends can be built. `sizes_mm` are the conduit trade sizes (nominal diameters in the model's size lists) of the type's standard. When the standard cannot be read, they are every standard's sizes.
 

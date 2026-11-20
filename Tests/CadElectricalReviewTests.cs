@@ -267,9 +267,18 @@ namespace Tests
                     Texts = 9, Inserts = 50, LengthM = 123.456, OpenPolylinesOver1m = 4, PairsLikeWalls = i % 7 == 0,
                 });
             }
-            for (int i = 0; i < 6; i++) census.Plans.Add(new CensusPlan { Cluster = i, WidthM = 40, HeightM = 30, Walls = 300, Titles = { "PLAN LEVEL " + i } });
+            for (int i = 0; i < 6; i++) census.Plans.Add(PlanWithSymbols(i));
             for (int i = 0; i < 40; i++) census.Legend.Add(new CensusLegendRow { Block = "SYM-" + i.ToString("000"), Text = "13A SWITCHED SOCKET OUTLET " + i });
             return census;
+        }
+
+        /// <summary>A plan with its full lists of 8 symbol blocks and 5 symbol layers.</summary>
+        private static CensusPlan PlanWithSymbols(int i)
+        {
+            var plan = new CensusPlan { Cluster = i, WidthM = 40, HeightM = 30, Walls = 300, Titles = { "PLAN LEVEL " + i }, Symbols = 400 };
+            for (int b = 0; b < 8; b++) plan.SymbolsByBlock.Add(new CensusCount { Name = "SYM-" + (i * 8 + b).ToString("000"), Count = 80 - b });
+            for (int l = 0; l < 5; l++) plan.SymbolLayers.Add(new CensusCount { Name = "E-LAYER-" + (i * 5 + l).ToString("000"), Count = 100 - l });
+            return plan;
         }
 
         /// <summary>A census whose classes carry no attributes and one short near text.</summary>
@@ -412,9 +421,17 @@ namespace Tests
             var slim = Row(result["census"]);
             Assert.True((int)slim["budget_trimmed"]! > 0);
             Assert.Equal(true, slim["blocks_truncated"]);
-            // Neither list is emptied for the other: each keeps its first BudgetFloor entries.
-            Assert.True(((List<object?>)slim["blocks"]!).Count >= CadElectricalReview.BudgetFloor);
-            Assert.True(((List<object?>)slim["layers"]!).Count >= CadElectricalReview.BudgetFloor);
+            // Layers are dropped down to their floor before blocks go past theirs, so neither
+            // list is emptied for the other; the blocks kept are the top-ranked ones.
+            var keptBlocks = ((List<object?>)slim["blocks"]!).Select(Row).Select(b => (string)b["key"]!).ToList();
+            Assert.NotEmpty(keptBlocks);
+            Assert.Equal(CadElectricalReview.BudgetFloor, ((List<object?>)slim["layers"]!).Count);
+            List<string> ranked = ((List<object?>)CadElectricalReview.SlimCensus(census, budgetChars: int.MaxValue)["blocks"]!)
+                .Select(Row).Select(b => (string)b["key"]!).ToList();
+            Assert.Equal(ranked.Take(keptBlocks.Count), keptBlocks);
+            // Every plan keeps its symbol lists: there are only 6.
+            Assert.All(((List<object?>)slim["plans"]!).Select(Row),
+                       plan => Assert.Equal(8, ((List<object?>)plan["symbols_by_block"]!).Count));
             Assert.Equal(40, ((List<object?>)slim["legend"]!).Count);
 
             var model = Row(result["model"]);
@@ -444,6 +461,31 @@ namespace Tests
             List<string> names = ((List<object?>)model["family_types"]!).Select(Row).Select(t => (string)t["family_type"]!).ToList();
             Assert.StartsWith("Socket Outlet", names[0]);
             Assert.StartsWith("Data Outlet", names[6]);
+        }
+
+        [Fact]
+        public void Budget_shrinks_the_symbol_lists_of_small_plans_only()
+        {
+            ElectricalCensusResult census = BigCensus(150, 150);
+            for (int i = 6; i < 16; i++) census.Plans.Add(PlanWithSymbols(i));
+
+            Dictionary<string, object?> slim = CadElectricalReview.SlimCensus(census, budgetChars: 20000);
+
+            Assert.True(Json(slim).Length <= 20000);
+            var plans = ((List<object?>)slim["plans"]!).Select(Row).ToList();
+            Assert.Equal(16, plans.Count);
+            for (int i = 0; i < CadElectricalReview.PlanDetailFloor; i++)
+            {
+                Assert.Equal(8, ((List<object?>)plans[i]["symbols_by_block"]!).Count);
+                Assert.Equal(5, ((List<object?>)plans[i]["symbol_layers"]!).Count);
+            }
+            for (int i = CadElectricalReview.PlanDetailFloor; i < 16; i++)
+            {
+                Assert.Equal(CadElectricalReview.TrimmedPlanSymbols, ((List<object?>)plans[i]["symbols_by_block"]!).Count);
+                Assert.False(plans[i].ContainsKey("symbol_layers"));
+            }
+            // Never a coordinate in a plan.
+            Assert.All(plans, plan => Assert.DoesNotContain(plan.Keys, k => k.EndsWith("_mm") || k == "x" || k == "y"));
         }
 
         [Fact]

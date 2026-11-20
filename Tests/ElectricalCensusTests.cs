@@ -644,6 +644,61 @@ namespace Tests
         }
 
         [Fact]
+        public void Each_plan_lists_the_symbols_drawn_on_it()
+        {
+            // One floor drawn twice: sockets on the left plan, lights on the right one.
+            CadDocument doc = TwoRooms();
+            BlockRecord socket = SquareBlock(doc, "SOCKET", 100);
+            BlockRecord light = SquareBlock(doc, "LIGHT-A", 200);
+            BlockRecord sw = SquareBlock(doc, "SWITCH-1G", 80);
+            BlockRecord table = SquareBlock(doc, "TABLE", 2400);   // too big to be a symbol
+            for (int i = 0; i < 3; i++) Insert(doc, socket, 1000 + 1000 * i, 300, "E-POWER");
+            Insert(doc, light, 3000, 2500, "E-LIGHT");
+            Insert(doc, table, 3000, 2500, "A-FURN");
+            for (int i = 0; i < 4; i++) Insert(doc, light, 37000 + 1000 * i, 2500, "E-LIGHT");
+            Insert(doc, sw, 36300, 1000, "E-SWITCH");
+
+            ElectricalCensusResult census = ElectricalCensus.Build(doc);
+
+            Assert.Equal(2, census.Plans.Count);
+            CensusPlan power = census.Plans[0], lighting = census.Plans[1];
+            Assert.Equal(new[] { "SOCKET:3", "LIGHT-A:1" }, power.SymbolsByBlock.Select(c => c.Name + ":" + c.Count));
+            Assert.Equal(new[] { "E-POWER:3", "E-LIGHT:1" }, power.SymbolLayers.Select(c => c.Name + ":" + c.Count));
+            Assert.Equal(new[] { "LIGHT-A:4", "SWITCH-1G:1" }, lighting.SymbolsByBlock.Select(c => c.Name + ":" + c.Count));
+            Assert.Equal(new[] { "E-LIGHT:4", "E-SWITCH:1" }, lighting.SymbolLayers.Select(c => c.Name + ":" + c.Count));
+
+            // On the wire: names and counts, never a coordinate.
+            var plan = (Dictionary<string, object?>)((List<object?>)census.ToWire()["plans"]!)[0]!;
+            Assert.Equal(new[] { "cluster", "height_m", "symbol_layers", "symbols", "symbols_by_block", "titles", "walls", "width_m" },
+                         plan.Keys.OrderBy(k => k, StringComparer.Ordinal));
+            foreach (object? row in (List<object?>)plan["symbols_by_block"]!)
+                Assert.Equal(new[] { "block", "count" }, ((Dictionary<string, object?>)row!).Keys.OrderBy(k => k, StringComparer.Ordinal));
+            foreach (object? row in (List<object?>)plan["symbol_layers"]!)
+                Assert.Equal(new[] { "count", "layer" }, ((Dictionary<string, object?>)row!).Keys.OrderBy(k => k, StringComparer.Ordinal));
+        }
+
+        [Fact]
+        public void A_plan_lists_at_most_8_symbol_blocks_and_5_layers()
+        {
+            CadDocument doc = TwoRooms();
+            for (int b = 0; b < 10; b++)
+            {
+                BlockRecord symbol = SquareBlock(doc, "SYM-" + b, 100);
+                for (int i = 0; i <= b; i++) Insert(doc, symbol, 500 + 200 * i, 500 + 400 * b, "E-LAYER-" + b);
+            }
+
+            ElectricalCensusResult census = ElectricalCensus.Build(doc);
+
+            CensusPlan plan = census.Plans[0];
+            Assert.Equal(ElectricalCensus.MaxPlanSymbolBlocks, plan.SymbolsByBlock.Count);
+            Assert.Equal("SYM-9", plan.SymbolsByBlock[0].Name);
+            Assert.Equal(10, plan.SymbolsByBlock[0].Count);
+            Assert.Equal(ElectricalCensus.MaxPlanSymbolLayers, plan.SymbolLayers.Count);
+            Assert.Equal("E-LAYER-9", plan.SymbolLayers[0].Name);
+            Assert.Empty(census.Plans[1].SymbolsByBlock);
+        }
+
+        [Fact]
         public void A_symbol_is_placed_where_its_linework_is_not_at_a_far_base_point()
         {
             // The block's linework sits 400 m / 250 m off its own base point, so every insert

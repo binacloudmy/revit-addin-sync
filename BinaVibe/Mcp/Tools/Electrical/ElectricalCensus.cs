@@ -149,6 +149,14 @@ namespace BinaVibe.Mcp.Tools.Electrical
         public int Walls;
         public List<string> Titles = new List<string>();
         public int Symbols;
+
+        /// <summary>The symbol-sized non-container block classes drawn inside the plan, by
+        /// instance count, at most MaxPlanSymbolBlocks: what tells a power plan from a lighting
+        /// plan of the same floor. Counts only.</summary>
+        public List<CensusCount> SymbolsByBlock = new List<CensusCount>();
+
+        /// <summary>The layers of those symbols, by instance count, at most MaxPlanSymbolLayers.</summary>
+        public List<CensusCount> SymbolLayers = new List<CensusCount>();
     }
 
     /// <summary>One row of a drawn legend: the symbol, and the words written beside it.</summary>
@@ -310,6 +318,16 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 ["walls"] = plan.Walls,
                 ["titles"] = plan.Titles.Cast<object?>().ToList(),
                 ["symbols"] = plan.Symbols,
+                ["symbols_by_block"] = plan.SymbolsByBlock.Select(c => (object?)new Dictionary<string, object?>
+                {
+                    ["block"] = c.Name,
+                    ["count"] = c.Count,
+                }).ToList(),
+                ["symbol_layers"] = plan.SymbolLayers.Select(c => (object?)new Dictionary<string, object?>
+                {
+                    ["layer"] = c.Name,
+                    ["count"] = c.Count,
+                }).ToList(),
             }).ToList();
 
             List<object?> legend = Legend.Select(row => (object?)new Dictionary<string, object?>
@@ -650,6 +668,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
             result.TimingsSeconds["proximity"] = clock.Elapsed.TotalSeconds;
 
             BuildBlockClasses(sink, o, result);
+            BuildPlanSymbols(sink, o, result);
             foreach (CensusBlockClass block in result.Blocks)
             {
                 if (nearTexts.TryGetValue(block.Key, out List<CensusCount>? near)) block.NearTexts = near;
@@ -1335,6 +1354,43 @@ namespace BinaVibe.Mcp.Tools.Electrical
             result.AllBlocks = classes;
             result.Blocks = classes.Take(o.MaxBlockClasses).ToList();
         }
+
+        /// <summary>Block classes listed per plan in <see cref="CensusPlan.SymbolsByBlock"/>.</summary>
+        public const int MaxPlanSymbolBlocks = 8;
+
+        /// <summary>Layers listed per plan in <see cref="CensusPlan.SymbolLayers"/>.</summary>
+        public const int MaxPlanSymbolLayers = 5;
+
+        /// <summary>Per plan, the symbol-sized non-container classes drawn inside it and their
+        /// layers, by instance count. The classes are judged as the slim census ranks them: by
+        /// the class's median size and whether any of its instances holds inserts.</summary>
+        private static void BuildPlanSymbols(CensusSink sink, CensusOptions o, ElectricalCensusResult result)
+        {
+            if (result.Plans.Count == 0) return;
+            var symbolKeys = new HashSet<string>(
+                (result.AllBlocks ?? result.Blocks)
+                    .Where(block => !block.IsContainer && Math.Max(block.WidthMm, block.HeightMm) <= o.SymbolMaxExtentMm)
+                    .Select(block => block.Key),
+                StringComparer.Ordinal);
+
+            foreach (var byPlan in sink.Instances
+                         .Where(instance => instance.InPlan && instance.Cluster >= 0 && instance.Cluster < result.Plans.Count &&
+                                            symbolKeys.Contains(instance.Key))
+                         .GroupBy(instance => instance.Cluster))
+            {
+                CensusPlan plan = result.Plans[byPlan.Key];
+                plan.SymbolsByBlock = TopCounts(byPlan.Select(instance => instance.Key), MaxPlanSymbolBlocks);
+                plan.SymbolLayers = TopCounts(byPlan.Select(instance => instance.Layer), MaxPlanSymbolLayers);
+            }
+        }
+
+        private static List<CensusCount> TopCounts(IEnumerable<string> names, int max) => names
+            .GroupBy(name => name, StringComparer.Ordinal)
+            .Select(g => new CensusCount { Name = g.Key, Count = g.Count() })
+            .OrderByDescending(c => c.Count)
+            .ThenBy(c => c.Name, StringComparer.Ordinal)
+            .Take(max)
+            .ToList();
 
         /// <summary>
         /// The name a block class is filed under. A named block is its name. Anonymous blocks

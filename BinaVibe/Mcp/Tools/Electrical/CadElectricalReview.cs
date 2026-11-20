@@ -402,6 +402,12 @@ namespace BinaVibe.Mcp.Tools.Electrical
         /// the other list.</summary>
         public const int BudgetFloor = 30;
 
+        /// <summary>Plans, biggest first, whose symbol lists the budget never shrinks.</summary>
+        public const int PlanDetailFloor = 10;
+
+        /// <summary>symbols_by_block entries a plan past PlanDetailFloor keeps once shrunk.</summary>
+        public const int TrimmedPlanSymbols = 3;
+
         /// <summary>Near texts a block keeps once it has been shrunk for the budget.</summary>
         public const int TrimmedNearTexts = 2;
 
@@ -460,8 +466,8 @@ namespace BinaVibe.Mcp.Tools.Electrical
         /// Drawn from the uncapped lists when the census has them. A block entry is the
         /// census's, less its false flags and empty lists.
         /// <para>When the JSON is longer than <paramref name="budgetChars"/>, the lowest-ranked
-        /// blocks are shrunk first, step by step: near texts past 2, then attributes, then whole
-        /// blocks down to the first 30, then layers down to the first 30, then the rest of the
+        /// blocks are shrunk first, step by step: near texts past 2, then attributes, then the
+        /// symbol lists of the plans past the first 10, then whole blocks down to the first 30, then layers down to the first 30, then the rest of the
         /// blocks and last of all the rest of the layers, each from the end. <c>budget_trimmed</c> counts the entries
         /// shrunk or dropped; a drop also sets the list's <c>truncated</c> flag.</para>
         /// </summary>
@@ -562,7 +568,29 @@ namespace BinaVibe.Mcp.Tools.Electrical
             // 2. Attributes.
             Shrink(block => block.Remove("attributes"));
 
-            // 3. Whole blocks, then 4. layers, from the end; re-measured exactly until it fits.
+            // 3. The symbol lists of the small plans: past the first PlanDetailFloor (plans run
+            // biggest first), from the last, symbol_layers go and symbols_by_block keeps 3.
+            int plansShrunk = 0;
+            if (wire.TryGetValue("plans", out object? p) && p is List<object?> plans)
+            {
+                for (int i = plans.Count - 1; i >= PlanDetailFloor && total > budget; i--)
+                {
+                    var plan = (Dictionary<string, object?>)plans[i]!;
+                    int before = JsonLength(plan);
+                    bool changed = plan.Remove("symbol_layers");
+                    if (plan.TryGetValue("symbols_by_block", out object? v) && v is List<object?> top &&
+                        top.Count > TrimmedPlanSymbols)
+                    {
+                        plan["symbols_by_block"] = top.Take(TrimmedPlanSymbols).ToList();
+                        changed = true;
+                    }
+                    if (!changed) continue;
+                    total += JsonLength(plan) - before;
+                    plansShrunk++;
+                }
+            }
+
+            // 4. Whole blocks, then 5. layers, from the end; re-measured exactly until it fits.
             // Each list keeps its first BudgetFloor entries until the other is down to its floor
             // too, so a tight budget never leaves the AI blocks without layers or the reverse.
             int droppedBlocks = 0, droppedLayers = 0;
@@ -584,7 +612,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
             if (droppedBlocks > 0) wire["blocks_truncated"] = true;
             if (droppedLayers > 0) wire["layers_truncated"] = true;
 
-            int trimmed = shrunk.Count(i => i < blocks.Count) + droppedBlocks + droppedLayers;
+            int trimmed = shrunk.Count(i => i < blocks.Count) + plansShrunk + droppedBlocks + droppedLayers;
             wire["budget_trimmed"] = trimmed;
             return trimmed;
         }
