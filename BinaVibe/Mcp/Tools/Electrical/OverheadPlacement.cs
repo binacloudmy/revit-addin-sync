@@ -98,6 +98,34 @@ namespace BinaVibe.Mcp.Tools.Electrical
             return null;
         }
 
+        /// <summary>
+        /// The contact height of a device on a level, checked against its origin, mm, and how it
+        /// was read. The level reading (<paramref name="levelContactMm"/>: the plane under it at
+        /// <paramref name="baseMm"/> plus <paramref name="offsetMm"/>) stands unless it is more
+        /// than <see cref="HeightTolMm"/> off the origin and one of:
+        ///   the offset alone is the origin's Z (within <see cref="ReadBackTolMm"/>) on a level
+        ///     that is not at 0: the offset is measured from elevation 0, not from that level,
+        ///     and the level reading counts the level twice ("offset_absolute");
+        ///   the origin is within <see cref="ReadBackTolMm"/> of the Z this tool placed it at
+        ///     (<paramref name="targetMm"/>, null when not known): "origin_verified".
+        /// Otherwise "level_offset": a work-plane-based family's origin can sit well off its
+        /// plane (a live test read 2044 mm), so a disagreement alone never moves the height.
+        /// </summary>
+        public static (double ZMm, string Via) LevelOrOrigin(double levelContactMm, double baseMm, double? offsetMm,
+                                                              double originMm, double? targetMm)
+        {
+            if (Math.Abs(levelContactMm - originMm) <= HeightTolMm) return (levelContactMm, "level_offset");
+            if (offsetMm.HasValue && Math.Abs(baseMm) > SameLevelMm && Math.Abs(offsetMm.Value - originMm) <= ReadBackTolMm)
+                return (originMm, "offset_absolute");
+            if (targetMm.HasValue && Math.Abs(originMm - targetMm.Value) <= ReadBackTolMm)
+                return (originMm, "origin_verified");
+            return (levelContactMm, "level_offset");
+        }
+
+        /// <summary>True when a group of placements created something and is kept as one undo
+        /// step. When nothing was created it is rolled back, so it leaves no undo entry.</summary>
+        public static bool KeepGroup(int devicesCreated, int runsCreated = 0) => devicesCreated > 0 || runsCreated > 0;
+
         /// <summary>True when a parameter read back after a Set holds the value set.</summary>
         public static bool ReadBackOk(double setMm, double readMm) => Math.Abs(readMm - setMm) <= ReadBackTolMm;
 

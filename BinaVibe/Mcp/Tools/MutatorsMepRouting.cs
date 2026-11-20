@@ -559,7 +559,7 @@ namespace BinaVibe.Mcp.Tools
                         }
                     }
 
-                    if (created.Count > 0) group.Assimilate();
+                    if (Electrical.OverheadPlacement.KeepGroup(0, created.Count)) group.Assimilate();
                     else group.RollBack();
                 }
                 catch

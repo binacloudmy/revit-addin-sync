@@ -170,8 +170,10 @@ namespace BinaVibe.Mcp.Tools.Electrical
                         });
                     }
                 }
-                // Assimilate: N sockets collapse into one undo step.
-                group.Assimilate();
+                // Assimilate: N sockets collapse into one undo step. Nothing placed (every
+                // point skipped or failed): rolled back, so the run leaves no undo entry.
+                if (OverheadPlacement.KeepGroup(created.Count)) group.Assimilate();
+                else group.RollBack();
             }
             catch { group.RollBack(); throw; }
 
@@ -318,7 +320,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
                 // The height reported is the contact height, the one a later run's
                 // already-present check reads (CadElectricalResolver.ExistingDevices).
-                var contact = CadElectricalResolver.ContactHeight(doc, fi);
+                var contact = CadElectricalResolver.ContactHeight(doc, fi, pt.Z);
                 double contactMm = contact.ZFt * MmPerFoot;
                 var row = new Dictionary<string, object?>
                 {

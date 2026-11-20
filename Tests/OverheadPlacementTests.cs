@@ -204,6 +204,57 @@ namespace Tests
             Assert.True(OverheadPlacement.Matches(q, new PresentDevice { X = 2050, Y = 75, Z = 100, ZKnown = false }, 150));
         }
 
+        // ------------------------------------------------------------ level reading vs origin
+
+        [Fact]
+        public void Level_reading_stands_when_it_agrees_with_the_origin()
+        {
+            var r = OverheadPlacement.LevelOrOrigin(5250, 3800, 1450, 5260, 5250);
+            Assert.Equal(5250, r.ZMm, 6);
+            Assert.Equal("level_offset", r.Via);
+        }
+
+        [Fact]
+        public void An_offset_measured_from_elevation_0_gives_way_to_the_origin()
+        {
+            // Level at 3800, offset holding the absolute 6100, origin at 6100: level + offset reads 9900.
+            var r = OverheadPlacement.LevelOrOrigin(9900, 3800, 6100, 6100, null);
+            Assert.Equal(6100, r.ZMm, 6);
+            Assert.Equal("offset_absolute", r.Via);
+            // On a level at 0 the two readings are one, and nothing moves.
+            Assert.Equal("level_offset", OverheadPlacement.LevelOrOrigin(6100, 0, 6100, 6100, null).Via);
+        }
+
+        [Fact]
+        public void An_origin_exactly_at_the_placed_target_is_verified()
+        {
+            var r = OverheadPlacement.LevelOrOrigin(9050, 3800, 900, 5250.4, 5250);
+            Assert.Equal(5250.4, r.ZMm, 6);
+            Assert.Equal("origin_verified", r.Via);
+            // More than 1 mm off the target: not verified.
+            Assert.Equal("level_offset", OverheadPlacement.LevelOrOrigin(9050, 3800, 900, 5252, 5250).Via);
+        }
+
+        [Fact]
+        public void An_origin_off_its_plane_never_moves_the_level_reading()
+        {
+            // A light at level + offset 2700, its origin 2044 under: the level reading stands.
+            var r = OverheadPlacement.LevelOrOrigin(2700, 0, 2700, 656, 2700);
+            Assert.Equal(2700, r.ZMm, 6);
+            Assert.Equal("level_offset", r.Via);
+            Assert.Equal("level_offset", OverheadPlacement.LevelOrOrigin(6500, 3800, 2700, 4456, null).Via);
+        }
+
+        [Fact]
+        public void A_group_that_created_nothing_is_rolled_back()
+        {
+            Assert.False(OverheadPlacement.KeepGroup(0));
+            Assert.False(OverheadPlacement.KeepGroup(0, 0));
+            Assert.True(OverheadPlacement.KeepGroup(1));
+            Assert.True(OverheadPlacement.KeepGroup(0, 3));
+            Assert.True(OverheadPlacement.KeepGroup(104, 52));
+        }
+
         [Fact]
         public void Top_band_has_no_ceiling()
         {

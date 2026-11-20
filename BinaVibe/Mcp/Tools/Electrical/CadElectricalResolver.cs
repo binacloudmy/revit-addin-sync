@@ -242,7 +242,8 @@ namespace BinaVibe.Mcp.Tools.Electrical
         internal readonly struct Contact
         {
             public readonly double ZFt;
-            /// <summary>host_face | ceiling_underside | level_offset | vertical_plane | location</summary>
+            /// <summary>host_face | ceiling_underside | level_offset | offset_absolute |
+            /// origin_verified | vertical_plane | location</summary>
             public readonly string Via;
             public readonly long? CeilingId;
             /// <summary>False when ZFt is a work-plane-based family's origin on a plane that is not
@@ -267,8 +268,10 @@ namespace BinaVibe.Mcp.Tools.Electrical
         ///     parameter read back (OffsetParams), work-plane-based and unhosted families alike;
         ///   anything else: the LocationPoint's Z, which an unhosted family's origin honours.
         ///     For a work-plane-based family this is not trusted (Known false).
+        /// <paramref name="targetZFt"/> is the Z this tool just placed the device at, when the
+        /// caller knows it; it lets the level reading give way to an origin that is exactly there.
         /// </summary>
-        internal static Contact ContactHeight(Document doc, FamilyInstance fi)
+        internal static Contact ContactHeight(Document doc, FamilyInstance fi, double? targetZFt = null)
         {
             XYZ? at = (fi.Location as LocationPoint)?.Point;
             if (at == null)
@@ -323,12 +326,20 @@ namespace BinaVibe.Mcp.Tools.Electrical
             // On a level (or a horizontal work plane): the plane plus the offset parameter read
             // back, never the origin. A live test read a work-plane light's origin 2044 mm under
             // a level + offset that had taken.
+            // Checked against the origin (OverheadPlacement.LevelOrOrigin): a live test read a
+            // fallback socket's "Offset from Host" as its absolute Z, so level + offset counted
+            // the level twice.
             if (LevelBase(doc, fi, null, out double baseFt))
             {
-                double? contactMm = OverheadPlacement.LevelContactMm(
-                    baseFt * MmPerFoot,
-                    OffsetParams(fi).Select(b => DoubleParam(fi, b) * MmPerFoot).ToList());
-                if (contactMm.HasValue) return new Contact(contactMm.Value / MmPerFoot, "level_offset", null);
+                List<double?> offsets = OffsetParams(fi).Select(b => DoubleParam(fi, b) * MmPerFoot).ToList();
+                double? contactMm = OverheadPlacement.LevelContactMm(baseFt * MmPerFoot, offsets);
+                if (contactMm.HasValue)
+                {
+                    var (zMm, via) = OverheadPlacement.LevelOrOrigin(
+                        contactMm.Value, baseFt * MmPerFoot, offsets.FirstOrDefault(o => o.HasValue),
+                        at.Z * MmPerFoot, targetZFt * MmPerFoot);
+                    return new Contact(zMm / MmPerFoot, via, null);
+                }
             }
 
             return new Contact(at.Z, "location", ceilingId, known: !workPlane);

@@ -369,7 +369,7 @@ The review carries no coordinates.
 
 **Selection:** without `indices`, every non-excluded point is placed, filtered by `roles`. If no selected point has a family type, the call returns `ok:false` before any transaction.
 
-**Transactions:** one `TransactionGroup` with one transaction per point, then `Assimilate`. The whole run is a single undo, and a refused point fails alone.
+**Transactions:** one `TransactionGroup` with one transaction per point, then `Assimilate`. The whole run is a single undo, and a refused point fails alone. A run that places nothing (every point skipped or failed) rolls its group back and leaves no undo entry (`OverheadPlacement.KeepGroup`); so do `route_conduit` with no run built and `place_cad_electrical` with neither. The turn receipt's green highlight is a separate transaction: clearing the previous turn's highlight at the end of a turn is one more undo step, even after a run that changed nothing.
 
 **Placed ids:** each placed point records its device's id on the stored plan, so `route_conduit` can find the device for a drop (section 7).
 
@@ -387,7 +387,7 @@ The review carries no coordinates.
 - on a face (`HostFace` readable, face not vertical): that face's Z under the origin, plus "Offset from Host" along the face normal (`host_face`)
 - on a ceiling with no face (a ceiling-hosted family): the ceiling's underside there (`ceiling_underside`)
 - a work-plane-based family on a vertical plane (hosted on a wall, its face read or not, or its own work plane normal level): the LocationPoint's Z (`vertical_plane`). Its origin can sit off the plane only along the plane's normal, which is level. Before this rule, a face-based socket that the wall overload placed (the fallback, below) could fall to the level rule and read the level plus an "Offset from Host" of about 0, a mount height under where it stood, so a second run did not find it and placed it again.
-- a work-plane-based or unhosted family on a level (or a horizontal work plane, or no host): that plane plus the offset parameter read back, "Offset from Host" first for a work-plane-based family and "Elevation from Level" first for an unhosted one (`level_offset`). The origin plays no part: a live test read a light's origin 2044 mm under a level offset that had taken.
+- a work-plane-based or unhosted family on a level (or a horizontal work plane, or no host): that plane plus the offset parameter read back, "Offset from Host" first for a work-plane-based family and "Elevation from Level" first for an unhosted one (`level_offset`). A disagreement with the origin alone never moves it: a live test read a light's origin 2044 mm under a level offset that had taken. It gives way to the origin (`OverheadPlacement.LevelOrOrigin`) only when it is more than 20 mm off the origin and either the offset alone equals the origin's Z on a level not at 0 (`offset_absolute`: the offset is measured from elevation 0, and level + offset counted the level twice; a live test read 9900 mm for a wall-fallback socket at 6100 mm on a level at 3800 mm), or the origin is within 1 mm of the Z the tool has just placed it at (`origin_verified`, wall rows only).
 - anything else: the LocationPoint's Z (`location`). For a work-plane-based family this height is not trusted, and the already-present check falls back to the level band.
 
 **Placement by family:**
@@ -415,7 +415,7 @@ These points have no facing, so `facing_method` is `not_applicable`.
 
 Each item also carries:
 - `z_mm`: the contact height, as placed
-- `height_via`: how it was read (`host_face`, `ceiling_underside`, `level_offset` or `location`)
+- `height_via`: how it was read (`host_face`, `ceiling_underside`, `level_offset`, `offset_absolute`, `origin_verified`, `vertical_plane` or `location`)
 - `origin_z_mm`: the raw LocationPoint Z
 - `target_z_mm` and `host_ceiling_id`
 - `geometry_z_mm`: the instance's bounding box, bottom and top

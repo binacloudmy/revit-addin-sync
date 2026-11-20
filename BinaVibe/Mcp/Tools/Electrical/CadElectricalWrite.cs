@@ -50,9 +50,9 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     ? MutatorsMepRouting.RoutePlanRuns(doc, planId, runIndices)
                     : CadElectricalReview.SkippedRuns();
 
-                bool anything = (devices.TryGetValue("count", out var c) && c is int n && n > 0) ||
-                                (runs.TryGetValue("runs_created", out var rc) && rc is int m && m > 0);
-                if (anything) group.Assimilate();
+                int devicesCreated = devices.TryGetValue("count", out var c) && c is int n ? n : 0;
+                int runsCreated = runs.TryGetValue("runs_created", out var rc) && rc is int m ? m : 0;
+                if (OverheadPlacement.KeepGroup(devicesCreated, runsCreated)) group.Assimilate();
                 else group.RollBack();
             }
             catch
