@@ -228,8 +228,8 @@ namespace BinaVibe.Copilot.Writes
                 }
 
             // r19 (live F1, b7d86820): an element one call added and a later call deleted never existed outside the write.
-            if (!outcome.HasFailures)
-                FoldAddedThenDeleted(runs.OrderBy(kv => kv.Key).Select(kv => (outcome.Envelopes[kv.Key], kv.Value)).ToList());
+            if (!outcome.HasFailures && FoldAddedThenDeleted(runs.OrderBy(kv => kv.Key).Select(kv => (outcome.Envelopes[kv.Key], kv.Value)).ToList()) is var folded && folded > 0)
+                st.Mark("added then deleted (" + folded + ")");
 
             // r18 (BornIds, live 4e70cf53): every element that existed before the write exists again now. A deleted or modified id that
             // does not was created inside the preview by Revit itself (reported deleted, never added): it is not an existing element.
@@ -438,7 +438,8 @@ namespace BinaVibe.Copilot.Writes
 
                     var shape = builder.Build(id => Describe(doc!, id, builder.AddedIds));
                     st.Mark("shape");
-                    FoldAddedThenDeleted(Enumerable.Range(0, n).Where(i => commitRuns[i] != null).Select(i => (envelopes[i], commitRuns[i]!)).ToList());   // r19 (live F1)
+                    var foldedAtCommit = FoldAddedThenDeleted(Enumerable.Range(0, n).Where(i => commitRuns[i] != null).Select(i => (envelopes[i], commitRuns[i]!)).ToList());   // r19 (live F1)
+                    if (foldedAtCommit > 0) st.Mark("added then deleted (" + foldedAtCommit + ")");
                     // r18 (BornIds, live 4e70cf53): a deleted or modified id at or above the lowest id this write is known to have created
                     // (the preview's, or the commit's own additions) never existed before it: Revit's own transient element, not a drift.
                     var born = BornIds.AtOrAbove(shape.Deleted.Concat(shape.Modified), BornIds.Floor(preview.Shape?.BornFloor, null, builder.AddedIds));
@@ -606,18 +607,20 @@ namespace BinaVibe.Copilot.Writes
         }
 
         /// <summary>r19 (live F1, b7d86820): takes ids one call added and a later call deleted out of the envelopes (BornIds.AddedThenDeleted):
-        /// the result says "added 1 Duct Fitting", not "added 2 Duct Fittings; removed 1 Other". Call order.</summary>
-        private static void FoldAddedThenDeleted(IReadOnlyList<(Envelope? Env, CallRun Run)> calls)
+        /// the result says "added 1 Duct Fitting", not "added 2 Duct Fittings; removed 1 Other". Call order. Returns how many ids it folded
+        /// (the clicks log's "added then deleted (k)" stage).</summary>
+        private static int FoldAddedThenDeleted(IReadOnlyList<(Envelope? Env, CallRun Run)> calls)
         {
-            if (calls.Count < 2) return;
+            if (calls.Count < 2) return 0;
             var gone = BornIds.AddedThenDeleted(calls.Select(c => ((IEnumerable<long>?)c.Run.Changes?.Added, (IEnumerable<long>?)c.Run.Changes?.Deleted)).ToList());
-            if (gone.Count == 0) return;
+            if (gone.Count == 0) return 0;
             foreach (var (env, run) in calls)
             {
                 BornIds.DropFromEnvelope(env, run.DeletedTouched, run.DeletedSide, gone);
                 BornIds.DropAddedFromEnvelope(env, run.AddedSide, gone);
                 run.Existing.RemoveAll(gone.Contains);
             }
+            return gone.Count;
         }
 
         private static CallRun RunCall(Document doc, IWriteTool tool, ToolContext ctx, ToolCallDto call, WritePlan plan,
