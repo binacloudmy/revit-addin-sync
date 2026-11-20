@@ -287,6 +287,9 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 failed["score_uncropped"] = Math.Round(fit.ScoreUncropped, 3);
                 failed["inside_share"] = Math.Round(fit.InsideShare, 3);
                 failed["method"] = method;
+                // Where the fit came closest: the vector to move a link at the origin by.
+                if (fit.FailReason == "alignment_failed" || fit.FailReason == "crop_too_small")
+                    foreach (var pair in CadLinkAlign.TransformFields(fit.Transform, "best_")) failed[pair.Key] = pair.Value;
                 return failed;
             }
 
@@ -324,6 +327,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     failed["level"] = level.Name;
                     failed["cluster"] = cluster;
                     failed["score"] = Math.Round(fit.Score, 3);
+                    foreach (var pair in CadLinkAlign.TransformFields(fit.Transform, "best_")) failed[pair.Key] = pair.Value;
                     return failed;
                 }
             }

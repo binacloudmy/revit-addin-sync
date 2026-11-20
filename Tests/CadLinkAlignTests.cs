@@ -153,6 +153,44 @@ namespace Tests
             Assert.True(r.Score < CadLinkAlign.FloorScore);
         }
 
+        // ─── TransformFields (alignment_failed's best_*) ───────────────
+
+        [Theory]
+        [InlineData(270, -90)]
+        [InlineData(-180, 180)]
+        [InlineData(540, 180)]
+        [InlineData(17.12345, 17.123)]
+        [InlineData(0, 0)]
+        public void Best_rotation_is_in_the_half_turn_range(double degrees, double expected)
+        {
+            Dictionary<string, object?> fields = CadLinkAlign.TransformFields(Turn(degrees, 0, 0), "best_");
+
+            Assert.Equal(expected, (double)fields["best_rotation_deg"]!, 9);
+        }
+
+        [Fact]
+        public void Best_shift_is_in_mm_to_one_place()
+        {
+            Dictionary<string, object?> fields = CadLinkAlign.TransformFields(Turn(0, 12345.678, -6780.04), "best_");
+
+            Assert.Equal(new[] { "best_rotation_deg", "best_tx_mm", "best_ty_mm" }, fields.Keys);
+            Assert.Equal(12345.7, (double)fields["best_tx_mm"]!, 9);
+            Assert.Equal(-6780.0, (double)fields["best_ty_mm"]!, 9);
+        }
+
+        [Fact]
+        public void A_failed_fit_reports_where_it_came_closest()
+        {
+            // A placement off the building fails, but still holds the place it was measured at.
+            FitResult fit = CadLinkAlign.Measure(LPlan(), Move(LPlan(), Turn(0, 250000, -80000)), Turn(90, 3100.04, 1700.06));
+
+            Assert.Equal("failed", fit.Outcome);
+            Assert.Equal(90, (double)CadLinkAlign.TransformFields(fit.Transform, "best_")["best_rotation_deg"]!, 9);
+            Dictionary<string, object?> fields = CadLinkAlign.TransformFields(fit.Transform, "best_");
+            Assert.Equal(Math.Round(fit.Transform.TxMm, 1), (double)fields["best_tx_mm"]!, 9);
+            Assert.Equal(Math.Round(fit.Transform.TyMm, 1), (double)fields["best_ty_mm"]!, 9);
+        }
+
         // ─── Choose ────────────────────────────────────────────────────
 
         private static LinkMeasure Measured(long id, FitTransform at, FitTransform truth)

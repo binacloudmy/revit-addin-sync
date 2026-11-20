@@ -217,6 +217,25 @@ namespace BinaVibe.Mcp.Tools.Electrical
             return scores.OrderByDescending(s => s.Score).ThenBy(s => s.Cluster).ToList();
         }
 
+        /// <summary>
+        /// A transform as wire fields: <c>{prefix}rotation_deg</c> in (-180, 180], 3 places, and
+        /// <c>{prefix}tx_mm</c>, <c>{prefix}ty_mm</c>, 1 place. On a failed fit (prefix "best_")
+        /// they say where the fit came closest: a link at the origin, unturned, moved by
+        /// (tx, ty) lies there.
+        /// </summary>
+        public static Dictionary<string, object?> TransformFields(FitTransform t, string prefix = "")
+        {
+            double degrees = t.RotationRad * 180 / Math.PI % 360;
+            if (degrees <= -180) degrees += 360;
+            else if (degrees > 180) degrees -= 360;
+            return new Dictionary<string, object?>
+            {
+                [prefix + "rotation_deg"] = Math.Round(degrees, 3) + 0.0,
+                [prefix + "tx_mm"] = Math.Round(t.TxMm, 1) + 0.0,
+                [prefix + "ty_mm"] = Math.Round(t.TyMm, 1) + 0.0,
+            };
+        }
+
         private static double Length(double[] v) => Math.Sqrt((v[0] * v[0]) + (v[1] * v[1]) + (v[2] * v[2]));
     }
 }
