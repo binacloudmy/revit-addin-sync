@@ -10,11 +10,13 @@ Phase 1 of the CAD electrical to BIM work. A DWG electrical layout becomes Revit
 
 Phase 2 adds conduit and trunking runs (section 7): the mapping names the run layers, `plan_cad_electrical` plans the runs beside the devices, and `route_conduit` builds them as Revit conduit and cable tray.
 
+**Copilot uses `place_cad_electrical` after `plan_cad_electrical`** (section 7). It places the devices and builds the runs in one call: one confirmation card covers the whole write, and one Ctrl+Z undoes it. `place_socket_points` and `route_conduit` stay for placing only devices or only runs, and for retries.
+
 All names in this document are invented: SOCKET, LIGHT-A, A-WALL, E-POWER, E-CONDUIT, E-TRUNK, "Level 1".
 
 Code:
 - `BinaVibe/Mcp/Tools/Electrical/`: `CadElectricalTools.cs`, `CadElectricalMapping.cs`, `CadModelFit.cs`, `CadSymbolResolve.cs`, `CadElectricalResolver.cs`, `CadElectricalReview.cs`, `SocketPlacement.cs`, `PlacementCompare.cs`
-- Phase 2: `CadRunChain.cs`, `CadRunPlan.cs`, `RunCompare.cs` in the same folder, and `BinaVibe/Mcp/Tools/MutatorsMepRouting.cs` (`route_conduit`)
+- Phase 2: `CadRunChain.cs`, `CadRunPlan.cs`, `RunCompare.cs`, `CadElectricalWrite.cs` (`place_cad_electrical`) in the same folder, and `BinaVibe/Mcp/Tools/MutatorsMepRouting.cs` (`route_conduit`)
 - `BinaVibe/Mcp/Tools/ImportDialogGuard.cs`
 - `Cad2Bim/Cad2Bim.Headless/ElectricalCheckCommands.cs`, `Cad2Bim/Cad2Bim.Headless/RunCheckCommands.cs`
 
@@ -613,6 +615,46 @@ The run is built in one transaction, with an elbow at each corner. The result ha
 
 No runs selected gives `ok: false`. If the plan has no runs at all, the error says to run `plan_cad_electrical` with `run_height_mm`.
 
+### `place_cad_electrical` (mutate)
+
+The one write after `plan_cad_electrical`: devices and runs together, behind one confirmation card.
+
+| Arg | Type | Meaning |
+|---|---|---|
+| `plan_id` | string, required | From `plan_cad_electrical`, for the same document |
+| `roles` | string[] | Device filter, as for `place_socket_points` |
+| `indices` | int[] | Explicit device points, as for `place_socket_points` |
+| `run_indices` | int[] | Explicit runs, as for `route_conduit` |
+| `include_runs` | bool, default true | False places the devices only |
+
+1. **Devices first**, with exactly the `place_socket_points` logic (section 4) for the plan's points and the `roles` / `indices` selection. The plan's own family types and mount heights are used; there is no `family_type`, `level`, `mount_height_mm` or `facing_offset_deg` override. Each placed point records its device id, so the drops of step 2 connect to the devices just placed.
+2. **Then the runs**, with exactly the `route_conduit` plan-mode logic for the selected runs. Skipped when the plan has no runs or `include_runs` is false.
+3. **One undo.** Both steps keep their own `TransactionGroup`, inside one outer group (`BinaVibe: place_cad_electrical`). The outer group is assimilated when a device or a run was built, else rolled back. One Ctrl+Z undoes the whole write.
+
+A device error that `place_socket_points` would throw (no family type in the document, for example) does not stop the runs: `devices` is then `{ok: false, error}`, and the drops stay open with `device_not_placed`.
+
+**Result:**
+
+```json
+{
+  "ok": true,
+  "plan_id": "socket_plan:…",
+  "devices": { "…": "the place_socket_points result (section 4)" },
+  "runs": { "…": "the route_conduit plan-mode result, or {\"skipped\": \"no_runs\"}" },
+  "review": {
+    "headline": "Devices: 22 placed, 0 failed, 2 already present. Conduit: 12 runs routed, 0 failed, 0 skipped, 84.0 m.",
+    "devices": { "…": "devices.review" },
+    "open_connectors": { "count": 4, "origins_mm": [] },
+    "run_warnings": 4
+  },
+  "new_ids": [1001, 1002, 2001]
+}
+```
+
+- `ok`: true when either half succeeded (`devices.ok`, or `runs.ok` when the runs were not skipped). When neither did, `error` repeats the headline.
+- `new_ids`: flat, for the receipt: the devices' `created_id`s, then the runs' segment ids, then their fitting ids.
+- `review.open_connectors` is the runs' (null when skipped); `run_warnings` counts `runs.warnings`.
+
 ## 8. Exit check procedure
 
 Keep every file in a private folder outside all repositories. Record numbers only: no client names, layer or block names, or drawing content in any repo, issue or commit.
@@ -663,7 +705,7 @@ Run this on the phase 1 working copy, with the devices already placed. Keep ever
 3. Check that the model has a Conduit with Fittings type, with a Bend assigned and the wanted size. For trunking, check for a Cable Tray with Fittings type. Load one if needed.
 4. Add the conduit and trunking rows to `mapping.json`. Run `plan_cad_electrical` without `run_height_mm`: expect `needs_run_height`, and the points unchanged.
 5. Run it again with `run_height_mm` and `include_points=true`, and save the result as `plan.json`. Check the runs, length, drops, open ends and junctions against the drawing.
-6. Run `route_conduit` with the `plan_id`.
+6. Run `route_conduit` with the `plan_id`. On a fresh working copy, run `place_cad_electrical` with the `plan_id` instead: check one confirmation card, devices and runs both built, and one Ctrl+Z undoing both.
 7. **Pass:**
    - created + failed + skipped = the runs selected
    - every failed run has a reason

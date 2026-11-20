@@ -290,6 +290,87 @@ namespace BinaVibe.Mcp.Tools.Electrical
             };
         }
 
+        /// <summary>place_cad_electrical's runs object when no run is routed: the plan has none,
+        /// or include_runs is false.</summary>
+        public static Dictionary<string, object?> SkippedRuns() => new() { ["skipped"] = "no_runs" };
+
+        /// <summary>
+        /// place_cad_electrical's result: the place_socket_points result as <c>devices</c>, the
+        /// route_conduit plan-mode result (or <see cref="SkippedRuns"/>) as <c>runs</c>, a
+        /// combined review, and flat <c>new_ids</c> (device ids, then run segments, then
+        /// fittings) for the receipt. <c>ok</c> when either half succeeded.
+        /// </summary>
+        public static Dictionary<string, object?> WriteResult(string planId, Dictionary<string, object?> devices,
+                                                              Dictionary<string, object?> runs)
+        {
+            bool devicesOk = devices.TryGetValue("ok", out object? d) && d is bool db && db;
+            // route_conduit's own "skipped" is a list of runs; SkippedRuns' is a reason.
+            bool runsSkipped = runs.TryGetValue("skipped", out object? sk) && sk is string;
+            bool runsOk = !runsSkipped && runs.TryGetValue("ok", out object? r) && r is bool rb && rb;
+
+            var newIds = new List<long>();
+            if (devices.TryGetValue("created", out object? created) && created is System.Collections.IEnumerable rows)
+            {
+                foreach (object? row in rows)
+                {
+                    if (row is Dictionary<string, object?> item && item.TryGetValue("created_id", out object? id) && id != null)
+                        newIds.Add(Convert.ToInt64(id, CultureInfo.InvariantCulture));
+                }
+            }
+            foreach (string key in new[] { "new_ids", "fitting_ids" })
+            {
+                if (runs.TryGetValue(key, out object? ids) && ids is System.Collections.IEnumerable list)
+                {
+                    foreach (object? id in list)
+                        if (id != null) newIds.Add(Convert.ToInt64(id, CultureInfo.InvariantCulture));
+                }
+            }
+
+            string headline = "Devices: " + (devicesOk
+                ? Count(IntOf(devices, "count")) + " placed, " + Count(ListCount(devices, "failed")) + " failed, " +
+                  Count(ListCount(devices, "skipped_already_present")) + " already present."
+                : "none placed (" + ErrorOf(devices) + ").");
+            if (runsSkipped)
+                headline += " Conduit: no runs to route.";
+            else if (runsOk || runs.ContainsKey("runs_created"))
+                headline += " Conduit: " + Count(IntOf(runs, "runs_created")) + " runs routed, " +
+                            Count(IntOf(runs, "runs_failed")) + " failed, " + Count(ListCount(runs, "skipped")) +
+                            " skipped, " + (Math.Round(DoubleOf(runs, "total_length_mm") / 1000, 1))
+                                .ToString("0.0", CultureInfo.InvariantCulture) + " m.";
+            else
+                headline += " Conduit: none routed (" + ErrorOf(runs) + ").";
+
+            var result = new Dictionary<string, object?>
+            {
+                ["ok"] = devicesOk || runsOk,
+                ["plan_id"] = planId,
+                ["devices"] = devices,
+                ["runs"] = runs,
+                ["review"] = new Dictionary<string, object?>
+                {
+                    ["headline"] = headline,
+                    ["devices"] = devices.TryGetValue("review", out object? dr) ? dr : null,
+                    ["open_connectors"] = runs.TryGetValue("open_connectors", out object? oc) ? oc : null,
+                    ["run_warnings"] = ListCount(runs, "warnings"),
+                },
+                ["new_ids"] = newIds,
+            };
+            if (!devicesOk && !runsOk) result["error"] = headline;
+            return result;
+        }
+
+        private static string ErrorOf(Dictionary<string, object?> d) =>
+            d.TryGetValue("error", out object? v) && v is string s && s.Length > 0 ? s : "error";
+
+        private static int IntOf(Dictionary<string, object?> d, string key) =>
+            d.TryGetValue(key, out object? v) && v != null ? Convert.ToInt32(v, CultureInfo.InvariantCulture) : 0;
+
+        private static double DoubleOf(Dictionary<string, object?> d, string key) =>
+            d.TryGetValue(key, out object? v) && v != null ? Convert.ToDouble(v, CultureInfo.InvariantCulture) : 0;
+
+        private static int ListCount(Dictionary<string, object?> d, string key) =>
+            d.TryGetValue(key, out object? v) && v is System.Collections.ICollection c ? c.Count : 0;
+
         /// <summary>
         /// The census cut to fit one tool result: at most <paramref name="maxBlocks"/> classes,
         /// symbol-sized non-container ones first (those are what gets mapped), and at most

@@ -60,6 +60,7 @@ namespace RevitAddinSync.Tests
         [InlineData("plan_cad_electrical")]
         [InlineData("dump_electrical_reference")]
         [InlineData("route_conduit")]
+        [InlineData("place_cad_electrical")]
         public void Manifest_ListsTheCadElectricalTools(string name)
         {
             Assert.Contains(name, InstalledToolManifest.Names);

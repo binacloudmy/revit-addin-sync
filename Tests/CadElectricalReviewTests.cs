@@ -451,5 +451,84 @@ namespace Tests
             string headline = (string)CadElectricalReview.PlanReview(plan, Unmapped, 0, null, 0, block)["headline"]!;
             Assert.EndsWith(" Conduit and trunking: 5 runs, 18.0 m, 3 drops, 2 open ends.", headline);
         }
+
+        // ─── place_cad_electrical result ────────────────────────────────
+
+        private static Dictionary<string, object?> DevicesResult(bool ok = true) => ok
+            ? new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["plan_id"] = "socket_plan:1",
+                ["count"] = 2,
+                ["created"] = new List<object>
+                {
+                    new Dictionary<string, object?> { ["index"] = 0, ["created_id"] = 1001L },
+                    new Dictionary<string, object?> { ["index"] = 1, ["created_id"] = 1002L },
+                },
+                ["failed"] = new List<object> { new Dictionary<string, object?> { ["index"] = 2, ["reason"] = "x" } },
+                ["skipped_already_present"] = new List<object?> { 3 },
+                ["review"] = new Dictionary<string, object?> { ["headline"] = "2 placed; 0 things to check." },
+            }
+            : new Dictionary<string, object?> { ["ok"] = false, ["error"] = "no candidates selected" };
+
+        private static Dictionary<string, object?> RunsResult() => new Dictionary<string, object?>
+        {
+            ["ok"] = true,
+            ["plan_id"] = "socket_plan:1",
+            ["runs_created"] = 1,
+            ["runs_failed"] = 0,
+            ["created"] = new List<object?>(),
+            ["failed"] = new List<object?>(),
+            ["skipped"] = new List<object?>(),
+            ["new_ids"] = new List<long> { 2001, 2002 },
+            ["fitting_ids"] = new List<long> { 2003 },
+            ["total_length_mm"] = 12345.0,
+            ["open_connectors"] = new Dictionary<string, object?> { ["count"] = 1 },
+            ["warnings"] = new List<string> { "run 0: device_not_placed" },
+        };
+
+        [Fact]
+        public void Write_result_nests_both_halves_and_flattens_new_ids()
+        {
+            Dictionary<string, object?> devices = DevicesResult(), runs = RunsResult();
+            Dictionary<string, object?> result = CadElectricalReview.WriteResult("socket_plan:1", devices, runs);
+
+            Assert.True((bool)result["ok"]!);
+            Assert.Equal("socket_plan:1", result["plan_id"]);
+            Assert.Same(devices, result["devices"]);
+            Assert.Same(runs, result["runs"]);
+            Assert.Equal(new List<long> { 1001, 1002, 2001, 2002, 2003 }, result["new_ids"]);
+            var review = (Dictionary<string, object?>)result["review"]!;
+            Assert.Equal("Devices: 2 placed, 1 failed, 1 already present. " +
+                         "Conduit: 1 runs routed, 0 failed, 0 skipped, 12.3 m.", review["headline"]);
+            Assert.Equal(1, review["run_warnings"]);
+            Assert.False(result.ContainsKey("error"));
+        }
+
+        [Fact]
+        public void Write_result_with_no_runs_says_skipped()
+        {
+            Dictionary<string, object?> result = CadElectricalReview.WriteResult("socket_plan:1", DevicesResult(),
+                                                                                  CadElectricalReview.SkippedRuns());
+            Assert.True((bool)result["ok"]!);
+            Assert.Equal("no_runs", ((Dictionary<string, object?>)result["runs"]!)["skipped"]);
+            Assert.Equal(new List<long> { 1001, 1002 }, result["new_ids"]);
+            Assert.EndsWith(" Conduit: no runs to route.", (string)((Dictionary<string, object?>)result["review"]!)["headline"]!);
+        }
+
+        [Fact]
+        public void Write_result_is_ok_when_only_the_runs_were_built()
+        {
+            Dictionary<string, object?> result = CadElectricalReview.WriteResult("socket_plan:1", DevicesResult(ok: false), RunsResult());
+            Assert.True((bool)result["ok"]!);
+            Assert.StartsWith("Devices: none placed (no candidates selected).",
+                              (string)((Dictionary<string, object?>)result["review"]!)["headline"]!);
+
+            Dictionary<string, object?> neither = CadElectricalReview.WriteResult("socket_plan:1", DevicesResult(ok: false),
+                                                                                   CadElectricalReview.SkippedRuns());
+            Assert.False((bool)neither["ok"]!);
+            Assert.Contains("none placed", (string)neither["error"]!);
+            Assert.Empty((List<long>)neither["new_ids"]!);
+        }
     }
 }

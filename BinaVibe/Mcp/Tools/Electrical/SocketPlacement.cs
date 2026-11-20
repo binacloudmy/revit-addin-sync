@@ -42,13 +42,25 @@ namespace BinaVibe.Mcp.Tools.Electrical
         {
             var planId = ArgsHelp.GetString(args, "plan_id")
                 ?? throw new ArgumentException("missing plan_id");
-            // Optional: a drawing plan names a family type per point, and the point's own wins.
-            var familyType = ArgsHelp.GetString(args, "family_type");
+            return PlacePlanPoints(doc, planId,
+                // Optional: a drawing plan names a family type per point, and the point's own wins.
+                familyType: ArgsHelp.GetString(args, "family_type"),
+                wanted: ArgsHelp.GetLongList(args, "indices"),
+                roles: ArgsHelp.GetStringList(args, "roles"),
+                levelOverride: ArgsHelp.GetString(args, "level"),
+                mountOverrideMm: ArgsHelp.GetDouble(args, "mount_height_mm"),
+                facingOffsetDeg: ArgsHelp.GetDouble(args, "facing_offset_deg") ?? 0.0);
+        }
 
+        /// <summary>The body of place_socket_points, shared with place_cad_electrical. Its own
+        /// TransactionGroup is assimilated; started inside an outer group (place_cad_electrical),
+        /// it folds into that group's single undo step.</summary>
+        internal static Dictionary<string, object?> PlacePlanPoints(
+            Document doc, string planId, string? familyType, List<long> wanted, List<string> roles,
+            string? levelOverride, double? mountOverrideMm, double facingOffsetDeg)
+        {
             var plan = SocketPlanCache.Get(planId, SocketCandidates.DocKey(doc));
 
-            var wanted = ArgsHelp.GetLongList(args, "indices");
-            var roles = ArgsHelp.GetStringList(args, "roles");
             var points = SocketPlanSelect.Select(plan, wanted, roles);
             int skippedExcluded = SocketPlanSelect.SkippedExcluded(plan, wanted, roles);
 
@@ -78,10 +90,6 @@ namespace BinaVibe.Mcp.Tools.Electrical
             if (symbols.Values.All(s => s == null))
                 throw new ArgumentException(
                     "family type " + string.Join(", ", symbols.Keys.Select(k => "'" + k + "'")) + " not found in document");
-
-            var levelOverride = ArgsHelp.GetString(args, "level");
-            double? mountOverrideMm = ArgsHelp.GetDouble(args, "mount_height_mm");
-            double facingOffsetDeg = ArgsHelp.GetDouble(args, "facing_offset_deg") ?? 0.0;
 
             // The devices that exist now: a second run of the same plan must not double up.
             var present = CadElectricalResolver.ExistingDevices(doc);

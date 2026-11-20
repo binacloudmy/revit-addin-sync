@@ -380,7 +380,9 @@ namespace BinaVibe.Mcp.Tools
                 return Failure("pass either points_mm (one run) or plan_id (a drawing plan's runs), not both", -1);
             if (!hasPoints && planId == null)
                 return Failure("pass points_mm and level for one run, or plan_id from plan_cad_electrical", -1);
-            return planId != null ? RouteConduitPlan(doc, args, planId) : RouteConduitPoints(doc, args);
+            return planId != null
+                ? RoutePlanRuns(doc, planId, ArgsHelp.GetLongList(args, "run_indices"))
+                : RouteConduitPoints(doc, args);
         }
 
         private static Dictionary<string, object?> RouteConduitPoints(Document doc, JsonElement args)
@@ -425,10 +427,12 @@ namespace BinaVibe.Mcp.Tools
             catch (Exception ex) { SafeRollback(tx); return Failure(ex.Message, -1); }
         }
 
-        private static Dictionary<string, object?> RouteConduitPlan(Document doc, JsonElement args, string planId)
+        /// <summary>route_conduit's plan_id mode, shared with place_cad_electrical. Its own
+        /// TransactionGroup is assimilated when a run was built; started inside an outer group
+        /// (place_cad_electrical), it folds into that group's single undo step.</summary>
+        internal static Dictionary<string, object?> RoutePlanRuns(Document doc, string planId, List<long> wanted)
         {
             var plan = SocketPlanCache.Get(planId, SocketCandidates.DocKey(doc));
-            var wanted = ArgsHelp.GetLongList(args, "run_indices");
             var selected = SocketPlanSelect.SelectRuns(plan, wanted);
             if (selected.Count == 0)
                 return new Dictionary<string, object?>

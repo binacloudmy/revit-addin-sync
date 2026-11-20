@@ -220,6 +220,9 @@ namespace BinaVibe.Mcp.Tools
                 // the model re-emitting them.
                 "place_socket_points"    => Electrical.SocketPlacement.PlaceSocketPoints(doc, args),
                 "place_socket_on_wall"   => Electrical.SocketPlacement.PlaceSocketOnWall(doc, args),
+                // Devices then conduit from one drawing plan, in one outer TransactionGroup:
+                // one confirmation card, one undo.
+                "place_cad_electrical"   => Electrical.CadElectricalWrite.PlaceCadElectrical(doc, args),
                 "create_wall"            => Mutators.CreateWall(doc, args),
                 "create_room"            => Mutators.CreateRoomXY(doc, args),
                 "create_level"           => Mutators.CreateLevel(doc, args),
