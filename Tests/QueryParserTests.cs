@@ -295,6 +295,34 @@ namespace RevitAddinSync.Tests
             Assert.True(TextMatch.Matches(shortTerm, new[] { "Door FR 60" }));
         }
 
+        private static List<TermGroup> One(string t) => new() { new TermGroup(t, new List<string> { t }) };
+
+        [Theory]
+        [InlineData("fd", "FD2", true)]
+        [InlineData("fd", "Single Flush@FD3", true)]
+        [InlineData("fd", "FD1a", true)]
+        [InlineData("fd", "FD12", true)]
+        [InlineData("FD", "M_Door-Single@FD2", true)]
+        [InlineData("fd", "FD", true)]
+        [InlineData("fr", "Door Frame", false)]
+        [InlineData("fd", "FDA", false)]
+        [InlineData("fd", "FD2ab", false)]
+        [InlineData("fd", "AFD2", false)]
+        [InlineData("di", "Dinding Bata", false)]
+        [InlineData("ke", "Kedai Runcit", false)]
+        [InlineData("ke", "K3", false)]
+        [InlineData("pa", "Pagar 1", false)]
+        [InlineData("d3", "D3a", false)]
+        [InlineData("d3", "D3", true)]
+        [InlineData("900", "Single Flush 9000", false)]
+        [InlineData("900", "Single Flush 900", true)]
+        [InlineData("9", "D9", false)]
+        public void TextMatch_TwoLetterTokenStartsMarkLikeWords(string token, string field, bool expected)
+        {
+            var terms = One(Fuzzy.Fold(token));
+            Assert.Equal(expected, TextMatch.Matches(terms, new[] { field }));
+        }
+
         [Theory]
         [InlineData("gt", "2.3 m", "2400 mm", "mm", true)]
         [InlineData("lt", "2400", "2400 mm", "mm", false)]

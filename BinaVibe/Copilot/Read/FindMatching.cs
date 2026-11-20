@@ -50,13 +50,21 @@ namespace BinaVibe.Copilot.Read
         }
 
         // Numbers and short tokens must be whole words ("900" is not "9000", "fr" is not "frame");
-        // longer tokens may start a word ("flush" in "flushed").
+        // longer tokens may start a word ("flush" in "flushed"). A two-letter token may also
+        // start a mark-like word that goes on with digits (live: "FD" finds "FD2", "@FD3", "FD1a").
         private static bool TokenMatches(string token, string word)
         {
             if (token == word) return true;
+            if (token.Length == 2 && token.All(char.IsLetter)) return IsMarkLike(token, word);
             if (token.Length < 3 || token.All(char.IsDigit)) return false;
             return word.StartsWith(token, StringComparison.Ordinal);
         }
+
+        private static readonly Regex MarkTail = new("^[0-9]+[a-z]?$", RegexOptions.CultureInvariant);
+
+        private static bool IsMarkLike(string prefix, string word) =>
+            word.Length > prefix.Length && word.StartsWith(prefix, StringComparison.Ordinal)
+            && MarkTail.IsMatch(word.Substring(prefix.Length));
     }
 
     public static class LevelMatcher
