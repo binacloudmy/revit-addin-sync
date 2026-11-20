@@ -304,6 +304,7 @@
          engine only. -->
     <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\CadElectricalMapping.cs" Link="CadElectricalMapping.cs" />
     <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\CadModelFit.cs" Link="CadModelFit.cs" />
+    <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\CadLinkAlign.cs" Link="CadLinkAlign.cs" />
     <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\SocketPlanSelect.cs" Link="SocketPlanSelect.cs" />
     <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\CadSymbolResolve.cs" Link="CadSymbolResolve.cs" />
     <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\CadElectricalReview.cs" Link="CadElectricalReview.cs" />
