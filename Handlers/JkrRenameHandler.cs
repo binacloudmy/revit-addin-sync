@@ -145,33 +145,11 @@ namespace RevitWebAppSync.Handlers
             {
                 group.Start();
                 var steps = batch.Steps.ToList();
-                var first = RunSteps(doc, applicator, steps, undoName);
-                if (first.Committed)
-                {
-                    result.Absorb(first.Result);
-                }
-                else
-                {
-                    System.Diagnostics.Debug.WriteLine(
-                        $"[BINA Handler] commit refused ({first.Status}): {string.Join(" | ", first.Errors)} — retrying without the failing steps");
-                    var (suspects, rest) = JkrBatchRetry.Split(steps, s => s.ElementId, first.FailingIds);
-                    var restDone = false;
-                    if (suspects.Count > 0 && rest.Count > 0)
-                    {
-                        var second = RunSteps(doc, applicator, rest, undoName);
-                        if (second.Committed) { result.Absorb(second.Result); restDone = true; }
-                    }
-                    foreach (var step in restDone ? suspects : steps)
-                    {
-                        var one = RunSteps(doc, applicator, new List<JkrFixBatch<JkrFixAction>.Step> { step }, undoName);
-                        if (one.Committed)
-                            result.Absorb(one.Result);
-                        else
-                            result.RecordFailure(KeyOf(step), step.ElementId, WhatOf(step),
-                                                 JkrBatchRetry.CommitReason(one.Errors, one.Status.ToString()),
-                                                 newName: step.IsRename ? step.NewName : null);
-                    }
-                }
+                JkrBatchRetry.Apply(steps, s => s.ElementId,
+                    ss => RunSteps(doc, applicator, ss, undoName),
+                    r => result.Absorb(r),
+                    (step, reason) => result.RecordFailure(KeyOf(step), step.ElementId, WhatOf(step), reason,
+                                                           newName: step.IsRename ? step.NewName : null));
 
                 if (result.Renamed + result.ParamFixed == 0)
                     group.RollBack();
@@ -180,21 +158,12 @@ namespace RevitWebAppSync.Handlers
             }
         }
 
-        private sealed class StepsRun
-        {
-            public bool Committed;
-            public TransactionStatus Status;
-            public RenameResult Result = new RenameResult();
-            public List<string> Errors = new List<string>();
-            public HashSet<long> FailingIds = new HashSet<long>();
-        }
-
         /// <summary>Apply steps in one transaction. Error-level failures at commit are
         /// collected (no Revit dialog) and the transaction rolls back.</summary>
-        private static StepsRun RunSteps(Document doc, JkrFixApplicator applicator,
+        private static JkrBatchRetry.Attempt<RenameResult> RunSteps(Document doc, JkrFixApplicator applicator,
                                          List<JkrFixBatch<JkrFixAction>.Step> steps, string name)
         {
-            var run = new StepsRun();
+            var run = new JkrBatchRetry.Attempt<RenameResult> { Result = new RenameResult() };
             var collector = new CommitFailureCollector();
             using (var tx = new Transaction(doc, name))
             {
@@ -205,10 +174,16 @@ namespace RevitWebAppSync.Handlers
                 tx.Start();
                 foreach (var step in steps)
                     ApplyOne(doc, applicator, step, run.Result);
-                run.Status = tx.Commit();
-                if (tx.HasStarted() && !tx.HasEnded()) tx.RollBack();
+                var status = TransactionStatus.Uninitialized;
+                // A commit that throws is a refused commit, not a reason to drop the batch.
+                run.Committed = JkrBatchRetry.TryCommit(
+                    () => (status = tx.Commit()) == TransactionStatus.Committed, run.Errors);
+                run.Status = status.ToString();
+                if (tx.HasStarted() && !tx.HasEnded())
+                {
+                    try { tx.RollBack(); } catch { }
+                }
             }
-            run.Committed = run.Status == TransactionStatus.Committed;
             run.Errors.AddRange(collector.Errors);
             run.FailingIds.UnionWith(collector.ElementIds);
             return run;

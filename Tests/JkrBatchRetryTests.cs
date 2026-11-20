@@ -14,6 +14,60 @@ namespace RevitWebAppSync.Tests
     /// </summary>
     public class JkrBatchRetryTests
     {
+        // ── A commit that throws is a refused commit (AI-425) ──
+
+        // Fake applicator: a transaction over the steps whose commit throws when it holds the bad step.
+        private static JkrBatchRetry.Attempt<List<long>> FakeRun(List<long> steps, long bad, int[] commits)
+        {
+            var a = new JkrBatchRetry.Attempt<List<long>>();
+            commits[0]++;
+            a.Committed = JkrBatchRetry.TryCommit(() =>
+            {
+                if (steps.Contains(bad)) throw new System.InvalidOperationException("Revit blew up at commit");
+                return true;
+            }, a.Errors);
+            a.Status = a.Committed ? "Committed" : "RolledBack";
+            a.Result = a.Committed ? steps : null;
+            return a;
+        }
+
+        [Fact]
+        public void A_throwing_commit_keeps_every_other_step_and_fails_only_the_bad_one()
+        {
+            var written = new List<long>();
+            var failed = new List<(long, string)>();
+            var commits = new[] { 0 };
+            JkrBatchRetry.Apply(new List<long> { 1, 2, 3, 4 }, s => s,
+                ss => FakeRun(ss, 3, commits),
+                r => written.AddRange(r),
+                (s, why) => failed.Add((s, why)));
+
+            Assert.Equal(new long[] { 1, 2, 4 }, written.OrderBy(x => x));
+            Assert.Single(failed);
+            Assert.Equal(3L, failed[0].Item1);
+            Assert.Equal("Revit did not accept this change: Revit blew up at commit", failed[0].Item2);
+        }
+
+        [Fact]
+        public void A_throwing_commit_with_no_element_named_goes_step_by_step()
+        {
+            var commits = new[] { 0 };
+            var written = new List<long>();
+            JkrBatchRetry.Apply(new List<long> { 1, 2 }, s => s,
+                ss => FakeRun(ss, 2, commits), r => written.AddRange(r), (s, why) => { });
+            Assert.Equal(new long[] { 1 }, written);
+            Assert.Equal(3, commits[0]);   // whole batch, then each step on its own
+        }
+
+        [Fact]
+        public void TryCommit_passes_a_normal_result_through()
+        {
+            var errors = new List<string>();
+            Assert.True(JkrBatchRetry.TryCommit(() => true, errors));
+            Assert.False(JkrBatchRetry.TryCommit(() => false, errors));
+            Assert.Empty(errors);
+        }
+
         [Fact]
         public void Steps_on_the_elements_revit_named_are_set_aside()
         {
