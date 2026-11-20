@@ -401,17 +401,19 @@
                             </StackPanel>
                         </Border>
 
-                        <!-- An AI fixer candidate with no value yet: says so, claims nothing -->
-                        <Border Style="{StaticResource Blk}" Visibility="{Binding Card.IsAiCanPropose, Converter={StaticResource B2V}}">
+                        <!-- AI-435: the AI-fixer row — the AI suggestion (or "no suggestion yet") AND the manual input -->
+                        <Border Style="{StaticResource Blk}" Visibility="{Binding Card.IsFixerRow, Converter={StaticResource B2V}}">
                             <StackPanel>
-                                <StackPanel Orientation="Horizontal">
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
                                     <Canvas Width="16" Height="16" VerticalAlignment="Center">
                                         <Path Style="{StaticResource Ico}" Stroke="{StaticResource Bz.TextBody}" Data="{StaticResource SparkBoltGeo}"/>
                                         <Path Fill="{StaticResource Bz.TextBody}" Data="{StaticResource SparkGeo}"/>
                                     </Canvas>
                                     <TextBlock Text="{Binding AiCanTitle}" Style="{StaticResource BlkHead}" Margin="8,0,0,0"/>
                                 </StackPanel>
-                                <TextBlock Text="{Binding AiCanText}" Style="{StaticResource BlkNote}" Margin="0,6,0,0"/>
+                                <local:FixerRow x:Name="Fixer" DataContext="{Binding Fixer}"
+                                                IsEnabled="{Binding DataContext.CanAct, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                AskRequested="Fixer_Ask" AcceptRequested="Fixer_Accept" WriteRequested="Fixer_Write"/>
                             </StackPanel>
                         </Border>
 

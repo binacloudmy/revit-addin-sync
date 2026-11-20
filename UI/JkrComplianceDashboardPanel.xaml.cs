@@ -133,8 +133,13 @@ namespace RevitWebAppSync.UI
         /// through the batch (confirm dialog, one "JKR Fix all" undo step, re-check).</summary>
         public async Task FixIssuesAsync(IReadOnlyList<string> ids)
         {
-            var issues = (ids ?? Array.Empty<string>()).Select(FindIssue)
-                .Where(i => i != null && !i.NeedsPerson && i.AutoFixable && !string.IsNullOrEmpty(i.FixAction) && !IsEmptyRename(i))
+            var asked = (ids ?? Array.Empty<string>()).ToList();
+            // An accepted AI suggestion (AI-435) is written on its own: never as part of a batch.
+            if (asked.Count == 1 && FindIssue(asked[0]) is IssueVm ai && ai.AiFixCandidate && ai.AiProposal != null)
+                ai.UseAiSuggestion();
+            var issues = asked.Select(FindIssue)
+                .Where(i => i != null && !i.NeedsPerson && (i.AutoFixable || (asked.Count == 1 && i.AiFixCandidate && i.FixProposedByAi))
+                            && !string.IsNullOrEmpty(i.FixAction) && !IsEmptyRename(i))
                 .ToList();
             if (issues.Count == 0) { _vm.ShowToast(Jkr.Panel.Core.PaneText.NoAutoFixHere()); return; }
             if (_fixInFlight) { _vm.ShowToast(Jkr.Panel.Core.PaneText.FixRunning()); return; }
@@ -160,6 +165,22 @@ namespace RevitWebAppSync.UI
                 HideApplying();
                 TaskDialog.Show(Jkr.Panel.Core.PaneText.DialogTitle, Jkr.Panel.Core.PaneText.FixAllError(ex.Message));
             }
+        }
+
+        /// <summary>
+        /// Write the value a person typed or picked on an AI-fixer row (AI-435). The rule's own check
+        /// (JkrManualFix) runs first; then the same confirm, write and re-check as an accepted AI
+        /// suggestion. The row resolves only when the rule passes again.
+        /// </summary>
+        public async Task FixManualAsync(string id, string value)
+        {
+            var issue = FindIssue(id);
+            if (issue == null || !issue.AiFixCandidate) return;
+            var plan = JkrManualFix.Plan(issue.RawRule, issue.RevitCategory, value, issue.ReferenceValues, Jkr.Panel.Core.PaneLanguage.Current);
+            if (!plan.Ok) { _vm.ShowToast(Jkr.Panel.Core.PaneText.ManualRefused(plan.Error)); return; }
+            if (_fixInFlight) { _vm.ShowToast(Jkr.Panel.Core.PaneText.FixRunning()); return; }
+            issue.UseManualValue(plan);
+            await ApplyAutoFixAsync(issue, advance: false);
         }
 
         /// <summary>Ignore these issues: one plain toast, saved to the audit file.</summary>
@@ -436,9 +457,8 @@ namespace RevitWebAppSync.UI
             MdPill.Opacity = (sev == null || sev == IssuePriority.Medium) ? 1.0 : 0.4;
             LoPill.Opacity = (sev == null || sev == IssuePriority.Low) ? 1.0 : 0.4;
 
-            // Fix All badge count — deterministic fixes plus issues the AI fixer
-            // can attempt (Fix All fetches those from /jkr-autofix before the batch).
-            var fc = _vm.FixableCount + _vm.AiFixableCount;
+            // Fix All badge count — ready-made fixes only; AI-fixer rows are written one by one (AI-435).
+            var fc = _vm.FixableCount;
             FixCountText.Text = fc.ToString();
             FixCountBadge.Visibility = fc > 0 ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
 
@@ -617,8 +637,8 @@ namespace RevitWebAppSync.UI
         private void FixAll_Click(object sender, RoutedEventArgs e) => _ = FixAllAsync(null, openOnly: false);
 
         /// <summary>
-        /// Fix all: the ready-made fixes, plus fixes the backend AI fixer proposes for
-        /// issues without one, then one confirm and one "JKR Fix all" undo step.
+        /// Fix all: the ready-made fixes, then one confirm and one "JKR Fix all" undo step.
+        /// AI-fixer rows are skipped by construction (AI-435).
         /// <paramref name="section"/> limits it to one Borang section (null = all);
         /// <paramref name="openOnly"/> takes Open issues only, as the prototype's
         /// Fix all (n) does (the old button also retried Ignored / Manual ones).
@@ -654,41 +674,9 @@ namespace RevitWebAppSync.UI
                             && !IsEmptyRename(i))
                 .ToList();
 
-            // Issues without a deterministic fix: ask the backend's AI fixer
-            // (/jkr-autofix) for validated FixActions before the batch runs, so
-            // one Fix All click covers both. Failure here degrades to the
-            // deterministic-only set — it never blocks Fix All.
-            var aiCandidates = _vm.Issues
-                .Where(i => Retryable(i) && i.AiFixCandidate)
-                .ToList();
-
-            // Fixture test mode has no backend: every fixture issue carries its own fix.
-            if (aiCandidates.Count > 0 && _lastScanRequest != null && !DevMode.UsesFixture)
-            {
-                _fixInFlight = true;   // block re-entry while the AI request is in flight
-                FixAllBtn.IsEnabled = false;
-                FixProgressPanel.Visibility = System.Windows.Visibility.Visible;
-                FixProgressLabel.Text = Jkr.Panel.Core.PaneText.AiAnalysing(aiCandidates.Count);
-                BusyChanged?.Invoke(FixProgressLabel.Text);
-                FixProgressCount.Text = "";
-                FixProgressBar.Width = 0;
-                try
-                {
-                    var aiFixed = await FetchAiFixesAsync(aiCandidates);
-                    fixable.AddRange(aiFixed);
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"[BINA AiFix] failed: {ex.Message}");
-                    _vm.ShowToast(Jkr.Panel.Core.PaneText.AiUnavailable());
-                }
-                finally
-                {
-                    _fixInFlight = false;   // ApplyFixBatch re-takes the lock below
-                    FixAllBtn.IsEnabled = true;
-                    BusyChanged?.Invoke(null);
-                }
-            }
+            // AI-fixer rows (AI-435) are never in Fix all: each is accepted, or typed by a
+            // person, on its own row, and re-checked before it resolves.
+            var aiRows = _vm.Issues.Count(i => Retryable(i) && i.AiFixCandidate);
 
             fixable = fixable.OrderBy(i => i.FixPriority).ToList();
 
@@ -698,7 +686,7 @@ namespace RevitWebAppSync.UI
                 $"[BINA FixAll] queueing — total Issues={_vm.Issues.Count} " +
                 $"actionable={_vm.Issues.Count(i => i.IsActionable)} " +
                 $"autoFixable={_vm.Issues.Count(i => i.IsActionable && i.AutoFixable)} " +
-                $"aiCandidates={aiCandidates.Count} withFixAction={fixable.Count}");
+                $"aiRowsSkipped={aiRows} withFixAction={fixable.Count}");
 
             if (fixable.Count == 0)
             {
@@ -727,74 +715,92 @@ namespace RevitWebAppSync.UI
         }
 
         /// <summary>
-        /// Ask /v1/compliance/jkr-autofix for fixes on issues the scan couldn't fix
-        /// deterministically, and map the returned (backend-validated) FixActions
-        /// onto the issues so they ride the normal Fix All batch. Returns the
-        /// issues that received a fix; declined ones are left untouched.
+        /// Ask /v1/compliance/jkr-autofix about ONE row (AI-435, the row's "Ask AI") and keep what
+        /// it says on the issue: a validated proposal with its reasoning, or "asked, nothing".
+        /// Nothing is written; accepting is a separate step on the row. A backend error leaves the
+        /// row as it was ("no suggestion yet") so it can be asked again.
         /// </summary>
-        private async Task<List<IssueVm>> FetchAiFixesAsync(List<IssueVm> candidates)
+        public async Task AskAiAsync(string id)
         {
-            var elementIds = new HashSet<long>(candidates.Select(c => c.RevitElementId));
-            // Trimmed to what the backend fixer's prompt reads (Services/JkrAutoFixPayload):
-            // ~48% of the prompt tokens on a typical request; builds a copy, so
-            // _lastScanRequest stays whole for the next fix.
+            var issue = FindIssue(id);
+            if (issue == null || !issue.AiFixCandidate || _fixInFlight) return;
+            if (_lastScanRequest == null || DevMode.UsesFixture || _jkrService == null)
+            {
+                _vm.ShowToast(Jkr.Panel.Core.PaneText.AiUnavailable());
+                return;
+            }
+            _fixInFlight = true;   // one backend ask or write at a time
+            ShowApplying(Jkr.Panel.Core.PaneText.AiAsking());
+            try
+            {
+                var (ok, proposal) = await FetchAiProposalAsync(issue);
+                if (!ok) return;   // backend error: already toasted, still "no suggestion yet"
+                issue.AiAsked = true;
+                issue.AiProposal = proposal;
+                if (proposal == null) _vm.ShowToast(Jkr.Panel.Core.PaneText.AiNothing());
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[BINA AiFix] failed: {ex.Message}");
+                _vm.ShowToast(Jkr.Panel.Core.PaneText.AiUnavailable());
+            }
+            finally
+            {
+                _fixInFlight = false;
+                HideApplying();
+                RenderAll();
+            }
+        }
+
+        /// <summary>The proposal for one issue: Ok false = the backend failed; Proposal null = it answered with nothing.</summary>
+        private async Task<(bool Ok, AiSuggestion Proposal)> FetchAiProposalAsync(IssueVm issue)
+        {
             var request = JkrAutoFixPayload.Trim(new JkrAutoFixRequest
             {
                 Project = _lastScanRequest.Project,
                 Model = _lastScanRequest.Model,
-                Elements = _lastScanRequest.Elements
-                    .Where(el => elementIds.Contains(el.ElementId)).ToList(),
-                Issues = candidates.Select(c => new JkrAutoFixIssue
+                Elements = _lastScanRequest.Elements.Where(el => el.ElementId == issue.RevitElementId).ToList(),
+                Issues = new List<JkrAutoFixIssue>
                 {
-                    CheckId = c.CheckId,
-                    Rule = string.IsNullOrEmpty(c.RawRule) ? c.Title : c.RawRule,
-                    Domain = string.IsNullOrEmpty(c.Domain) ? "element" : c.Domain,
-                    Status = "fail",
-                    ElementId = c.RevitElementId,
-                    Category = c.Category,
-                    TypeName = c.Element?.Name ?? "",
-                    ActualValue = c.Actual,
-                    ExpectedValue = c.Required,
-                    Reason = c.Description,
-                }).ToList(),
+                    new JkrAutoFixIssue
+                    {
+                        CheckId = issue.CheckId,
+                        Rule = string.IsNullOrEmpty(issue.RawRule) ? issue.Title : issue.RawRule,
+                        Domain = string.IsNullOrEmpty(issue.Domain) ? "element" : issue.Domain,
+                        Status = "fail",
+                        ElementId = issue.RevitElementId,
+                        Category = issue.Category,
+                        TypeName = issue.Element?.Name ?? "",
+                        ActualValue = issue.Actual,
+                        ExpectedValue = issue.Required,
+                        Reason = issue.Description,
+                    },
+                },
             });
-
             var response = await _jkrService.RequestAiFixesAsync(request);
             if (!string.IsNullOrEmpty(response?.Error))
             {
                 System.Diagnostics.Debug.WriteLine($"[BINA AiFix] backend error: {response.Error}");
                 _vm.ShowToast(Jkr.Panel.Core.PaneText.AiUnavailable());
-                return new List<IssueVm>();
+                return (false, null);
             }
-
-            // Map validated fixes back onto their issues by check_id.
-            var byId = (response.Fixes ?? new List<JkrAutoFixProposal>())
-                .Where(f => f.FixAction != null && !string.IsNullOrEmpty(f.CheckId))
-                .GroupBy(f => f.CheckId)
-                .ToDictionary(g => g.Key, g => g.First());
-
-            var aiFixed = new List<IssueVm>();
-            foreach (var issue in candidates)
-            {
-                if (!byId.TryGetValue(issue.CheckId, out var proposal)) continue;
-                var fix = proposal.FixAction;
-                issue.FixAction = fix.Action ?? "";
-                issue.FixParameterName = fix.ParameterName ?? "";
-                issue.FixValue = fix.Value ?? "";
-                issue.FixOldValue = fix.OldValue ?? "";
-                issue.FixPriority = fix.Priority;
-                issue.FixTarget = string.IsNullOrEmpty(fix.Target) ? "instance" : fix.Target;
-                issue.FixReference = fix.Reference ?? "";
-                issue.Example = fix.Value ?? "";
-                issue.AutoFixable = true;
-                issue.FixProposedByAi = true;
-                aiFixed.Add(issue);
-            }
-
             System.Diagnostics.Debug.WriteLine(
-                $"[BINA AiFix] model={response.ModelUsed} fixes={aiFixed.Count} " +
-                $"unfixed={response.UnfixedCheckIds?.Count ?? 0}");
-            return aiFixed;
+                $"[BINA AiFix] model={response.ModelUsed} fixes={response.Fixes?.Count ?? 0} unfixed={response.UnfixedCheckIds?.Count ?? 0}");
+            var p = (response.Fixes ?? new List<JkrAutoFixProposal>())
+                .FirstOrDefault(f => f.FixAction != null && f.CheckId == issue.CheckId);
+            if (p == null) return (true, null);
+            var fix = p.FixAction;
+            return (true, new AiSuggestion
+            {
+                Action = fix.Action ?? "",
+                ParameterName = fix.ParameterName ?? "",
+                Value = fix.Value ?? "",
+                OldValue = fix.OldValue ?? "",
+                Priority = fix.Priority,
+                Target = string.IsNullOrEmpty(fix.Target) ? "instance" : fix.Target,
+                Reference = fix.Reference ?? "",
+                Reason = p.Reasoning ?? "",
+            });
         }
 
         // ── Busy state for model writes ──────────────────────────────────────
@@ -1555,6 +1561,13 @@ namespace RevitWebAppSync.UI
             {
                 // Written, but the rule still fails: the row stays Open.
                 _vm.ShowToast(Jkr.Panel.Core.PaneText.FixStillFails());
+                return;
+            }
+            // An AI-fixer row (AI-435) resolves only when the rule re-passed: if nothing could be
+            // checked it stays Open (the value is in the model; a re-scan will clear it).
+            if (outcome == null && issue.AiFixCandidate)
+            {
+                _vm.ShowToast(Jkr.Panel.Core.PaneText.FixNotRechecked());
                 return;
             }
             // Verified, or nothing could be checked (busy / no backend): resolve as before;

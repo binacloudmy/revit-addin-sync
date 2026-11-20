@@ -29,6 +29,20 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public string Quote { get; set; } = "";
     }
 
+    /// <summary>One validated proposal from the backend AI fixer (/jkr-autofix).</summary>
+    public sealed class AiSuggestion
+    {
+        public string Action { get; set; } = "";
+        public string ParameterName { get; set; } = "";
+        public string Value { get; set; } = "";
+        public string OldValue { get; set; } = "";
+        public string Target { get; set; } = "instance";
+        public string Reference { get; set; } = "";
+        public int Priority { get; set; } = 10;
+        /// <summary>The backend's reasoning for the value ("closest valid material code").</summary>
+        public string Reason { get; set; } = "";
+    }
+
     public class IssueVm : INotifyPropertyChanged, IRecheckRow
     {
         public string Id { get; set; } = "";
@@ -190,7 +204,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// Locate goes to the first). 1 for a single-element issue.</summary>
         public int LocateCount { get; set; } = 1;
 
-        /// <summary>Fix all can ask the backend AI fixer (/jkr-autofix) for this issue:
+        /// <summary>The row can ask the backend AI fixer (/jkr-autofix) for this issue (never Fix all; AI-435):
         /// AI-judged, no ready-made fix, a real element and a backend check id. Not the
         /// local BIM010 rows, the add-in's own spec checks ("SPEC-") or test-fixture
         /// issues, which the backend doesn't know.</summary>
@@ -199,6 +213,43 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             && !CheckId.StartsWith("BIM010-", System.StringComparison.Ordinal)
             && !CheckId.StartsWith("SPEC-", System.StringComparison.Ordinal)
             && !CheckId.StartsWith("FIXTURE-", System.StringComparison.Ordinal);
+
+        /// <summary>AI-435: the AI fixer was asked about this row (/jkr-autofix) and answered,
+        /// with or without a value. False = "no suggestion yet".</summary>
+        public bool AiAsked { get; set; }
+
+        /// <summary>What the AI fixer proposed for this row, or null. Kept apart from the Fix*
+        /// fields and AutoFixable on purpose: no bulk path (Fix all) can pick it up; it is
+        /// written only when a person accepts it on the row (<see cref="UseAiSuggestion"/>).</summary>
+        public AiSuggestion AiProposal { get; set; }
+
+        /// <summary>The allowed values for this row's rule when a reference set is known
+        /// (material codes, rules 7 and 14): the manual input becomes a dropdown of these.
+        /// Empty = free text, validated against the rule before the write.</summary>
+        public System.Collections.Generic.IReadOnlyList<string> ReferenceValues { get; set; } = System.Array.Empty<string>();
+
+        /// <summary>Load the AI proposal into the Fix* fields for ONE accepted write (the
+        /// confirm lists it as an AI proposal). AutoFixable stays false.</summary>
+        public void UseAiSuggestion()
+        {
+            var a = AiProposal;
+            if (a == null) return;
+            FixAction = a.Action; FixParameterName = a.ParameterName; FixValue = a.Value;
+            FixOldValue = a.OldValue; FixPriority = a.Priority;
+            FixTarget = string.IsNullOrEmpty(a.Target) ? "instance" : a.Target;
+            FixReference = a.Reference; Example = a.Value;
+            FixProposedByAi = true;
+        }
+
+        /// <summary>Load a person's value (already validated, see JkrManualFix) into the Fix*
+        /// fields for ONE write. AutoFixable stays false.</summary>
+        public void UseManualValue(JkrManualFixPlan plan)
+        {
+            if (plan == null || !plan.Ok) return;
+            FixAction = plan.Action; FixParameterName = plan.ParameterName; FixValue = plan.Value;
+            FixOldValue = Actual ?? ""; FixTarget = plan.Target; FixPriority = 10;
+            FixProposedByAi = false;
+        }
 
         /// <summary>True when this issue targets a real Revit element (element_id > 0).
         /// Controls visibility of the "Locate in 3D" button.</summary>

@@ -54,12 +54,18 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// <summary>Why the last auto-fix failed, or empty (shown on the row).</summary>
         public string FixError = "";
 
-        /// <summary>No ready-made fix, but Fix all can ask the backend AI fixer for one.</summary>
+        /// <summary>No ready-made fix, but the row can ask the backend AI fixer for one (never Fix all).</summary>
         public bool AiFix;
 
         /// <summary>Why the AI fixer proposed <see cref="Prop"/> ("Closest match in the JKR material
-        /// list…"). Only with a proposal; today the fixer proposes during Fix all, so it stays null.</summary>
+        /// list…"). Only with a proposal.</summary>
         public Text AiReason;
+
+        /// <summary>AI-435: the AI fixer was asked about this row and answered (with or without a value).</summary>
+        public bool AiAsked;
+
+        /// <summary>The allowed values for the row's manual input (reference set), or empty = free text.</summary>
+        public System.Collections.Generic.IReadOnlyList<string> Options = System.Array.Empty<string>();
 
         public ItemStatus Status = ItemStatus.Open;
         /// <summary>Confirmed compliant by a re-scan: drops out of every list and

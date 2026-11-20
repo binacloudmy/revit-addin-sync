@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
 using BinaVibe.Mcp.Tools.Audit;
+using RevitWebAppSync.UI.Jkr.ViewModels;
 
 namespace RevitWebAppSync.UI.Jkr.Panel.Core
 {
@@ -43,6 +44,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// <summary>An open AI fixer item with no proposed value yet: the detail says the fixer
         /// can propose one and claims no value (the same rule as the row's AI mark).</summary>
         public bool IsAiCanPropose { get; set; }
+
+        /// <summary>AI-435: the AI-fixer row control shows (suggestion or "no suggestion yet", and the manual input).</summary>
+        public bool IsFixerRow { get; set; }
 
         /// <summary>The action bar's primary button: Apply fix (F) / Apply AI fix (F).</summary>
         public bool HasApply => CanFix || IsAiProposal;
@@ -121,8 +125,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             ["aiCaution"] = ("Ini padanan terbaik pembaiki AI, bukan peraturan sedia. Semak sebelum anda guna; anda melihatnya sekali lagi sebelum apa-apa ditulis.",
                              "This is the AI fixer's best match, not a ready-made rule. Check it before you apply; you see it again before anything is written."),
             ["aiCanTitle"] = ("Pembaiki AI boleh mencadangkan", "AI fixer can propose"),
-            ["aiCanText"] = ("Belum ada pembaikan sedia. Baiki semua meminta pembaiki AI mencadangkannya; anda melihat cadangannya sebelum apa-apa ditulis.",
-                             "No ready-made fix yet. Fix all asks the AI fixer for one; you see its proposal before anything is written."),
+            ["aiCanText"] = ("Belum ada pembaikan sedia. Minta pembaiki AI mencadangkannya, atau masukkan nilai sendiri; anda melihatnya sebelum apa-apa ditulis.",
+                             "No ready-made fix yet. Ask the AI fixer for one, or enter the value yourself; you see it before anything is written."),
         };
 
         private readonly PanelCore _core;
@@ -238,6 +242,31 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public PanelItem Current => _core.Current;
 
         private DetailCard _card;
+        private JkrFixerRow _fixer;
+
+        /// <summary>AI-435: the fixer row's model for the current card (null when the card is not an
+        /// open AI-fixer row). Rebuilt when the card or what the AI said changes; what was typed is kept.</summary>
+        public JkrFixerRow Fixer
+        {
+            get
+            {
+                var c = Current;
+                var card = Card;
+                if (c == null || card == null || !card.IsFixerRow) return _fixer = null;
+                var state = c.Prop != null ? FixerAiState.Suggested : c.AiAsked ? FixerAiState.NoSuggestion : FixerAiState.NotAsked;
+                if (_fixer != null && _fixer.IssueId == c.Id && _fixer.AiState == state && _fixer.AiValue == (c.Prop ?? "")
+                    && _fixer.Lang == _core.Lang && _fixer.Options.SequenceEqual(c.Options ?? Array.Empty<string>()))
+                    return _fixer;
+                var typed = _fixer != null && _fixer.IssueId == c.Id ? _fixer.ManualValue : "";
+                _fixer = new JkrFixerRow(c.Id, RuleOf(c.Id), CategoryOf(c.Id), state, c.Prop ?? "", c.AiReason?.In(_core.Lang) ?? "", c.Options, _core.Lang);
+                _fixer.ManualValue = typed;
+                return _fixer;
+            }
+        }
+
+        /// <summary>The host supplies the backend rule string and the Revit category the manual value is checked against.</summary>
+        public Func<string, string> RuleOf { get; set; } = id => "";
+        public Func<string, string> CategoryOf { get; set; } = id => "";
 
         /// <summary>The current card, built once per change (every field binds to it).</summary>
         public DetailCard Card
@@ -314,6 +343,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 IsAiProposal = aiProposal,
                 AiReason = aiProposal ? c.AiReason?.In(lang) ?? "" : "",
                 IsAiCanPropose = act && c.AiFix && c.Prop == null,
+                IsFixerRow = act && c.AiFix,
                 ApplyLabel = aiProposal ? T("applyAiFix") : T("applyFix"),
                 DiffLabel = aiProposal ? T("aiProposed") : T("suggested"),
                 IsMarkedManual = marked,
@@ -341,6 +371,23 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             if (c == null || c.IsHuman || c.Status != ItemStatus.Open || c.MarkedManual) return;
             if (c.Fix == FixKind.None && !(c.AiFix && c.Prop != null)) return;
             _results.FixRow(c.Id);
+        }
+
+        /// <summary>Ask AI: the AI fixer is asked about this row only; the host stores what it says.</summary>
+        public void AskAi()
+        {
+            var c = Current;
+            if (c != null) _results.AskAi(c.Id);
+        }
+
+        /// <summary>Write the value typed or picked in the fixer row. Refused here when the rule would
+        /// not accept it, so nothing leaves the pane unvalidated.</summary>
+        public void WriteManual()
+        {
+            var c = Current;
+            var f = Fixer;
+            if (c == null || f == null || !f.CanWriteManual) return;
+            _results.WriteManual(c.Id, f.ManualValue);
         }
 
         /// <summary>Ignore (A): plain toast; the card turns "Ignored".</summary>

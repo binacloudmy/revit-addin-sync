@@ -133,12 +133,16 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public event Action<string> MarkManualRequested;
         /// <summary>Put an ignored or marked item back to Open.</summary>
         public event Action<string> ReopenRequested;
-        /// <summary>Fix the issues behind one spec check: ready-made fixes plus whatever
-        /// the backend AI fixer proposes; the host confirms and writes.</summary>
+        /// <summary>Fix the issues behind one spec check: its ready-made fixes (never the AI fixer's rows); the host confirms and writes.</summary>
         public event Action<List<string>> FixCheckRequested;
-        /// <summary>Fix all in a section (null = all sections): ready-made fixes plus
-        /// whatever the backend AI fixer proposes; the host confirms and writes.</summary>
+        /// <summary>Fix all in a section (null = all sections): ready-made fixes only. AI-fixer rows
+        /// are written one at a time, on the row (AI-435); the host confirms and writes.</summary>
         public event Action<string> FixAllRequested;
+        /// <summary>AI-435: ask the AI fixer (/jkr-autofix) about ONE row; the host stores the answer.</summary>
+        public event Action<string> AskAiRequested;
+        /// <summary>AI-435: write the value a person typed or picked on a row (id, value); the host
+        /// validates it against the rule, confirms, writes and re-checks.</summary>
+        public event Action<string, string> ManualFixRequested;
         public event Action<int, string> RescanRequested;
         public event Action ResetRequested;
         public event Action ExportRequested;
@@ -267,13 +271,10 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
 
         // ── actions ──
         public string IgnoreAllLabel => T("ignoreAll");
-        /// <summary>Fix all (n): open items in the section with a ready-made fix, plus
-        /// those the AI fixer will be asked about (it may not find a fix for each).</summary>
-        public int FixableN => _core.FixableOpen().Count + AiCandidates().Count();
+        /// <summary>Fix all (n): open items in the section with a ready-made fix. AI-fixer rows are
+        /// not in it: they are accepted or typed one at a time (AI-435).</summary>
+        public int FixableN => _core.FixableOpen().Count;
 
-        private IEnumerable<PanelItem> AiCandidates() =>
-            _core.Issues.Where(x => !x.Passed && !x.IsHuman && x.AiFix && x.Status == ItemStatus.Open && !x.MarkedManual
-                                    && (_core.Cat == PanelCore.AllSections || x.Sec == _core.Cat));
         public string FixAllLabel => string.Format(S("fixAllN"), FixableN);
         public bool CanFixAll => FixableN > 0 && CanAct;
 
@@ -782,6 +783,24 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             var i = _core.Filtered().FindIndex(x => x.Id == id);
             if (i >= 0) _core.SetSel(i);
             FixRequested?.Invoke(new List<string> { id });
+        }
+
+        /// <summary>Ask the AI fixer about one open AI-fixer row (the row's "Ask AI").</summary>
+        public void AskAi(string id)
+        {
+            if (!CanAct) return;
+            var x = _core.Issues.FirstOrDefault(i => i.Id == id);
+            if (x == null || x.IsHuman || !x.AiFix || x.Status != ItemStatus.Open || x.MarkedManual) return;
+            AskAiRequested?.Invoke(id);
+        }
+
+        /// <summary>Write the value typed or picked on one open AI-fixer row.</summary>
+        public void WriteManual(string id, string value)
+        {
+            if (!CanAct) return;
+            var x = _core.Issues.FirstOrDefault(i => i.Id == id);
+            if (x == null || x.IsHuman || !x.AiFix || x.Status != ItemStatus.Open || x.MarkedManual) return;
+            ManualFixRequested?.Invoke(id, value ?? "");
         }
 
         /// <summary>Ignore one open AI item (the detail's Ignore / A).</summary>

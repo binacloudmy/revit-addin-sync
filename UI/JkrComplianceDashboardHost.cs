@@ -48,6 +48,11 @@ namespace RevitWebAppSync.UI
                 detail.LocateRequested += id => _ = _panel.LocateIssueAsync(id);
                 detail.SourceRequested += id => _panel.OpenIssueSource(id);
                 results.FixRequested += ids => _ = _panel.FixIssuesAsync(ids);
+                // AI-fixer row (AI-435): ask the AI about one row; write a typed / picked value.
+                results.AskAiRequested += id => _ = _panel.AskAiAsync(id);
+                results.ManualFixRequested += (id, value) => _ = _panel.FixManualAsync(id, value);
+                detail.RuleOf = id => _panel.Issue(id)?.RawRule ?? "";
+                detail.CategoryOf = id => _panel.Issue(id)?.RevitCategory ?? "";
                 results.FixAllRequested += section => _ = _panel.FixAllAsync(section, openOnly: true);
                 // A spec check's "Fix n" on the Checklist: Fix all limited to its issues
                 // (same confirm, same AI fixer reusing the last scan request).

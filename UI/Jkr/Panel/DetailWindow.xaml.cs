@@ -181,6 +181,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel
         private void Prev_Click(object sender, RoutedEventArgs e) => _model.Prev();
         private void Next_Click(object sender, RoutedEventArgs e) => _model.Next();
         private void Fix_Click(object sender, RoutedEventArgs e) => _model.Fix();
+        private void Fixer_Ask() => _model.AskAi();
+        private void Fixer_Accept() => _model.Fix();
+        private void Fixer_Write() => _model.WriteManual();
         private void Ignore_Click(object sender, RoutedEventArgs e) => _model.Ignore();
         private void Review_Click(object sender, RoutedEventArgs e) => _model.ToggleReviewed();
         private void MarkManual_Click(object sender, RoutedEventArgs e) => _model.MarkManual();
@@ -195,6 +198,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel
         private void OnPreviewKeyDown(object sender, KeyEventArgs e)
         {
             if ((Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Alt)) != 0) return;
+            // Typing a value in the fixer row (AI-435): J / K / F / A / arrows are text there; only Esc still closes.
+            if (e.Key != Key.Escape && (e.OriginalSource is TextBox || e.OriginalSource is ComboBox || e.OriginalSource is System.Windows.Controls.Primitives.TextBoxBase)) return;
             PanelKey key;
             switch (e.Key)
             {

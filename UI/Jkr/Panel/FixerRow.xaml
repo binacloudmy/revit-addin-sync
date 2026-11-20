@@ -1,0 +1,44 @@
+<UserControl x:Class="RevitWebAppSync.UI.Jkr.Panel.FixerRow"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!-- The AI-fixer row control (AI-435): the AI suggestion, or an explicit "no suggestion yet",
+         AND a manual input, always both. Reusable: DataContext is a ViewModels.JkrFixerRow (set
+         Options for a reference-set dropdown; AI-434's multi-valid-code picker uses the same
+         manual path). The control only raises Ask / Accept / Write; the pane writes and re-checks. -->
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="pack://application:,,,/RevitWebAppSync;component/UI/Jkr/Panel/PanelTokens.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+            <BooleanToVisibilityConverter x:Key="B2V"/>
+        </ResourceDictionary>
+    </UserControl.Resources>
+    <StackPanel>
+        <!-- AI side: "No suggestion yet." / "The AI fixer has no suggestion…" + Ask AI, or Accept -->
+        <Grid>
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <TextBlock Text="{Binding AiLine}" FontSize="13" LineHeight="18" Foreground="{StaticResource Bz.Text}"
+                       TextWrapping="Wrap" VerticalAlignment="Center"/>
+            <Button x:Name="AskBtn" Grid.Column="1" Content="{Binding AskLabel}" Style="{StaticResource Bz.Btn.Ghost}" MinHeight="32"
+                    Click="Ask_Click" Visibility="{Binding CanAsk, Converter={StaticResource B2V}}"/>
+            <Button x:Name="AcceptBtn" Grid.Column="1" Content="{Binding AcceptLabel}" Style="{StaticResource Bz.Btn.Primary}" MinHeight="32"
+                    Click="Accept_Click" Visibility="{Binding CanAccept, Converter={StaticResource B2V}}"/>
+        </Grid>
+        <!-- manual side: always here, never behind the AI suggestion -->
+        <TextBlock Text="{Binding ManualLabel}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource Bz.Text2}" Margin="0,14,0,6"/>
+        <Grid>
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <TextBox x:Name="ManualBox" Text="{Binding ManualValue, UpdateSourceTrigger=PropertyChanged}" MinHeight="32" Padding="8,6,8,6" FontSize="13"
+                     FontFamily="{StaticResource Bz.Font.Mono}" VerticalContentAlignment="Center" Margin="0,0,8,0"
+                     Visibility="{Binding IsFreeText, Converter={StaticResource B2V}}"/>
+            <ComboBox x:Name="ManualPick" Style="{StaticResource Bz.Select}" ItemsSource="{Binding Options}" SelectedItem="{Binding ManualValue, Mode=TwoWay}"
+                      MinHeight="32" FontSize="13" Margin="0,0,8,0"
+                      Visibility="{Binding HasOptions, Converter={StaticResource B2V}}"/>
+            <Button Grid.Column="1" Content="{Binding WriteLabel}" Style="{StaticResource Bz.Btn.Primary}" MinHeight="32"
+                    IsEnabled="{Binding CanWriteManual}" Click="Write_Click"/>
+        </Grid>
+        <TextBlock Text="{Binding ManualError}" FontSize="12" LineHeight="17" Foreground="{StaticResource Bz.HighText}" TextWrapping="Wrap" Margin="0,6,0,0"
+                   Visibility="{Binding HasManualError, Converter={StaticResource B2V}}"/>
+        <TextBlock Text="{Binding Note}" FontSize="12" LineHeight="17" Foreground="{StaticResource Bz.Text2}" TextWrapping="Wrap" Margin="0,10,0,0"/>
+    </StackPanel>
+</UserControl>
