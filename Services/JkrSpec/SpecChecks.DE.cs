@@ -178,6 +178,7 @@ namespace RevitWebAppSync.Services.JkrSpec
         {
             const string id = "Db.1";
             if (m.Lod < PbCommonLoi) yield break;
+            var loi = SpecPbData.LoiOf(m.Lod);   // LOD 450 sits under the book's LOi 400 column
             var ok = new Dictionary<string, int>(StringComparer.Ordinal);
             foreach (var t in TypesIn(m, PbElementCategories))
             {
@@ -193,15 +194,15 @@ namespace RevitWebAppSync.Services.JkrSpec
                 var bad = empty.Count + missing.Count;
                 var list = string.Join(", ", empty);
                 var missList = string.Join(", ", missing);
-                var bm = $"{t.Category}: type '{t.TypeName}' — {bad}/{states.Count} parameter wajib LOi {m.Lod} tidak terisi"
+                var bm = $"{t.Category}: type '{t.TypeName}' — {bad}/{states.Count} parameter wajib LOi {loi} tidak terisi"
                          + (empty.Count > 0 ? $"; kosong: {list}" : "")
                          + (missing.Count > 0 ? $"; tiada pada type: {missList}" : "");
-                var en = $"{t.Category}: type '{t.TypeName}' — {bad}/{states.Count} mandatory LOi {m.Lod} parameters not filled"
+                var en = $"{t.Category}: type '{t.TypeName}' — {bad}/{states.Count} mandatory LOi {loi} parameters not filled"
                          + (empty.Count > 0 ? $"; empty: {list}" : "")
                          + (missing.Count > 0 ? $"; not on the type: {missList}" : "");
                 var actual = (empty.Count > 0 ? "kosong: " + list : "") + (empty.Count > 0 && missing.Count > 0 ? "; " : "")
                              + (missing.Count > 0 ? "tiada: " + missList : "");
-                yield return FailType(id, t, bm, en, SpecCoverage.FailOnly, actual: actual, required: "terisi (PB, LOi " + m.Lod + ")");
+                yield return FailType(id, t, bm, en, SpecCoverage.FailOnly, actual: actual, required: "terisi (PB, LOi " + loi + ")");
             }
             foreach (var kv in ok)
                 yield return Pass(id, $"{kv.Key}: {kv.Value} type: parameter wajib semua kategori AR (LOi {PbCommonLoi}+) terisi — senarai penuh per kategori belum disemak", kv.Value, SpecCoverage.FailOnly)

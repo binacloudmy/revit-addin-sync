@@ -259,6 +259,71 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 var noteEn = ContextEn(note);
                 return noteEn == null ? null : NoCheckEn + ". " + noteEn + tail;
             }
+            return LegacyRuleRemarkEn(s);
+        }
+
+        // Remarks of the legacy checkers whose Borang row no spec check answers
+        // (SpecReport.MapAudit gives null: views_template, area_plans, schedules_required), plus
+        // the "nothing to check" and "checker failed" remarks. They are the ones that still reach
+        // the Issues list once a spec verdict replaces the rest (AI-469). Written to match
+        // AuditCheckers.cs word for word; anything that does not match stays BM.
+        private static readonly Regex AreaPlansNo = new Regex(
+            @"^Peraturan: sekurang-kurangnya satu Area Plan untuk analisis ruang/zon\. Dijumpai 0 Area Plan dalam model — jana analisis ruang/zon daripada Area Plan\.$",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+        private static readonly Regex SchedulesNo = new Regex(
+            @"^Peraturan: nama jadual mengandungi \(termasuk awalan JKR\): (?<tokens>.+) / jadual komponen \((?<comp>[^)]*)\)\. Tiada nama jadual yang sepadan untuk: (?<missing>.+) \((?<n>\d+) jadual dalam model disemak\)\. Jana jadual tersebut\.$",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+        private const string ViewTemplateRuleEn = "every graphical view has a View Template";
+
+        private static readonly Regex ViewsTemplateNo = new Regex(
+            @"^Peraturan: setiap view grafik ada View Template\. (?<w>\d+)/(?<v>\d+) view tiada template \(cth: (?<names>.*?)\)\. Sapukan template daripada templat seni bina\."
+            + @"(?: (?<act>\d+) boleh tindakan, (?<un>\d+) tiada template jenis tersebut wujud dalam model \((?<types>[^)]*)\) — tidak boleh disapukan sehingga template jenis itu diwujudkan\.)?"
+            + @"(?: Senarai penuh (?<total>\d+) item ada dalam draft_export \(element_ids\)\.)?$",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+        private static readonly Regex ViewsTemplateUnactionable = new Regex(
+            @"^Peraturan: setiap view grafik ada View Template\. (?<ok>\d+)/(?<v>\d+) view ada template; (?<w>\d+) view tiada template tetapi tiada template jenis tersebut wujud dalam model \((?<types>[^;]*); cth: (?<names>.*?)\) — tidak boleh tindakan\. Wujudkan template jenis itu dahulu jika dikehendaki, kemudian semak semula\.$",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+        private static readonly Regex NothingViews = new Regex(
+            @"^Tiada view grafik dalam model, jadi peraturan ""setiap view grafik ada View Template"" tiada data untuk disemak \(0 diperiksa\) — semak manual\.$",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+        private static readonly Regex CheckerCrash = new Regex(
+            @"^Semakan automatik gagal \((?<id>[a-z_]+)\) — semak manual\.$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+        private static string LegacyRuleRemarkEn(string s)
+        {
+            if (AreaPlansNo.IsMatch(s))
+                return "Rule: at least one Area Plan for space / zone analysis. Found 0 Area Plans in the model — generate the space / zone analysis from an Area Plan.";
+            var m = SchedulesNo.Match(s);
+            if (m.Success)
+                return "Rule: a schedule name contains (including the JKR prefix): " + m.Groups["tokens"].Value + " / a component schedule (" + m.Groups["comp"].Value
+                    + "). No schedule name matches: " + m.Groups["missing"].Value + " (" + m.Groups["n"].Value + " schedules in the model checked). Generate those schedules.";
+            m = ViewsTemplateNo.Match(s);
+            if (m.Success)
+            {
+                var en = "Rule: " + ViewTemplateRuleEn + ". " + m.Groups["w"].Value + "/" + m.Groups["v"].Value + " views have no template (e.g. " + m.Groups["names"].Value
+                    + "). Apply the template from the architectural template.";
+                if (m.Groups["act"].Success)
+                    en += " " + m.Groups["act"].Value + " can be fixed, " + m.Groups["un"].Value + " have no template of their view type in the model (" + m.Groups["types"].Value
+                        + ") — they cannot be applied until a template of that type exists.";
+                if (m.Groups["total"].Success)
+                    en += " The full list of " + m.Groups["total"].Value + " items is in draft_export (element_ids).";
+                return en;
+            }
+            m = ViewsTemplateUnactionable.Match(s);
+            if (m.Success)
+                return "Rule: " + ViewTemplateRuleEn + ". " + m.Groups["ok"].Value + "/" + m.Groups["v"].Value + " views have a template; " + m.Groups["w"].Value
+                    + " have none, and no template of their view type exists in the model (" + m.Groups["types"].Value + "; e.g. " + m.Groups["names"].Value
+                    + ") — nothing can be done yet. Create a template of that type first if wanted, then check again.";
+            if (NothingViews.IsMatch(s))
+                return "There are no graphical views in the model, so the rule \"" + ViewTemplateRuleEn + "\" has nothing to check (0 checked) — semak manual.";
+            m = CheckerCrash.Match(s);
+            if (m.Success)
+                return "The automatic check failed (" + m.Groups["id"].Value + ") — semak manual.";
             return null;
         }
 
