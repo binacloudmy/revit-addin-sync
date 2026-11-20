@@ -34,6 +34,7 @@ namespace RevitAddinSync.Tests
         {
             var born = new HashSet<long>(preview.Deleted.Concat(preview.Modified).Where(missingAfterRollback.Contains));
             preview.BornFloor = BornIds.Floor(null, born, added);
+            preview.BornCount = born.Count;
             BornIds.Drop(preview, born);
             return preview;
         }
@@ -125,6 +126,15 @@ namespace RevitAddinSync.Tests
             Assert.Equal(new[] { Elbow }, preview.Deleted.ToArray());
             var commit = AtCommit(Shape(modified: new[] { Duct }, deleted: new long[] { Elbow, 1550640 }), preview.BornFloor);
             Assert.True(ShapeComparer.Compare(Array.Empty<WritePlan>(), preview, commit).IsMatch);
+        }
+
+        [Fact]
+        public void Workshared_DropsNoMoreBornIdsThanThePreviewProved()
+        {
+            Assert.True(BornIds.TrustedCount(2, 0, workshared: false));
+            Assert.True(BornIds.TrustedCount(2, 2, workshared: true));
+            Assert.False(BornIds.TrustedCount(3, 2, workshared: true));
+            Assert.False(BornIds.TrustedCount(1, 0, workshared: true));
         }
 
         [Fact]

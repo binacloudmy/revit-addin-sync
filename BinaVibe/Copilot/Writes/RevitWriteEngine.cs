@@ -233,6 +233,7 @@ namespace BinaVibe.Copilot.Writes
             {
                 var born = Missing(doc, outcome.Shape.Deleted.Concat(outcome.Shape.Modified));
                 outcome.Shape.BornFloor = BornIds.Floor(null, born, builder.AddedIds);
+                outcome.Shape.BornCount = born.Count;
                 if (born.Count > 0)
                 {
                     BornIds.Drop(outcome.Shape, born);
@@ -433,6 +434,9 @@ namespace BinaVibe.Copilot.Writes
                     // r18 (BornIds, live 4e70cf53): a deleted or modified id at or above the lowest id this write is known to have created
                     // (the preview's, or the commit's own additions) never existed before it: Revit's own transient element, not a drift.
                     var born = BornIds.AtOrAbove(shape.Deleted.Concat(shape.Modified), BornIds.Floor(preview.Shape?.BornFloor, null, builder.AddedIds));
+                    // Workshared: elements another user made arrive with their own ids, so the id order is trusted only as far as the preview
+                    // proved it (no more born ids than the preview found gone after its rollback); otherwise nothing is dropped.
+                    if (!BornIds.TrustedCount(born.Count, preview.Shape?.BornCount ?? 0, doc!.IsWorkshared)) born.Clear();
                     if (born.Count > 0)
                     {
                         BornIds.Drop(shape, born);

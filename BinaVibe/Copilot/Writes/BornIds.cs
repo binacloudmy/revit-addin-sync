@@ -43,6 +43,10 @@ namespace BinaVibe.Copilot.Writes
         public static HashSet<long> AtOrAbove(IEnumerable<long>? ids, long? floor) =>
             floor == null ? new HashSet<long>() : new HashSet<long>((ids ?? Enumerable.Empty<long>()).Where(id => id >= floor.Value));
 
+        /// <summary>Whether the commit may drop <paramref name="commitBorn"/> ids: always in a file of one user; in a workshared file only
+        /// as many as the preview proved born (<paramref name="previewBorn"/>), since elements synced from others carry ids of their own.</summary>
+        public static bool TrustedCount(int commitBorn, int previewBorn, bool workshared) => !workshared || commitBorn <= previewBorn;
+
         /// <summary>Takes <paramref name="born"/> out of the shape's existing-element sets (they were never existing elements).</summary>
         public static void Drop(BatchShape shape, ICollection<long> born)
         {
