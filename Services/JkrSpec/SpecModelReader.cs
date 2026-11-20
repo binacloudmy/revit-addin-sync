@@ -781,12 +781,14 @@ namespace RevitWebAppSync.Services.JkrSpec
             if (!t.MaterialFromTypeParamOnly) return;
             t.NoMaterialInstancesSampled = instances.Count > InstanceIdCap;
             var errors = 0;
+            var geoOpts = new Options { ComputeReferences = false, DetailLevel = ViewDetailLevel.Coarse };
             foreach (var e in instances.Take(InstanceIdCap))
             {
                 try
                 {
                     if (MaterialsLiveInSubElements(e)) continue;
                     if (e.GetMaterialIds(false).Count > 0) continue;
+                    if (GeometryHasMaterial(e, geoOpts)) continue;
                     t.NoMaterialInstanceCount++;
                     t.NoMaterialInstanceIds.Add(IdOf(e.Id));
                 }
@@ -794,6 +796,46 @@ namespace RevitWebAppSync.Services.JkrSpec
             }
             if (errors > 0)
                 readErrors.Add("Types/" + t.Category + " #" + t.TypeId + ": " + errors + " instance material read(s) failed; treated as having a material");
+        }
+
+        private const int GeometryWalkCap = 300;
+        private const int GeometryWalkDepth = 5;
+
+        /// <summary>AI-419: true when the element's own geometry — including nested GeometryInstances
+        /// (nested non-shared families in doors/windows) — has any face with a valid MaterialElementId.
+        /// The walk is capped (objects and depth); if the cap is hit before a material is found the answer
+        /// is true (unknown = has a material, the safe direction). Read-only, no transaction. UNVERIFIED live.</summary>
+        private static bool GeometryHasMaterial(Element e, Options opts)
+        {
+            var geo = e.get_Geometry(opts);
+            if (geo == null) return false;
+            var budget = GeometryWalkCap;
+            var found = WalkForMaterial(geo, 0, ref budget);
+            return found || budget <= 0;
+        }
+
+        private static bool WalkForMaterial(GeometryElement geo, int depth, ref int budget)
+        {
+            foreach (var obj in geo)
+            {
+                if (--budget <= 0) return false;
+                if (obj is Solid solid)
+                {
+                    if (solid.Faces.Size == 0) continue;
+                    foreach (Face f in solid.Faces)
+                    {
+                        if (--budget <= 0) return false;
+                        var mid = f.MaterialElementId;
+                        if (mid != null && mid != ElementId.InvalidElementId) return true;
+                    }
+                }
+                else if (obj is GeometryInstance gi && depth < GeometryWalkDepth)
+                {
+                    if (WalkForMaterial(gi.GetSymbolGeometry(), depth + 1, ref budget)) return true;
+                    if (budget <= 0) return false;
+                }
+            }
+            return false;
         }
 
         /// <summary>Elements whose materials sit in sub-elements, so their own GetMaterialIds is not the
