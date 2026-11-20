@@ -159,7 +159,12 @@ namespace RevitWebAppSync.UI.Jkr.Modals
                 {
                     var cells = RowCells(i);
                     for (int c = 0; c < cells.Length; c++)
-                        ws.Cell(row, c + 1).Value = cells[c];
+                    {
+                        // SetValue(string) = explicit text: a "=..." / "+..." model name is stored as a string, never parsed
+                        // as a formula. No apostrophe here (that guard is for CSV).
+                        var xc = ws.Cell(row, c + 1);
+                        xc.SetValue(cells[c] ?? "");
+                    }
                     row++;
                 }
 

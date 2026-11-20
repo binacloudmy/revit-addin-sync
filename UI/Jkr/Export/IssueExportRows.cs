@@ -96,10 +96,24 @@ namespace RevitWebAppSync.UI.Jkr.Export
             return sb + Pick($" +{ids.Count - kept} lagi", $" +{ids.Count - kept} more");
         }
 
+        /// <summary>Spreadsheet formula guard for CSV cells (OWASP CSV injection): text whose first
+        /// non-space character is = + - or @, or that starts with TAB or CR, gets a leading
+        /// apostrophe so Excel reads it as text, not as a formula. The xlsx writer does not use
+        /// this: it writes the cell as explicit text, without the apostrophe.</summary>
+        public static string Guard(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return s ?? "";
+            if (s[0] == '\t' || s[0] == '\r') return "'" + s;
+            int k = 0;
+            while (k < s.Length && s[k] == ' ') k++;
+            if (k < s.Length && (s[k] == '=' || s[k] == '+' || s[k] == '-' || s[k] == '@')) return "'" + s;
+            return s;
+        }
+
         public static string CsvCell(string s)
         {
-            s = s ?? "";
-            if (s.Contains(",") || s.Contains("\"") || s.Contains("\n"))
+            s = Guard(s);
+            if (s.Contains(",") || s.Contains("\"") || s.Contains("\n") || s.Contains("\r"))
                 return "\"" + s.Replace("\"", "\"\"") + "\"";
             return s;
         }
