@@ -76,8 +76,8 @@ namespace BinaVibe.Copilot.Writes
         /// <summary>r18 (BornIds): the lowest id known to be created inside this write (a preview's), or null. A deleted or modified id at or
         /// above it never existed before the write.</summary>
         public long? BornFloor;
-        /// <summary>r18: how many deleted or modified ids the preview proved born (gone after its rollback).</summary>
-        public int BornCount;
+        /// <summary>r18: the deleted or modified ids the preview proved born (gone after its rollback), for the workshared pairing.</summary>
+        public List<long> Born = new();
 
         public string CategoryOfId(long id) => CategoryOf.TryGetValue(id, out var c) && !string.IsNullOrWhiteSpace(c) ? c : "Other";
 

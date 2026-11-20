@@ -35,7 +35,7 @@ namespace RevitAddinSync.Tests
             var touched = preview.Deleted.Concat(preview.Modified).ToList();
             var born = BornIds.Proven(touched.Where(missingAfterRollback.Contains), touched.Where(id => !missingAfterRollback.Contains(id)).Append(Duct));
             preview.BornFloor = BornIds.Floor(null, born, added);
-            preview.BornCount = born.Count;
+            preview.Born = born.OrderBy(i => i).ToList();
             BornIds.Drop(preview, born);
             return preview;
         }
@@ -143,12 +143,18 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void Workshared_DropsNoMoreBornIdsThanThePreviewProved()
+        public void Workshared_DropsOnlyIdsThatPairWithThePreviewsBornIds()
         {
-            Assert.True(BornIds.TrustedCount(2, 0, workshared: false));
-            Assert.True(BornIds.TrustedCount(2, 2, workshared: true));
-            Assert.False(BornIds.TrustedCount(3, 2, workshared: true));
-            Assert.False(BornIds.TrustedCount(1, 0, workshared: true));
+            var preview = new long[] { 1550618, 1550619 };
+            // 4e70cf53's shape: same count, same gap, both at offset 0 from their run's floor.
+            Assert.True(BornIds.Paired(new long[] { 1550635, 1550636 }, preview, 1550618, 1550635, workshared: true));
+            Assert.True(BornIds.Paired(new long[] { 1550635, 1550699 }, preview, 1550618, 1550635, workshared: false));   // one user: id order holds
+            Assert.False(BornIds.Paired(new long[] { 1550635, 1550699 }, preview, 1550618, 1550635, workshared: true));   // another gap
+            Assert.False(BornIds.Paired(new long[] { 1550635, 1550636, 1550637 }, preview, 1550618, 1550635, workshared: true));   // more ids
+            Assert.False(BornIds.Paired(new long[] { 1550635 }, preview, 1550618, 1550635, workshared: true));   // fewer ids
+            Assert.False(BornIds.Paired(new long[] { 1550640, 1550641 }, preview, 1550618, 1550635, workshared: true));   // another offset
+            Assert.False(BornIds.Paired(new long[] { 1550635, 1550636 }, new long[0], 1550610, 1550635, workshared: true));   // none proven
+            Assert.True(BornIds.Paired(new long[0], preview, 1550618, null, workshared: true));   // nothing to drop
         }
 
         [Fact]

@@ -236,7 +236,7 @@ namespace BinaVibe.Copilot.Writes
                 var born = BornIds.Proven(missing, touchedIds.Where(id => !missing.Contains(id))
                     .Concat(writePlans.SelectMany(p => p.TargetIds ?? Array.Empty<long>())));
                 outcome.Shape.BornFloor = BornIds.Floor(null, born, builder.AddedIds);
-                outcome.Shape.BornCount = born.Count;
+                outcome.Shape.Born = born.OrderBy(id => id).ToList();
                 if (born.Count > 0)
                 {
                     BornIds.Drop(outcome.Shape, born);
@@ -437,9 +437,10 @@ namespace BinaVibe.Copilot.Writes
                     // r18 (BornIds, live 4e70cf53): a deleted or modified id at or above the lowest id this write is known to have created
                     // (the preview's, or the commit's own additions) never existed before it: Revit's own transient element, not a drift.
                     var born = BornIds.AtOrAbove(shape.Deleted.Concat(shape.Modified), BornIds.Floor(preview.Shape?.BornFloor, null, builder.AddedIds));
-                    // Workshared: elements another user made arrive with their own ids, so the id order is trusted only as far as the preview
-                    // proved it (no more born ids than the preview found gone after its rollback); otherwise nothing is dropped.
-                    if (!BornIds.TrustedCount(born.Count, preview.Shape?.BornCount ?? 0, doc!.IsWorkshared)) born.Clear();
+                    // Workshared: elements another user made arrive with their own ids, so ids are dropped only when they pair position by
+                    // position with the preview's proven born ids (same count, gaps and offset from each run's floor); otherwise none is.
+                    if (!BornIds.Paired(born, preview.Shape?.Born, preview.Shape?.BornFloor, BornIds.Floor(null, born, builder.AddedIds), doc!.IsWorkshared))
+                        born.Clear();
                     if (born.Count > 0)
                     {
                         BornIds.Drop(shape, born);

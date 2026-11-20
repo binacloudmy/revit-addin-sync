@@ -17,8 +17,12 @@
 //   - Commit: Revit gives a new element an id above every id in the document, and nothing changed the model between the preview and
 //     the commit (the external revision is checked first), so a deleted or modified id at or above the floor (or above the commit's
 //     own lowest addition) cannot be an element that existed before: it is dropped too. Below the floor nothing is dropped, so a real
-//     element elsewhere in the model that Revit removed still drifts and rolls back. With no floor (the preview created nothing) the
-//     old refusal stands.
+//     element elsewhere in the model that Revit removed still drifts and rolls back. The floor is the lowest of the preview's new ids
+//     and the commit's own additions: when the preview made nothing, the commit's lowest addition still sets one, and only when
+//     neither made anything (no floor at all) is nothing dropped and the old refusal stands.
+//   - Workshared file: elements synced from others carry ids of their own, so the commit drops ids only when they pair with the
+//     preview's proven born ids position by position (Paired): the same count, the same gaps between them, and the same offset from
+//     each run's floor. Any other shape drops nothing and the commit rolls back.
 
 using System;
 using System.Collections.Generic;
@@ -52,9 +56,21 @@ namespace BinaVibe.Copilot.Writes
         public static HashSet<long> AtOrAbove(IEnumerable<long>? ids, long? floor) =>
             floor == null ? new HashSet<long>() : new HashSet<long>((ids ?? Enumerable.Empty<long>()).Where(id => id >= floor.Value));
 
-        /// <summary>Whether the commit may drop <paramref name="commitBorn"/> ids: always in a file of one user; in a workshared file only
-        /// as many as the preview proved born (<paramref name="previewBorn"/>), since elements synced from others carry ids of their own.</summary>
-        public static bool TrustedCount(int commitBorn, int previewBorn, bool workshared) => !workshared || commitBorn <= previewBorn;
+        /// <summary>Whether the commit may drop <paramref name="commitBorn"/>: always in a file of one user. In a workshared file only when
+        /// they pair position by position with the preview's proven <paramref name="previewBorn"/>: the same count, the same gaps, and the
+        /// same offset from each run's floor (<paramref name="previewFloor"/>: the preview's lowest new id; <paramref name="commitFloor"/>:
+        /// the lowest of the commit's additions and these ids). Anything else is not a sound pairing: drop nothing.</summary>
+        public static bool Paired(IEnumerable<long>? commitBorn, IEnumerable<long>? previewBorn, long? previewFloor, long? commitFloor, bool workshared)
+        {
+            if (!workshared) return true;
+            var c = (commitBorn ?? Enumerable.Empty<long>()).Distinct().OrderBy(i => i).ToList();
+            var p = (previewBorn ?? Enumerable.Empty<long>()).Distinct().OrderBy(i => i).ToList();
+            if (c.Count == 0) return true;   // nothing to drop
+            if (c.Count != p.Count || previewFloor == null || commitFloor == null) return false;
+            for (var k = 0; k < c.Count; k++)
+                if (c[k] - commitFloor.Value != p[k] - previewFloor.Value) return false;
+            return true;
+        }
 
         /// <summary>Takes <paramref name="born"/> out of the shape's existing-element sets (they were never existing elements).</summary>
         public static void Drop(BatchShape shape, ICollection<long> born)
