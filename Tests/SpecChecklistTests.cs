@@ -248,9 +248,9 @@ namespace RevitWebAppSync.Tests
             Assert.Contains(r.For("A6.3").IssueIds, id => id == "BIM010-A6");
 
             // Level naming, JKR code, BPEP and "every view has a template" are not spec checks.
-            Assert.Equal(4, r.OtherFailing);
+            Assert.Equal(3, r.OtherFailing);
             Assert.Contains(r.Others, o => o.Where == "Borang C1.1" && o.Failed == 1);
-            Assert.Contains(r.Others, o => o.Rule == "Level naming convention" && o.Failed == 1);
+            Assert.Contains(r.Others, o => o.Rule == "Level naming convention" && o.Failed == 1 && o.InfoOnly);   // listed, not counted as failing (AI-412)
         }
 
         [Fact]
@@ -580,7 +580,7 @@ namespace RevitWebAppSync.Tests
             Assert.Equal("1 / 1 check passes\n(manual checks not counted)", SpecChecklist.Plural("hResults", PanelStrings.En, 1, 1, 1));
             Assert.Equal(" 1 other JKR rule also fails.", SpecChecklist.Plural("vOthers", PanelStrings.En, 1));
             Assert.Equal(" 4 other JKR rules also fail.", SpecChecklist.Plural("vOthers", PanelStrings.En, 4));
-            Assert.Equal("4 other JKR rules (not in the spec) also fail — see below.", SpecChecklist.OthersNote(Report("jkr_run_failing.json"), PanelStrings.En));
+            Assert.Equal("3 other JKR rules (not in the spec) also fail — see below.", SpecChecklist.OthersNote(Report("jkr_run_failing.json"), PanelStrings.En));
             Assert.DoesNotContain("(s)", SpecChecklist.VerdictText(Report("jkr_run_failing.json"), PanelStrings.En));
         }
 

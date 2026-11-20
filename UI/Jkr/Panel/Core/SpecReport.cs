@@ -138,7 +138,10 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public string Rule = "";
         public int Passed, Failed, Unjudged;
         public List<string> IssueIds = new List<string>();
-        public SpecState State => Failed > 0 ? SpecState.Fail : Unjudged > 0 ? SpecState.NeedsPerson : SpecState.Pass;
+        /// <summary>Legacy-only rule that is information only (<see cref="SpecReport.IsInfoOnlyLegacyRule"/>):
+        /// its findings never count as a fail; a person reads them (AI-412).</summary>
+        public bool InfoOnly;
+        public SpecState State => Failed > 0 && !InfoOnly ? SpecState.Fail : Failed > 0 || Unjudged > 0 ? SpecState.NeedsPerson : SpecState.Pass;
     }
 
     public sealed class SpecSectionCount
@@ -501,7 +504,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                     var rl = r.Rule ?? "";
                     if (rl.Length == 0 && source == Model) rl = (r.CheckId ?? "").Trim();
                     var key = where + "\u0001" + rl;
-                    if (!others.TryGetValue(key, out var o)) others[key] = o = new OtherResult { Where = where, Rule = rl };
+                    if (!others.TryGetValue(key, out var o)) others[key] = o = new OtherResult { Where = where, Rule = rl, InfoOnly = IsInfoOnlyLegacyRule(rl) };
                     if (IsPass(r.Status)) o.Passed++;
                     else
                     {
@@ -644,6 +647,14 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
 
         /// <summary>Several backend results of one <see cref="BackendOneResultChecks"/> check, as one.</summary>
         private sealed class OneResult { public bool Passed, Partly, Failed, Unjudged; }
+
+        /// <summary>
+        /// Legacy backend rules with no JKR spec check that are information only (Director
+        /// ruling 2026-11-20, reversible): "Level Naming Convention L##". Their issues are
+        /// needs-a-person, and they are not counted as failing under Others.
+        /// </summary>
+        public static bool IsInfoOnlyLegacyRule(string rule) =>
+            (rule ?? "").Trim().StartsWith("Level Naming Convention", StringComparison.OrdinalIgnoreCase);
 
         /// <summary>Where an unmapped result is listed under Others.</summary>
         private static string WhereOf(SpecResult r, string source)

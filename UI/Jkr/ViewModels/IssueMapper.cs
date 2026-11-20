@@ -69,7 +69,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// ruling 2026-11-20 (reversible): "Level Naming Convention L##".
         /// </summary>
         public static bool IsInfoOnlyLegacyRule(string rule) =>
-            (rule ?? "").Trim().StartsWith("Level Naming Convention", StringComparison.OrdinalIgnoreCase);
+            RevitWebAppSync.UI.Jkr.Panel.Core.SpecReport.IsInfoOnlyLegacyRule(rule);
 
         public static IssueVm FromDto(ComplianceIssueDto dto)
         {

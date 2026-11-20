@@ -141,5 +141,30 @@ namespace RevitWebAppSync.Tests
             var other = IssueMapper.FromDto(new ComplianceIssueDto { IssueId = "x", Category = "Doors", Rule = "Naming convention", Status = "fail", ElementId = 1 });
             Assert.Equal(IssueVerification.Ai, other.Verification);
         }
+
+        [Fact]
+        public void Info_only_L_finding_is_not_counted_as_another_JKR_rule_that_fails()   // Director ruling, reversible
+        {
+            var r = SpecReport.Build(new[]
+            {
+                new SpecResult { Source = SpecReport.Backend, Category = "Levels", Rule = "Level Naming Convention L##", Status = "fail", ElementId = 77, ElementCount = 1, IssueId = "lv1" },
+            });
+            var o = Assert.Single(r.Others);
+            Assert.True(o.InfoOnly);
+            Assert.NotEqual(SpecState.Fail, o.State);
+            Assert.Equal(0, r.OtherFailing);
+            Assert.Equal("", SpecChecklist.OthersNote(r, PanelStrings.En));
+            Assert.DoesNotContain("other JKR rule", SpecChecklist.VerdictTitle(r, PanelStrings.En));
+            Assert.Contains("lv1", o.IssueIds);   // still listed
+
+            // A real unmapped backend fail still counts.
+            var real = SpecReport.Build(new[]
+            {
+                new SpecResult { Source = SpecReport.Backend, Category = "Levels", Rule = "Level Naming Convention L##", Status = "fail", ElementId = 77, ElementCount = 1, IssueId = "lv1" },
+                new SpecResult { Source = SpecReport.Backend, Category = "Zones", Rule = "Some other unmapped rule", Status = "fail", ElementId = 78, ElementCount = 1, IssueId = "z1" },
+            });
+            Assert.Equal(1, real.OtherFailing);
+            Assert.Contains("1 other JKR rule", SpecChecklist.VerdictTitle(real, PanelStrings.En) + SpecChecklist.OthersNote(real, PanelStrings.En));
+        }
     }
 }
