@@ -41,6 +41,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
             if (card.Kind == ResultKind.Created && card.Created.Count > 0)
             {
                 var what = card.CreatedBy?.Headline(lang) ?? N(card.Created.Count);
+                if (ms) what = StepDetailText.MalayNames(what);  // r17: "1 jadual dibuang.", never "1 Schedule" in a Malay turn (live 646bdf7f)
                 return (title, (ms ? what + " dibuang." : what + " removed.") + nothing);
             }
             return (title, "");
