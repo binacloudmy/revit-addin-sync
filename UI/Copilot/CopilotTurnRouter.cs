@@ -668,7 +668,7 @@ namespace RevitWebAppSync.UI.Copilot
                     var env = i < envelopes.Length ? envelopes[i] : null;
                     var ok = env != null && (env.Ok || env.Status == EnvelopeStatus.Rejected);
                     _turn.Step("call:" + request.Calls[i].CallId, "tool", "", ok ? StepState.Done : StepState.Error,
-                        detail: env == null ? null : Trim(env.Summary, 140));
+                        detail: env == null ? null : Trim(RevitWebAppSync.UI.Copilot.Model.StepDetailText.Of(env.Summary), 140));
                     if (ok) _turn.Annotate("call:" + request.Calls[i].CallId, outcome: RunningCard.OutcomeText(request.Calls[i].Tool, env?.Count, ms));
                 }
                 var budget = _router._client.ActiveBudget;

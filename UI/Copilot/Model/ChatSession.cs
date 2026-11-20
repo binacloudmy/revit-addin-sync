@@ -313,7 +313,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 Envelope? env = i < envelopes.Count ? envelopes[i] : null;
                 var ok = env != null && (env.Ok || env.Status == EnvelopeStatus.Rejected);
                 turn.Step("call:" + request.Calls[i].CallId, "tool", "", ok ? StepState.Done : StepState.Error,
-                    detail: env == null ? null : Trim(env.Summary, 140));
+                    detail: env == null ? null : Trim(StepDetailText.Of(env.Summary), 140));
             }
             if (!string.IsNullOrEmpty(budgetText)) turn.Budget(budgetText!);
         }
