@@ -304,7 +304,7 @@ namespace RevitWebAppSync.UI.Copilot
             // The turn's snapshot: sent once, then handed to every tool request (C1). Where the tools can, the view is re-read first (a tab
             // switch a moment ago must not leave the turn on the previous view).
             turn.Snapshot = SafeSnapshot();
-            turn.Mentions = MentionWire.InText(mentions, message);
+            turn.Mentions = mentions;   // the composer's chips at send time (MentionChips.Records after Reconcile): only chips still in the message
             turn.CommandId = string.IsNullOrWhiteSpace(commandId) ? null : commandId!.Trim();
             var text = (message ?? "") + TurnNote();
             if (_tools is ISnapshotRefresher fresh) return StartWithFreshViewAsync(turn, text, attachments, fresh);

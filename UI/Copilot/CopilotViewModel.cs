@@ -513,7 +513,7 @@ namespace RevitWebAppSync.UI.Copilot
                     if (Thread[i].Kind == CpMsgKind.SignIn) Thread.RemoveAt(i);
                 var pending = _pendingAfterSignIn; _pendingAfterSignIn = null;
                 var slash = _pendingSlashAfterSignIn; _pendingSlashAfterSignIn = null;
-                if (pending != null) ChatSend(pending.Text, pending.ImagesBase64, pending.Files, slash, displayText: pending.DisplayText);
+                if (pending != null) ChatSend(pending.Text, pending.ImagesBase64, pending.Files, slash, displayText: pending.DisplayText, mentions: pending.Mentions);
             }));
         }
 
@@ -558,7 +558,7 @@ namespace RevitWebAppSync.UI.Copilot
             card.PrimaryAction = primary ?? (() =>
             {
                 var pending = _pendingAfterSignIn; _pendingAfterSignIn = null;
-                if (pending != null) ChatSend(pending.Text, pending.ImagesBase64, pending.Files, _pendingSlashAfterSignIn, displayText: pending.DisplayText);
+                if (pending != null) ChatSend(pending.Text, pending.ImagesBase64, pending.Files, _pendingSlashAfterSignIn, displayText: pending.DisplayText, mentions: pending.Mentions);
             });
             return card;
         }
@@ -637,7 +637,7 @@ namespace RevitWebAppSync.UI.Copilot
                 });
                 return;
             }
-            ChatSend(q.Text, q.ImagesBase64, q.Files, displayText: q.DisplayText);
+            ChatSend(q.Text, q.ImagesBase64, q.Files, displayText: q.DisplayText, mentions: q.Mentions);
         }
         private string _runStatus = "Ready";
         public string RunStatus
@@ -670,15 +670,14 @@ namespace RevitWebAppSync.UI.Copilot
 
         // ─── Chat ──────────────────────────────────────────────────────────────
 
-        private List<Mention> _pendingMentions;
         private string _pendingCommandId;
 
         /// <summary>Command entry: the PromptBar sends a PromptPayload when
         /// screenshots are attached; chips/follow-ups still send a plain string.</summary>
         private void ChatSendAny(object p)
         {
-            _pendingMentions = (p as PromptPayload)?.Mentions;   // r17: consumed by the next turn start only
-            if (p is PromptPayload pp) ChatSend(pp.Text, pp.ImagesBase64, pp.Files, displayText: pp.DisplayText);
+            // r17: the @ mentions travel with this message as data (the composer's chips at send time), never kept for a later turn.
+            if (p is PromptPayload pp) ChatSend(pp.Text, pp.ImagesBase64, pp.Files, displayText: pp.DisplayText, mentions: pp.Mentions);
             else ChatSend(p as string);
         }
 
@@ -708,7 +707,7 @@ namespace RevitWebAppSync.UI.Copilot
         /// from what is sent (@ chips: "@PTh300a" in the thread, "Pintu Tunggal:
         /// PTh300a (door type)" to the backend). Null: the thread shows <paramref name="text"/>.</param>
         public void ChatSend(string text, List<string> images = null, List<FileAttachment> files = null,
-            SlashTool slashChip = null, Dictionary<string, object> commandArgs = null, string displayText = null)
+            SlashTool slashChip = null, Dictionary<string, object> commandArgs = null, string displayText = null, List<Mention> mentions = null)
         {
             text = (text ?? "").Trim();
             string shown = string.IsNullOrWhiteSpace(displayText) ? text : displayText.Trim();
@@ -723,7 +722,7 @@ namespace RevitWebAppSync.UI.Copilot
                 // A plain prompt queues behind the running turn (one slot: the latest
                 // wins); a slash command still waits for the drafter to retry.
                 var queue = slashChip == null && text.Length > 0;
-                if (queue) _queued = new PromptPayload { Text = text, ImagesBase64 = images, Files = files, DisplayText = displayText };
+                if (queue) _queued = new PromptPayload { Text = text, ImagesBase64 = images, Files = files, DisplayText = displayText, Mentions = mentions };
                 Thread.Add(new ChatMessage
                 {
                     Role = "ai", Kind = CpMsgKind.AiReply,
@@ -800,7 +799,7 @@ namespace RevitWebAppSync.UI.Copilot
                 // re-sent after sign-in (OnSessionChanged). The old bubble here
                 // named "BINA Cloud → Login" - the CDE sign-in, which never mints
                 // the engine token - and had nothing to click.
-                _pendingAfterSignIn = new PromptPayload { Text = text, ImagesBase64 = images, Files = files, DisplayText = displayText };
+                _pendingAfterSignIn = new PromptPayload { Text = text, ImagesBase64 = images, Files = files, DisplayText = displayText, Mentions = mentions };
                 _pendingSlashAfterSignIn = slashChip;
                 Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = shown, SlashCommand = slashChip });
                 Thread.Add(SignInCard());   // locks the composer; "Not now" or sign-in unlocks
@@ -828,7 +827,7 @@ namespace RevitWebAppSync.UI.Copilot
             var routeTextOverride = slashChip != null ? SlashPrompt(slashChip, text, commandArgs) : null;
             _pendingCommandId = ToolCatalog.WireCommandId(slashChip);
             Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Thinking, Text = "Thinking…" });
-            _ = SendWithAttachmentsAsync(routeTextOverride ?? text, files, interp.ToolId, images, text);
+            _ = SendWithAttachmentsAsync(routeTextOverride ?? text, files, interp.ToolId, images, text, mentions);
         }
 
         /// <summary>Read any binary attachments locally (the addin does it — Revit
@@ -838,7 +837,7 @@ namespace RevitWebAppSync.UI.Copilot
         /// than a frozen pane.</summary>
         private async System.Threading.Tasks.Task SendWithAttachmentsAsync(
             string text, List<FileAttachment> files, string fallbackToolId,
-            List<string> images, string displayText = null)
+            List<string> images, string displayText = null, List<Mention> mentions = null)
         {
             await ResolveDrawingAttachmentsAsync(files);
             await ResolveDocumentAttachmentsAsync(files);
@@ -857,7 +856,7 @@ namespace RevitWebAppSync.UI.Copilot
             var documents = ResolvePdfPages(files);   // AI-297: the pages travel as attachments, not inside the prompt
             RememberSourceFiles(files);
             string routeText = BuildRouteText(text, files);
-            await ResolveProposalAsync(routeText, displayText ?? text, fallbackToolId, images, historyFiles, tables, documents);
+            await ResolveProposalAsync(routeText, displayText ?? text, fallbackToolId, images, historyFiles, tables, documents, mentions);
         }
 
         // The attached PDFs by name, so a result row's Source panel can draw the page it cites (board 4).
@@ -1151,7 +1150,8 @@ namespace RevitWebAppSync.UI.Copilot
         }
 
         private async System.Threading.Tasks.Task ResolveProposalAsync(string routeText, string displayText, string fallbackToolId,
-            List<string> images = null, List<HistoryFile> historyFiles = null, List<TableData> tables = null, List<DocumentData> documents = null)
+            List<string> images = null, List<HistoryFile> historyFiles = null, List<TableData> tables = null, List<DocumentData> documents = null,
+            List<Mention> mentions = null)
         {
             RouteResult rr = null;
             if (Router != null)
@@ -1165,10 +1165,9 @@ namespace RevitWebAppSync.UI.Copilot
                     router.PendingImages = images;
                     router.PendingTables = tables;
                     router.PendingDocuments = documents;
-                    router.PendingMentions = MentionWire.For(_pendingMentions);
+                    router.PendingMentions = MentionWire.For(mentions);
                     router.PendingCommandId = _pendingCommandId;
                 }
-                _pendingMentions = null;
                 _pendingCommandId = null;
                 IsSending = true;   // send button shows Stop until the reply resolves
                 try { rr = await Router.RouteAsync(routeText, fallbackToolId); }

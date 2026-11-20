@@ -2,7 +2,8 @@
 // r17, tester 20 Nov: "check the MENTION (@) function". A picked mention reached the cloud only as words in the message; the add-in built
 // a list of mentions and dropped it. The turn now carries them as structured context (TurnRequestDto.mentions): kind, the text it put in
 // the message and, for a level, view or sheet, the element id the picker read, so "open @view" opens that exact view and "@level" places
-// on that level. Pure (no WPF).
+// on that level. Which mentions ride along is decided by the composer's chips (MentionChips.Records after Expand reconciles them
+// with the text), passed down with the message as data: the message text is never searched for them (EnvelopeEnumTests). Pure (no WPF).
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -24,14 +25,6 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 .Select(m => new MentionDto { Kind = m.Kind.Trim(), Name = m.Value.Trim(), Id = m.Id })
                 .ToList();
             return list.Count == 0 ? null : list;
-        }
-
-        /// <summary>Only the mentions whose text is in the message sent (a stale list from an earlier message never rides along); null for none.</summary>
-        public static List<MentionDto>? InText(List<MentionDto>? mentions, string? message)
-        {
-            if (mentions == null || string.IsNullOrEmpty(message)) return null;
-            var kept = mentions.Where(m => m.Kind == "selection" || message!.IndexOf(m.Name, StringComparison.Ordinal) >= 0).ToList();
-            return kept.Count == 0 ? null : kept;
         }
     }
 }

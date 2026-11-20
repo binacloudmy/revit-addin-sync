@@ -29,12 +29,19 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void InText_DropsMentionsTheMessageNoLongerHolds()
+        public void Records_HoldOnlyTheChipsStillInTheMessage()
         {
-            var wire = MentionWire.For(new List<Mention> { new Mention("view", "Level 1", 5), new Mention("level", "Level 2", 6), new Mention("selection", "the 3 selected walls") })!;
-            var kept = MentionWire.InText(wire, "open Level 1")!;
-            Assert.Equal(new[] { "Level 1", "the 3 selected walls" }, kept.ConvertAll(m => m.Name).ToArray());
-            Assert.Null(MentionWire.InText(wire, ""));
+            // Which mentions travel is decided by the composer's chips, not by searching the sent text: a chip the drafter
+            // typed over is no chip at send time (Expand reconciles), so Records leaves it out.
+            var chips = new MentionChips();
+            var (text, _) = chips.Insert("open @", 5, 6, new MentionItem { Kind = "view", Name = "Level 1", Node = new MentionNode("view", "Level 1") { ElementId = 5 } });
+            (text, _) = chips.Insert(text + "and @", text.Length + 4, text.Length + 5, new MentionItem { Kind = "level", Name = "Level 2", Node = new MentionNode("level", "Level 2") { ElementId = 6 } });
+            Assert.Equal(2, chips.Records().Count);
+            var edited = text.Replace("Level 2", "Lvl 2");   // set from code: the second chip no longer reads as itself
+            chips.Expand(edited);
+            var rec = MentionWire.For(chips.Records())!;
+            Assert.Single(rec);
+            Assert.Equal(5L, rec[0].Id);
         }
 
         [Fact]
