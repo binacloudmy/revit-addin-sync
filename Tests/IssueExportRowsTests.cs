@@ -76,6 +76,17 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
+        public void Legacy_BIM010_issue_on_a_row_a_spec_issue_covers_is_not_written()
+        {
+            var spec = new IssueVm { Id = "s1", CheckId = "SPEC-A1.1", BorangKey = "A1", Status = IssueStatus.Open };
+            var dup = new IssueVm { Id = "l1", CheckId = "BIM010-A1", BorangKey = "A1", Status = IssueStatus.Open };
+            var only = new IssueVm { Id = "l2", CheckId = "BIM010-C9", BorangKey = "C9", Status = IssueStatus.Open };
+            var written = IssueExportRows.Select(new[] { spec, dup, only }, true, true).Select(x => x.Id).ToArray();
+            Assert.Equal(new[] { "s1", "l2" }, written);
+            Assert.Equal(2, IssueExportRows.DefaultCount(new[] { spec, dup, only }));
+        }
+
+        [Fact]
         public void Nine_columns_and_csv_quoting()
         {
             Assert.Equal(9, IssueExportRows.Header.Length);
