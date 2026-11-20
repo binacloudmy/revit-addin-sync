@@ -233,6 +233,7 @@ A run layer row plans no runs and is listed under the conduit block's `unplanned
 | `level` | string | Overrides the plan rows and the fit's choice |
 | `cluster` | int | Census plan cluster; else the only plan row with a level, else the only cluster, else `cluster_needed` |
 | `pick` | int | Chooses one of several identical copies of the floor (see rivals) |
+| `link_id` | int | A CAD link or import in the model, moved onto the building by the user. The drawing is placed where its transform puts it, and the fit is not run. See **Positioned link**. |
 | `run_height_mm` | number | Height of conduit and trunking runs above the level, -1000 to 10000, for run rows that give none. Never defaulted. Out of range: `bad_run_height`. |
 | `include_points` | bool | Diagnostic: adds `points`, `dropped` and `runs`, at most 2000 rows each. Not exposed to the AI. |
 
@@ -248,12 +249,20 @@ A run layer row plans no runs and is listed under the conduit block's `unplanned
 5. **Fit the drawing to the model's walls on that level** (`CadModelFit`).
    - The drawing's wall centrelines are fitted on the model's structural walls first. Walls of 50 mm or less are finishes and are left out, unless fewer than 4 walls would remain.
    - Then wall faces are tried.
-   - Under 0.50 the call fails with `alignment_failed` and tells the user to link the DWG, move it onto the building and call again.
+   - When both fail, a positioned link of the same drawing is tried (see **Positioned link**).
+   - Under 0.50, with no link to place from, the call fails with `alignment_failed` and tells the user to link the DWG, move it onto the building and call again.
+   - With `link_id`, the link's position is used instead of the fit.
 6. **Resolve each placeable symbol inside the footprint** to a point (`CadSymbolResolve`), then flag duplicates.
 7. **Plan the runs** of the conduit and trunking layers (section 7).
 8. **Store the plan** (`socket_plan:` id, 2 hours) and return the review.
 
-**Fit outcomes:** `accepted` at a score of 0.80 or more, `provisional` at 0.50 or more, otherwise `failed`. A provisional fit flags every point `provisional_alignment` and adds a note.
+**Fit outcomes:** `accepted` at a score of 0.80 or more, `provisional` at 0.50 or more, otherwise `failed`. A provisional fit flags every point `provisional_alignment` and adds a note. A positioned link has its own bands (see **Positioned link**).
+
+**`alignment_failed` fields:** `level`, `cluster`, `score`, `score_uncropped`, `inside_share`, `method` (`fit` or `fit_faces`), and where the fit came closest:
+- `best_rotation_deg`, in (-180, 180];
+- `best_tx_mm`, `best_ty_mm`.
+
+A link put at the origin unturned and moved by (`best_tx_mm`, `best_ty_mm`, 0) lies there, when `best_rotation_deg` is 0. `crop_too_small` carries the same fields. `links_tried` is added when links of the drawing were measured and ignored.
 
 **What provisional means:** a provisional fit is *not* a misalignment. The drawing very likely sits correctly on the level; only the wall overlap score is below the confident threshold (a drawing's walls rarely match the model's exactly). The points are placed and flagged so the drafter can spot-check a few. Do not tell the user the DWG is not aligned. The review's `alignment.meaning` says this in one line, and the headline reads "Alignment 0.51 (provisional: likely right, spot-check)."
 
@@ -266,6 +275,58 @@ A run layer row plans no runs and is listed under the conduit block's `unplanned
 | `failed` | "Failed fit: the drawing's walls do not lie on this level's walls well enough to place anything. Check the level and the background layers; or link the DWG into the model, move it onto the building, and run plan_cad_electrical again." |
 
 A failed fit returns `alignment_failed` rather than a review, so `failed` is listed for completeness.
+
+With method `linked_instance` the meaning names the link:
+
+| `outcome` | `meaning` |
+|---|---|
+| `accepted` | "Placed from your positioned link: the link's position lays the drawing's walls on this level's walls. Points are placed as planned." |
+| `provisional` | "Placed from your positioned link, provisional: the link's position lays only part of the drawing's walls on this level's walls. Points are placed and flagged so the drafter can spot-check a few." |
+
+The headline then reads "Alignment 0.61 from your positioned link."
+
+### Positioned link
+
+When the fit cannot place the drawing, the user can link the DWG (`link_file`) and move it onto the building (`move_elements`). The link's total transform is then the placement.
+
+**When it is used:**
+- With `link_id`, always. The fit is not run.
+- Without it, only after both the centreline fit and the face fit fail. A passing fit is never overridden.
+
+**Which links:**
+- `link_id` names one instance, linked or imported.
+- Without it, the model's CAD links of the same file: by full path, else by file name. Imports have no file, so they need `link_id`.
+- An `att:` ref resolves to the file the pane attached, not to a copy. A link of that file matches by path. A link made from a copy elsewhere matches by file name.
+
+**The transform:** the rotation is `atan2(BasisX.Y, BasisX.X)`, and the translation is the link's origin in mm. A mirrored, tilted or scaled link is refused with `link_unusable`.
+
+**The level:** the `level` arg, else the cluster's plan rows. Else, with `link_id`, the level the link's position scores best on. A second level within 0.05 gives `level_ambiguous`.
+
+**Link outcomes:** the user placed the link, so the bands are lower than the fit's:
+- `accepted` at 0.50 or more;
+- `provisional` from 0.25 to 0.50: every point is flagged `provisional_alignment`, and a note asks for a spot-check;
+- below 0.25 nothing is placed.
+
+The crop guard holds: too little drawing wall inside the footprint fails as for a fit.
+
+**Several links:**
+- Found automatically, a single matching link that clears 0.25 is used, and a note says so.
+- Several matching links give `link_ambiguous`. The caller passes `link_id`.
+- Links below 0.25 are ignored, and `alignment_failed` gains `links_tried`.
+
+**Recorded:** the plan's alignment has method `linked_instance` and `link_id`. `params_used.link_id` is the link used, else null.
+
+**Errors:**
+
+| Error | When | Extra fields |
+|---|---|---|
+| `link_not_found` | `link_id` is not a CAD link or import of this model | `link_id` |
+| `link_unusable` | The link is mirrored, tilted or scaled, or its transform cannot be read | `link_id`, `reason`: `mirrored`, `tilted`, `scaled`, `without a readable transform` |
+| `link_misaligned` | `link_id` scores below 0.25 on the level, or lays too little of the drawing inside it | `link_id`, `level`, `cluster`, `score`, `score_uncropped`, `inside_share`, `reason` (`alignment_failed` or `crop_too_small`), `rotation_deg`, `tx_mm`, `ty_mm` (the link's placement). `candidates`: every cluster's `{cluster, titles, score}` under the link, best first. When another cluster scores better, the message names it. |
+| `link_ambiguous` | No `link_id`, the fit failed, and the model holds several links of the drawing, one of them clearing 0.25 | `level`, `cluster`. `candidates`: `{link_id, score, outcome, unusable, rotation_deg, tx_mm, ty_mm}`, best first |
+| `level_ambiguous` | With `link_id` and no level given, two levels score within 0.05 | `cluster`, `link_id`. `candidates`: `{level, score, outcome}` |
+
+`links_tried` rows on `alignment_failed` have the `link_ambiguous` candidate shape.
 
 ### Footprint crop
 
