@@ -233,6 +233,19 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         /// and hands back a character the card does not use (AskCardFocus).</summary>
         internal TextBox MessageBox => Input?.Editor;
 
+        /// <summary>A prompt the drafter sent before, back in the composer to change (r17: Edit on their bubble). Replaces
+        /// what the box holds (the drafter asked for it); a pending "/" command is dropped, since the prompt was plain text.
+        /// Sends nothing: their own Enter or Send starts a new turn with the edited text.</summary>
+        public void EditPrompt(string text)
+        {
+            if (Input?.Editor == null || string.IsNullOrWhiteSpace(text)) return;
+            if (_pendingTool != null) ClearPendingTool();
+            Input.PutPrompt(text);
+        }
+
+        /// <summary>Where Up in an empty composer gets the last prompt from (r17).</summary>
+        public System.Func<string> RecallLast { set { if (Input != null) Input.RecallLast = value; } }
+
         /// <summary>Drop a starter prompt into the composer for the user to edit —
         /// does NOT send. If the user has already typed something, leave it alone
         /// (just focus) rather than overwrite. Caret goes to the end so they can

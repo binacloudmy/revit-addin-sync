@@ -23,7 +23,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         /// hover copy button on the left.</summary>
         public static FrameworkElement User(string text, string userInitial,
             IEnumerable<string> imagesBase64, IEnumerable<Model.HistoryFile> files,
-            double maxWidth, string time = null, Model.SlashTool slashCommand = null)
+            double maxWidth, string time = null, Model.SlashTool slashCommand = null, Action onEdit = null)
         {
             var row = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
             // Command bubbles use the design's tighter padding (8px 9px 9px); plain
@@ -95,9 +95,22 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 bubbleStack.Children.Add(ClampableText(textBox));
             bubble.Child = bubbleStack;
             AttachCopyMenu(bubble, text);
-            // Copy affordance sits on the LEFT of the right-aligned bubble.
+            // Copy affordance sits on the LEFT of the right-aligned bubble; the live chat adds Edit beside it (r17: the prompt
+            // goes back in the composer to change and send again; History passes no onEdit, so it has none).
             if (!string.IsNullOrEmpty(text))
-                row.Children.Add(HoverReveal(row, CopyButton(text)));
+            {
+                if (onEdit != null)
+                {
+                    var tools = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Top };
+                    tools.Children.Add(EditButton(onEdit));
+                    tools.Children.Add(CopyButton(text));
+                    row.Children.Add(HoverReveal(row, tools));
+                    // A double-click on the bubble (outside its selectable text, which keeps word selection) edits too.
+                    bubble.MouseLeftButtonDown += (_, e) => { if (e.ClickCount == 2) { e.Handled = true; onEdit(); } };
+                    bubble.ToolTip = "Double-click to edit and send again";
+                }
+                else row.Children.Add(HoverReveal(row, CopyButton(text)));
+            }
             row.Children.Add(bubble);
 
             // Column: bubble row + small right-aligned timestamp under it (design).
@@ -318,6 +331,28 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 };
                 t.Start();
             };
+            return btn;
+        }
+
+        /// <summary>Small pencil: puts the drafter's prompt back in the composer, editable (r17). Sends nothing.</summary>
+        public static Button EditButton(Action onEdit)
+        {
+            var pencil = new System.Windows.Shapes.Path
+            {
+                Width = 12, Height = 12, Stretch = Stretch.Uniform, StrokeThickness = 2,
+                StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round, StrokeLineJoin = PenLineJoin.Round,
+                Data = Geometry.Parse("M4,20 L4,16 L15,5 L19,9 L8,20 Z M13,7 L17,11"),
+                Stroke = CopilotColors.Token("Cp.Faint"),
+            };
+            var btn = new Button
+            {
+                Content = pencil, Cursor = System.Windows.Input.Cursors.Hand, ToolTip = "Edit and send again",
+                Background = System.Windows.Media.Brushes.Transparent, BorderThickness = new Thickness(0),
+                Padding = new Thickness(4, 0, 4, 0), VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(4, 3, 0, 0), IsTabStop = false,
+            };
+            System.Windows.Automation.AutomationProperties.SetName(btn, "Edit and send again");
+            btn.Click += (_, __) => onEdit();
             return btn;
         }
 

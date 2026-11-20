@@ -678,6 +678,27 @@ namespace RevitWebAppSync.UI.Copilot
             else ChatSend(p as string);
         }
 
+        /// <summary>A turn is running (or the router is busy): a prompt cannot be edited or recalled now.</summary>
+        public bool TurnBusy => IsSending || (TurnRouter?.IsBusy ?? false);
+
+        /// <summary>Raised with a prompt's text for the composer to hold, editable (r17: a user bubble's Edit, Up in an
+        /// empty composer). The composer only shows it; the drafter's own send starts a new turn.</summary>
+        public event Action<string> PromptToEdit;
+
+        /// <summary>The drafter's Edit on their own message <paramref name="m"/>: its text goes back in the composer. Nothing
+        /// is sent and the thread is not changed. False (and nothing happens) while a turn runs or for a slash command.</summary>
+        public bool EditPrompt(ChatMessage m)
+        {
+            var text = PromptRecall.TextFor(m, TurnBusy);
+            if (text == null) return false;
+            PromptToEdit?.Invoke(text);
+            return true;
+        }
+
+        /// <summary>The last prompt the drafter typed, for Up in an empty composer; null when none or a turn runs. A question
+        /// parked on the assistant keeps Up for itself (its card's keys), so nothing is recalled then.</summary>
+        public string RecallLastPrompt() => TurnBusy || TurnRouter?.PendingAsk != null ? null : PromptRecall.Last(Thread);
+
         /// <param name="displayText">The message as the thread shows it when it differs
         /// from what is sent (@ chips: "@PTh300a" in the thread, "Pintu Tunggal:
         /// PTh300a (door type)" to the backend). Null: the thread shows <paramref name="text"/>.</param>

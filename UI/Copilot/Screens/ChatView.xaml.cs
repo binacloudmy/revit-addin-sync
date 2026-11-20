@@ -214,6 +214,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 _hooked.UpgradeRequested -= OnVmUpgrade;
                 _hooked.SaveCommandRequested -= OnSaveCommandRequested;
                 _hooked.UndoStateChanged -= OnUndoStateChanged;
+                _hooked.PromptToEdit -= OnPromptToEdit;
             }
             _hooked = Vm;
             if (_hooked != null)
@@ -224,6 +225,9 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 _hooked.UpgradeRequested += OnVmUpgrade;
                 _hooked.SaveCommandRequested += OnSaveCommandRequested;
                 _hooked.UndoStateChanged += OnUndoStateChanged;
+                _hooked.PromptToEdit += OnPromptToEdit;
+                var vm = _hooked;
+                Prompt.RecallLast = () => vm.RecallLastPrompt();
                 Prompt.BindUsage(_hooked);
                 _ = _hooked.RefreshUsageAsync();
                 // Saved Commands J1: merge the Mine tier into the palette
@@ -233,6 +237,9 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             Rebuild();
             UpdateUsage();
         }
+
+        /// <summary>A prompt to edit (a bubble's Edit, r17): into the composer, editable; the drafter sends it as a new turn.</summary>
+        private void OnPromptToEdit(string text) => Prompt?.EditPrompt(text);
 
         // Revit's own Undo/Redo, or our button: redraw so the result cards offer only what is still possible.
         // One redraw per burst (an Undo of several batches raises several changes).
@@ -499,14 +506,23 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         }
 
         /// <summary>The down-arrow clicked: scroll to the newest message and follow the bottom again.</summary>
-        private void OnJumpToBottom(object sender, RoutedEventArgs e)
+        private void OnJumpToBottom(object sender, RoutedEventArgs e) => PinToEnd(deferred: false);
+
+        /// <summary>Scroll to the newest message and follow the bottom again: the down-arrow, and every message the drafter
+        /// sends (deferred until the rebuilt thread is laid out).</summary>
+        private void PinToEnd(bool deferred)
         {
             _arrivalHeld = false;
             _followAsk = false;
             if (_tailAskModel != null) _tailAskModel.ArrivalShown = true;
             _stick = true;
-            Scroller?.ScrollToEnd();
-            UpdateJump();
+            if (!deferred) { Scroller?.ScrollToEnd(); UpdateJump(); return; }
+            Dispatcher.BeginInvoke(new System.Action(() =>
+            {
+                _stick = true;
+                Scroller?.ScrollToEnd();
+                UpdateJump();
+            }), System.Windows.Threading.DispatcherPriority.Loaded);
         }
 
         // The live question card at the thread's tail in the last build (Message; reset by Rebuild), whether the pane keeps
@@ -593,6 +609,10 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             // drafter's next prompt) follows the bottom again, as it did before the question.
             if (appended && _arrivalHeld) { _arrivalHeld = false; _stick = true; }
             if (appended) _followAsk = false;
+            // The drafter's own message just went in (typed, a next-step chip, a queued or an edited prompt: every send ends in
+            // ChatSend): the chat goes to the bottom and follows it, even when the drafter was reading higher up (tester r17:
+            // a chip clicked under a card left the pane where it was).
+            bool pinToEnd = Model.ChatFollow.PinsOnAppend(appended, empty ? null : Vm.Thread[Vm.Thread.Count - 1].Role);
             _tailAsk = null;
             _tailAskModel = null;
             // A key answer's mark lasts only for the turn it continued: a result, a reply or a new chat ends it.
@@ -638,6 +658,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 MsgRise(thread.Children[_tailRow] as FrameworkElement);
             BodyHost.Children.Add(thread);
             _threadPanel = thread;
+            if (pinToEnd) PinToEnd(deferred: true);
             UpdateJump();
             RevitWebAppSync.UI.Copilot.Model.HandleProbe.Mark("chat rebuild end (" + Vm.Thread.Count + " messages)");
         }
@@ -751,7 +772,9 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 return CopilotMessageBubble.User(
                     m.Text, Vm?.UserFirstName, m.ImagesBase64,
                     m.Files?.Select(Model.HistoryFile.From), BubbleMaxWidth(), m.Time,
-                    m.SlashCommand);
+                    m.SlashCommand,
+                    // r17: the drafter's own prompt can go back in the composer to change and send again (not a slash chip).
+                    onEdit: Model.PromptRecall.CanEdit(m, busy: false) ? () => Vm?.EditPrompt(m) : (System.Action)null);
 
             // Cancelled generation — the design's italic faint "Interrupted."
             // line: stop-in-circle icon + italic text, no bubble, no feedback.

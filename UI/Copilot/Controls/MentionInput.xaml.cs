@@ -164,6 +164,20 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         }
 
         // Set the box's text for a chip insert or removal (the chips are moved already).
+        /// <summary>The last prompt for Up in an empty box (r17); null: none, or a turn runs. Set by the chat.</summary>
+        public Func<string> RecallLast;
+
+        /// <summary>Put a prompt the drafter sent before back in the box as plain text, caret at the end, ready to change
+        /// (r17: Edit on their bubble, Up in an empty box). Opens no @ or "/" list and sends nothing.</summary>
+        public void PutPrompt(string text)
+        {
+            _chips.Clear();
+            ClosePicker();
+            CloseSlash();
+            SetText(text ?? "", (text ?? "").Length);
+            Editor.Focus();
+        }
+
         private void SetText(string text, int caret)
         {
             _settingText = true;
@@ -649,6 +663,14 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                         }
                         break;
                 }
+            }
+
+            // Up in an EMPTY box with no list open brings back the last prompt to change and send again (r17). Never sends.
+            if (e.Key == Key.Up && Keyboard.Modifiers == ModifierKeys.None && RecallLast != null
+                && RevitWebAppSync.UI.Copilot.Model.PromptRecall.RecallsOnUp(Editor.Text, Picker.IsOpen || _slashOpen, busy: false))
+            {
+                var last = RecallLast();
+                if (!string.IsNullOrEmpty(last)) { PutPrompt(last); e.Handled = true; return; }
             }
 
             // A chip is one unit: one Backspace or Delete removes it whole.
