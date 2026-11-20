@@ -30,5 +30,58 @@ namespace RevitWebAppSync.Handlers
             var text = string.Join(" ", (errors ?? Enumerable.Empty<string>()).Where(e => !string.IsNullOrWhiteSpace(e)).Select(e => e.Trim()).Distinct());
             return text.Length > 0 ? CommitRefused + ": " + text : CommitRefused + " (" + (status ?? "") + ").";
         }
+
+        /// <summary>One attempt at a set of steps in one transaction.</summary>
+        public sealed class Attempt<TResult>
+        {
+            public bool Committed;
+            public string Status = "";
+            public TResult Result;
+            public List<string> Errors = new List<string>();
+            public HashSet<long> FailingIds = new HashSet<long>();
+        }
+
+        /// <summary>Run a commit. A commit that throws counts as a refused commit: the
+        /// exception message is recorded in <paramref name="errors"/> (no element id)
+        /// and false is returned, so the caller retries instead of losing the batch.</summary>
+        public static bool TryCommit(Func<bool> commit, List<string> errors)
+        {
+            try { return commit(); }
+            catch (Exception ex)
+            {
+                var text = string.IsNullOrWhiteSpace(ex.Message) ? ex.GetType().Name : ex.Message;
+                if (!errors.Contains(text)) errors.Add(text);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Apply all steps in one go; when that commit is refused, retry without the
+        /// steps on the elements named in the failure, then step by step. Steps whose
+        /// own commit is refused go to <paramref name="onFailed"/> with the reason;
+        /// every other step is kept via <paramref name="onCommitted"/>.
+        /// </summary>
+        public static void Apply<TStep, TResult>(
+            List<TStep> steps, Func<TStep, long> elementId,
+            Func<List<TStep>, Attempt<TResult>> run,
+            Action<TResult> onCommitted, Action<TStep, string> onFailed)
+        {
+            var first = run(steps);
+            if (first.Committed) { onCommitted(first.Result); return; }
+
+            var (suspects, rest) = Split(steps, elementId, first.FailingIds);
+            var restDone = false;
+            if (suspects.Count > 0 && rest.Count > 0)
+            {
+                var second = run(rest);
+                if (second.Committed) { onCommitted(second.Result); restDone = true; }
+            }
+            foreach (var step in restDone ? suspects : steps)
+            {
+                var one = run(new List<TStep> { step });
+                if (one.Committed) onCommitted(one.Result);
+                else onFailed(step, CommitReason(one.Errors, one.Status));
+            }
+        }
     }
 }
