@@ -12,6 +12,7 @@ namespace RevitWebAppSync.Tests
     /// longer discards the others. The Revit-side retry is in JkrRenameHandler; these
     /// are its Revit-free parts.
     /// </summary>
+    [Xunit.Collection("PaneLanguage")]
     public class JkrBatchRetryTests
     {
         [Fact]

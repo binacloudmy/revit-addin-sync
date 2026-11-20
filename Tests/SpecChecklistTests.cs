@@ -19,6 +19,7 @@ namespace RevitWebAppSync.Tests
     /// backend + checker results only (they test SpecReport's mapping); the samples'
     /// "model" snapshot is for the evaluators, which the harness also runs.
     /// </summary>
+    [Xunit.Collection("PaneLanguage")]
     public class SpecChecklistTests
     {
         // ── fixture: the same JSON the harness screenshots ──

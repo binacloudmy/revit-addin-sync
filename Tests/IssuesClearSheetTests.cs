@@ -13,6 +13,7 @@ namespace RevitWebAppSync.Tests
     /// rows (old → new values, "No ready-made fix. Needs manual action.", the meta line
     /// "High · [311] Aras Tanah · Model integrity and quality", the AI fixer mark).
     /// </summary>
+    [Xunit.Collection("PaneLanguage")]
     public class IssuesClearSheetTests
     {
         private static IssueVm Issue(string id, string key, IssuePriority p = IssuePriority.Medium,

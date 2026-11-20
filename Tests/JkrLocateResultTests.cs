@@ -5,6 +5,7 @@ namespace RevitWebAppSync.Tests
 {
     /// <summary>"Locate in 3D" tells the user why when it can't simply show the
     /// element. Which case applies is decided in Revit (panel LocateInRevitAsync).</summary>
+    [Xunit.Collection("PaneLanguage")]
     public class JkrLocateResultTests
     {
         [Fact]
