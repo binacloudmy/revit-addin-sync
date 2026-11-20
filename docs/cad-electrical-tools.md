@@ -288,7 +288,8 @@ Both stay at the drawn centre, with no facing. The room is looked up there.
 | `no_wall_in_reach` | excluded |
 | `no_room` | kept |
 | `wet_room` (room name contains a wet keyword) | kept |
-| `already_present` (an existing device within 150 mm in 3D, at its contact height; see **Contact height** below) | excluded |
+| `already_present` (an existing device of the row's category within 150 mm in plan and within 150 mm of the point's Z, at its contact height; see **No doubling** and **Contact height** below) | excluded |
+| `above_wall_top` (a wall point higher than the top of its wall: the wall's side face does not reach it, so a face-based family is placed through the wall overload instead of on the face) | kept |
 | `linked_wall` | kept, unhosted |
 | `provisional_alignment` | kept |
 | `side_ambiguous` | kept |
@@ -372,19 +373,28 @@ The review carries no coordinates.
 
 **Placed ids:** each placed point records its device's id on the stored plan, so `route_conduit` can find the device for a drop (section 7).
 
-**No doubling:** before each point, devices that exist *now* within 150 mm (3D) skip the point under `skipped_already_present`. A point picked by index keeps its place. Existing devices are compared at their contact height (below), not their LocationPoint Z. A ceiling point is compared at the ceiling's underside, so a socket on the wall under a light is a different device. A ceiling point also counts a device hosted on the same ceiling within 150 mm in plan, whatever its height reads, so a second run skips every light the first one placed.
+**No doubling:** before each point, a device that exists *now* where the point would go skips the point under `skipped_already_present`. A point picked by index keeps its place. The rule (`OverheadPlacement.Matches`), with 150 mm for both distances:
+- Never a device of another category, when both categories are known.
+- Within 150 mm in plan, and then one of:
+  - hosted on the point's own ceiling, whatever its height reads, so a second run skips every light the first one placed;
+  - its contact height (below) within 150 mm of the point's Z. A ceiling point is compared at the ceiling's underside, so a socket on the wall under a light is a different device;
+  - of the point's category, with its LocationPoint Z within 150 mm of the point's Z: an instance whose origin is at the point is the one placed there, whatever its host reports;
+  - its contact height not trusted (a work-plane-based family read at its origin, off a vertical plane), and on the point's level band: its own level is the point's level, or with no level of its own its origin is between the point's level and the next one up. With no band known, plan alone.
+
+`plan_cad_electrical` flags `already_present` by the same rule, with the row's family type's category.
 
 **Contact height:** where a device meets its host, under its origin. A work-plane-based family's LocationPoint need not lie on its work plane: in a live test, two light families hosted on the same underside with "Offset from Host" 0 read +175 mm and -2044 mm. So:
 - on a face (`HostFace` readable, face not vertical): that face's Z under the origin, plus "Offset from Host" along the face normal (`host_face`)
 - on a ceiling with no face (a ceiling-hosted family): the ceiling's underside there (`ceiling_underside`)
+- a work-plane-based family on a vertical plane (hosted on a wall, its face read or not, or its own work plane normal level): the LocationPoint's Z (`vertical_plane`). Its origin can sit off the plane only along the plane's normal, which is level. Before this rule, a face-based socket that the wall overload placed (the fallback, below) could fall to the level rule and read the level plus an "Offset from Host" of about 0, a mount height under where it stood, so a second run did not find it and placed it again.
 - a work-plane-based or unhosted family on a level (or a horizontal work plane, or no host): that plane plus the offset parameter read back, "Offset from Host" first for a work-plane-based family and "Elevation from Level" first for an unhosted one (`level_offset`). The origin plays no part: a live test read a light's origin 2044 mm under a level offset that had taken.
-- anything else, a wall socket included: the LocationPoint's Z (`location`)
+- anything else: the LocationPoint's Z (`location`). For a work-plane-based family this height is not trusted, and the already-present check falls back to the level band.
 
 **Placement by family:**
 
 | Family | How it is placed |
 |---|---|
-| Face-based (work plane) with a local host wall | On the wall side face whose normal looks the way the point faces, through the face-reference overload. If refused, the wall overload is used. |
+| Face-based (work plane) with a local host wall | On the wall side face whose normal looks the way the point faces, through the face-reference overload. If refused, the wall overload is used (`host: "wall"`). A point over the wall's top (`above_wall_top`) has no face under it and always takes the wall overload. |
 | Wall-hosted | Wall overload. A point with no local wall (`linked_wall`) fails with advice to use a face-based or unhosted family. |
 | Unhosted | Level overload |
 
@@ -415,7 +425,7 @@ Each item also carries:
 - **Wall-hosted and unhosted:** `FacingOrientation`, corrected by flip, then by rotation. A correction that fails is reported as `uncorrectable`.
 - **Face-hosted:** the host face's outward normal at the point. If the face cannot be read, the instance's work-plane normal (`GetTotalTransform().BasisZ`) is used. `FacingOrientation` lies in the face, so it is not used. These instances are measured and never flipped or rotated, so they report `as_placed` or `uncorrectable`.
 
-**Height (wall points):** the height is read back. If it is wrong, it is set through the elevation parameters. `elevation_set_via` is `insertion_point`, the parameter used, or `unset`.
+**Height (wall points):** the height is read back. If it is wrong, it is set through the elevation parameters. `elevation_set_via` is `insertion_point`, the parameter used, or `unset`. Each wall item also carries `z_mm` (the contact height as placed, the height a later run's already-present check reads), `height_via`, `height_known`, `target_z_mm`, `origin_z_mm` only when the origin is more than 1 mm off `z_mm`, and `above_wall_top: true` when the plan flagged the point.
 
 **Result:**
 - Every existing key is kept: `ok`, `plan_id`, `count`, `created[]`, `failed[]`, `facing_uncorrected(_indices)`.

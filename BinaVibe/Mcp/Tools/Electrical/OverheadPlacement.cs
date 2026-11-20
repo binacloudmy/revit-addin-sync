@@ -25,6 +25,29 @@ namespace BinaVibe.Mcp.Tools.Electrical
         public long? CeilingId;
         /// <summary>The device's element id; 0 when not read.</summary>
         public long Id;
+        /// <summary>False when Z is not a contact height that can be trusted (a work-plane-based
+        /// family read at its origin, which can sit off its work plane): it is then matched in
+        /// plan on the level band instead.</summary>
+        public bool ZKnown = true;
+        /// <summary>The raw LocationPoint Z, mm; null when not read.</summary>
+        public double? OriginZ;
+        /// <summary>The device's category id; null when not read.</summary>
+        public long? CategoryId;
+        /// <summary>The elevation of the device's own level, mm; null when it has none.</summary>
+        public double? LevelZMm;
+    }
+
+    /// <summary>Where a point would put a device, mm, for OverheadPlacement.Matches.</summary>
+    internal sealed class PresenceQuery
+    {
+        public double X, Y, Z;
+        /// <summary>The ceiling the point is on; null for a wall or free-standing point.</summary>
+        public long? CeilingId;
+        /// <summary>The category of the family the point would place; null when not known.</summary>
+        public long? CategoryId;
+        /// <summary>The point's level band: its level's elevation up to the next level's (null
+        /// high: no level above). Null low: no band known.</summary>
+        public double? BandLowMm, BandHighMm;
     }
 
     internal static class OverheadPlacement
@@ -93,25 +116,53 @@ namespace BinaVibe.Mcp.Tools.Electrical
         public static bool GeometryTouches(double minZMm, double maxZMm, double contactZMm) =>
             contactZMm >= minZMm - TouchMm && contactZMm <= maxZMm + TouchMm;
 
-        /// <summary>
-        /// True when a device of the model already stands where this point would go. A device
-        /// hosted on the point's ceiling counts when it is within <paramref name="withinMm"/> in
-        /// plan, whatever its height reads; any other counts within <paramref name="withinMm"/>
-        /// in 3D, at its contact height. A wall point passes no ceiling and gets the 3D rule only,
-        /// so a socket on the wall under a light is a different device.
-        /// </summary>
+        /// <summary>True when a device of the model already stands where this point would go,
+        /// with no category and no level band known (<see cref="Matches"/>).</summary>
         public static bool IsPresent(double xMm, double yMm, double zMm, long? ceilingId,
-                                     IReadOnlyList<PresentDevice> existing, double withinMm)
+                                     IReadOnlyList<PresentDevice> existing, double withinMm) =>
+            IsPresent(new PresenceQuery { X = xMm, Y = yMm, Z = zMm, CeilingId = ceilingId }, existing, withinMm);
+
+        /// <summary>True when any existing device <see cref="Matches"/> the point.</summary>
+        public static bool IsPresent(PresenceQuery q, IReadOnlyList<PresentDevice> existing, double withinMm) =>
+            existing.Any(d => Matches(q, d, withinMm));
+
+        /// <summary>A level elevation this close to the band's foot is the band's level.</summary>
+        public const double SameLevelMm = 1;
+
+        /// <summary>
+        /// True when an existing device is the one this point would place. Never across
+        /// categories when both are known. Then it must be within <paramref name="withinMm"/> in
+        /// plan, and one of:
+        ///   hosted on the point's own ceiling, whatever its height reads;
+        ///   its contact height known and within <paramref name="withinMm"/> of the point's Z, so
+        ///     a socket on the wall under a light is a different device;
+        ///   of the point's category (both known) with its origin Z within
+        ///     <paramref name="withinMm"/>: an instance whose origin is at the point is the one
+        ///     placed there, whatever its host reports;
+        ///   its contact height not known, and on the point's level band (its own level the
+        ///     band's level, else its origin in the band); with no band known, plan alone.
+        /// </summary>
+        public static bool Matches(PresenceQuery q, PresentDevice d, double withinMm)
         {
-            double limit = withinMm * withinMm;
-            foreach (PresentDevice d in existing)
-            {
-                double dx = d.X - xMm, dy = d.Y - yMm, dz = d.Z - zMm;
-                double plan = (dx * dx) + (dy * dy);
-                if (ceilingId.HasValue && d.CeilingId == ceilingId && plan <= limit) return true;
-                if (plan + (dz * dz) <= limit) return true;
-            }
-            return false;
+            bool bothCategories = q.CategoryId.HasValue && d.CategoryId.HasValue;
+            if (bothCategories && q.CategoryId != d.CategoryId) return false;
+
+            double dx = d.X - q.X, dy = d.Y - q.Y;
+            if ((dx * dx) + (dy * dy) > withinMm * withinMm) return false;
+
+            if (q.CeilingId.HasValue && d.CeilingId == q.CeilingId) return true;
+            if (d.ZKnown && Math.Abs(d.Z - q.Z) <= withinMm) return true;
+            if (bothCategories && d.OriginZ.HasValue && Math.Abs(d.OriginZ.Value - q.Z) <= withinMm) return true;
+            return !d.ZKnown && OnBand(q, d);
+        }
+
+        private static bool OnBand(PresenceQuery q, PresentDevice d)
+        {
+            if (!q.BandLowMm.HasValue) return true;
+            if (d.LevelZMm.HasValue) return Math.Abs(d.LevelZMm.Value - q.BandLowMm.Value) <= SameLevelMm;
+            if (!d.OriginZ.HasValue) return false;
+            double high = q.BandHighMm ?? double.PositiveInfinity;
+            return d.OriginZ.Value >= q.BandLowMm.Value && d.OriginZ.Value < high;
         }
     }
 }

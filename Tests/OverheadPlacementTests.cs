@@ -128,5 +128,89 @@ namespace Tests
             // The ceiling light seen in 3D at its contact height.
             Assert.True(OverheadPlacement.IsPresent(4000, 2100, 2700, null, present, 150));
         }
+
+        // ------------------------------------------------------------ presence matching
+
+        private const long Fixtures = -2001060, Lights = -2001120;
+
+        /// <summary>A socket planned 1450 above a level at 3000, between levels at 3000 and 6000.</summary>
+        private static PresenceQuery HighSocket() => new PresenceQuery
+        {
+            X = 2000, Y = 75, Z = 4450, CategoryId = Fixtures, BandLowMm = 3000, BandHighMm = 6000,
+        };
+
+        [Fact]
+        public void Same_category_within_150_in_plan_and_in_z_is_present()
+        {
+            var d = new PresentDevice { X = 2100, Y = 75, Z = 4500, OriginZ = 4500, CategoryId = Fixtures };
+            Assert.True(OverheadPlacement.Matches(HighSocket(), d, 150));
+            // 151 mm off in plan, or in Z: another device.
+            Assert.False(OverheadPlacement.Matches(HighSocket(), new PresentDevice { X = 2151, Y = 75, Z = 4450, CategoryId = Fixtures }, 150));
+            Assert.False(OverheadPlacement.Matches(HighSocket(), new PresentDevice { X = 2000, Y = 75, Z = 4601, OriginZ = 4601, CategoryId = Fixtures }, 150));
+        }
+
+        [Fact]
+        public void Plan_and_z_are_each_within_150_not_3d()
+        {
+            // 140 in plan and 140 in Z is 198 mm in 3D, and still the same device.
+            var d = new PresentDevice { X = 2140, Y = 75, Z = 4590, CategoryId = Fixtures };
+            Assert.True(OverheadPlacement.Matches(HighSocket(), d, 150));
+        }
+
+        [Fact]
+        public void Another_category_is_never_present()
+        {
+            var light = new PresentDevice { X = 2000, Y = 75, Z = 4450, OriginZ = 4450, CategoryId = Lights };
+            Assert.False(OverheadPlacement.Matches(HighSocket(), light, 150));
+            // With either category unknown, category does not decide.
+            Assert.True(OverheadPlacement.Matches(HighSocket(), new PresentDevice { X = 2000, Y = 75, Z = 4450 }, 150));
+        }
+
+        [Fact]
+        public void A_socket_from_the_wall_fallback_read_at_the_floor_is_found_by_its_origin()
+        {
+            // The contact height read the level plus an "Offset from Host" of 0, the origin is at
+            // the planned point: of the same category, the origin decides.
+            var fallback = new PresentDevice { X = 2000, Y = 75, Z = 3000, OriginZ = 4450, CategoryId = Fixtures };
+            Assert.True(OverheadPlacement.Matches(HighSocket(), fallback, 150));
+            // Without a category to go on, a Z that far off is another device.
+            var anyCategory = HighSocket();
+            anyCategory.CategoryId = null;
+            Assert.False(OverheadPlacement.Matches(anyCategory, fallback, 150));
+        }
+
+        [Fact]
+        public void Unknown_contact_height_matches_in_plan_on_the_level_band()
+        {
+            // Its own level is the point's level.
+            var onLevel = new PresentDevice { X = 2050, Y = 75, Z = 900, ZKnown = false, OriginZ = 900, LevelZMm = 3000 };
+            Assert.True(OverheadPlacement.Matches(HighSocket(), onLevel, 150));
+            // Its own level is another one.
+            var otherLevel = new PresentDevice { X = 2050, Y = 75, Z = 7000, ZKnown = false, OriginZ = 7000, LevelZMm = 6000 };
+            Assert.False(OverheadPlacement.Matches(HighSocket(), otherLevel, 150));
+            // No level of its own: its origin inside the band decides.
+            Assert.True(OverheadPlacement.Matches(HighSocket(), new PresentDevice { X = 2050, Y = 75, Z = 3500, ZKnown = false, OriginZ = 3500 }, 150));
+            Assert.False(OverheadPlacement.Matches(HighSocket(), new PresentDevice { X = 2050, Y = 75, Z = 6500, ZKnown = false, OriginZ = 6500 }, 150));
+            // Still within 150 in plan.
+            Assert.False(OverheadPlacement.Matches(HighSocket(), new PresentDevice { X = 2300, Y = 75, Z = 3500, ZKnown = false, OriginZ = 3500, LevelZMm = 3000 }, 150));
+        }
+
+        [Fact]
+        public void Unknown_contact_height_with_no_band_matches_in_plan()
+        {
+            var q = HighSocket();
+            q.BandLowMm = null;
+            q.BandHighMm = null;
+            Assert.True(OverheadPlacement.Matches(q, new PresentDevice { X = 2050, Y = 75, Z = 100, ZKnown = false }, 150));
+        }
+
+        [Fact]
+        public void Top_band_has_no_ceiling()
+        {
+            var q = HighSocket();
+            q.BandHighMm = null;
+            Assert.True(OverheadPlacement.Matches(q, new PresentDevice { X = 2050, Y = 75, Z = 9000, ZKnown = false, OriginZ = 9000 }, 150));
+            Assert.False(OverheadPlacement.Matches(q, new PresentDevice { X = 2050, Y = 75, Z = 2000, ZKnown = false, OriginZ = 2000 }, 150));
+        }
     }
 }

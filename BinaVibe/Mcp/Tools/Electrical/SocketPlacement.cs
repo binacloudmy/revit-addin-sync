@@ -93,6 +93,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
             // The devices that exist now: a second run of the same plan must not double up.
             var present = CadElectricalResolver.ExistingDevices(doc);
+            var levels = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().ToList();
 
             var created = new List<object>();
             var failed = new List<object>();
@@ -139,7 +140,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     // A point the drafter picked by index although the plan saw a device there
                     // is placed as asked; any other point next to a device is skipped.
                     bool chosenAnyway = wanted.Count > 0 && p.Flags.Contains("already_present");
-                    if (!chosenAnyway && AlreadyPresent(p, mountOverrideMm, present))
+                    if (!chosenAnyway && AlreadyPresent(doc, p, symbol, levelOverride, levels, mountOverrideMm, present))
                     {
                         skippedPresent.Add(p.Index);
                         continue;
@@ -208,14 +209,30 @@ namespace BinaVibe.Mcp.Tools.Electrical
         }
 
         /// <summary>A device of the model already stands where this point would go, against the
-        /// model as it is now. Existing devices are at their contact height, not their
-        /// LocationPoint Z. Within ExistingMm in 3D; a ceiling point also counts a device hosted
-        /// on its own ceiling within ExistingMm in plan (OverheadPlacement.IsPresent).</summary>
-        private static bool AlreadyPresent(PlannedPoint p, double? mountOverrideMm, List<PresentDevice> present)
+        /// model as it is now (OverheadPlacement.Matches): of the family's category, within
+        /// ExistingMm in plan and within ExistingMm of the target Z at its contact height; with
+        /// no trusted contact height, in plan on the point's level band. A ceiling point also
+        /// counts a device hosted on its own ceiling within ExistingMm in plan.</summary>
+        private static bool AlreadyPresent(Document doc, PlannedPoint p, FamilySymbol symbol, string? levelOverride,
+                                           List<Level> levels, double? mountOverrideMm, List<PresentDevice> present)
         {
-            return OverheadPlacement.IsPresent(p.XMm, p.YMm, CadSymbolResolve.TargetZMm(p, mountOverrideMm),
-                                               IsOverhead(p) ? p.HostCeilingId : null,
-                                               present, new ResolveOptions().ExistingMm);
+            var q = new PresenceQuery
+            {
+                X = p.XMm,
+                Y = p.YMm,
+                Z = CadSymbolResolve.TargetZMm(p, mountOverrideMm),
+                CeilingId = IsOverhead(p) ? p.HostCeilingId : null,
+                CategoryId = CadElectricalResolver.CategoryId(symbol),
+            };
+            Wall? host = p.HostWallId.HasValue ? doc.GetElement(ElemIds.From(p.HostWallId.Value)) as Wall : null;
+            var level = ResolveLevel(doc, levelOverride ?? p.LevelName, host);
+            if (level != null)
+            {
+                var band = CadElectricalResolver.LevelBand(levels, level);
+                q.BandLowMm = band.Low;
+                q.BandHighMm = band.High;
+            }
+            return OverheadPlacement.IsPresent(q, present, new ResolveOptions().ExistingMm);
         }
 
         /// <summary>A point that is not on a wall (a ceiling device, a host "none" one): no facing.</summary>
@@ -299,7 +316,11 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 var elevationVia = EnsureMountHeight(doc, fi, pt.Z, mountMm);
                 TxGuard.CommitOrThrow(tx);
 
-                return new Dictionary<string, object?>
+                // The height reported is the contact height, the one a later run's
+                // already-present check reads (CadElectricalResolver.ExistingDevices).
+                var contact = CadElectricalResolver.ContactHeight(doc, fi);
+                double contactMm = contact.ZFt * MmPerFoot;
+                var row = new Dictionary<string, object?>
                 {
                     ["index"] = p.Index,
                     ["room_id"] = p.RoomId,
@@ -312,10 +333,22 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     ["facing_error_deg"] = Math.Round(orient.ErrorDeg, 2),
                     ["facing_method"] = orient.Method,
                     ["elevation_set_via"] = elevationVia,
+                    ["z_mm"] = Math.Round(contactMm, 1),
+                    ["height_via"] = contact.Via,
+                    ["height_known"] = contact.Known,
+                    ["target_z_mm"] = Math.Round(zMm, 1),
                 };
+                // The origin only when it is not the contact height.
+                if (ActualZ(fi, out double originZ) && Math.Abs(originZ * MmPerFoot - contactMm) > OriginReportMm)
+                    row["origin_z_mm"] = Math.Round(originZ * MmPerFoot, 1);
+                if (p.Flags.Contains("above_wall_top")) row["above_wall_top"] = true;
+                return row;
             }
             catch { tx.RollBack(); throw; }
         }
+
+        /// <summary>A wall row reports origin_z_mm when the origin is this far off its contact height.</summary>
+        private const double OriginReportMm = 1;
 
         /// <summary>
         /// A point not on a wall: a ceiling device, or a host "none" one. By the family's

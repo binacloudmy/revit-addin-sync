@@ -33,6 +33,8 @@ namespace BinaVibe.Mcp.Tools.Electrical
         public double X1, Y1, X2, Y2, ThicknessMm;
         /// <summary>From a Revit link: nothing local to host on.</summary>
         public bool Linked;
+        /// <summary>The top of the wall (its bounding box), mm; null when not read.</summary>
+        public double? TopZMm;
     }
 
     internal sealed class RoomHit
@@ -95,6 +97,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
             ["family_host_mismatch"] = true,
             ["no_ceiling"] = true,
             ["no_height"] = true,
+            ["above_wall_top"] = false,
         };
 
         /// <summary>Adds a flag once; a flag that excludes by default excludes the point.</summary>
@@ -152,8 +155,9 @@ namespace BinaVibe.Mcp.Tools.Electrical
             };
 
             // Ceiling and host "none" devices stay at the drawn centre.
+            ModelWall? onWall = null;
             RoomHit? room = s.Host == "wall"
-                ? OnWall(s, walls, wallIndex, roomAt, o, p)
+                ? OnWall(s, walls, wallIndex, roomAt, o, p, out onWall)
                 : roomAt(s.XMm, s.YMm);
 
             if (room == null) AddFlag(p, "no_room");
@@ -189,20 +193,26 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 AddFlag(p, "no_height");
             }
 
+            // A wall point over the top of its wall: the wall's side face does not reach it, so a
+            // face-based family cannot go on that face and the wall overload is used instead.
+            if (AboveWallTop(p, onWall)) AddFlag(p, "above_wall_top");
+
             if (IsPresent(p.XMm, p.YMm, p.ZMm, existing, o.ExistingMm)) AddFlag(p, "already_present");
             return p;
         }
 
         /// <summary>True when an existing device stands within <paramref name="withinMm"/> of the
-        /// point in 3D, so a light on the ceiling and a socket under it are not one device.</summary>
+        /// point in plan and within <paramref name="withinMm"/> of its Z, so a light on the
+        /// ceiling and a socket under it are not one device. OverheadPlacement.Matches with no
+        /// category or level band known; kept here so this file stands alone in the headless build.</summary>
         public static bool IsPresent(double xMm, double yMm, double zMm,
                                      IReadOnlyList<(double X, double Y, double Z)> existing, double withinMm)
         {
             double limit = withinMm * withinMm;
             foreach ((double x, double y, double z) in existing)
             {
-                double dx = x - xMm, dy = y - yMm, dz = z - zMm;
-                if ((dx * dx) + (dy * dy) + (dz * dz) <= limit) return true;
+                double dx = x - xMm, dy = y - yMm;
+                if ((dx * dx) + (dy * dy) <= limit && Math.Abs(z - zMm) <= withinMm) return true;
             }
             return false;
         }
@@ -224,11 +234,19 @@ namespace BinaVibe.Mcp.Tools.Electrical
         public static bool NoCeiling(PlannedPoint p, string host, string? hosting) =>
             host == "ceiling" && !p.HostCeilingId.HasValue && (hosting == "ceiling" || hosting == "hosted");
 
+        /// <summary>True when a point snapped to a wall stands higher than that wall's top. A
+        /// wall whose top was not read, a linked wall (nothing to host on), or a point with no
+        /// height, is never above it.</summary>
+        public static bool AboveWallTop(PlannedPoint p, ModelWall? wall) =>
+            wall != null && !wall.Linked && wall.TopZMm.HasValue &&!p.Flags.Contains("no_height") && p.ZMm > wall.TopZMm.Value;
+
         /// <summary>The wall-host path: picks the wall, the side and the face, and returns the
-        /// room the point faces into (null when none).</summary>
+        /// room the point faces into (null when none), with the wall picked.</summary>
         private static RoomHit? OnWall(ResolveInput s, IReadOnlyList<ModelWall> walls, SegmentIndex wallIndex,
-                                       Func<double, double, RoomHit?> roomAt, ResolveOptions o, PlannedPoint p)
+                                       Func<double, double, RoomHit?> roomAt, ResolveOptions o, PlannedPoint p,
+                                       out ModelWall? chosen)
         {
+            chosen = null;
             double maxHalf = 0;
             foreach (ModelWall w in walls) maxHalf = Math.Max(maxHalf, w.ThicknessMm / 2);
 
@@ -262,6 +280,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 return roomAt(s.XMm, s.YMm);
             }
 
+            chosen = best;
             double wallLength = Length(best);
             double ux = (best.X2 - best.X1) / wallLength, uy = (best.Y2 - best.Y1) / wallLength;
             double nx = -uy, ny = ux;

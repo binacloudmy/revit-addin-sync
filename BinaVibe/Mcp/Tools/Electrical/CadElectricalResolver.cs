@@ -30,6 +30,8 @@ namespace BinaVibe.Mcp.Tools.Electrical
         public Func<string, IReadOnlyList<string>> FamilyTypeMatches = _ => Array.Empty<string>();
         /// <summary>"Family : Type" to its hosting kind (CadElectricalTools.HostingKind).</summary>
         public Dictionary<string, string> HostingByType = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        /// <summary>"Family : Type" to its category id.</summary>
+        public Dictionary<string, long> CategoryByType = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
         public List<Level> Levels = new List<Level>();
         /// <summary>Every device-category instance, with its id and contact height, mm: what a
         /// conduit run's drop can reach.</summary>
@@ -78,10 +80,13 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
             var names = new FilteredElementCollector(doc).WhereElementIsElementType()
                 .OfClass(typeof(FamilySymbol)).Cast<FamilySymbol>()
-                .Select(fs => (Full: CadElectricalTools.FullName(fs), Type: fs.Name, Family: fs.Family))
+                .Select(fs => (Full: CadElectricalTools.FullName(fs), Type: fs.Name, Family: fs.Family, Category: CategoryId(fs)))
                 .ToList();
             foreach (var n in names)
+            {
                 snapshot.HostingByType[n.Full] = CadElectricalTools.HostingKind(n.Family);
+                if (n.Category.HasValue) snapshot.CategoryByType[n.Full] = n.Category.Value;
+            }
 
             snapshot.FamilyTypeMatches = text =>
             {
@@ -96,8 +101,9 @@ namespace BinaVibe.Mcp.Tools.Electrical
         }
 
         /// <summary>Every device-category instance with a location point, in mm: plan position
-        /// from the location point, Z its contact height (<see cref="ContactHeight"/>), and the
-        /// ceiling it is hosted on.</summary>
+        /// from the location point, Z its contact height (<see cref="ContactHeight"/>) and
+        /// whether that can be trusted, the origin's Z, the ceiling it is hosted on, its
+        /// category and its level's elevation.</summary>
         internal static List<PresentDevice> ExistingDevices(Document doc)
         {
             var devices = new List<PresentDevice>();
@@ -107,22 +113,58 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 if (!(el.Location is LocationPoint lp)) continue;
                 double zFt = lp.Point.Z;
                 long? ceilingId = null;
+                bool known = true;
                 if (el is FamilyInstance fi)
                 {
                     Contact c = ContactHeight(doc, fi);
                     zFt = c.ZFt;
                     ceilingId = c.CeilingId;
+                    known = c.Known;
                 }
                 devices.Add(new PresentDevice
                 {
                     X = lp.Point.X * MmPerFoot,
                     Y = lp.Point.Y * MmPerFoot,
                     Z = zFt * MmPerFoot,
+                    ZKnown = known,
+                    OriginZ = lp.Point.Z * MmPerFoot,
                     CeilingId = ceilingId,
                     Id = el.Id.Value,
+                    CategoryId = CategoryId(el),
+                    LevelZMm = OwnLevel(doc, el)?.Elevation * MmPerFoot,
                 });
             }
             return devices;
+        }
+
+        /// <summary>An element's category id; null when it has none.</summary>
+        internal static long? CategoryId(Element el)
+        {
+            try { return el.Category?.Id.Value; } catch { return null; }
+        }
+
+        /// <summary>An element's own level: its LevelId, else its schedule or reference level.</summary>
+        internal static Level? OwnLevel(Document doc, Element el)
+        {
+            Level? level = null;
+            try { level = doc.GetElement(el.LevelId) as Level; } catch { level = null; }
+            return level
+                   ?? LevelParam(doc, el, BuiltInParameter.INSTANCE_SCHEDULE_ONLY_LEVEL_PARAM)
+                   ?? LevelParam(doc, el, BuiltInParameter.INSTANCE_REFERENCE_LEVEL_PARAM);
+        }
+
+        /// <summary>The level band a point on this level stands in, mm: the level's elevation up
+        /// to the next level's (null high when there is none above).</summary>
+        internal static (double Low, double? High) LevelBand(IReadOnlyList<Level> levels, Level level)
+        {
+            double low = level.Elevation * MmPerFoot;
+            double? high = null;
+            foreach (Level l in levels)
+            {
+                double z = l.Elevation * MmPerFoot;
+                if (z > low + OverheadPlacement.SameLevelMm && (!high.HasValue || z < high.Value)) high = z;
+            }
+            return (low, high);
         }
 
         /// <summary>The model's conduit types with their trade sizes (ConduitSizesMm).</summary>
@@ -200,10 +242,14 @@ namespace BinaVibe.Mcp.Tools.Electrical
         internal readonly struct Contact
         {
             public readonly double ZFt;
-            /// <summary>host_face | ceiling_underside | level_offset | location</summary>
+            /// <summary>host_face | ceiling_underside | level_offset | vertical_plane | location</summary>
             public readonly string Via;
             public readonly long? CeilingId;
-            public Contact(double zFt, string via, long? ceilingId) { ZFt = zFt; Via = via; CeilingId = ceilingId; }
+            /// <summary>False when ZFt is a work-plane-based family's origin on a plane that is not
+            /// vertical: the origin can sit off that plane, so the height is not trusted.</summary>
+            public readonly bool Known;
+            public Contact(double zFt, string via, long? ceilingId, bool known = true)
+            { ZFt = zFt; Via = via; CeilingId = ceilingId; Known = known; }
         }
 
         /// <summary>
@@ -214,9 +260,13 @@ namespace BinaVibe.Mcp.Tools.Electrical
         ///   on a face (HostFace readable): that face's Z under the origin, plus the instance's
         ///     offset from it along the face normal;
         ///   on a ceiling with no face (a ceiling-hosted family): the ceiling's underside there;
+        ///   a work-plane-based family on a vertical plane (a wall face, read or not, or a
+        ///     vertical work plane with no host): the LocationPoint's Z. Its origin can sit off
+        ///     the plane only along the plane's normal, which is level, so Z is honest;
         ///   on a level or a horizontal work plane (LevelBase): that plane plus the offset
         ///     parameter read back (OffsetParams), work-plane-based and unhosted families alike;
         ///   anything else: the LocationPoint's Z, which an unhosted family's origin honours.
+        ///     For a work-plane-based family this is not trusted (Known false).
         /// </summary>
         internal static Contact ContactHeight(Document doc, FamilyInstance fi)
         {
@@ -225,7 +275,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
             {
                 BoundingBoxXYZ? bb = null;
                 try { bb = fi.get_BoundingBox(null); } catch { bb = null; }
-                return new Contact(bb != null ? (bb.Min.Z + bb.Max.Z) / 2 : 0, "location", null);
+                return new Contact(bb != null ? (bb.Min.Z + bb.Max.Z) / 2 : 0, "location", null, known: false);
             }
 
             Element? host = null;
@@ -262,6 +312,14 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 }
             }
 
+            // On a vertical plane: the origin's Z. A face-based socket that the wall overload put
+            // on a wall plane, or on a vertical work plane with no host, used to fall through to
+            // the level rule below and read the level plus an "Offset from Host" of about 0: the
+            // floor, a mount height under where it stands.
+            bool workPlane = IsWorkPlaneBased(fi);
+            if (workPlane && OnVerticalPlane(fi, host))
+                return new Contact(at.Z, "vertical_plane", ceilingId);
+
             // On a level (or a horizontal work plane): the plane plus the offset parameter read
             // back, never the origin. A live test read a work-plane light's origin 2044 mm under
             // a level + offset that had taken.
@@ -273,8 +331,26 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 if (contactMm.HasValue) return new Contact(contactMm.Value / MmPerFoot, "level_offset", null);
             }
 
-            return new Contact(at.Z, "location", ceilingId);
+            return new Contact(at.Z, "location", ceilingId, known: !workPlane);
         }
+
+        private static bool IsWorkPlaneBased(FamilyInstance fi)
+        {
+            try { return fi.Symbol.Family.FamilyPlacementType == FamilyPlacementType.WorkPlaneBased; }
+            catch { return false; }
+        }
+
+        /// <summary>True when a work-plane-based instance stands on a vertical plane: hosted on a
+        /// wall, or its own work plane normal (GetTotalTransform().BasisZ) level.</summary>
+        private static bool OnVerticalPlane(FamilyInstance fi, Element? host)
+        {
+            if (host is Wall) return true;
+            try { return Math.Abs(fi.GetTotalTransform().BasisZ.Z) < VerticalPlaneNormalZ; }
+            catch { return false; }
+        }
+
+        /// <summary>A plane whose normal's Z is below this is vertical (a wall face).</summary>
+        private const double VerticalPlaneNormalZ = 0.1;
 
         /// <summary>The offset parameters of a device placed on a level, the one that applies
         /// first: a work-plane-based family's is "Offset from Host", an unhosted one's
@@ -540,6 +616,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                         Y2 = b.Y * MmPerFoot,
                         ThicknessMm = widthFt * MmPerFoot,
                         Linked = linked,
+                        TopZMm = zMax * MmPerFoot,
                     });
                 }
 

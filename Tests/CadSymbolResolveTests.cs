@@ -201,6 +201,37 @@ namespace Tests
         }
 
         [Fact]
+        public void A_point_over_the_top_of_its_wall_is_flagged_and_kept()
+        {
+            var lowWall = new List<ModelWall> { new ModelWall { Id = 101, X1 = 0, Y1 = 0, X2 = 5000, Y2 = 0, ThicknessMm = 150, TopZMm = 1200 } };
+
+            PlannedPoint high = Run(2000, 120, walls: lowWall, mount: 1450);
+            Assert.Contains("above_wall_top", high.Flags);
+            Assert.False(high.Excluded);
+            Assert.Equal(101, high.HostWallId);
+
+            PlannedPoint low = Run(2000, 120, walls: lowWall, mount: 300);
+            Assert.DoesNotContain("above_wall_top", low.Flags);
+            // A wall whose top was not read never flags it.
+            Assert.DoesNotContain("above_wall_top", Run(2000, 120, mount: 2300).Flags);
+        }
+
+        [Fact]
+        public void A_point_on_a_linked_wall_is_never_above_its_top()
+        {
+            var linked = new List<ModelWall> { new ModelWall { Id = 101, X1 = 0, Y1 = 0, X2 = 5000, Y2 = 0, ThicknessMm = 150, TopZMm = 1200, Linked = true } };
+            Assert.DoesNotContain("above_wall_top", Run(2000, 120, walls: linked, mount: 2300).Flags);
+        }
+
+        [Fact]
+        public void Already_present_is_within_150_in_plan_and_in_z()
+        {
+            // 140 in plan and 140 in Z: 198 mm apart in 3D, the same device.
+            PlannedPoint p = Run(2000, 120, existing: new List<(double X, double Y, double Z)> { (2140, 75, 440) });
+            Assert.Contains("already_present", p.Flags);
+        }
+
+        [Fact]
         public void Linked_wall_gives_an_unhosted_point()
         {
             List<ModelWall> walls = Wall();
@@ -279,7 +310,7 @@ namespace Tests
                 new[] { "already_present", "duplicate_in_drawing", "family_host_mismatch", "no_ceiling", "no_height", "no_wall_in_reach" },
                 CadSymbolResolve.FlagExcludes.Where(f => f.Value).Select(f => f.Key).OrderBy(k => k, StringComparer.Ordinal));
             Assert.Equal(
-                new[] { "linked_wall", "no_room", "provisional_alignment", "side_ambiguous", "wet_room" },
+                new[] { "above_wall_top", "linked_wall", "no_room", "provisional_alignment", "side_ambiguous", "wet_room" },
                 CadSymbolResolve.FlagExcludes.Where(f => !f.Value).Select(f => f.Key).OrderBy(k => k, StringComparer.Ordinal));
         }
 

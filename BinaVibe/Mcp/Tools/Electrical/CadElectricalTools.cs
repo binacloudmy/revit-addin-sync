@@ -353,6 +353,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
             var dropped = new List<object?>();
             int otherPlans = 0, outsideFootprint = 0;
             int total = scan.Symbols.Count;
+            var levelBand = CadElectricalResolver.LevelBand(model.Levels, level);
             ModelFootprint? footprint = fit.Footprint != null && !fit.Footprint.IsEmpty ? fit.Footprint : null;
 
             for (int i = 0; i < total; i++)
@@ -415,6 +416,16 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 p.LevelName = level.Name;
                 p.SymbolKey = symbol.Key;
                 p.FamilyType = row.FamilyType;
+                // The placement-time rule too: of the row's category, and in plan on the level band
+                // for a device whose contact height is not trusted.
+                if (!p.Flags.Contains("already_present") && OverheadPlacement.IsPresent(new PresenceQuery
+                    {
+                        X = p.XMm, Y = p.YMm, Z = p.ZMm, CeilingId = p.HostCeilingId,
+                        CategoryId = row.FamilyType != null && model.CategoryByType.TryGetValue(row.FamilyType, out long category)
+                            ? category : (long?)null,
+                        BandLowMm = levelBand.Low, BandHighMm = levelBand.High,
+                    }, model.Devices, options.ExistingMm))
+                    CadSymbolResolve.AddFlag(p, "already_present");
                 if (provisional) CadSymbolResolve.AddFlag(p, "provisional_alignment");
                 string? hosting = null;
                 if (row.FamilyType != null) model.HostingByType.TryGetValue(row.FamilyType, out hosting);
