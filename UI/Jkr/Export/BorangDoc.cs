@@ -255,7 +255,7 @@ namespace RevitWebAppSync.UI.Jkr.Export
             failIssues = failIssues.Where(i => !i.NeedsPerson).ToList();
 
             var parts = new List<string>();
-            var fails = failIssues.Select(FailText).Where(t => t.Length > 0).Distinct().ToList();
+            var fails = FailTexts(failIssues);
             if (fails.Count == 0 && mark == "n")
             {
                 var manualNotes = new HashSet<string>(rm.ManualNotes ?? new List<string>());
@@ -275,6 +275,33 @@ namespace RevitWebAppSync.UI.Jkr.Export
             if (reasons.Count > 0) parts.Add("SEMAK MANUAL — " + string.Join("; ", reasons));
 
             return (string.Join("; ", parts), color);
+        }
+
+        /// <summary>The issues' remark texts, in order. Issues of one check share the check's title, so
+        /// several of them would read as one ("C4.2.2 · Title block fields" for three sheets): where
+        /// texts repeat, each says what it found (its own note: the sheet, the link, the level), so the
+        /// remark lists them one by one, and the cap says how many more.</summary>
+        private static List<string> FailTexts(IEnumerable<IssueVm> issues)
+        {
+            var list = issues.Select(i => (Issue: i, Text: FailText(i))).Where(x => x.Text.Length > 0).ToList();
+            var repeated = new HashSet<string>(list.GroupBy(x => x.Text).Where(g => g.Count() > 1).Select(g => g.Key));
+            return list.Select(x =>
+            {
+                if (!repeated.Contains(x.Text)) return x.Text;
+                var own = FirstLine(DescriptionEn(x.Issue));
+                if (own.Length == 0) own = (x.Issue.Element?.Name ?? "").Trim();
+                if (own.Length == 0 || x.Text.IndexOf(own, StringComparison.Ordinal) >= 0) return x.Text;
+                var at = x.Text.IndexOf(" (", StringComparison.Ordinal);       // keep the "(fixed ...)" / "(ignored ...)" state last
+                var state = at > 0 && x.Text.EndsWith(")", StringComparison.Ordinal) && (x.Issue.Status != IssueStatus.Open) ? x.Text.Substring(at) : "";
+                return (state.Length > 0 ? x.Text.Substring(0, at) : x.Text) + ": " + own + state;
+            }).Distinct().ToList();
+        }
+
+        private static string FirstLine(string s)
+        {
+            var t = (s ?? "").Trim();
+            var nl = t.IndexOfAny(new[] { '\r', '\n' });
+            return (nl >= 0 ? t.Substring(0, nl) : t).Trim();
         }
 
         private static string FailText(IssueVm i)
