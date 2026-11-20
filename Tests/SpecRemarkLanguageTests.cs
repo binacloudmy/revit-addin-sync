@@ -46,8 +46,27 @@ namespace RevitWebAppSync.Tests
             @"\b(ada|tiada|pada|elemen|kosong|dikesan|nama fail|ketinggian|saiz|amaran|setiap|bilik|dengan|dalam|tidak|atau|dan|yang|untuk|dari|kod|nilai|isi|keperluan|peraturan|ketinggian siling|saiz pintu|pintu utama|pagar hiasan|sistem bumbung|jadual|senarai|sahkan|menutup|semakan|jumpa|dijumpai|sepatutnya|bahan|nama|sistem|belum|mesti|perlu|lagi)\b",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
-        // A name the model gives ('Jadual SoA') is data, not remark wording: quoted names are not scanned.
-        private static string StripLabel(string s) => Regex.Replace((s ?? "").Replace("SEMAK MANUAL", "").Replace("Semak manual", "").Replace("semak manual", ""), "'[^']*'", "''");
+        // Names the sample models give their own things (levels, links, sheets, views, schedules, families,
+        // grids, parameter values ...) are data, not remark wording: exactly those strings are not scanned.
+        // Nothing else is skipped: a quoted sentence or text between two apostrophes is still read.
+        private static readonly Lazy<string[]> ModelNames = new Lazy<string[]>(() =>
+        {
+            var names = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var file in new[] { "jkr_run_failing.json", "jkr_run_compliant.json" })
+            {
+                var json = JObject.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "data", file)));
+                foreach (var t in json["model"].SelectTokens("$..*").OfType<JValue>())
+                    if (t.Type == JTokenType.String && t.ToString().Trim().Length >= 3) names.Add(t.ToString().Trim());
+            }
+            return names.OrderByDescending(n => n.Length).ToArray();
+        });
+
+        private static string StripLabel(string s)
+        {
+            var t = (s ?? "").Replace("SEMAK MANUAL", "").Replace("Semak manual", "").Replace("semak manual", "");
+            foreach (var n in ModelNames.Value) t = t.Replace(n, "");
+            return t;
+        }
 
         public static IEnumerable<object[]> Samples() => new[] { new object[] { "jkr_run_failing.json" }, new object[] { "jkr_run_compliant.json" } };
 
@@ -232,6 +251,20 @@ namespace RevitWebAppSync.Tests
             PaneLanguage.Set(PanelStrings.Ms);
             Assert.Contains(issues, i => Malay.IsMatch(i.Description ?? ""));
             Assert.Contains(issues.Select(IssueExportRows.Cells), c => Malay.IsMatch(c[5] + " " + c[6]));
+        }
+
+        [Fact]
+        public void The_scan_still_flags_a_quoted_Malay_sentence_and_Malay_between_English_apostrophes()
+        {
+            Assert.True(Malay.IsMatch(StripLabel("Schedule 'semua elemen tiada material' is wrong")));
+            Assert.True(Malay.IsMatch(StripLabel("it's tiada material and the wall's fine")));
+        }
+
+        [Fact]
+        public void The_scan_skips_only_the_models_own_names()
+        {
+            Assert.False(Malay.IsMatch(StripLabel("Schedule 'Jadual SoA' lacks the columns")));
+            Assert.True(Malay.IsMatch(StripLabel("Schedule 'Jadual Rawak' lacks the columns")));    // a name the model does not have
         }
     }
 }
