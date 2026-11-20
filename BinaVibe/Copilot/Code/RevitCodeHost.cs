@@ -322,6 +322,7 @@ namespace BinaVibe.Copilot.Code
                     return outcome;
                 case UiDispatchResult.QueuedAfterCommit:
                     data["when"] = "after the commit";
+                    AddViewAsked(doc, uidoc, queue, data);   // r17: a commit that opens a view says which one, as a read does (view_now)
                     break;
                 case UiDispatchResult.NoHook:
                     outcome.Warnings.Add(new WarningDto { Text = "The view, zoom and selection requests were not applied: this host has no after-commit step.", Severity = WarningSeverity.Warning });
@@ -332,6 +333,21 @@ namespace BinaVibe.Copilot.Code
             }
             outcome.Data = data;
             return outcome;
+        }
+
+        /// <summary>The view a committed run asked to open (applied after the commit): view_now and switched_from, as ApplyUi reports them.</summary>
+        private static void AddViewAsked(Document doc, UIDocument? uidoc, UiRequestQueue queue, Dictionary<string, object?> data)
+        {
+            try
+            {
+                var plan = queue.Plan(id => doc.GetElement(ElemIds.From(id)) != null, id => doc.GetElement(ElemIds.From(id)) is View);
+                if (!(plan.ViewId is long vid) || !(doc.GetElement(ElemIds.From(vid)) is View target)) return;
+                View? before = null;
+                try { before = uidoc?.ActiveView; } catch (Exception) { /* a name for the model only */ }
+                UiViewReport.Add(data, before?.Id.Value, before == null ? null : UiViewReport.Label(before.Name, before.ViewType.ToString()),
+                    target.Id.Value, UiViewReport.Label(target.Name, target.ViewType.ToString()));
+            }
+            catch (Exception) { /* the view name is an extra; never fail the run for it */ }
         }
 
         private static UiOutcome ApplyUi(Document doc, UIDocument? uidoc, UiRequestQueue queue)
@@ -351,9 +367,10 @@ namespace BinaVibe.Copilot.Code
             }
             View? before = null;
             try { before = uidoc.ActiveView; } catch (Exception) { /* a name for the model only */ }
+            var switched = false;
             Try(outcome, "switch view", () =>
             {
-                if (plan.ViewId is long viewId && doc.GetElement(ElemIds.From(viewId)) is View target) uidoc.RequestViewChange(target);
+                if (plan.ViewId is long viewId && doc.GetElement(ElemIds.From(viewId)) is View target) { uidoc.RequestViewChange(target); switched = true; }
             });
             Try(outcome, "zoom to elements", () =>
             {
@@ -400,7 +417,9 @@ namespace BinaVibe.Copilot.Code
                 });
             try
             {
-                var now = (plan.ViewId is long nv ? doc.GetElement(ElemIds.From(nv)) as View : null) ?? uidoc.ActiveView;
+                // r17: the view asked for only when Revit took the request; a refused switch names the view the drafter is still in.
+                var nowId = UiViewReport.NowId(plan.ViewId, switched);
+                var now = (nowId is long nv ? doc.GetElement(ElemIds.From(nv)) as View : null) ?? uidoc.ActiveView;
                 if (outcome.Data != null && now != null)
                     UiViewReport.Add(outcome.Data, before?.Id.Value, before == null ? null : UiViewReport.Label(before.Name, before.ViewType.ToString()),
                         now.Id.Value, UiViewReport.Label(now.Name, now.ViewType.ToString()));

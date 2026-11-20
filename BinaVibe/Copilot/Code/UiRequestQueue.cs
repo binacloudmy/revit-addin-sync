@@ -253,6 +253,10 @@ namespace BinaVibe.Copilot.Code
             if (!string.IsNullOrEmpty(beforeLabel) && beforeId != nowId) data["switched_from"] = beforeLabel;
         }
 
+        /// <summary>The view to name as view_now after the UI step (r17, tester 20 Nov: "it shows a picture but does not open the view"):
+        /// the view asked for only when Revit took the request (switched); null, meaning the active view, when none was asked or the switch threw.</summary>
+        public static long? NowId(long? asked, bool switched) => switched ? asked : null;
+
         /// <summary>The card's own line for a view the turn switched to: "Opened view Cover (ThreeD)"; "" when no call switched.</summary>
         public static string NoteOf(IEnumerable<Envelope> envelopes)
         {
