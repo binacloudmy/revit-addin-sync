@@ -2196,6 +2196,8 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                     resolvedLabel = isCodeApproval
                         ? "Auto-approved · script"
                         : "Auto-approved · " + labels.Count + (labels.Count == 1 ? " write" : " writes");
+                else if (!string.IsNullOrEmpty(m.ResolvedNote))
+                    resolvedLabel = m.ResolvedNote;   // engine card: expired / cancelled
                 else
                     resolvedLabel = m.ActionsApproved == true ? "Allowed" : "Rejected";
                 var resolvedText = new TextBlock

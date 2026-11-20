@@ -42,6 +42,37 @@ namespace Tests
             Assert.Equal(StepState.Done, steps[0].State);
         }
 
+        // Engine write gate: the engine settles each tool row from its result.
+        // A write declined on the Ya/Tidak card is "rejected", a card that
+        // timed out or was unavailable (ok:false) is "error", a run is "done".
+        [Theory]
+        [InlineData("rejected", StepState.Rejected)]
+        [InlineData("REJECTED", StepState.Rejected)]
+        [InlineData("error", StepState.Error)]
+        [InlineData("done", StepState.Done)]
+        [InlineData("running", StepState.Running)]
+        public void Wire_state_maps_to_step_state(string wire, StepState expected)
+        {
+            Assert.Equal(expected, ProgressTrail.StateFrom(wire));
+        }
+
+        [Fact]
+        public void Rejected_row_settles_without_a_tick_and_survives_completion()
+        {
+            var steps = new ObservableCollection<ProgressStep>();
+            ProgressReducer.Apply(steps, "tc1", "executing", "Creating level on L9", "", StepState.Running);
+            ProgressReducer.Apply(steps, "tc1", "executing", "Creating level on L9",
+                "Declined in Revit; nothing was changed", ProgressTrail.StateFrom("rejected"));
+            ProgressReducer.CompleteRunning(steps);
+
+            Assert.Single(steps);
+            Assert.Equal(StepState.Rejected, steps[0].State);
+            Assert.NotNull(steps[0].EndedUtc);
+            Assert.True(ProgressTrail.IsSettled(steps[0].State));
+            Assert.NotEqual(ProgressTrail.Glyph(StepState.Done), ProgressTrail.Glyph(StepState.Rejected));
+            Assert.NotEqual(ProgressTrail.Glyph(StepState.Error), ProgressTrail.Glyph(StepState.Rejected));
+        }
+
         [Fact]
         public void Error_state_marks_existing_row()
         {

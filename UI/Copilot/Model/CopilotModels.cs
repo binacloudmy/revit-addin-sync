@@ -339,6 +339,13 @@ namespace RevitWebAppSync.UI.Copilot.Model
         // click must still work after a newer message or router swap cleared
         // the field (2026-08-18 UAT: Ya → "Tiada tindakan tertunda").
         public object PendingBatch;
+        // Engine-mode write card (EngineWriteGate): the ticket this card
+        // answers. Set = Ya/Tidak resolves the gate's ticket instead of a
+        // cloud PendingBatch. Null on every other card.
+        public string EngineTicketId;
+        // Resolved-state text that overrides "Allowed"/"Rejected" (an engine
+        // card that expired or was cancelled by Stop). Null = the default.
+        public string ResolvedNote;
 
         // ─── Streaming reasoning timeline (2026-08-02 copilot-reasoning-ui spec) ──
         // Persisted trail — set once the turn finishes, so a completed AiReply/

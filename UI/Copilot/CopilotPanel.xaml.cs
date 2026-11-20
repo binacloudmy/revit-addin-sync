@@ -90,11 +90,13 @@ namespace RevitWebAppSync.UI.Copilot
             {
                 CopilotTheme.ThemeChanged -= SwapLocalTheme;
                 CopilotTheme.ThemeChanged += SwapLocalTheme;
+                _vm.PaneVisible = IsVisible;   // engine write card: can it be seen?
                 SwapLocalTheme();
             };
             Unloaded += (_, __) =>
             {
                 CopilotTheme.ThemeChanged -= SwapLocalTheme;
+                _vm.PaneVisible = false;
                 // Belt and braces: IsVisible is the poll's only other stop condition,
                 // and if a docked-as-tab pane ever hides its host HWND without
                 // flipping IsVisible, a blocked user would keep polling for the rest
@@ -117,6 +119,7 @@ namespace RevitWebAppSync.UI.Copilot
             IsVisibleChanged += (_, e) =>
             {
                 if (e.NewValue is bool v && v) RefreshUsageNow();
+                _vm.PaneVisible = IsVisible;   // a hidden pane fails engine writes closed
                 SyncUsagePolling();      // only a VISIBLE pane polls
             };
             // A quota that fills (or clears) is what starts (or stops) the poll.

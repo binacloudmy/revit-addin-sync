@@ -37,10 +37,17 @@ namespace RevitWebAppSync.UI.Copilot
     /// Central Copilot state machine — a C# port of the prototype useReducer (app.jsx).
     /// Drives the panel chrome + all screen bodies via data binding.
     /// </summary>
-    public class CopilotViewModel : INotifyPropertyChanged
+    public class CopilotViewModel : INotifyPropertyChanged, IWriteConfirmUi
     {
         public CopilotViewModel()
         {
+            // Engine-mode write card: this pane shows EngineWriteGate's
+            // tickets. Built on the WPF thread, so CurrentDispatcher is the
+            // pane's; the gate's callbacks post to it with BeginInvoke.
+            _uiDispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher;
+            EngineWriteGate.AutoMode = () => CopilotPrefs.Load().AutoApproveWrites;
+            EngineWriteGate.Ui = this;
+
             var st = CopilotStateStore.Load();
             _pinned = new HashSet<string>(st.Pinned);
             History = new ObservableCollection<HistoryEntry>(st.History);
@@ -57,6 +64,7 @@ namespace RevitWebAppSync.UI.Copilot
             CancelRunCommand = new RelayCommand(_ => CancelRun());
             ClearChatCommand = new RelayCommand(_ =>
             {
+                EngineWriteGate.CancelOpen("chat cleared");
                 Thread.Clear();
                 _currentSession = null;
                 (Router as RevitChatRouter)?.ResetSession();
@@ -649,6 +657,8 @@ namespace RevitWebAppSync.UI.Copilot
         public void CancelSend()
         {
             _stopRequested = true;
+            // An engine write waiting on its card is rejected ("turn stopped").
+            EngineWriteGate.CancelOpen("stop pressed");
             try { (Router as RevitChatRouter)?.CancelStream(); } catch { /* already done */ }
         }
         public RelayCommand ChatRunCommand { get; }
@@ -856,10 +866,14 @@ namespace RevitWebAppSync.UI.Copilot
             // The user typed past a pending Ya/Tidak card — its buttons die here
             // (the router auto-rejects the parked batch in the background when
             // this message routes; see RevitChatRouter.RouteAsync stale-confirm).
+            // An engine write card is cancelled through the gate instead; its
+            // Close marks the card.
+            EngineWriteGate.CancelOpen("new message sent");
             for (int k = 0; k < Thread.Count; k++)
             {
                 var msg = Thread[k];
-                if (msg.Kind == CpMsgKind.ConfirmActions && !msg.ActionsResolved)
+                if (msg.Kind == CpMsgKind.ConfirmActions && !msg.ActionsResolved
+                    && string.IsNullOrEmpty(msg.EngineTicketId))
                 {
                     msg.ActionsResolved = true;
                     Thread[k] = Thread[k];   // item-replace redraw trick
@@ -1844,6 +1858,17 @@ namespace RevitWebAppSync.UI.Copilot
             if (m == null || m.ActionsResolved) return;
             m.ActionsResolved = true;
             m.ActionsApproved = approve;
+            if (!string.IsNullOrEmpty(m.EngineTicketId))
+            {
+                // Engine card: the engine's request is waiting in McpServer;
+                // answering the ticket releases it. No receipt pre-capture
+                // (its flag would leak into the next cloud batch) and no
+                // resume: the engine run never paused.
+                int ei = Thread.IndexOf(m);
+                if (ei >= 0) Thread[ei] = Thread[ei];   // redraw: resolved state
+                EngineWriteGate.Resolve(m.EngineTicketId, approve);
+                return;
+            }
             // A REAL Ya click earns the before/after capture lane (Auto mode's
             // programmatic accept never passes through here) — spec 2026-08-18.
             if (approve) RevitWebAppSync.Services.TurnReceiptService.RequestPreCapture();
@@ -1906,6 +1931,91 @@ namespace RevitWebAppSync.UI.Copilot
             // displayText: the user's side of this turn is the button click, not a
             // typed prompt — persist it as the Malay Ya/Tidak line.
             RenderRouteResult(rr, LastPrompt, approve ? "Ya, teruskan" : "Tidak", "ai-generated", null);
+        }
+
+        // ─── Engine-mode write card (EngineWriteGate) ─────────────────────────
+        // In engine mode a write arrives as an HTTP request to McpServer, which
+        // holds it in EngineWriteGate until the drafter answers. The gate calls
+        // the three methods below from the request's pool thread, under its
+        // lock: each one only posts to the WPF dispatcher with BeginInvoke and
+        // returns. Never Dispatcher.Invoke here: the streaming ticks already
+        // Invoke onto this thread (ReplaceLastThinking), and a click on the
+        // card calls back into the gate.
+        private readonly System.Windows.Threading.Dispatcher _uiDispatcher;
+        private string _statusBeforeGate;
+
+        // Set by CopilotPanel from Loaded/Unloaded/IsVisibleChanged. A hidden
+        // pane cannot show the card, so the write fails closed instead of
+        // waiting out the timeout on a card nobody can see.
+        private volatile bool _paneVisible;
+        public bool PaneVisible { get => _paneVisible; set => _paneVisible = value; }
+
+        bool IWriteConfirmUi.TryShow(WriteTicket ticket)
+        {
+            var d = _uiDispatcher;
+            if (d == null || d.HasShutdownStarted || !_paneVisible) return false;
+            var labels = ticket.Labels.ToList();
+            d.BeginInvoke(new Action(() =>
+            {
+                var card = new ChatMessage
+                {
+                    Role = "ai", Kind = CpMsgKind.ConfirmActions,
+                    Text = "",
+                    ActionLabels = labels,
+                    Time = System.DateTime.Now.ToString("h:mm tt"),
+                    EngineTicketId = ticket.Id,
+                };
+                // Before the live Thinking bubble, so the streaming ticks keep
+                // replacing only the bubble and never the card.
+                int at = -1;
+                for (int i = Thread.Count - 1; i >= 0; i--)
+                    if (Thread[i].Kind == CpMsgKind.Thinking) { at = i; break; }
+                if (at >= 0) Thread.Insert(at, card); else Thread.Add(card);
+                if (RunStatus != "Awaiting confirmation") _statusBeforeGate = RunStatus;
+                RunStatus = "Awaiting confirmation";
+            }));
+            return true;
+        }
+
+        void IWriteConfirmUi.Update(WriteTicket ticket)
+        {
+            var labels = ticket.Labels.ToList();
+            _uiDispatcher?.BeginInvoke(new Action(() =>
+            {
+                int i = IndexOfEngineCard(ticket.Id);
+                if (i < 0 || Thread[i].ActionsResolved) return;
+                Thread[i].ActionLabels = labels;
+                Thread[i] = Thread[i];   // redraw with the joined write
+            }));
+        }
+
+        void IWriteConfirmUi.Close(WriteTicket ticket, WriteVerdict verdict)
+        {
+            _uiDispatcher?.BeginInvoke(new Action(() =>
+            {
+                // The gate's verdict is authoritative: a click that lost the
+                // race to the timeout must not leave the card saying "Allowed".
+                int i = IndexOfEngineCard(ticket.Id);
+                if (i >= 0)
+                {
+                    var m = Thread[i];
+                    m.ActionsResolved = true;
+                    m.ActionsApproved = verdict == WriteVerdict.Run;
+                    m.ResolvedNote =
+                        verdict == WriteVerdict.TimedOut ? "Expired · nothing changed" :
+                        verdict == WriteVerdict.Cancelled ? "Cancelled · nothing changed" : null;
+                    Thread[i] = m;   // redraw: buttons gone, resolved state
+                }
+                if (RunStatus == "Awaiting confirmation")
+                    RunStatus = IsSending ? "Running" : (_statusBeforeGate ?? "Ready");
+            }));
+        }
+
+        private int IndexOfEngineCard(string ticketId)
+        {
+            for (int i = Thread.Count - 1; i >= 0; i--)
+                if (Thread[i].EngineTicketId == ticketId) return i;
+            return -1;
         }
 
         // ─── Codegen approval gate (Action Mode addendum, 2026-08-02) ──────────

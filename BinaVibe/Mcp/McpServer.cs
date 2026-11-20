@@ -8,10 +8,22 @@
 // Wire format:
 //   POST /mcp/tools/{name}
 //   headers: X-Bina-Secret (required, must match BinaConfig.EngineSecret),
-//            Idempotency-Key (optional, dedupes retries)
+//            Idempotency-Key (optional, dedupes retries),
+//            X-Bina-Mutate: 1 (the call writes to the model),
+//            X-Bina-Always-Confirm: 1 (ask even in Auto mode),
+//            X-Bina-Confirm-Wait-S (card wait in seconds, may be fractional,
+//              default 300), X-Bina-Leg-Id (writes of one model leg share a card)
 //   body:    {"tool_call_id": "...", "args": { ... }}   (legacy bare-args tolerated)
-//   200 + tool JSON, 401 bad/missing secret, 423 while a forced update is
-//   pending, 504 on the request-wait cap.
+//   200 + tool JSON, 401 bad/missing secret, 404 for the internal "__" jobs,
+//   423 while a forced update is pending, 504 on the request-wait cap.
+//
+// Confirmation gate (engine mode): a write marked with X-Bina-Mutate waits
+// for the drafter's Ya/Tidak on the pane's card (EngineWriteGate) BEFORE it
+// is queued for Revit. The wait is an await on this request's pool task, so
+// nothing blocks the Revit UI thread, and the 50 s execution cap starts only
+// after Ya. Anything but Ya answers 200 with the gate's result and the tool
+// never runs. No X-Bina-Mutate means a read or an engine older than the
+// gate: no card, as before.
 //
 // Threading (the earlier orphaned-queue bug is fixed here):
 //   - HttpListener runs an accept loop on a background thread.
@@ -28,6 +40,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using RevitWebAppSync.Services;
 
 namespace BinaVibe.Mcp
 {
@@ -125,6 +138,14 @@ namespace BinaVibe.Mcp
                     await WriteJson(ctx, 400, new { error = "missing tool name" });
                     return;
                 }
+                // "__receipt_*" and the other "__" names are the pane's own
+                // internal jobs, queued straight on McpJobPump. They are not
+                // tools and are not reachable over HTTP.
+                if (toolName.StartsWith("__", StringComparison.Ordinal))
+                {
+                    await WriteJson(ctx, 404, new { error = "not found", path });
+                    return;
+                }
 
                 string body;
                 using (var reader = new StreamReader(ctx.Request.InputStream, Encoding.UTF8))
@@ -155,21 +176,47 @@ namespace BinaVibe.Mcp
                 }
 
                 var idemKey = ctx.Request.Headers["Idempotency-Key"];
-                var job = new McpJob { Tool = toolName, Args = args, IdempotencyKey = idemKey ?? "" };
+                var mutateHeader = ctx.Request.Headers[EngineWriteGate.MutateHeader];
+                bool mutate = EngineWriteGate.HeaderFlag(mutateHeader);
+                bool alwaysConfirm = EngineWriteGate.HeaderFlag(ctx.Request.Headers[EngineWriteGate.AlwaysConfirmHeader]);
+                var confirmWait = EngineWriteGate.ConfirmWait(ctx.Request.Headers[EngineWriteGate.ConfirmWaitHeader]);
+                var legId = ctx.Request.Headers[EngineWriteGate.LegIdHeader];   // one model leg = one card
+                if (mutateHeader == null) NoteUngated(toolName);
+                var job = new McpJob { Tool = toolName, Args = args, IdempotencyKey = idemKey ?? "", Mutate = mutate };
 
                 // Retry-safe dedup: a repeated Idempotency-Key returns the job
                 // already in flight/completed — we only await it, never enqueue
                 // a second execution (so a client retry can't double-mutate).
+                var queueCap = _requestWait;   // longest a job may wait before it starts
                 var canonical = _idempotency.GetOrAdd(idemKey, job);
                 if (ReferenceEquals(canonical, job))
-                    McpJobPump.Enqueue(job);       // new key: run it (shared pump + watchdog)
+                {
+                    // New key. A write that needs a card waits for the click
+                    // here, before it is queued, so the pump's 6 s watchdog
+                    // and the cap below both start after Ya.
+                    var verdict = WriteVerdict.Run;
+                    if (EngineWriteGate.NeedsCard(mutate, alwaysConfirm, EngineWriteGate.IsAutoMode()))
+                        verdict = await EngineWriteGate.AskAsync(toolName, args, alwaysConfirm, confirmWait, legId).ConfigureAwait(false);
+                    if (verdict == WriteVerdict.Run)
+                        McpJobPump.Enqueue(job);   // run it (shared pump + watchdog)
+                    else
+                        job.SetResult(EngineWriteGate.ResultFor(verdict, confirmWait.TotalSeconds));
+                }
                 else
+                {
                     job = canonical;               // duplicate: await the original
+                    // The original may still be waiting on the card.
+                    if (mutate) queueCap = confirmWait + _requestWait;
+                }
 
-                if (!job.Completed.Wait(_requestWait))
+                // The run budget starts when the drainer starts this job, not
+                // at enqueue: a write queued behind another write from the same
+                // Allow must not spend its budget waiting for the first.
+                if (!McpJobClock.WaitForRun(job, _requestWait, queueCap))
                 {
                     job.Abandoned = true;
-                    await WriteJson(ctx, 504, new { error = $"tool {toolName} timed out after {_requestWait.TotalSeconds}s" });
+                    var limit = job.TStarted == 0 ? queueCap : _requestWait;
+                    await WriteJson(ctx, 504, new { error = $"tool {toolName} timed out after {limit.TotalSeconds}s" });
                     return;
                 }
 
@@ -185,6 +232,18 @@ namespace BinaVibe.Mcp
             {
                 try { await WriteJson(ctx, 500, new { error = ex.Message }); } catch { }
             }
+        }
+
+        // Tool names seen without X-Bina-Mutate, logged once each. That is a
+        // read, or an engine older than the confirmation gate (its writes
+        // run with no card); the missing header alone cannot tell them apart.
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _ungated = new();
+
+        private static void NoteUngated(string toolName)
+        {
+            if (_ungated.TryAdd(toolName, 0))
+                System.Diagnostics.Debug.WriteLine(
+                    $"[BINA] engine call without {EngineWriteGate.MutateHeader}: {toolName} (a read, or an engine older than the confirmation gate)");
         }
 
         private static async Task WriteJson(HttpListenerContext ctx, int status, object body)
