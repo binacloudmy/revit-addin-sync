@@ -116,6 +116,8 @@ namespace BinaVibe.Mcp.Tools
         {
             int swallowed = 0;
             var errors = new List<string>();
+            var force = ForceScope.Current;   // a batch the drafter forced with a click (ForceScope): errors with a fix may be resolved
+            var resolved = 0;
             foreach (var f in a.GetFailureMessages())
             {
                 bool isWarning = f.GetSeverity() == FailureSeverity.Warning;
@@ -125,6 +127,10 @@ namespace BinaVibe.Mcp.Tools
                 {
                     a.DeleteWarning(f);
                     swallowed++;
+                }
+                else if (force != null && TryResolve(a, f, text, force))
+                {
+                    resolved++;
                 }
                 else
                 {
@@ -144,7 +150,38 @@ namespace BinaVibe.Mcp.Tools
                 return FailureProcessingResult.ProceedWithRollBack;
             }
 
+            if (resolved > 0)
+            {
+                // Revit applies the resolutions and processes the failures again (ForceScope.MaxRounds bounds the repeats).
+                force!.NoteRound();
+                return FailureProcessingResult.ProceedWithCommit;
+            }
+
             return FailureProcessingResult.Continue;
+        }
+
+        /// <summary>Inside a forced batch: resolves one error with Revit's default resolution when Revit offers and permits one and
+        /// every element it names is a target or connected to one (ForceScope.Allows). Recorded for the envelope. Never throws.</summary>
+        private static bool TryResolve(FailuresAccessor a, FailureMessageAccessor f, string text, ForceScope force)
+        {
+            try
+            {
+                var ids = new List<long>();
+                foreach (var id in f.GetFailingElementIds()) ids.Add((long)id.Value);
+                foreach (var id in f.GetAdditionalElementIds()) ids.Add((long)id.Value);
+                if (!force.Allows(ids, f.HasResolutions(), f.HasResolutions() && a.IsFailureResolutionPermitted(f))) return false;
+                var caption = f.GetDefaultResolutionCaption();
+                a.ResolveFailure(f);
+                force.Record(text, caption);
+                FailureLog.Current.Add(ForceScope.WarningText(text + (string.IsNullOrWhiteSpace(caption) ? "" : " — " + caption)),
+                    WarningSeverity.Warning, null, ids);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[BinaVibe][errors] could not resolve '{text}': {ex.Message}");
+                return false;
+            }
         }
 
         // Never lets logging break failure handling: a throw here would leave

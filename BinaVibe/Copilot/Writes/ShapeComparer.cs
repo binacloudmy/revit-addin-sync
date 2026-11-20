@@ -177,7 +177,7 @@ namespace BinaVibe.Copilot.Writes
         }
     }
 
-    public static class ShapeComparer
+    public static partial class ShapeComparer
     {
         /// <summary>Bounding boxes are compared rounded to this many millimetres.</summary>
         public const double BboxRoundingMm = 10.0;
@@ -242,6 +242,17 @@ namespace BinaVibe.Copilot.Writes
 
         private static ShapeVerdict CompareAdded(List<AddedShape> preview, List<AddedShape> commit)
         {
+            var (unmatched, leftover) = MatchAdded(preview, commit);
+            if (leftover.Count == 0 && unmatched.Count == 0) return ShapeVerdict.Match;
+            if (preview.Count != commit.Count)
+                return ShapeVerdict.Drift($"The commit added {Describe(commit)}; the preview added {Describe(preview)}.");
+            return ShapeVerdict.Drift(
+                $"{Count(unmatched.Count, "added element")} in the commit ({Describe(unmatched)}) do not match the preview's type, level or position within {BboxRoundingMm.ToString(CultureInfo.InvariantCulture)} mm.");
+        }
+
+        /// <summary>The commit's additions no preview addition matches, and the preview's additions left without a match.</summary>
+        private static (List<AddedShape> Unmatched, List<AddedShape> Leftover) MatchAdded(List<AddedShape> preview, List<AddedShape> commit)
+        {
             // Exact pass: the multiset of rounded keys.
             var pending = new Dictionary<string, List<AddedShape>>(StringComparer.Ordinal);
             foreach (var a in preview)
@@ -269,12 +280,7 @@ namespace BinaVibe.Copilot.Writes
                 leftover.RemoveAt(j);
                 unmatched.RemoveAt(i);
             }
-
-            if (leftover.Count == 0 && unmatched.Count == 0) return ShapeVerdict.Match;
-            if (preview.Count != commit.Count)
-                return ShapeVerdict.Drift($"The commit added {Describe(commit)}; the preview added {Describe(preview)}.");
-            return ShapeVerdict.Drift(
-                $"{Count(unmatched.Count, "added element")} in the commit ({Describe(unmatched)}) do not match the preview's type, level or position within {BboxRoundingMm.ToString(CultureInfo.InvariantCulture)} mm.");
+            return (unmatched, leftover);
         }
 
         /// <summary>Expected counts under this key may be spent on any category (W4's

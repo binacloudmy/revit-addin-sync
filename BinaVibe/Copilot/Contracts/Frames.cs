@@ -203,10 +203,17 @@ namespace BinaVibe.Copilot.Contracts
         [JsonPropertyName("calls")] public List<ToolCallDto> Calls { get; set; } = new();
         /// <summary>The assistant's words about the batch, shown on a labelled line of the result card.</summary>
         [JsonPropertyName("description")] public string? Description { get; set; }
+        /// <summary>"connected" only when the drafter clicked "Force the change" on the server's card after a diff_drift that
+        /// changed only elements connected to the targets: the commit may then accept that drift (ConnectedDrift). Absent otherwise.</summary>
+        [JsonPropertyName("force")] public string? Force { get; set; }
     }
 
     public sealed class ToolCallDto
     {
+        /// <summary>The request's force value, copied onto each call by the turn router (never on the wire per call): the write
+        /// runner reads it here, so no interface between the router and the runner changes.</summary>
+        [JsonIgnore] public string? Force { get; set; }
+
         [JsonPropertyName("call_id")] public string CallId { get; set; } = "";
         /// <summary>Stable across retries of the same call; the ledger keys commits on it.</summary>
         [JsonPropertyName("idempotency_key")] public string IdempotencyKey { get; set; } = "";

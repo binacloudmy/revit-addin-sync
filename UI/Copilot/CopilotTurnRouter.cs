@@ -649,6 +649,8 @@ namespace RevitWebAppSync.UI.Copilot
                     _turn.Step("preview:" + request.RequestId, "preview",
                         WritePreviewText.PreviewStepLabel(request.Calls, ms), StepState.Running);
                     _router.Publish(_turn);
+                    // The drafter's click on "Force the change" travels on the request; the runner reads it from each call.
+                    foreach (var call in request.Calls) if (call != null) call.Force = request.Force;
                     envelopes = await _router._tools.RunWritesAsync(turnId, request.RequestId, request.Calls, request.Description, _turn.Snapshot, ct).ConfigureAwait(false);
                     _turn.Step("preview:" + request.RequestId, "preview", "", StepState.Done);
                     if (willWrite.Length > 0)

@@ -120,6 +120,8 @@ namespace BinaVibe.Copilot.Writes
             CancellationToken ct)
         {
             var active = pending;
+            // Only a request whose every call carries the drafter's click (tool_request force = "connected") may accept a connected drift.
+            var force = pending.Count > 0 && pending.All(i => string.Equals(calls[i].Force, ConnectedDrift.ForceConnected, StringComparison.Ordinal));
             for (var attempt = 0; ; attempt++)
             {
                 var batch = new WriteBatch
@@ -130,6 +132,7 @@ namespace BinaVibe.Copilot.Writes
                     Snapshot = req.Snapshot,
                     Description = req.Description,
                     ExpectedDoc = expected,
+                    ForceConnected = force,
                 };
 
                 _notice?.PreviewStarting(req.RequestId, batch.Calls.Count);
@@ -189,6 +192,7 @@ namespace BinaVibe.Copilot.Writes
                     Description = batch.Description,
                     ExpectedDoc = expected,
                     RequestIndexes = writes.Select(j => active[j]).ToArray(),
+                    ForceConnected = force,
                 };
                 var writePreview = new PreviewOutcome
                 {
@@ -272,7 +276,7 @@ namespace BinaVibe.Copilot.Writes
                         }
                         foreach (var slot in writeSlots)
                             results[slot] = outcome.Kind == CommitKind.Drift
-                                ? WriteEnvelopes.Drift(outcome.Reason)
+                                ? WithDriftData(WriteEnvelopes.Drift(outcome.Reason), outcome.DriftData)
                                 : WriteEnvelopes.ModelChangedTwice();
                         return;
 
@@ -310,6 +314,14 @@ namespace BinaVibe.Copilot.Writes
                 Code = ErrorCodes.RuntimeError,
                 Message = "The change was committed but not verified: the tool returned no read-back. Inspect the model before relying on it.",
             };
+            return env;
+        }
+
+        /// <summary>The measured drift ({"drift": {connected_only, force?, affected[]}}) on the diff_drift envelope, so the backend can
+        /// list what is affected and offer "Force the change" only when every difference is connected to the targets.</summary>
+        private static Envelope WithDriftData(Envelope env, System.Text.Json.JsonElement? data)
+        {
+            if (data is System.Text.Json.JsonElement d && d.ValueKind == System.Text.Json.JsonValueKind.Object) env.Data = d;
             return env;
         }
 

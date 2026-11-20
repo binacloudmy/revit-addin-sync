@@ -155,6 +155,7 @@ namespace BinaVibe.Copilot.Writes
             var openViews = OpenViewIds(uidoc);
             using (CallbackScope.Enter(doc, CallbackKind.Preview))
             using (FailureScope.Begin(doc.Application))
+            using (batch.ForceConnected ? BinaVibe.Copilot.Guard.ForceScope.Begin(PreviewForceIds(doc, writePlans)) : null)
             {
                 var group = new TransactionGroup(doc, outcome.GroupName);
                 try
@@ -372,9 +373,16 @@ namespace BinaVibe.Copilot.Writes
                         before[id] = known;
             string? capWarning = null;
             string? unreadWarning = null;
+            string? forcedWarning = null;
             var noop = false;
+            // The force path (ConnectedDrift): what is connected to the targets, read BEFORE the calls run (a fitting Revit removes
+            // cannot be read afterwards). Read for every batch with targets, so a refused drift can say whether it was connected-only.
+            var targetIds = fresh.SelectMany(p => p.TargetIds ?? Array.Empty<long>()).Distinct().ToList();
+            var connectedBefore = ConnectedSet.Of(doc!, targetIds);
+            st.Mark("connected set (" + connectedBefore.Count + ")");
             using (CallbackScope.Enter(doc!, CallbackKind.Commit))
             using (FailureScope.Begin(doc!.Application))
+            using (batch.ForceConnected ? BinaVibe.Copilot.Guard.ForceScope.Begin(targetIds.Concat(connectedBefore.Keys)) : null)
             {
                 var group = new TransactionGroup(doc, preview.GroupName);
                 try
@@ -409,8 +417,18 @@ namespace BinaVibe.Copilot.Writes
                     if (preview.Shape != null) unreadWarning = ValueFingerprint.UnreadWarning(preview.Shape, shape);
                     if (!verdict.IsMatch)
                     {
-                        RollBackIfOpen(group);
-                        return new CommitOutcome { Kind = CommitKind.Drift, Reason = verdict.Reason };
+                        // Judged against what is connected to the targets before and after the calls ran: a forced batch keeps a
+                        // connected-only drift and reports it; anything else rolls back and says what differed (DriftData).
+                        var connected = ShapeComparer.JudgeConnected(preview.Shape, shape, connectedBefore, ConnectedSet.Of(doc!, targetIds));
+                        if (batch.ForceConnected && connected.ConnectedOnly)
+                        {
+                            forcedWarning = ConnectedDrift.ForcedWarning(connected);
+                        }
+                        else
+                        {
+                            RollBackIfOpen(group);
+                            return new CommitOutcome { Kind = CommitKind.Drift, Reason = verdict.Reason, DriftData = ConnectedDrift.Data(connected) };
+                        }
                     }
 
                     if (!anyChange)
@@ -453,6 +471,11 @@ namespace BinaVibe.Copilot.Writes
             if (!noop) Undo.UndoService.NoteBatchCommitted(doc!, batch.TurnId, preview.GroupName);
             if (capWarning != null && n > 0) AddWarning(envelopes[0], capWarning);
             if (unreadWarning != null && n > 0) AddWarning(envelopes[0], unreadWarning);
+            if (forcedWarning != null && n > 0)
+            {
+                envelopes[0].Warnings ??= new List<WarningDto>();
+                envelopes[0].Warnings.Insert(0, new WarningDto { Text = forcedWarning, Severity = WarningSeverity.Warning });   // first: the drafter chose it
+            }
 
             // R76: the tools' queued UI work runs now — committed and assimilated, or a noop with
             // nothing to roll back — in call order; a failing step is a warning, never a failed
@@ -468,6 +491,13 @@ namespace BinaVibe.Copilot.Writes
             if (!noop) Highlight(uidoc!, doc!, envelopes, builder.AddedIds, select: false);
             foreach (var e in envelopes.Where(e => e != null)) EnvelopeChanges.Recheck(e);
             return new CommitOutcome { Kind = CommitKind.Committed, Envelopes = envelopes, UndoEntry = !noop };
+        }
+
+        /// <summary>The ids a forced preview may let Revit resolve errors on: the targets and what is connected to them.</summary>
+        private static IEnumerable<long> PreviewForceIds(Document doc, IEnumerable<WritePlan> plans)
+        {
+            var targets = plans.SelectMany(p => p.TargetIds ?? Array.Empty<long>()).Distinct().ToList();
+            return targets.Concat(ConnectedSet.Of(doc, targets).Keys);
         }
 
         private static CommitOutcome Failed(WriteBatch batch, int failedIndex, Envelope failure)
