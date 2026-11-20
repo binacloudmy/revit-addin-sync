@@ -224,8 +224,14 @@ namespace RevitWebAppSync.Services.JkrSpec
         /// Empty = none found, or not read (older snapshots). A7.1 uses it when the type has a material
         /// only through a Material-typed parameter (AI-419).</summary>
         public List<long> NoMaterialInstanceIds = new List<long>();
-        /// <summary>Total count of such instances (uncapped).</summary>
+        /// <summary>Count of such instances among those read (see NoMaterialInstancesSampled).</summary>
         public int NoMaterialInstanceCount;
+        /// <summary>True when the type's material comes ONLY from a Material-typed type parameter (no
+        /// compound layers, no instance parameter, no geometry material on the first instance). Only then
+        /// is the per-instance material gap judged (AI-419).</summary>
+        public bool MaterialFromTypeParamOnly;
+        /// <summary>True when only the first InstanceIdCap instances were read, so the count is "at least".</summary>
+        public bool NoMaterialInstancesSampled;
     }
 
     public sealed class SpecMaterial
