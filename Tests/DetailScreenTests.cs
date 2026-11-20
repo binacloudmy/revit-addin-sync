@@ -421,7 +421,7 @@ namespace RevitWebAppSync.Tests
             Assert.False(c.HasApply);                            // nothing to apply yet
             Assert.False(c.CanFix);
             Assert.Equal("AI fixer can propose", d.AiCanTitle);
-            Assert.Equal("No ready-made fix yet. Fix all asks the AI fixer for one; you see its proposal before anything is written.", d.AiCanText);
+            Assert.Equal("No ready-made fix yet. Ask the AI fixer for one, or enter the value yourself; you see it before anything is written.", d.AiCanText);
         }
 
         [Fact]
@@ -465,6 +465,113 @@ namespace RevitWebAppSync.Tests
             Assert.Equal("Dicadangkan oleh pembaiki AI", d.AiProposedLabel);
             Assert.Equal("Tanda manual", d.MarkManualLabel);
             Assert.Equal("Sumber: Borang A5, x", d.SourceLine("Borang A5 · x"));
+        }
+
+        // ── AI-435: the AI-fixer row ──
+
+        [Fact]
+        public void An_ai_fixer_card_always_has_the_fixer_row_with_the_manual_input_and_no_suggestion_yet()
+        {
+            var (d, _, _) = New(AiCandidate("1", "D"));
+            d.Open("1");
+            Assert.True(d.Card.IsFixerRow);
+            Assert.NotNull(d.Fixer);
+            Assert.Equal(FixerAiState.NotAsked, d.Fixer.AiState);
+            Assert.Equal("No suggestion yet.", d.Fixer.AiLine);
+            Assert.True(d.Fixer.IsFreeText);                     // manual input is there with no suggestion
+        }
+
+        [Fact]
+        public void A_ready_made_fix_or_a_person_item_has_no_fixer_row()
+        {
+            var (d, _, _) = New(Issue("1", "A5", fixable: true), Issue("2", "A6", human: true));
+            d.Open("1");
+            Assert.False(d.Card.IsFixerRow);
+            Assert.Null(d.Fixer);
+            d.Open("2");
+            Assert.Null(d.Fixer);
+        }
+
+        [Fact]
+        public void With_a_suggestion_the_row_shows_it_with_its_reason_and_the_manual_input_stays()
+        {
+            var i = AiCandidate("1", "D");
+            i.AiAsked = true;
+            i.AiProposal = new AiSuggestion { Action = "set_parameter", Value = "(kt) Konkrit", Reason = "closest valid material code" };
+            var (d, _, _) = New(i);
+            d.Open("1");
+            Assert.Equal(FixerAiState.Suggested, d.Fixer.AiState);
+            Assert.Equal("(kt) Konkrit", d.Fixer.AiValue);
+            Assert.Equal("closest valid material code", d.Fixer.AiReason);
+            Assert.True(d.Fixer.CanAccept);
+            Assert.True(d.Card.IsAiProposal && d.Card.HasApply);  // Apply AI fix (F) accepts it
+            d.Fixer.ManualValue = "(bb02) Batu Bata";
+            Assert.True(d.Fixer.IsFreeText);
+        }
+
+        [Fact]
+        public void Asked_with_nothing_back_says_so_explicitly()
+        {
+            var i = AiCandidate("1", "D");
+            i.AiAsked = true;
+            var (d, _, _) = New(i);
+            d.Open("1");
+            Assert.Equal(FixerAiState.NoSuggestion, d.Fixer.AiState);
+            Assert.Equal("The AI fixer has no suggestion for this item.", d.Fixer.AiLine);
+        }
+
+        [Fact]
+        public void The_reference_set_reaches_the_row_as_a_dropdown()
+        {
+            var i = AiCandidate("1", "D");
+            i.ReferenceValues = new[] { "(kt) Konkrit", "(bb02) Batu Bata" };
+            var (d, _, _) = New(i);
+            d.Open("1");
+            Assert.True(d.Fixer.HasOptions);
+        }
+
+        [Fact]
+        public void Ask_AI_and_a_valid_manual_value_go_to_the_pane_and_an_invalid_one_does_not()
+        {
+            var (d, r, _) = New(AiCandidate("1", "D"));
+            d.RuleOf = id => "Naming convention";
+            d.CategoryOf = id => "Doors";
+            d.Open("1");
+            string asked = null; (string id, string v)? written = null;
+            r.AskAiRequested += id => asked = id;
+            r.ManualFixRequested += (id, v) => written = (id, v);
+            d.AskAi();
+            Assert.Equal("1", asked);
+            d.Fixer.ManualValue = "Basic Door";                  // fails the rule's own check
+            d.WriteManual();
+            Assert.Null(written);
+            d.Fixer.ManualValue = "jkrAR_dor-k_(ky) Pintu Kayu";
+            d.WriteManual();
+            Assert.Equal(("1", "jkrAR_dor-k_(ky) Pintu Kayu"), written);
+        }
+
+        [Fact]
+        public void What_was_typed_survives_a_refresh_of_the_same_card()
+        {
+            var (d, r, _) = New(AiCandidate("1", "D"));
+            d.Open("1");
+            d.Fixer.ManualValue = "jkrAR_dor";
+            r.Load(new[] { AiCandidate("1", "D") }, AuditSummary.Build(Enumerable.Empty<Bim010Cell>()));
+            Assert.Equal("jkrAR_dor", d.Fixer.ManualValue);
+        }
+
+        [Fact]
+        public void The_ai_proposal_never_makes_a_row_auto_fixable_so_no_bulk_path_can_write_it()
+        {
+            var i = AiCandidate("1", "D");
+            i.AiProposal = new AiSuggestion { Action = "rename_type", Value = "jkrAR_x" };
+            Assert.False(i.AutoFixable);
+            Assert.True(i.AiFixCandidate);                      // still an AI-fixer row after it was asked
+            Assert.Equal("", i.FixAction);                      // the Fix* fields are untouched until accepted
+            i.UseAiSuggestion();
+            Assert.True(i.FixProposedByAi);
+            Assert.Equal("jkrAR_x", i.FixValue);
+            Assert.False(i.AutoFixable);                        // and still not auto-fixable once loaded for one write
         }
     }
 }
