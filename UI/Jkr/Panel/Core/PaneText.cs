@@ -243,7 +243,63 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 var noteEn = ContextEn(note);
                 return noteEn == null ? null : NoCheckEn + ". " + noteEn + tail;
             }
-            return SectionHeadingEn(s) ?? GridRemarkEn(s);
+            return SectionHeadingEn(s) ?? GridRemarkEn(s) ?? DepartmentRemarkEn(s);
+        }
+
+        // The rules the BIM010 checker states (AuditCheckers: RulePattern, "Peraturan: …"), BM → EN.
+        private static readonly (string Ms, string En)[] CheckerRules =
+        {
+            ("setiap bilik (Room) ada nilai parameter 'Department'", "every room (Room) has a value in the 'Department' parameter"),
+            ("setiap bilik (Room) yang diletakkan ada Number dan Name", "every placed room (Room) has a Number and a Name"),
+            ("setiap elemen Walls/Floors/Ceilings/Roofs ada sekurang-kurangnya satu material", "every Walls/Floors/Ceilings/Roofs element has at least one material"),
+            ("setiap view grafik ada View Template", "every graphical view has a View Template"),
+            ("sekurang-kurangnya satu Area Plan untuk analisis ruang/zon", "at least one Area Plan for space/zone analysis"),
+            ("sekurang-kurangnya satu view Legend untuk komponen dan nota am", "at least one Legend view for components and general notes"),
+            ("setiap Sheet mengandungi sekurang-kurangnya satu view", "every Sheet contains at least one view"),
+            ("nama family/type title block mengandungi 'JKR'", "the title block family/type name contains 'JKR'"),
+            ("setiap Revit link berstatus 'Loaded'", "every Revit link has the status 'Loaded'"),
+            (">=3 segmen dipisah '-' atau '_'", ">=3 segments separated by '-' or '_'"),
+            (GridRuleBm, GridRuleEn2),
+            ("grid > 0 dan aras > 0; setiap grid dan aras ada nama yang unik (tiada nama kosong/berganda); setiap pelan lantai terikat pada satu aras",
+             "grids > 0 and levels > 0; every grid and level has a unique name (no empty or duplicate names); every floor plan is tied to one level"),
+            ("Project Name/Number/Address/Client Name/Status/Issue Date terisi dan bukan nilai lalai Revit",
+             "Project Name/Number/Address/Client Name/Status/Issue Date are filled and not the Revit default"),
+            ("nama jenis (ElementType) yang digunakan ikut format JKR — kod JKR '(XXnnn)' / awalan 'jkrAR' / nama bahan",
+             "the used type names (ElementType) follow the JKR format — JKR code '(XXnnn)' / prefix 'jkrAR' / material name"),
+        };
+
+        /// <summary>A rule the BIM010 checker states, in English; the text itself when it is not one it knows.</summary>
+        public static string AuditRuleEn(string rule)
+        {
+            var s = (rule ?? "").Trim();
+            foreach (var (ms, en) in CheckerRules) if (s == ms) return en;
+            return rule ?? "";
+        }
+
+        /// <summary>A6 (rooms have a Department): "Peraturan: … Isi parameter Department …" in English.</summary>
+        private static string DepartmentRemarkEn(string s)
+        {
+            const string rule = "setiap bilik (Room) ada nilai parameter 'Department'";
+            var head = "Peraturan: " + rule + ". ";
+            if (!s.StartsWith(head, StringComparison.Ordinal)) return null;
+            var ruleEn = "Rule: " + AuditRuleEn(rule) + ". ";
+            var rest = s.Substring(head.Length);
+            var all = Regex.Match(rest, @"^Semua (\d+) bilik ada nilai Department — patuh\.$");
+            if (all.Success) return ruleEn + "All " + all.Groups[1].Value + " rooms have a Department value — complies.";
+            if (rest == "Dijumpai 0 bilik yang diletakkan (placed Room) dalam model — letak Room dahulu sebelum kategori jabatan boleh disemak.")
+                return ruleEn + "Found 0 placed rooms in the model — place Rooms first before the department can be checked.";
+            var miss = Regex.Match(rest, @"^(\d+)/(\d+) bilik tiada nilai \(cth: (.*)\)\. Isi parameter Department untuk bilik tersebut\.(.*)$", RegexOptions.Singleline);
+            if (miss.Success && (string.IsNullOrWhiteSpace(miss.Groups[4].Value) || FullListNoteEn(miss.Groups[4].Value).Length > 0))
+                return ruleEn + miss.Groups[1].Value + "/" + miss.Groups[2].Value + " rooms have no value (e.g. " + miss.Groups[3].Value
+                       + "). Fill in the Department parameter for those rooms." + FullListNoteEn(miss.Groups[4].Value);
+            return null;
+        }
+
+        // AuditCheckers.FullListNote: "" or " Senarai penuh N item ada dalam draft_export (element_ids)."
+        private static string FullListNoteEn(string note)
+        {
+            var m = Regex.Match(note ?? "", @"^\s*Senarai penuh (\d+) item ada dalam draft_export \(element_ids\)\.\s*$");
+            return m.Success ? " The full list of " + m.Groups[1].Value + " items is in draft_export (element_ids)." : "";
         }
 
         private const string HeadingBm = "Tajuk seksyen — tiada kriteria untuk diskor. ";
@@ -264,6 +320,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         // The base-point (grid) checker's remarks (AuditCheckers.BasePoint).
         private const string GridRuleBm = "Project Base Point berada <=10 mm dari persilangan grid 'A' dan '1'";
         private const string GridRuleEn = "the Project Base Point to be within 10 mm of the intersection of grids 'A' and '1'";
+        private const string GridRuleEn2 = "the Project Base Point is within 10 mm of the intersection of grids 'A' and '1'";
         private static readonly Regex GridModelHas = R(@"^Model ada (\d+) grid( \([^)]*\))? tetapi tiada yang bernama (.+?) \(atau berawalan projek, cth 'PT-A' / 'PT1'\)\. ");
         private static readonly Regex GridCurved = R(@"^Grid (.+?) bukan garisan lurus, jadi persilangan tidak boleh dihitung\. ");
         private static readonly Regex GridParallel = R(@"^Grid '(.*)' dan grid '(.*)' selari pada pelan, jadi tiada persilangan untuk diukur — semak manual\.$");

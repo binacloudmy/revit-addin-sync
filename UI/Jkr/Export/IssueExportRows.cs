@@ -49,14 +49,21 @@ namespace RevitWebAppSync.UI.Jkr.Export
         /// <summary>How many issues the export writes with the dialog's default options (Open and Resolved both on).</summary>
         public static int DefaultCount(IEnumerable<IssueVm> issues) => Select(issues, true, true).Length;
 
-        public static string[] Cells(IssueVm i) => new[]
+        public static string[] Cells(IssueVm i)
         {
-            // An item a person marked as reviewed exports as "Reviewed" (the pane's Manual tab).
-            i.Id, i.Title, i.Category, i.PriorityLabel,
-            i.NeedsPerson && i.Reviewed ? Pick("Sudah disemak", "Reviewed") : i.StatusLabel,
-            i.Required, ActualIn(i),
-            ElementIdsCell(i), RuleCodeOf(i)
-        };
+            // The add-in's own spec results carry their English; the cells follow the pane's language.
+            var en = RevitWebAppSync.UI.Jkr.Panel.Core.PaneLanguage.IsEn;
+            string Loc(string ms, string e) => en && !string.IsNullOrEmpty(e) ? e : ms;
+            return new[]
+            {
+                // An item a person marked as reviewed exports as "Reviewed" (the pane's Manual tab).
+                i.Id, Loc(i.Title, i.TitleEn), i.Category, i.PriorityLabel,
+                i.NeedsPerson && i.Reviewed ? Pick("Sudah disemak", "Reviewed") : i.StatusLabel,
+                Loc(i.Required, !string.IsNullOrEmpty(i.RequiredEn) ? i.RequiredEn : RevitWebAppSync.UI.Jkr.Panel.Core.PaneText.AuditRuleEn(i.Required)),
+                ActualIn(i),
+                ElementIdsCell(i), RuleCodeOf(i)
+            };
+        }
 
         /// <summary>The Actual text in the pane's language (the English one when the issue has it).</summary>
         private static string ActualIn(IssueVm i) =>

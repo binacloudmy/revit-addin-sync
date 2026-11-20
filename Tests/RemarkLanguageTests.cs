@@ -90,6 +90,19 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
+        public void Department_checker_remark_and_rule_have_english_text()
+        {
+            const string rule = "setiap bilik (Room) ada nilai parameter 'Department'";
+            Assert.Equal("every room (Room) has a value in the 'Department' parameter", PaneText.AuditRuleEn(rule));
+            Assert.Equal("Rule: every room (Room) has a value in the 'Department' parameter. 3/10 rooms have no value (e.g. G03, G04, 103)."
+                         + " Fill in the Department parameter for those rooms.",
+                PaneText.AuditRemarkEn("Peraturan: " + rule + ". 3/10 bilik tiada nilai (cth: G03, G04, 103). Isi parameter Department untuk bilik tersebut."));
+            Assert.Equal("Rule: every room (Room) has a value in the 'Department' parameter. All 10 rooms have a Department value — complies.",
+                PaneText.AuditRemarkEn("Peraturan: " + rule + ". Semua 10 bilik ada nilai Department — patuh."));
+            Assert.Equal("some rule we do not know", PaneText.AuditRuleEn("some rule we do not know"));
+        }
+
+        [Fact]
         public void Unknown_remark_stays_as_written_in_both_languages()
         {
             const string other = "Format dijangka: x; dijumpai: y.";
@@ -140,6 +153,8 @@ namespace RevitWebAppSync.Tests
                 "(atau berawalan projek, cth 'PT-A' / 'PT1'). ", "bukan garisan lurus, jadi persilangan ",
                 "tidak boleh dihitung. ", "+ \"Semak manual.\"", "selari pada pelan, jadi tiada ",
                 "persilangan untuk diukur — semak manual.", " atau ", " dan ",
+                "Peraturan: {rule}. ", " bilik tiada nilai (cth: ", "Isi parameter ", "Department untuk bilik tersebut.",
+                "Semua {rooms.Count} bilik ada nilai Department — patuh.", "setiap bilik (Room) ada nilai parameter 'Department'",
             })
                 Assert.Contains(frag, checkers);
 

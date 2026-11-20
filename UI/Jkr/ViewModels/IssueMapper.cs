@@ -263,10 +263,13 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 var id = r.IssueId.Trim();
                 var ai = RevitWebAppSync.UI.Jkr.Panel.Core.SpecModelIssues.IsAiVerdict(r);
                 var description = RevitWebAppSync.UI.Jkr.Panel.Core.SpecModelIssues.Description(r, lang);
+                var descriptionEn = RevitWebAppSync.UI.Jkr.Panel.Core.SpecModelIssues.Description(r, RevitWebAppSync.UI.Jkr.Panel.Core.PanelStrings.En);
                 if (byId.TryGetValue(id, out var same))
                 {
                     if (description.Length > 0 && (same.Description ?? "").IndexOf(description, StringComparison.Ordinal) < 0)
                         same.Description = string.IsNullOrEmpty(same.Description) ? description : same.Description + "\n" + description;
+                    if (descriptionEn.Length > 0 && (same.DescriptionEn ?? "").IndexOf(descriptionEn, StringComparison.Ordinal) < 0)
+                        same.DescriptionEn = string.IsNullOrEmpty(same.DescriptionEn) ? descriptionEn : same.DescriptionEn + "\n" + descriptionEn;
                     if (ai) same.Verification = IssueVerification.Ai;
                     continue;
                 }
@@ -288,6 +291,9 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     RevitCategory = RevitWebAppSync.UI.Jkr.Panel.Core.SpecModelIssues.RevitCategoryOf(r),
                     Title = RevitWebAppSync.UI.Jkr.Panel.Core.SpecModelIssues.Title(r, lang),
                     Description = description,
+                    TitleEn = RevitWebAppSync.UI.Jkr.Panel.Core.SpecModelIssues.Title(r, RevitWebAppSync.UI.Jkr.Panel.Core.PanelStrings.En),
+                    DescriptionEn = descriptionEn,
+                    RequiredEn = RevitWebAppSync.UI.Jkr.Panel.Core.SpecModelIssues.RequiredIn(r, RevitWebAppSync.UI.Jkr.Panel.Core.PanelStrings.En),
                     Actual = r.Actual ?? "",
                     ActualEn = RevitWebAppSync.UI.Jkr.Panel.Core.SpecModelIssues.ActualIn(r, RevitWebAppSync.UI.Jkr.Panel.Core.PanelStrings.En),
                     Required = r.Required ?? "",
