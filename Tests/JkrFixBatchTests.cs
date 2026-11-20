@@ -114,5 +114,57 @@ namespace RevitWebAppSync.Tests
 
             Assert.Equal(2, batch.ChangeCount);
         }
+    
+        // ── One unit for every count (AI-429) ──
+        // Fix all used to count issues (691) in the confirm, steps written (420) in the
+        // toast / progress, and failures by key, so the numbers disagreed. Every count is
+        // now changes: distinct (element, action, parameter) writes.
+
+        private static JkrFixBatch<Fix> BuildKeyed(IEnumerable<(long, string)> renames, IEnumerable<Fix> fixes)
+            => JkrFixBatch<Fix>.Build(renames, fixes, f => f.ElementId, f => f.Priority, f => f.Tag);
+
+        [Fact]
+        public void Issues_that_share_one_write_are_one_change()
+        {
+            var batch = BuildKeyed(
+                new[] { (10L, "A"), (10L, "A"), (11L, "B") },
+                new[]
+                {
+                    new Fix { ElementId = 20, Tag = "Kod" },
+                    new Fix { ElementId = 20, Tag = "Kod" },   // second issue, same write
+                    new Fix { ElementId = 20, Tag = "Sistem" },
+                    new Fix { ElementId = 21, Tag = "Kod" },
+                });
+            Assert.Equal(5, batch.ChangeCount);
+            Assert.Equal(4, batch.ElementCount);
+        }
+
+        [Fact]
+        public void Written_and_failed_changes_add_up_to_the_batch()
+        {
+            var batch = BuildKeyed(
+                new[] { (10L, "A"), (10L, "A"), (11L, "B") },
+                new[] { new Fix { ElementId = 20, Tag = "Kod" }, new Fix { ElementId = 20, Tag = "Kod" } });
+            // a fake run: 11's rename and 20's parameter are refused
+            var result = new RenameResult { Renamed = 1 };
+            result.RecordFailure(RenameResult.MakeFixKey("rename_type", 11, null), 11, "Rename 11", "in use");
+            result.RecordFailure(RenameResult.MakeFixKey("set_parameter", 20, "Kod"), 20, "Kod on 20", "read-only");
+
+            var t = JkrFixTally.Of(batch.ChangeCount, result);
+            Assert.Equal(3, t.Changes);
+            Assert.Equal(1, t.Written);
+            Assert.Equal(2, t.Failed);
+            Assert.True(t.AddsUp);
+            Assert.Equal(t.Written, result.Renamed + result.ParamFixed);
+            Assert.Equal(t.Failed, result.Failures.Count);
+        }
+
+        [Fact]
+        public void A_tally_that_does_not_add_up_says_so()
+        {
+            var t = JkrFixTally.Of(5, new RenameResult { Renamed = 2 });
+            Assert.False(t.AddsUp);
+            Assert.Equal(3, t.Unaccounted);
+        }
     }
 }

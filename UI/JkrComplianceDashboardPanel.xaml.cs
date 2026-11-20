@@ -871,7 +871,7 @@ namespace RevitWebAppSync.UI
             // Captured before any status mutations so the post-fix toast can report a truthful delta.
             var openBeforeFix = _vm.OpenCount;
 
-            var totalToFix = fixable.Count;
+            var totalToFix = fixable.Count;   // replaced below by the change count
             _fixInFlight = true;
 
             var handler = App.JkrRenameHandler;
@@ -901,7 +901,12 @@ namespace RevitWebAppSync.UI
             }
 
             handler.TransactionGroupName = JkrRenameHandler.DefaultUndoName;
-            ShowApplying(JkrFixBatch.BusyLabel(handler.RenameQueue.Count + handler.ParamFixQueue.Count));
+            // Changes, not issues: issues that ask for the same write are one change, so the
+            // busy label, the progress bar, the toast and the result window share one unit.
+            var changeCount = JkrFixBatch<JkrFixAction>.Build(handler.RenameQueue, handler.ParamFixQueue,
+                f => f.ElementId, f => f.Priority, f => f.ParameterName).ChangeCount;
+            totalToFix = changeCount;
+            ShowApplying(JkrFixBatch.BusyLabel(changeCount));
 
             handler.OnCompleted = (result) =>
             {

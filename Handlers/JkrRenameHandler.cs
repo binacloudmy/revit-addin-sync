@@ -56,7 +56,7 @@ namespace RevitWebAppSync.Handlers
 
             // Snapshot and clear the public queues first so a stray re-raise can't
             // double-apply the same batch.
-            var batch = JkrFixBatch<JkrFixAction>.Build(RenameQueue, ParamFixQueue, f => f.ElementId, f => f.Priority);
+            var batch = JkrFixBatch<JkrFixAction>.Build(RenameQueue, ParamFixQueue, f => f.ElementId, f => f.Priority, f => f.ParameterName);
             RenameQueue.Clear();
             ParamFixQueue.Clear();
 
@@ -332,7 +332,7 @@ namespace RevitWebAppSync.Handlers
             System.Diagnostics.Debug.WriteLine(
                 $"[BINA Handler] '{undoName}' completed (one undo step): changes={batch.ChangeCount} " +
                 $"elements={batch.ElementCount} renamed={result.Renamed} paramFixed={result.ParamFixed} " +
-                $"failed={result.Failed} skipped={result.Skipped} error={result.Error ?? ""}");
+                $"failed={result.Failed} skipped={result.Skipped} addsUp={JkrFixTally.Of(batch.ChangeCount, result).AddsUp} error={result.Error ?? ""}");
 
             var completed = OnCompleted;
             TransactionGroupName = DefaultUndoName;
