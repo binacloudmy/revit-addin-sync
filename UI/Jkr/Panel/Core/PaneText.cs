@@ -243,7 +243,62 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 var noteEn = ContextEn(note);
                 return noteEn == null ? null : NoCheckEn + ". " + noteEn + tail;
             }
-            return null;
+            return SectionHeadingEn(s) ?? GridRemarkEn(s);
+        }
+
+        private const string HeadingBm = "Tajuk seksyen — tiada kriteria untuk diskor. ";
+        private const string HeadingEn = "Section heading — no criteria to score. ";
+        private const string HeadingTailBm = "Lihat baris di bawah.";
+        private const string HeadingTailEn = "See the rows below.";
+
+        /// <summary>A section-heading row ("x.0"): "Tajuk seksyen — … [Konteks model: …] Lihat baris di bawah."</summary>
+        private static string SectionHeadingEn(string s)
+        {
+            if (!s.StartsWith(HeadingBm, StringComparison.Ordinal) || !s.EndsWith(HeadingTailBm, StringComparison.Ordinal)) return null;
+            var note = s.Substring(HeadingBm.Length, s.Length - HeadingBm.Length - HeadingTailBm.Length).Trim();
+            if (note.Length == 0) return HeadingEn + HeadingTailEn;
+            var noteEn = ContextEn(note);
+            return noteEn == null ? null : HeadingEn + noteEn + " " + HeadingTailEn;
+        }
+
+        // The base-point (grid) checker's remarks (AuditCheckers.BasePoint).
+        private const string GridRuleBm = "Project Base Point berada <=10 mm dari persilangan grid 'A' dan '1'";
+        private const string GridRuleEn = "the Project Base Point to be within 10 mm of the intersection of grids 'A' and '1'";
+        private static readonly Regex GridModelHas = R(@"^Model ada (\d+) grid( \([^)]*\))? tetapi tiada yang bernama (.+?) \(atau berawalan projek, cth 'PT-A' / 'PT1'\)\. ");
+        private static readonly Regex GridCurved = R(@"^Grid (.+?) bukan garisan lurus, jadi persilangan tidak boleh dihitung\. ");
+        private static readonly Regex GridParallel = R(@"^Grid '(.*)' dan grid '(.*)' selari pada pelan, jadi tiada persilangan untuk diukur — semak manual\.$");
+
+        /// <summary>The grid checker's "not verifiable" remarks in English; null when the
+        /// text is not one of them (better all BM than half translated).</summary>
+        private static string GridRemarkEn(string s)
+        {
+            var par = GridParallel.Match(s);
+            if (par.Success)
+                return $"Grid '{par.Groups[1].Value}' and grid '{par.Groups[2].Value}' are parallel in plan, so there is no intersection to measure — semak manual.";
+
+            const string head = "Semakan perlukan ";
+            const string tail = "Semak manual.";
+            if (!s.StartsWith(head + GridRuleBm + ". ", StringComparison.Ordinal) || !s.EndsWith(tail, StringComparison.Ordinal)) return null;
+            var rest = s.Substring(head.Length + GridRuleBm.Length + 2);
+            var en = new System.Text.StringBuilder("The check needs " + GridRuleEn + ". ");
+            const string noPbp = "Project Base Point tidak dijumpai. ";
+            if (rest.StartsWith(noPbp, StringComparison.Ordinal)) { en.Append("The Project Base Point was not found. "); rest = rest.Substring(noPbp.Length); }
+            var m = GridModelHas.Match(rest);
+            if (m.Success)
+            {
+                var n = m.Groups[1].Value;
+                en.Append("The model has " + n + (n == "1" ? " grid" : " grids") + m.Groups[2].Value
+                          + " but none is named " + m.Groups[3].Value.Replace(" atau ", " or ")
+                          + " (or prefixed with the project, e.g. 'PT-A' / 'PT1'). ");
+                rest = rest.Substring(m.Length);
+            }
+            var c = GridCurved.Match(rest);
+            if (c.Success)
+            {
+                en.Append("Grid " + c.Groups[1].Value.Replace(" dan ", " and ") + " is not a straight line, so the intersection cannot be calculated. ");
+                rest = rest.Substring(c.Length);
+            }
+            return rest == tail ? en + tail : null;
         }
 
         /// <summary>"Konteks model: 0 workset; 3 aras (Aras 01, …)." in English; null when a
