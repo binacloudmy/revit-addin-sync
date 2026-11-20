@@ -19,6 +19,9 @@ namespace RevitWebAppSync.UI.Jkr.Export
     /// </summary>
     public static class BorangPdf
     {
+        /// <summary>The header's KOD DOKUMEN value: the form this export prints.</summary>
+        public const string DocumentCode = "BIM010";
+
         private const float S = 595.28f / 720f;
         private static float Px(float px) => px * S;
         private const float Line = 0.75f;   // 1 px border
@@ -58,7 +61,7 @@ namespace RevitWebAppSync.UI.Jkr.Export
                         t.Cell().Border(Line).PaddingVertical(Px(2)).PaddingHorizontal(Px(5)).Text(k).FontSize(Px(8.5f));
                         t.Cell().Border(Line).PaddingVertical(Px(2)).PaddingHorizontal(Px(5)).Text(x => { x.DefaultTextStyle(s => s.FontSize(Px(8.5f))); v(x); });
                     }
-                    Kv("KOD DOKUMEN", x => x.Span(": BIM 005"));
+                    Kv("KOD DOKUMEN", x => x.Span(": " + DocumentCode));
                     Kv("PINDAAN", x => x.Span(": 00"));
                     Kv("TARIKH", x => x.Span(": 1 DIS 2022"));
                     Kv("MUKA SURAT", x => { x.Span(": "); x.CurrentPageNumber(); x.Span(" / "); x.TotalPages(); });

@@ -62,6 +62,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
 
         public ElementRef Element { get; set; } = new ElementRef();
         public long RevitElementId { get; set; }
+        /// <summary>Every element behind the issue (RevitElementId is the first); empty when the issue lists only that one.</summary>
+        public System.Collections.Generic.List<long> RevitElementIds { get; set; } = new System.Collections.Generic.List<long>();
         public string Required { get; set; } = "";
         public string Actual { get; set; } = "";
         /// <summary>English of <see cref="Actual"/> for the add-in's own spec results ("" = same).</summary>
