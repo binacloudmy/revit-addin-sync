@@ -95,6 +95,16 @@ namespace BinaVibe.Copilot.Writes
             return open.FirstOrDefault(w => w.Owner == mainWindow) ?? open.FirstOrDefault();
         }
 
+        /// <summary>Is a modal window open? Null (unknown: the watchdog keeps its old rule) when the windows could not be read or Revit's main
+        /// window is not known yet (a WPF ShowDialog has no #32770 class and is only seen through the disabled main window).</summary>
+        public static bool? Open(IReadOnlyList<ThreadWindow>? windows, long mainWindow, bool mainEnabled, out ThreadWindow? blocking)
+        {
+            blocking = null;
+            if (windows == null || mainWindow == 0) return null;
+            blocking = Blocking(windows, mainWindow, mainEnabled);
+            return blocking != null;
+        }
+
         /// <summary>The window's name for the drafter: its title, else its class.</summary>
         public static string Name(ThreadWindow w) => string.IsNullOrWhiteSpace(w.Title) ? "a window (" + w.ClassName + ")" : w.Title.Trim();
     }

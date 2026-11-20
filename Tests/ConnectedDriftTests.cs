@@ -61,6 +61,21 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void TheTargetsOwnValuesMayDifferToo_WhenItsTargetsArePassed()
+        {
+            // Revit removing the fittings may also change the resized duct's length and connectors at the commit.
+            var preview = Shape(modified: new[] { Duct });
+            preview.Values[Duct] = "w=300|h=200|len=2390";
+            var commit = Shape(modified: new[] { Duct }, deleted: new long[] { 1543386, 1543387 });
+            commit.Values[Duct] = "w=300|h=200|len=2600";
+
+            Assert.False(ShapeComparer.JudgeConnected(preview, commit, Fittings, new Dictionary<long, string>()).ConnectedOnly);
+            var verdict = ShapeComparer.JudgeConnected(preview, commit, Fittings, new Dictionary<long, string>(), new[] { Duct });
+            Assert.True(verdict.ConnectedOnly, verdict.Outside);
+            Assert.Contains(verdict.Extras, e => e.Id == Duct && e.Kind == ConnectedDrift.Changed);
+        }
+
+        [Fact]
         public void AnElementOutsideTheConnectedSet_IsNeverConnectedOnly()
         {
             var preview = Shape(modified: new[] { Duct });

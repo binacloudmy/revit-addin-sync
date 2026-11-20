@@ -226,6 +226,9 @@ namespace BinaVibe.Copilot.Writes
         private static void DrainOne(UIApplication app)
         {
             Volatile.Write(ref _lastIdleTicks, Now);
+            if (Volatile.Read(ref _mainWindow) == 0)
+                try { Volatile.Write(ref _mainWindow, app.MainWindowHandle.ToInt64()); }   // not known at startup: read it on Revit's thread
+                catch (Exception) { /* stays unknown: the watchdog keeps its old rule */ }
             while (Queue.TryDequeue(out var work))
             {
                 if (work.IsDone) continue;   // the watchdog already failed it
@@ -294,18 +297,14 @@ namespace BinaVibe.Copilot.Writes
             bool? modalOpen = null;
             if (uiPumped)
             {
-                var windows = ModalWindows.Of(_uiThread);
-                if (windows != null)
-                {
-                    blocking = ModalPolicy.Blocking(windows, _mainWindow, ModalWindows.IsEnabled(_mainWindow));
-                    modalOpen = blocking != null;
-                }
+                var main = Volatile.Read(ref _mainWindow);
+                modalOpen = ModalPolicy.Open(ModalWindows.Of(_uiThread), main, ModalWindows.IsEnabled(main), out blocking);
             }
             var verdict = WatchdogPolicy.Decide(sinceArmed, idleSinceArm, uiPumped, uiPumped ? Since(probeRan) : TimeSpan.Zero,
                 Since(Volatile.Read(ref _lastDialogTicks)), modalOpen);
             if (verdict == WatchdogVerdict.Wait)
             {
-                if (!idleSinceArm && sinceArmed >= WatchdogPolicy.IdleGrace) RaiseKick();   // coalesced (KickPolicy): at most one every 2 s
+                if (uiPumped && modalOpen == false) RaiseKick();   // Revit pumps, no dialog: ask for an idle turn again (coalesced: at most one every 2 s)
                 return;
             }
 

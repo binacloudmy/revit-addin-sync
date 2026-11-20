@@ -115,8 +115,10 @@ namespace BinaVibe.Copilot.Writes
         /// id -> category of what was connected before the commit ran; <paramref name="after"/>: the same after it ran (new fittings
         /// included). A null preview (estimate-only card) is never connected-only.</summary>
         public static ConnectedVerdict JudgeConnected(BatchShape? previewShape, BatchShape commitShape,
-                                                      IReadOnlyDictionary<long, string> before, IReadOnlyDictionary<long, string> after)
+                                                      IReadOnlyDictionary<long, string> before, IReadOnlyDictionary<long, string> after,
+                                                      IReadOnlyCollection<long>? targets = null)
         {
+            var own = new HashSet<long>(targets ?? Array.Empty<long>());   // the targets themselves may differ too (a resized duct's length and connectors)
             if (commitShape == null) throw new ArgumentNullException(nameof(commitShape));
             before ??= new Dictionary<long, string>();
             after ??= new Dictionary<long, string>();
@@ -139,7 +141,7 @@ namespace BinaVibe.Copilot.Writes
                 : after.TryGetValue(id, out var a) && !string.IsNullOrWhiteSpace(a) ? a
                 : commitShape.CategoryOf.TryGetValue(id, out var k) && !string.IsNullOrWhiteSpace(k) ? k
                 : previewShape.CategoryOfId(id);
-            bool Connected(long id) => before.ContainsKey(id) || after.ContainsKey(id);
+            bool Connected(long id) => own.Contains(id) || before.ContainsKey(id) || after.ContainsKey(id);
 
             void Existing(IEnumerable<long> ids, string kind)
             {

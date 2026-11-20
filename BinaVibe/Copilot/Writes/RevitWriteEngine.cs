@@ -419,7 +419,7 @@ namespace BinaVibe.Copilot.Writes
                     {
                         // Judged against what is connected to the targets before and after the calls ran: a forced batch keeps a
                         // connected-only drift and reports it; anything else rolls back and says what differed (DriftData).
-                        var connected = ShapeComparer.JudgeConnected(preview.Shape, shape, connectedBefore, ConnectedSet.Of(doc!, targetIds));
+                        var connected = ShapeComparer.JudgeConnected(preview.Shape, shape, connectedBefore, ConnectedSet.Of(doc!, targetIds), targetIds);
                         if (batch.ForceConnected && connected.ConnectedOnly)
                         {
                             forcedWarning = ConnectedDrift.ForcedWarning(connected);

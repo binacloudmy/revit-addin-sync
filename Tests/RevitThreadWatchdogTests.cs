@@ -111,5 +111,19 @@ namespace RevitAddinSync.Tests
             Assert.Null(ModalPolicy.Blocking(new[] { W(500, ModalPolicy.DialogClass, "Hidden", visible: false) }, main, mainEnabled: true));
             Assert.Equal("a window (#32770)", ModalPolicy.Name(W(600, ModalPolicy.DialogClass)));
         }
+
+        [Fact]
+        public void AnUnknownMainWindowOrUnreadableWindows_AreUnknown_NotNoModal()
+        {
+            // A WPF ShowDialog is only seen through the disabled main window: with its handle unknown, "no modal" would turn the add-in's
+            // own hidden dialog into a 60 s wait. Unknown keeps the old rule.
+            var save = W(400, "HwndWrapper[Revit;;def]", "Export schedule");
+            Assert.Null(ModalPolicy.Open(new[] { save }, mainWindow: 0, mainEnabled: true, out var none));
+            Assert.Null(none);
+            Assert.Null(ModalPolicy.Open(null, 100, true, out _));
+            Assert.False(ModalPolicy.Open(new[] { W(100, "Afx:Revit") }, 100, true, out _));
+            Assert.True(ModalPolicy.Open(new[] { W(100, "Afx:Revit", enabled: false), save }, 100, false, out var found));
+            Assert.Same(save, found);
+        }
     }
 }

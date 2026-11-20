@@ -122,18 +122,19 @@ namespace BinaVibe.Mcp.Tools
             {
                 bool isWarning = f.GetSeverity() == FailureSeverity.Warning;
                 var text = f.GetDescriptionText();
-                Record(f, text, isWarning);
                 if (isWarning)
                 {
+                    Record(f, text, isWarning);
                     a.DeleteWarning(f);
                     swallowed++;
                 }
                 else if (force != null && TryResolve(a, f, text, force))
                 {
-                    resolved++;
+                    resolved++;   // recorded as a warning that names the fix (TryResolve), not as an error: the change was kept
                 }
                 else
                 {
+                    Record(f, text, isWarning);
                     errors.Add(text);
                 }
             }
