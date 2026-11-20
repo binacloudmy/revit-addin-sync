@@ -291,7 +291,7 @@ namespace RevitWebAppSync.UI.Jkr.Export
                 var own = FirstLine(DescriptionEn(x.Issue));
                 if (own.Length == 0) own = (x.Issue.Element?.Name ?? "").Trim();
                 if (own.Length == 0 || x.Text.IndexOf(own, StringComparison.Ordinal) >= 0) return x.Text;
-                var at = x.Text.IndexOf(" (", StringComparison.Ordinal);       // keep the "(fixed ...)" / "(ignored ...)" state last
+                var at = x.Text.LastIndexOf(" (", StringComparison.Ordinal);   // the state suffix is last, a title may hold " (" itself; keep the "(fixed ...)" / "(ignored ...)" state last
                 var state = at > 0 && x.Text.EndsWith(")", StringComparison.Ordinal) && (x.Issue.Status != IssueStatus.Open) ? x.Text.Substring(at) : "";
                 return (state.Length > 0 ? x.Text.Substring(0, at) : x.Text) + ": " + own + state;
             }).Distinct().ToList();
