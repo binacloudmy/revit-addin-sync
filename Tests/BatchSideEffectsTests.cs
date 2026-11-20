@@ -113,7 +113,7 @@ namespace RevitAddinSync.Tests
                 new BatchSideEffects.Call { ModifiedSide = m0, Touched = new[] { Duct }, Added = new[] { Born } },
                 new BatchSideEffects.Call { ModifiedSide = m1, Touched = new[] { Duct, Written }, Deleted = new[] { Removed } },
             });
-            Assert.Equal(new[] { Removed, Written }, drop[0].OrderBy(i => i));   // written by call 1; deleted by call 1
+            Assert.Equal(new[] { Written, Removed }, drop[0].OrderBy(i => i));   // written by call 1; deleted by call 1
             Assert.Equal(new[] { Elbow1, Born }, drop[1].OrderBy(i => i));       // counted by call 0; added in the batch
         }
 

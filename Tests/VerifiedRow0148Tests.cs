@@ -69,7 +69,7 @@ namespace RevitAddinSync.Tests
             while (dir != null && !File.Exists(Path.Combine(dir.FullName, "RevitWebAppSync.csproj"))) dir = dir.Parent;
             var src = File.ReadAllText(Path.Combine(dir!.FullName, "UI/Copilot/Controls/ChecksCard.cs")).Replace("\r\n", "\n");
             var doubts = src.IndexOf("AddChecks(root, card, ms, actions, notes: false);", System.StringComparison.Ordinal);
-            var verified = src.IndexOf("AddVerified(root, card, actions);", System.StringComparison.Ordinal);
+            var verified = src.IndexOf("AddVerified(root, card, ms, actions);", System.StringComparison.Ordinal);
             var notes = src.IndexOf("AddChecks(root, card, ms, actions, notes: true);", System.StringComparison.Ordinal);
             Assert.True(doubts >= 0 && doubts < verified && verified < notes);
             // Filtered out before the empty check, so a Notes box holding only the read-back is never drawn empty.
