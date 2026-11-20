@@ -68,6 +68,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel
 
 
         private readonly Func<PanelKey, bool> _handle;
+        private readonly Func<bool> _paneHasFocus;
+        private int _swallowUndoUp;
         private readonly HookProc _proc;   // kept alive while the hook is installed
         private IntPtr _hook;
         private PanelKey _swallowUp = PanelKey.Other;
@@ -76,9 +78,12 @@ namespace RevitWebAppSync.UI.Jkr.Panel
         /// <param name="handle">Called on the UI thread for one of our keys; true =
         /// handled (the key is swallowed, Revit never sees it). It decides whether
         /// our pane or detail has the focus.</param>
-        public PaneKeyHook(Func<PanelKey, bool> handle)
+        /// <param name="paneHasFocus">True when the pane (or its detail window) has the
+        /// keyboard focus; Ctrl+Z / Ctrl+Y are forwarded to Revit's Undo / Redo only then (AI-441).</param>
+        public PaneKeyHook(Func<PanelKey, bool> handle, Func<bool> paneHasFocus = null)
         {
             _handle = handle ?? throw new ArgumentNullException(nameof(handle));
+            _paneHasFocus = paneHasFocus ?? (() => false);
             _proc = Proc;
         }
 
@@ -122,6 +127,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel
                     var info = Marshal.PtrToStructure<KbdLlHookStruct>(lParam);
                     var msg = wParam.ToInt32();
                     var key = Map((int)info.vkCode);
+                    if (OurProcessInFront() && TryForwardUndo(msg, (int)info.vkCode)) return (IntPtr)1;
                     if (key != PanelKey.Other && OurProcessInFront())
                     {
                         if (msg == WmKeyUp && _swallowUp == key)
@@ -151,6 +157,28 @@ namespace RevitWebAppSync.UI.Jkr.Panel
                 Trace("error " + ex.Message);
             }
             return CallNextHookEx(_hook, code, wParam, lParam);
+        }
+
+        /// <summary>Ctrl+Z / Ctrl+Y with the focus in the pane: Revit never sees them, so ask it
+        /// to undo / redo. The key-up of a swallowed chord is swallowed too.</summary>
+        private bool TryForwardUndo(int msg, int vk)
+        {
+            if (msg == WmKeyUp && _swallowUndoUp == vk) { _swallowUndoUp = 0; return true; }
+            if (msg != WmKeyDown) return false;
+            if (vk != 0x5A && vk != 0x59) return false;
+            var f = Keyboard.FocusedElement;
+            var typing = f is System.Windows.Controls.Primitives.TextBoxBase
+                         || f is System.Windows.Controls.ComboBox
+                         || f is System.Windows.Controls.ComboBoxItem;
+            var m = Keyboard.Modifiers;
+            var action = PaneUndoKey.Decide(vk, (m & ModifierKeys.Control) != 0, (m & ModifierKeys.Shift) != 0,
+                (m & ModifierKeys.Alt) != 0, typing, f != null && _paneHasFocus());
+            if (action == PaneUndoAction.None) return false;
+            var posted = App.PostUndoRedo(action == PaneUndoAction.Redo);
+            Trace($"ctrl-{(action == PaneUndoAction.Redo ? "redo" : "undo")} posted={posted}");
+            if (!posted) return false;   // Revit refused (nothing to undo / modal): let the key go on
+            _swallowUndoUp = vk;
+            return true;
         }
 
         /// <summary>The foreground window is Revit's or one of ours (same process).</summary>

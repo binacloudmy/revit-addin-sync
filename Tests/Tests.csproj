@@ -177,6 +177,7 @@
     <!-- Prototype panel logic port (stats, filtered, tabs, ignore/undo, re-scan, reset, reviewed, keys) + its
          generated strings and fixture: no WPF, no Revit. The WPF clock is UI\Jkr\Panel\DispatcherPanelClock.cs. -->
     <Compile Include="..\UI\Jkr\Panel\Core\PanelModels.cs" Link="Panel\PanelModels.cs" />
+    <Compile Include="..\UI\Jkr\Panel\Core\PaneUndoKey.cs" Link="Panel\PaneUndoKey.cs" />
     <Compile Include="..\UI\Jkr\Panel\Core\PanelStrings.cs" Link="Panel\PanelStrings.cs" />
     <Compile Include="..\UI\Jkr\Panel\Core\PanelFixture.cs" Link="Panel\PanelFixture.cs" />
     <Compile Include="..\UI\Jkr\Panel\Core\PanelCore.cs" Link="Panel\PanelCore.cs" />

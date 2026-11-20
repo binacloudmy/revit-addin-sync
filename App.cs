@@ -116,6 +116,24 @@ namespace RevitWebAppSync
             }
         }
 
+        /// <summary>Post Revit's own Undo / Redo (the pane holds the keyboard focus, so Ctrl+Z
+        /// never reaches Revit; AI-441). False when Revit refuses (nothing to undo, a modal is open).</summary>
+        internal static bool PostUndoRedo(bool redo)
+        {
+            try
+            {
+                var id = RevitCommandId.LookupPostableCommandId(redo ? PostableCommand.Redo : PostableCommand.Undo);
+                if (id == null || UiApp == null || !UiApp.CanPostCommand(id)) return false;
+                UiApp.PostCommand(id);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[BINA] PostUndoRedo failed: " + ex.Message);
+                return false;
+            }
+        }
+
         /// <summary>Close Revit through its own Exit command once an update is
         /// staged (it applies at the next Revit start). Revit's exit, not a
         /// process kill: every open model still gets the usual save prompt and
