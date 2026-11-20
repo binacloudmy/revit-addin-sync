@@ -37,7 +37,7 @@ namespace RevitWebAppSync.Tests
             Assert.Equal("Tidak patuh", r.VerdictHead);
             Assert.Equal(fails + " semakan spec gagal.", r.VerdictSub);
             Assert.Equal(pct + "% patuh", r.HeadPctStrong);
-            Assert.Equal(", " + pass + " daripada " + total + " keputusan lulus. Peratus mengira keputusan, bukan semakan.", r.HeadResultsRest);
+            Assert.Equal(", " + pass + " daripada " + total + " semakan lulus. Peratus mengira semakan spec; semakan manual tidak dikira.", r.HeadResultsRest);
             Assert.True(r.HasManualLink);
             Assert.Equal(person + " semakan menunggu semak manual", r.ManualLinkLabel);
 
@@ -45,7 +45,7 @@ namespace RevitWebAppSync.Tests
             Assert.Equal("Does not comply", r.VerdictHead);
             Assert.Equal(fails + " spec checks fail.", r.VerdictSub);
             Assert.Equal(pct + "% compliant", r.HeadPctStrong);
-            Assert.Equal(", " + pass + " of " + total + " results pass. The % counts results, not checks.", r.HeadResultsRest);
+            Assert.Equal(", " + pass + " of " + total + " checks pass. The % counts spec checks; manual checks are not counted.", r.HeadResultsRest);
             Assert.Equal(person + " checks wait for semak manual", r.ManualLinkLabel);
             Assert.Equal(pct + "% compliant · " + fails + " fail", r.VerdictShortLine);
         }
@@ -70,7 +70,7 @@ namespace RevitWebAppSync.Tests
         {
             Assert.Equal("1 spec check fails.", SpecChecklist.Plural("vSubFail", PanelStrings.En, 1));
             Assert.Equal("1 semakan spec gagal.", SpecChecklist.Plural("vSubFail", PanelStrings.Ms, 1));
-            Assert.Equal(", 1 of 1 result passes. The % counts results, not checks.", SpecChecklist.Plural("hRest", PanelStrings.En, 1, 1, 1));
+            Assert.Equal(", 1 of 1 check passes. The % counts spec checks; manual checks are not counted.", SpecChecklist.Plural("hRest", PanelStrings.En, 1, 1, 1));
         }
 
         [Fact]

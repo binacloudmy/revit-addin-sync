@@ -257,11 +257,11 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             ["vOthers1"] = ("", " 1 other JKR rule also fails."),
             ["others"] = ("{0} peraturan JKR lain (bukan dalam spec) juga gagal — lihat di bawah.", "{0} other JKR rules (not in the spec) also fail — see below."),
             ["others1"] = ("", "1 other JKR rule (not in the spec) also fails — see below."),
-            // The % counts results (one per element, sheet, level …), not spec checks: said
+            // The % counts spec checks (one cell per check), not the elements behind them: said
             // plainly. Two short lines: the summary line beside "n checks need a person"
             // holds about 30 characters before it is cut with "…".
-            ["hResults"] = ("{0} / {1} keputusan lulus\n(bukan bilangan semakan)", "{0} / {1} results pass\n(not a count of checks)"),
-            ["hResults1"] = ("", "{0} / {1} result passes\n(not a count of checks)"),
+            ["hResults"] = ("{0} / {1} semakan lulus\n(semakan manual tidak dikira)", "{0} / {1} checks pass\n(manual checks not counted)"),
+            ["hResults1"] = ("", "{0} / {1} check passes\n(manual checks not counted)"),
             ["notCounted"] = ("Juga dilapor oleh {0} — tidak dikira: semakan add-in sendiri sudah menilai semakan ini.",
                               "Also reported by {0} — not counted: the add-in's own check already judged this one."),
             ["hPerson"] = ("semakan perlu manusia", "checks need a person"),
@@ -289,10 +289,10 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             ["vSubPerson"] = ("Belum lulus penuh: sesetengah semakan perlu diputuskan oleh manusia.",
                               "Not a full pass yet: some checks are for a person to decide."),
             ["hPct"] = ("{0} patuh", "{0} compliant"),
-            ["hRest"] = (", {0} daripada {1} keputusan lulus. Peratus mengira keputusan, bukan semakan.",
-                         ", {0} of {1} results pass. The % counts results, not checks."),
-            ["hRest1"] = ("", ", {0} of {1} result passes. The % counts results, not checks."),
-            ["hRestNone"] = (", belum ada keputusan yang dapat dikira.", ", no result could be scored yet."),
+            ["hRest"] = (", {0} daripada {1} semakan lulus. Peratus mengira semakan spec; semakan manual tidak dikira.",
+                         ", {0} of {1} checks pass. The % counts spec checks; manual checks are not counted."),
+            ["hRest1"] = ("", ", {0} of {1} check passes. The % counts spec checks; manual checks are not counted."),
+            ["hRestNone"] = (", belum ada semakan yang dapat dikira.", ", no check could be scored yet."),
             // The issue view's one-line verdict: "18% compliant · 22 fail".
             ["vShort"] = ("{0} patuh · {1} gagal", "{0} compliant · {1} fail"),
             ["tabIssues"] = ("Isu", "Issues"),
@@ -412,9 +412,12 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         // ─── headline: two numbers (DESIGN-BRIEF R2, spec "Kiraan %") ───
 
         /// <summary>
-        /// AI-verifiable spec results that passed, and those that passed or failed,
-        /// counted per result (per cell, not per check or Borang row), in one section
-        /// or all (null), of the checks whose state is Pass or Fail only.
+        /// AI-verifiable spec checks that passed, and those that passed or failed:
+        /// one cell per spec check (PRD Q2; DESIGN-BRIEF "per cell, not per form row"),
+        /// however many elements or results sit behind it, in one section or all (null),
+        /// of the checks whose state is Pass or Fail only. A check with any failing
+        /// result is a Fail cell. Checks waiting for a person are counted apart
+        /// (<see cref="NeedsPerson(SpecReport,string)"/>), never in the denominator.
         /// Human-decides and list-only checks are never in it; nor are
         /// results the scan could not judge, partial-rule passes (they prove no pass)
         /// or not-applicable results.
@@ -433,7 +436,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                                          && (c.State == SpecState.Pass || c.State == SpecState.Fail)
                                          && member(c.Check));
             int pass = 0, total = 0;
-            foreach (var c in ai) { pass += c.Passed; total += c.Passed + c.Failed; }
+            foreach (var c in ai) { if (c.State == SpecState.Pass) pass++; total++; }
             return (pass, total);
         }
 
