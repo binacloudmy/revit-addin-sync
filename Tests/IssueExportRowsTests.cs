@@ -90,14 +90,44 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void Element_id_cell_is_capped_with_a_more_marker_in_both_languages()
+        public void Element_id_cell_holds_all_300_ids_with_no_marker()
         {
-            var ids = Enumerable.Range(1, SpecModelIssues.MaxIdsListed + 5).Select(n => (long)n).ToList();
-            var i = new IssueVm { RevitElementId = 1, RevitElementIds = ids };
-            var listed = string.Join(";", ids.Take(SpecModelIssues.MaxIdsListed));
-            In("en", () => Assert.Equal(listed + " +5 more", IssueExportRows.ElementIdsCell(i)));
-            In("ms", () => Assert.Equal(listed + " +5 lagi", IssueExportRows.ElementIdsCell(i)));
+            var ids = Enumerable.Range(0, 300).Select(n => 1000000L + n).ToList();
+            var i = new IssueVm { RevitElementId = ids[0], RevitElementIds = ids };
+            foreach (var lang in new[] { "ms", "en" })
+                In(lang, () =>
+                {
+                    var cell = IssueExportRows.ElementIdsCell(i);
+                    Assert.Equal(ids, cell.Split(';').Select(long.Parse).ToList());
+                    Assert.DoesNotContain("+", cell);
+                });
         }
+
+        [Fact]
+        public void Element_id_cell_is_cut_only_over_the_excel_limit_with_a_marker_in_both_languages()
+        {
+            var ids = Enumerable.Range(0, 5000).Select(n => 1000000L + n).ToList();   // ~40,000 chars
+            var i = new IssueVm { RevitElementId = ids[0], RevitElementIds = ids };
+            foreach (var (lang, word) in new[] { ("ms", "lagi"), ("en", "more") })
+                In(lang, () =>
+                {
+                    var cell = IssueExportRows.ElementIdsCell(i);
+                    Assert.True(cell.Length <= IssueExportRows.MaxCellChars);
+                    var cut = cell.LastIndexOf(" +", System.StringComparison.Ordinal);
+                    var listed = cell.Substring(0, cut).Split(';').Select(long.Parse).ToList();
+                    Assert.Equal(ids.Take(listed.Count).ToList(), listed);
+                    Assert.Equal($" +{ids.Count - listed.Count} {word}", cell.Substring(cut));
+                });
+        }
+
+        [Fact]
+        public void Element_id_cell_at_exactly_the_limit_is_not_cut_and_one_over_is()
+        {
+            var i = new IssueVm { RevitElementIds = new List<long> { 1111111, 2222222, 3333333 } };   // 23 chars
+            Assert.Equal("1111111;2222222;3333333", IssueExportRows.ElementIdsCell(i, 23));            // at the limit: whole
+            In("en", () => Assert.Equal("1111111 +2 more", IssueExportRows.ElementIdsCell(i, 22)));       // one over: cut
+        }
+
 
         [Fact]
         public void Element_id_cell_is_blank_without_an_element_and_falls_back_to_the_single_id()

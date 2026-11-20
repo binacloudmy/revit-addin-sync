@@ -62,16 +62,31 @@ namespace RevitWebAppSync.UI.Jkr.Export
         private static string ActualIn(IssueVm i) =>
             RevitWebAppSync.UI.Jkr.Panel.Core.PaneLanguage.IsEn && !string.IsNullOrEmpty(i.ActualEn) ? i.ActualEn : i.Actual;
 
-        /// <summary>Every element id, ";"-separated; at most <see cref="RevitWebAppSync.UI.Jkr.Panel.Core.SpecModelIssues.MaxIdsListed"/>,
-        /// then "+N more". Blank when the issue has no element.</summary>
-        public static string ElementIdsCell(IssueVm i)
+        /// <summary>Excel's limit on the text in one cell.</summary>
+        public const int MaxCellChars = 32767;
+
+        /// <summary>Every element id of the issue, ";"-separated. Only when that text would pass
+        /// <paramref name="maxChars"/> (Excel's cell limit) is it cut, after the last id that fits,
+        /// with " +N more" / " +N lagi" for the ids left out. Blank when the issue has no element.</summary>
+        public static string ElementIdsCell(IssueVm i, int maxChars = MaxCellChars)
         {
             var ids = (i.RevitElementIds ?? new List<long>()).Where(x => x > 0).Distinct().ToList();
             if (ids.Count == 0 && i.RevitElementId > 0) ids.Add(i.RevitElementId);
             if (ids.Count == 0) return "";
-            int max = RevitWebAppSync.UI.Jkr.Panel.Core.SpecModelIssues.MaxIdsListed;
-            var s = string.Join(";", ids.Take(max));
-            return ids.Count > max ? s + Pick($" +{ids.Count - max} lagi", $" +{ids.Count - max} more") : s;
+            var all = string.Join(";", ids);
+            if (all.Length <= maxChars) return all;
+
+            // Largest k whose first k ids plus the marker still fit.
+            var sb = new System.Text.StringBuilder();
+            int kept = 0;
+            for (int k = 0; k < ids.Count; k++)
+            {
+                var next = (k == 0 ? "" : ";") + ids[k];
+                var marker = Pick($" +{ids.Count - k - 1} lagi", $" +{ids.Count - k - 1} more");
+                if (sb.Length + next.Length + marker.Length > maxChars) break;
+                sb.Append(next); kept = k + 1;
+            }
+            return sb + Pick($" +{ids.Count - kept} lagi", $" +{ids.Count - kept} more");
         }
 
         public static string CsvCell(string s)
