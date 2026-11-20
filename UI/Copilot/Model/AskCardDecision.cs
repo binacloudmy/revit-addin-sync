@@ -251,6 +251,15 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>Whether a group shows the "N left" / "done" badge (it has a choice field to count).</summary>
         public static bool CountsIn(AskFieldGroup g) => g.Fields.Any(IsChoiceField);
 
+        /// <summary>A form with ONE field: one question, so there is nothing to count. r18 (live C1, turn 0e65c0ce on
+        /// 0.0.156): the tag-all "Which category?" card, one multi field with a Skip row, showed a "1 left" badge and an
+        /// "Answer 1 more" button for its only question.</summary>
+        public bool IsSingleQuestion => Kind == AskCardKind.Fields && Fields.Count == 1;
+
+        /// <summary>Whether the card draws a group's "N left" / "done" badge: a group with a choice field to count, on a
+        /// form with more than one question (<see cref="IsSingleQuestion"/> shows none).</summary>
+        public bool ShowsCountIn(AskFieldGroup g) => !IsSingleQuestion && CountsIn(g);
+
         /// <summary>Rows of a group hidden behind "Show N more" until it is expanded (0 when all show).</summary>
         public static int HiddenIn(AskFieldGroup g) => g.Fields.Count > GroupPreview ? g.Fields.Count - GroupPreview : 0;
 
@@ -473,7 +482,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return "New " + rest;
         }
 
-        /// <summary>The primary button: "Answer K more" (K = choice fields without a pick) until the card can be sent;
+        /// <summary>The primary button: "Answer K more" (K = choice fields without a pick) until the card can be sent (a
+        /// single question says no count: "Send" on a multi field, else "Continue", disabled until it is answered);
         /// then "Make N sheets" / "Make 1 sheet" / "Make nothing" with a noun, "Continue" without ("Send (N)" when a multi
         /// field has N ticks). A multi options card: "Send", then "Send (N)".</summary>
         public string FooterLabel
@@ -483,6 +493,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 if (Kind == AskCardKind.Fields)
                 {
                     var open = Unanswered;
+                    if (!CanSend && IsSingleQuestion) return HasMulti ? SendWithCount(0) : ContinueLabel;              // r18 C1: no "Answer 1 more"
                     if (!CanSend) return open > 0 ? "Answer " + open.ToString(CultureInfo.InvariantCulture) + " more" : ContinueLabel;
                     if (!KnowsTotal) return HasMulti && TickCount > 0 ? SendWithCount(TickCount) : ContinueLabel;   // r13: "Send (2)"
                     var n = MadeCount;

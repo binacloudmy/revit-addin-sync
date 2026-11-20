@@ -84,7 +84,8 @@ namespace RevitAddinSync.Tests
             Assert.Null(card.Fields[0].Group);
             Assert.Equal(AskFieldShape.Tiles, AskCardModel.ShapeOf(card.Fields[0]));
             Assert.False(card.ShowsPreview);                       // nothing to make, no noun: no "What you will get"
-            Assert.Equal("Answer 1 more", card.FooterLabel);
+            Assert.Equal("Continue", card.FooterLabel);            // r18 C1: one question, no "Answer 1 more"
+            Assert.False(card.FooterEnabled);                      // still blocked until it is answered
             card.Pick("lvl", "l2");
             Assert.Equal("Continue", card.FooterLabel);            // no noun
             Assert.True(card.FooterEnabled);

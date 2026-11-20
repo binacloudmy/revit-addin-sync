@@ -522,7 +522,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                         left.Children.Add(k);
                     }
                     var badge = new Border { CornerRadius = new CornerRadius(8), Padding = new Thickness(6, 0, 6, 1), VerticalAlignment = VerticalAlignment.Center,
-                        Visibility = AskCardModel.CountsIn(g) ? Visibility.Visible : Visibility.Collapsed };
+                        Visibility = _m.ShowsCountIn(g) ? Visibility.Visible : Visibility.Collapsed };
                     var badgeText = CardKit.Text("", 10.5, "Cp.AmberFg", FontWeights.SemiBold, wrap: false);
                     badge.Child = badgeText;
                     left.Children.Add(badge);
