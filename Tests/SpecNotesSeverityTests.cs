@@ -279,5 +279,22 @@ namespace RevitWebAppSync.Tests
                 .Select(i => IssueExportRows.Cells(i)[6]).ToList();
             Assert.Equal(3, none.Distinct().Count());                         // ST / ME / EL: no link of each
         }
+
+        [Fact]
+        public void PDF_a_repeated_title_with_parentheses_keeps_the_state_suffix_last()
+        {
+            IssueVm One(string id, string own) => new IssueVm
+            {
+                Id = id, CheckId = "C4.2.2", Domain = "spec", Status = IssueStatus.Ignored,
+                Title = "C4.2.2 · Title block (fields)", TitleEn = "C4.2.2 · Title block (fields)",
+                Description = own, DescriptionEn = own,
+            };
+            var issues = new List<IssueVm> { One("a", "Sheet A-1: Drawn By is Author"), One("b", "Sheet A-2: Drawn By is Author") };
+            var summary = new Bim010Summary { SpecBased = true };
+            summary.Rows["C4.2"] = new Bim010RowMark { Key = "C4.2", Mark = "n", FailIssueIds = { "a", "b" } };
+            var (text, _) = BorangDoc.RemarkFor("C4.2", "n", summary, issues);
+            Assert.Contains("C4.2.2 · Title block (fields): Sheet A-1: Drawn By is Author (ignored by user)", text);
+            Assert.Contains("C4.2.2 · Title block (fields): Sheet A-2: Drawn By is Author (ignored by user)", text);
+        }
     }
 }
