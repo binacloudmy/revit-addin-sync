@@ -383,7 +383,7 @@ With a conduit or trunking row in the mapping, `review` also has a `conduit` blo
 The review carries no coordinates.
 
 **`include_points`** adds:
-- `points`: `index`, `role`, `block`, `room`, `host`, `xyz_mm`, `facing`, `flags`, `excluded`
+- `points`: `index`, `role`, `block`, `room`, `host`, `xyz_mm`, `height_above_level_mm`, `facing`, `flags`, `excluded`. `xyz_mm` is absolute; `height_above_level_mm` is its Z less the plan level's elevation.
 - `dropped`: `block`, `reason`, `xyz_mm`
 - `runs`: `index`, `layer`, `kind`, `points_mm`, `start` and `end` (`kind`, `point_index`, `element_id`, `drop_mm`), `length_mm`, `flags`, `excluded`
 
@@ -454,7 +454,7 @@ These points have no facing, so `facing_method` is `not_applicable`.
 **Height at the level** (no ceiling, or the face was refused): a work-plane-based family placed on a level has no "Elevation from Level", so "Offset from Host" (`INSTANCE_FREE_HOST_OFFSET_PARAM`) is set first, then "Elevation from Level" (`INSTANCE_ELEVATION_PARAM`). An unhosted family tries them the other way round. Each is set to the target minus the level, and the first whose read-back value equals the value set (within 1 mm) wins. `elevation_set_via` is that parameter, or `insertion_point` for a family with neither parameter whose insertion point is already right. The point fails alone with `elevation_unset` only when every parameter is missing, read-only, refused, or reads back a different value; the reason says which. It is never left at the level. The height reported is the level plus the parameter, as in **Contact height**, never the origin.
 
 Each item also carries:
-- `z_mm`: the contact height, as placed
+- `z_mm`: the contact height, as placed (absolute, see **Heights** below)
 - `height_via`: how it was read (`host_face`, `ceiling_underside`, `level_offset`, `offset_absolute`, `origin_verified`, `vertical_plane` or `location`)
 - `origin_z_mm`: the raw LocationPoint Z
 - `target_z_mm` and `host_ceiling_id`
@@ -472,7 +472,14 @@ Each item also carries:
 - Each `created` item has `index`, `created_id`, `host` (`wall_face`, `wall`, `ceiling`, `ceiling_face` or `unhosted`), `facing`, `facing_target`, `facing_error_deg`, `facing_method` and `family_type`.
 - New keys: `by_role`, `by_family_type`, `skipped_excluded`, `skipped_already_present`, `geometry_off_host_indices` and `review`.
 - A `failed` item's `reason` starts with a code where one applies: `no_ceiling`, `height_mismatch` (a ceiling device did not land within 20 mm of the underside) or `elevation_unset` (a device placed at the level could not be given its height).
-- `review` is `PlaceReview`: a headline and `needs_review` counts of `facing_uncorrected`, `elevation_unset`, `no_room`, `wet_room` and `provisional_alignment`.
+- `review` is `PlaceReview`: a headline, `needs_review` counts of `facing_uncorrected`, `elevation_unset`, `no_room`, `wet_room` and `provisional_alignment`, and `heights`.
+
+**Heights:** `z_mm`, `target_z_mm`, `origin_z_mm` and `geometry_z_mm` are absolute, in project-internal coordinates. On a level at 3800 mm, a socket at 300 mm reads `z_mm: 4100`. That is correct, not a wrong height. Every `created` item (wall, ceiling and unhosted alike) also carries:
+- `level_name`: the level the device was placed on
+- `level_elevation_mm`: that level's elevation
+- `height_above_level_mm`: `z_mm` less the level's elevation, to 1 mm. This is the mounting height. Show this one to the drafter, never `z_mm`. It is null when the device has no level.
+
+`review.heights` is `[{level, height_above_level_mm, count}]`, one entry per level and height, heights low to high. The headline ends with them, up to 5 per level: "40 placed; 2 things to check. Heights 300 mm (42), 1500 mm (48) above Level 1." `place_cad_electrical`'s headline carries the same sentence after its device counts.
 
 ## 5. Import dialog guard
 

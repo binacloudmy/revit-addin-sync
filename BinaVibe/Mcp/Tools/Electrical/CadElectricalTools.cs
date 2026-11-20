@@ -594,6 +594,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     ["room"] = p.RoomName,
                     ["host"] = p.Host,
                     ["xyz_mm"] = new List<object?> { Math.Round(p.XMm, 1), Math.Round(p.YMm, 1), Math.Round(p.ZMm, 1) },
+                    ["height_above_level_mm"] = CadElectricalReview.HeightAboveLevelMm(p.ZMm, levelZMm),
                     ["facing"] = new List<object?> { Math.Round(p.FacingDx, 4), Math.Round(p.FacingDy, 4) },
                     ["flags"] = p.Flags.Cast<object?>().ToList(),
                     ["excluded"] = p.Excluded,

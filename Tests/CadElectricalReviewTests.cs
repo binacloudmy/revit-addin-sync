@@ -266,6 +266,73 @@ namespace Tests
             Assert.Equal("3 placed; 5 things to check.", review["headline"]);
         }
 
+        /// <summary>A placed device's row as place_socket_points builds it: z_mm absolute.</summary>
+        private static Dictionary<string, object?> PlacedRow(int index, double zMm, string? level = "Level 1",
+                                                             double? levelElevationMm = 3800)
+        {
+            var row = new Dictionary<string, object?> { ["index"] = index, ["z_mm"] = zMm, ["target_z_mm"] = zMm };
+            CadElectricalReview.AddLevelHeight(row, level, levelElevationMm);
+            return row;
+        }
+
+        [Fact]
+        public void A_placed_row_reports_its_height_above_the_level()
+        {
+            Dictionary<string, object?> row = PlacedRow(0, 4100.4);
+
+            Assert.Equal(4100.4, row["z_mm"]);
+            Assert.Equal("Level 1", row["level_name"]);
+            Assert.Equal(3800.0, row["level_elevation_mm"]);
+            Assert.Equal(300.0, row["height_above_level_mm"]);
+            Assert.Equal(1500.0, PlacedRow(1, 5299.6)["height_above_level_mm"]);
+            Assert.Equal(-150.0, PlacedRow(2, 3650)["height_above_level_mm"]);
+
+            Dictionary<string, object?> noLevel = PlacedRow(3, 4100, level: null, levelElevationMm: null);
+            Assert.True(noLevel.ContainsKey("height_above_level_mm"));
+            Assert.Null(noLevel["height_above_level_mm"]);
+            Assert.Null(noLevel["level_elevation_mm"]);
+        }
+
+        [Fact]
+        public void Place_review_reports_heights_above_the_level()
+        {
+            List<PlannedPoint> placed = Plan().Points.Where(p => !p.Excluded).ToList();
+            var rows = new List<Dictionary<string, object?>>();
+            for (int i = 0; i < 42; i++) rows.Add(PlacedRow(i, 4100));
+            for (int i = 0; i < 48; i++) rows.Add(PlacedRow(42 + i, 5300));
+            rows.Add(PlacedRow(90, 9900, "Level 2", 7200));
+            rows.Add(PlacedRow(91, 4100, level: null, levelElevationMm: null));   // height unknown: left out
+
+            Dictionary<string, object?> review = CadElectricalReview.PlaceReview(placed, 0, 0, rows);
+
+            Assert.Equal("3 placed; 1 things to check. Heights 300 mm (42), 1500 mm (48) above Level 1; " +
+                         "2700 mm (1) above Level 2.", review["headline"]);
+            var heights = ((List<object?>)review["heights"]!).Select(Row).ToList();
+            Assert.Equal(3, heights.Count);
+            Assert.Equal("Level 1", heights[0]["level"]);
+            Assert.Equal(300.0, heights[0]["height_above_level_mm"]);
+            Assert.Equal(42, heights[0]["count"]);
+            Assert.DoesNotContain("4100", (string)review["headline"]!);
+
+            // Past 5 heights on a level, the headline says how many more.
+            var many = Enumerable.Range(0, 7).Select(i => PlacedRow(i, 3800 + 100 * (i + 1))).ToList();
+            Assert.EndsWith("100 mm (1), 200 mm (1), 300 mm (1), 400 mm (1), 500 mm (1) and 2 more above Level 1.",
+                            (string)CadElectricalReview.PlaceReview(placed, 0, 0, many)["headline"]!);
+        }
+
+        [Fact]
+        public void Write_result_headline_carries_the_device_heights()
+        {
+            Dictionary<string, object?> devices = DevicesResult();
+            devices["review"] = CadElectricalReview.PlaceReview(new List<PlannedPoint>(), 0, 0,
+                new[] { PlacedRow(0, 4100), PlacedRow(1, 4100) });
+
+            Dictionary<string, object?> result = CadElectricalReview.WriteResult("socket_plan:1", devices, CadElectricalReview.SkippedRuns());
+
+            Assert.StartsWith("Devices: 2 placed, 1 failed, 1 already present. Heights 300 mm (2) above Level 1. Conduit:",
+                              (string)((Dictionary<string, object?>)result["review"]!)["headline"]!);
+        }
+
         private static ElectricalCensusResult BigCensus(int classes, int layers)
         {
             var census = new ElectricalCensusResult();

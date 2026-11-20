@@ -206,7 +206,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 ["by_family_type"] = byType,
                 ["skipped_excluded"] = skippedExcluded,
                 ["skipped_already_present"] = skippedPresent,
-                ["review"] = CadElectricalReview.PlaceReview(placedPoints, uncorrected.Count, elevationUnset),
+                ["review"] = CadElectricalReview.PlaceReview(placedPoints, uncorrected.Count, elevationUnset, rows),
             };
         }
 
@@ -344,10 +344,15 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 if (ActualZ(fi, out double originZ) && Math.Abs(originZ * MmPerFoot - contactMm) > OriginReportMm)
                     row["origin_z_mm"] = Math.Round(originZ * MmPerFoot, 1);
                 if (p.Flags.Contains("above_wall_top")) row["above_wall_top"] = true;
+                AddLevelHeight(row, level ?? (host != null ? doc.GetElement(host.LevelId) as Level : null));
                 return row;
             }
             catch { tx.RollBack(); throw; }
         }
+
+        /// <summary>The row's level and its height above that level (z_mm stays absolute).</summary>
+        private static void AddLevelHeight(Dictionary<string, object?> row, Level? level) =>
+            CadElectricalReview.AddLevelHeight(row, level?.Name, level != null ? level.Elevation * MmPerFoot : (double?)null);
 
         /// <summary>A wall row reports origin_z_mm when the origin is this far off its contact height.</summary>
         private const double OriginReportMm = 1;
@@ -458,6 +463,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     ["origin_z_mm"] = Math.Round(originZ * MmPerFoot, 1),
                     ["target_z_mm"] = Math.Round(zMm, 1),
                 };
+                AddLevelHeight(row, level);
                 BoundingBoxXYZ? bb = null;
                 try { bb = fi.get_BoundingBox(null); } catch { bb = null; }
                 if (bb != null)

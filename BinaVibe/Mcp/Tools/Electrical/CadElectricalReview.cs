@@ -279,8 +279,10 @@ namespace BinaVibe.Mcp.Tools.Electrical
         /// not be corrected or whose elevation could not be set, and placed points flagged
         /// no_room, wet_room or provisional_alignment.</summary>
         public static Dictionary<string, object?> PlaceReview(IReadOnlyList<PlannedPoint> placed, int facingUncorrected,
-                                                              int elevationUnset)
+                                                              int elevationUnset,
+                                                              IEnumerable<Dictionary<string, object?>>? createdRows = null)
         {
+            List<object?> heights = Heights(createdRows);
             int noRoom = placed.Count(p => p.Flags.Contains("no_room"));
             int wet = placed.Count(p => p.Flags.Contains("wet_room"));
             int provisional = placed.Count(p => p.Flags.Contains("provisional_alignment"));
@@ -290,7 +292,8 @@ namespace BinaVibe.Mcp.Tools.Electrical
             return new Dictionary<string, object?>
             {
                 ["headline"] = Count(placed.Count) + " placed; " + Count(needs + facingUncorrected + elevationUnset) +
-                               " things to check.",
+                               " things to check." + HeightsSentence(heights),
+                ["heights"] = heights,
                 ["needs_review"] = new Dictionary<string, object?>
                 {
                     ["facing_uncorrected"] = facingUncorrected,
@@ -300,6 +303,72 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     ["provisional_alignment"] = provisional,
                 },
             };
+        }
+
+        /// <summary>
+        /// Adds <c>level_name</c>, <c>level_elevation_mm</c> and <c>height_above_level_mm</c>
+        /// (<c>z_mm</c> less the level's elevation, to 1 mm) to a placed device's row. <c>z_mm</c>
+        /// is absolute (project internal); the height above the level is what a drafter means by
+        /// a mounting height. With no level, or no <c>z_mm</c>, the height is null.
+        /// </summary>
+        public static void AddLevelHeight(Dictionary<string, object?> row, string? levelName, double? levelElevationMm)
+        {
+            row["level_name"] = levelName;
+            row["level_elevation_mm"] = levelElevationMm.HasValue ? Math.Round(levelElevationMm.Value, 1) : (double?)null;
+            row["height_above_level_mm"] = row.TryGetValue("z_mm", out object? z) && z != null && levelElevationMm.HasValue
+                ? HeightAboveLevelMm(Convert.ToDouble(z, CultureInfo.InvariantCulture), levelElevationMm.Value)
+                : (double?)null;
+        }
+
+        /// <summary>An absolute height as the height above a level's elevation, to 1 mm.</summary>
+        public static double HeightAboveLevelMm(double zMm, double levelElevationMm) =>
+            Math.Round(zMm - levelElevationMm, 0, MidpointRounding.AwayFromZero);
+
+        /// <summary>The placed rows' heights above their level: one entry per level and height,
+        /// levels in first-seen order, heights low to high.</summary>
+        private static List<object?> Heights(IEnumerable<Dictionary<string, object?>>? rows)
+        {
+            if (rows == null) return new List<object?>();
+            var known = rows
+                .Where(r => r.TryGetValue("height_above_level_mm", out object? h) && h != null)
+                .Select(r => (Level: r.TryGetValue("level_name", out object? l) ? l as string ?? "" : "",
+                              Height: Convert.ToDouble(r["height_above_level_mm"], CultureInfo.InvariantCulture)))
+                .ToList();
+            var levels = known.Select(k => k.Level).Distinct(StringComparer.Ordinal).ToList();
+            return known
+                .GroupBy(k => (k.Level, k.Height))
+                .OrderBy(g => levels.IndexOf(g.Key.Level))
+                .ThenBy(g => g.Key.Height)
+                .Select(g => (object?)new Dictionary<string, object?>
+                {
+                    ["level"] = g.Key.Level,
+                    ["height_above_level_mm"] = g.Key.Height,
+                    ["count"] = g.Count(),
+                })
+                .ToList();
+        }
+
+        /// <summary>Heights listed per level in the headline; the rest are in <c>heights</c>.</summary>
+        public const int HeadlineHeights = 5;
+
+        /// <summary>" Heights 300 mm (42), 1500 mm (48) above Level 1." from <see cref="Heights"/>;
+        /// empty when no height is known.</summary>
+        public static string HeightsSentence(List<object?> heights)
+        {
+            var parts = heights
+                .Cast<Dictionary<string, object?>>()
+                .GroupBy(h => (string)h["level"]!, StringComparer.Ordinal)
+                .Select(g =>
+                {
+                    var list = g.ToList();
+                    string text = string.Join(", ", list.Take(HeadlineHeights).Select(h =>
+                        ((double)h["height_above_level_mm"]!).ToString("0", CultureInfo.InvariantCulture) + " mm (" +
+                        Count((int)h["count"]!) + ")"));
+                    if (list.Count > HeadlineHeights) text += " and " + Count(list.Count - HeadlineHeights) + " more";
+                    return text + " above " + (g.Key.Length > 0 ? g.Key : "the level");
+                })
+                .ToList();
+            return parts.Count == 0 ? "" : " Heights " + string.Join("; ", parts) + ".";
         }
 
         /// <summary>place_cad_electrical's runs object when no run is routed: the plan has none,
@@ -340,7 +409,11 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
             string headline = "Devices: " + (devicesOk
                 ? Count(IntOf(devices, "count")) + " placed, " + Count(ListCount(devices, "failed")) + " failed, " +
-                  Count(ListCount(devices, "skipped_already_present")) + " already present."
+                  Count(ListCount(devices, "skipped_already_present")) + " already present." +
+                  (devices.TryGetValue("review", out object? placeReview) && placeReview is Dictionary<string, object?> pr &&
+                   pr.TryGetValue("heights", out object? hs) && hs is List<object?> heights
+                      ? HeightsSentence(heights)
+                      : "")
                 : "none placed (" + ErrorOf(devices) + ").");
             if (runsSkipped)
                 headline += " Conduit: no runs to route.";
