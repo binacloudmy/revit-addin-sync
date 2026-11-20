@@ -328,7 +328,7 @@ namespace Tests
         public void A_link_of_another_drawing_is_link_is_other_drawing()
         {
             LinkDrawingMismatch? other = CadLinkAlign.OtherDrawing(4711,
-                @"C:\projects\tower\ARCH-MODEL-L1-L4.dwg", @"C:\Users\someone\Downloads\ELEC-SOCKETS-L2.dwg");
+                @"C:\projects\tower\ARCH-MODEL-L1-L4.dwg", @"C:\Users\someone\Documents\ELEC-SOCKETS-L2.dwg");
 
             Assert.NotNull(other);
             Assert.Equal("link_is_other_drawing", CadLinkAlign.OtherDrawingError);
@@ -342,9 +342,9 @@ namespace Tests
         [Fact]
         public void A_link_of_the_same_drawing_proceeds()
         {
-            // The same file elsewhere (an attachment from Downloads, the link from the project folder).
+            // The same file elsewhere (an attachment from another folder, the link from the project folder).
             Assert.Null(CadLinkAlign.OtherDrawing(5, @"C:\projects\tower\elec-sockets-l2.DWG",
-                                                  @"C:\Users\someone\Downloads\ELEC-SOCKETS-L2.dwg"));
+                                                  @"C:\Users\someone\Documents\ELEC-SOCKETS-L2.dwg"));
             // The same path.
             Assert.Null(CadLinkAlign.OtherDrawing(5, @"C:\projects\tower\ELEC-SOCKETS-L2.dwg",
                                                   @"C:\projects\tower\ELEC-SOCKETS-L2.dwg"));
