@@ -197,8 +197,12 @@ namespace RevitWebAppSync.UI.Copilot
         /// <summary>Continue another chat from History; the same stop as "+" (I1).</summary>
         public void AdoptSession(string? sessionId) => ChangeSession(string.IsNullOrWhiteSpace(sessionId) ? null : sessionId);
 
+        /// <summary>r21: the language of the chat's last message, for a neutral one (<see cref="PromptLanguage.Follow"/>); a new chat starts without it.</summary>
+        private ReceiptLanguage? _chatLanguage;
+
         private void ChangeSession(string? sessionId)
         {
+            _chatLanguage = null;
             bool driving;
             lock (_sync)
             {
@@ -256,7 +260,8 @@ namespace RevitWebAppSync.UI.Copilot
             var commandId = PendingCommandId; PendingCommandId = null;
             var tables = PendingTables; PendingTables = null;
             var documents = PendingDocuments; PendingDocuments = null;
-            var lang = PromptLanguage.Detect(message);   // receipts follow the prompt's language
+            var lang = PromptLanguage.Follow(message, _chatLanguage);   // receipts follow the prompt's language; r21: a neutral "ok"/"retry" keeps the chat's
+            _chatLanguage = lang;
 
             // A pending forced update: nothing of the copilot may act on the model.
             if (_hooks.UpdateBlocked())

@@ -22,7 +22,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
             "berapa", "banyak", "mana", "apa", "ada", "tiada", "tak", "tidak", "bukan", "saya", "boleh", "nak",
             "tolong", "sila", "buat", "buatkan", "letak", "padam", "tambah", "kenapa", "bagaimana", "jika", "kalau",
             "isi", "isikan", "pilih", "kedua-dua", "pasang", "kat", "ni", "tu", "maksud", "hingga", "jarak",
-            "projek", "skor", "tengok", "lagi", "sekali", "hai",
+            "projek", "skor", "tengok", "lagi", "sekali", "hai", "ya", "teruskan",
         };
 
         // Malay names of Revit things, which English-speaking drafters also type.
@@ -56,6 +56,31 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// helper line) and the Steps list ("AGENT ACTIVITY"), is the drafter's, as the step rows themselves have been since r17 (StepLabels
         /// follows the turn's language). Since r21 the cards follow it as well (<see cref="Card"/>).</summary>
         public static ReceiptLanguage Activity(string? prompt) => Detect(prompt);
+
+        // r21: words that say yes, no or "again" in either language: a short message made only of them has no language of its own.
+        private static readonly HashSet<string> Neutral = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "ok", "okay", "okey", "yes", "no", "retry", "proceed", "continue", "go", "ahead", "sure", "done", "thanks", "y", "n",
+        };
+
+        /// <summary>r21 (sticky language, audit of 21 Nov): a neutral message ("ok", "retry", "go ahead": four words or fewer, every one a
+        /// yes/no/again word) keeps the chat's language, <paramref name="previous"/>, so a Malay chat's "retry" gets Malay chrome; any
+        /// other message (and the first of a chat) is read on its own words (<see cref="Detect"/>), so "ya" reads Malay and "ok" in an
+        /// English chat stays English. The backend resolves the same case on its side (copilot_lang.chat_lang).</summary>
+        public static ReceiptLanguage Follow(string? prompt, ReceiptLanguage? previous)
+        {
+            if (previous is ReceiptLanguage before && !string.IsNullOrWhiteSpace(prompt))
+            {
+                var words = Words.Matches(prompt!).Cast<Match>().Select(m => m.Value).ToList();
+                if (words.Count > 0 && words.Count <= 4 && words.All(w => Neutral.Contains(w))) return before;
+            }
+            return Detect(prompt);
+        }
+
+        /// <summary>The language the server resolved for the turn (<c>result.lang</c>), else <paramref name="fallback"/>.</summary>
+        public static ReceiptLanguage FromServer(string? lang, ReceiptLanguage fallback) =>
+            string.Equals(lang, "ms", StringComparison.OrdinalIgnoreCase) ? ReceiptLanguage.Ms
+            : string.Equals(lang, "en", StringComparison.OrdinalIgnoreCase) ? ReceiptLanguage.En : fallback;
 
         /// <summary>The wire code of <c>lang</c> in a turn request.</summary>
         public static string Code(ReceiptLanguage lang) => lang == ReceiptLanguage.Ms ? "ms" : "en";

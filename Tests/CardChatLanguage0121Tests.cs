@@ -148,5 +148,31 @@ namespace RevitAddinSync.Tests
             Assert.Equal(2, card.Wide.Groups[0].MoreTypes);       // "dan 2 lagi" read as the more line
             Assert.Equal("Walls", card.Wide.Groups[0].Rows[0].Name);
         }
+
+        // ---- sticky language (audit of 21 Nov) --------------------------------------------------------------------------
+
+        [Fact]
+        public void YaInAMalayChat_GivesMalayChrome_AndOkInAnEnglishChat_GivesEnglish()
+        {
+            Assert.Equal(ReceiptLanguage.Ms, PromptLanguage.Follow("ya", ReceiptLanguage.Ms));
+            Assert.Equal(ReceiptLanguage.Ms, PromptLanguage.Follow("teruskan", ReceiptLanguage.Ms));
+            Assert.Equal(ReceiptLanguage.Ms, PromptLanguage.Detect("ya"));                     // a Malay word of its own
+            Assert.Equal(ReceiptLanguage.En, PromptLanguage.Follow("ok", ReceiptLanguage.En));
+            Assert.Equal(ReceiptLanguage.Ms, PromptLanguage.Follow("retry", ReceiptLanguage.Ms));   // neutral: keeps the chat's
+            Assert.Equal(ReceiptLanguage.Ms, PromptLanguage.Follow("ok go ahead", ReceiptLanguage.Ms));
+            Assert.Equal(ReceiptLanguage.En, PromptLanguage.Follow("ok", null));                // a chat's first message: its own words
+            Assert.Equal(ReceiptLanguage.En, PromptLanguage.Follow("Change all doors on Level 1", ReceiptLanguage.Ms));   // a real request reads its own words
+            Assert.Equal(PromptLanguage.Detect("Tukar semua pintu di aras 3"), PromptLanguage.Follow("Tukar semua pintu di aras 3", ReceiptLanguage.En));
+        }
+
+        [Fact]
+        public void TheServersResolvedLanguage_DrawsTheResultCardsChrome()
+        {
+            Assert.Equal(ReceiptLanguage.Ms, PromptLanguage.FromServer("ms", ReceiptLanguage.En));
+            Assert.Equal(ReceiptLanguage.En, PromptLanguage.FromServer("en", ReceiptLanguage.Ms));
+            Assert.Equal(ReceiptLanguage.Ms, PromptLanguage.FromServer(null, ReceiptLanguage.Ms));
+            Assert.Contains("PromptLanguage.FromServer(TurnStatus.ServerResultOf(rr)?.Lang, cardLang)", Src("UI/Copilot/CopilotViewModel.cs"));
+            Assert.Contains("PromptLanguage.Follow(message, _chatLanguage)", Src("UI/Copilot/CopilotTurnRouter.cs"));
+        }
     }
 }
