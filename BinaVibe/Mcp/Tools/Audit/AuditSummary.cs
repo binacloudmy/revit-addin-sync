@@ -80,6 +80,9 @@ namespace BinaVibe.Mcp.Tools.Audit
         public List<string> ManualNotes = new List<string>();
         /// <summary>"Not yet checked by the scan: A1.4, A1.5." or "" (also the last of <see cref="Notes"/>).</summary>
         public string NotCheckedNote = "";
+        /// <summary>English summary notes of the failed checks (C1.5.2 / C5.1.1: every missing level / link);
+        /// the Borang remark puts them before the issue texts.</summary>
+        public List<string> SummaryNotes = new List<string>();
     }
 
     public sealed class Bim010Summary

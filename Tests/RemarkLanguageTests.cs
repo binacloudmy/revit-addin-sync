@@ -204,5 +204,88 @@ namespace RevitWebAppSync.Tests
             })
                 Assert.Contains(frag, tools);
         }
+
+        // AI-421 round 2: the fragments the legacy-remark templates (PaneText.LegacyBody / LegacyBare /
+        // LegacyTails / LegacyRuleTemplates) rely on. Source spelling, one literal piece each.
+        [Fact]
+        public void Checker_source_still_writes_the_legacy_remark_fragments()
+        {
+            var checkers = SourceOf(@"BinaVibe\Mcp\Tools\Audit\AuditCheckers.cs");
+            foreach (var frag in new[]
+            {
+                // common
+                "Tiada {population} dalam model, jadi peraturan ", "data untuk disemak (0 diperiksa) — semak manual.",
+                "Senarai penuh {total} item ada dalam draft_export (element_ids).", "(Kualiti/maklumat/geometri: semak manual.)",
+                "\"grid, aras atau pelan lantai\"", "\"elemen Walls/Floors/Ceilings/Roofs\"", "\"view grafik\"", "\"Revit link\"", "\"elemen Project Information\"",
+                // file naming, base point
+                "Format dijangka: {rule}; dijumpai: ", "({segments} segmen) — patuh.", "Cadangan nama: ",
+                "Tiada cadangan automatik yang yakin — namakan semula fail secara manual ", "mengikut garis panduan penamaan.",
+                "Had dijangka: <=10 mm dari persilangan ", "; dijumpai sisihan ", " mm — patuh.", "Selaraskan kedudukan model ke grid ",
+                "pairName.Replace(\"/\", \" dan \")", "$\"grid {pairName} (Grid A/1)\"",
+                // grids and levels
+                "Dijumpai {grids} grid ({split}), ", "semua bernama unik; semua {plans.Count} pelan lantai terikat pada ", "aras — patuh.",
+                "Dijumpai {grids} grid, {levels} aras. ", "\"Tiada grid dalam model\"", "\"Tiada aras dalam model\"",
+                "{gridUnnamed.Count}/{grids} grid tanpa nama", "nama grid berganda (cth: ", "{levelUnnamed.Count}/{levels} aras tanpa nama",
+                "nama aras berganda (cth: ", "pelan lantai tanpa aras (cth: ", "{gridLetters} huruf, {gridNumbers} nombor",
+                ", {gridSubs} sub-grid", "; awalan projek '{gridPrefix}' pada {gridPrefixed} grid",
+                // materials
+                "elemen pertama semuanya ada material (", "tetapi model melebihi had imbasan jadi elemen selebihnya tidak disemak — ",
+                "Imbasan dihadkan kepada {ElementScanCap} elemen; elemen selebihnya tidak disemak.",
+                "Semua {scanned} elemen ada material ({breakdown}) — patuh.", "elemen tiada material ",
+                "(tanpa material/diimbas: {breakdown}; cth: ", "Tetapkan material pada jenis elemen berkenaan.",
+                // project information
+                "Dokumen tiada elemen Project Information untuk dibaca — semak manual ", "di Manage > Project Information.",
+                "Keenam-enam medan terisi (Project Name", " medan belum dikemaskini: ", "Isi di Manage > Project Information.",
+                "name + \" (kosong)\"", " — nilai lalai)",
+                // view templates, view sets
+                "view ada template — patuh.", "view tiada template (cth: ", "Sapukan template ", "daripada templat seni bina.",
+                "view ada template; ", "view tiada template tetapi tiada template jenis tersebut wujud dalam ",
+                "model ({split.UnactionableTypesText}; cth: ", "tindakan. Wujudkan template jenis itu dahulu jika dikehendaki, kemudian semak semula.",
+                "Baris tidak menyatakan set view (BOMBA/PBT) yang dimaksudkan — semak manual.",
+                "setiap view dengan '{token}' dalam namanya ada View Template", "Tiada nama view mengandungi '{token}' daripada ",
+                "view yang disemak — wujudkan view {token} dan sapukan ", "\"view template.\"", "view {token} ada template — patuh.",
+                "view {token} tiada template ", "template {token}.", " view {token} ada template; ", "view {token} tiada template tetapi tiada template jenis tersebut wujud ",
+                "sekurang-kurangnya satu view dengan '{token}' dalam namanya", "Dijumpai {hits.Count} view (cth: ",
+                "view yang disemak. Wujudkan view {token} untuk tujuan tersebut.",
+                // area plan, legend, schedules
+                "Dijumpai {areaPlans.Count} Area Plan (", "Dijumpai 0 Area Plan dalam model — jana analisis ruang/zon ", "daripada Area Plan.",
+                "Dijumpai {legends.Count} Legend (", "Dijumpai 0 view Legend dalam model — sediakan Legend untuk ", "komponen dan nota am.",
+                "nama jadual mengandungi (termasuk awalan JKR): ", " / jadual komponen (door|window|wall|floor|ceiling|roof|stair|railing + schedule)",
+                "Ketiga-tiga jadual wajib dijumpai daripada {names.Count} ", "jadual dalam model (", "Tiada nama jadual yang sepadan untuk: ",
+                " jadual dalam model disemak). ", "Jana jadual tersebut.",
+                // sheets, title blocks, links
+                "Dijumpai 0 Sheet dalam model — sediakan helaian ", "lukisan seni bina.", "Semua {sheets.Count} sheet mengandungi view — patuh.",
+                " sheet kosong (cth: ", "Susun view pada sheet berkenaan.", "Dijumpai 0 title block pada mana-mana sheet — ", "gunakan JKR Title Block.",
+                "Semua {tbs.Count} title block sepadan — patuh.", " title block tidak sepadan ", "Tukar kepada JKR Title ", "\"Block.\"",
+                "Tiada Revit link dalam model, jadi tiada status pautan untuk disemak ", "— sahkan secara manual sama ada pautan memang tidak diperlukan.",
+                "Semua {links.Count} link berstatus Loaded — patuh.", " link bukan Loaded: ", "Reload atau betulkan laluan link.",
+                // type naming (D rows)
+                "{instances.Count} elemen {label} tetapi 0 jenis (ElementType) untuk ", "tidak terpakai di sini — semak ",
+                "{instances.Count} elemen {label} tetapi tiada satu pun ", "menggunakan {types.Count} jenis kategori ini (0 contoh diletakkan bagi ",
+                "setiap jenis) — tiada nama jenis yang digunakan untuk dinilai; semak ",
+                " jenis tanpa contoh diletakkan tidak dikira (lihat unused_types).", " elemen tanpa jenis tidak dapat dinilai.",
+                "{instances.Count} elemen, {usedTypes.Count} jenis digunakan — ", "semua nama jenis yang digunakan patuh.",
+                " jenis yang digunakan ", "tidak patuh, meliputi {offendingInstances.Count}/{instances.Count} elemen (cth: ", "\"Cadangan: \"",
+                " nama tiada cadangan automatik yang yakin — namakan semula ", "secara manual mengikut format JKR. ",
+                // rooms (Number and Name)
+                "Dijumpai 0 bilik yang diletakkan (placed Room) ", "— {allRooms} Room wujud tetapi tidak diletakkan (Area 0). ", "dalam model. ",
+                "Letak Room dahulu sebelum Number/Name boleh disemak. ", "0 bilik diletakkan dalam model dan kategori ini tidak wajib — baris ini ",
+                "tidak berkenaan, atau semak manual jika sepatutnya ada.", " bilik diletakkan tetapi parameter ", "Number/Name tidak dapat dibaca — semak manual.",
+                "Semua {checkedCount} bilik yang diletakkan ada Number dan Name — patuh.", " bilik tidak dapat dibaca, tidak dikira.)",
+                " bilik tidak lengkap ", " tiada Number, ", " tiada Name; cth: ", "Isi Number dan Name untuk bilik tersebut.",
+                "setiap bilik (Room) yang diletakkan ada Number dan Name",
+            })
+                Assert.Contains(frag, checkers);
+
+            Assert.Contains("Semakan automatik gagal (", SourceOf(@"BinaVibe\Mcp\Tools\Audit\AuditTools.cs"));
+            Assert.Contains(") — semak manual.", SourceOf(@"BinaVibe\Mcp\Tools\Audit\AuditTools.cs"));
+
+            var availability = SourceOf(@"BinaVibe\Mcp\Tools\Audit\AuditTemplateAvailability.cs");
+            foreach (var frag in new[]
+            {
+                "boleh tindakan, ", " tiada template ", "jenis tersebut wujud dalam model (", ") — tidak boleh ", "disapukan sehingga template jenis itu diwujudkan.",
+            })
+                Assert.Contains(frag, availability);
+        }
     }
 }

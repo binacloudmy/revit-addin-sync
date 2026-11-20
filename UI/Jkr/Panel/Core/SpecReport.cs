@@ -54,6 +54,16 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public string ElementName = "";
         /// <summary>Model: Revit element ids behind the result (first one is located).</summary>
         public List<long> ElementIds = new List<long>();
+        /// <summary>Model: the spec calls this finding critical (KRITIKAL): its issue has High priority.
+        /// No effect on pass / fail.</summary>
+        public bool Critical;
+        /// <summary>Model: ONE note that lists everything the check found (all missing levels / links).
+        /// Used only when the check's notes are capped: it comes first in the Borang's
+        /// <see cref="SpecCheckResult.Notes"/>, so the cap still shows everything. The pane
+        /// (<see cref="SpecCheckResult.AllNotes"/>) keeps the per-item notes and never shows it.</summary>
+        public string SummaryNote = "";
+        /// <summary><see cref="SummaryNote"/> in English ("" = same as BM).</summary>
+        public string SummaryNoteEn = "";
     }
 
     /// <summary>What a mapped result can prove about its spec check.</summary>
@@ -123,6 +133,12 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public List<string> AllNotes = new List<string>();
         /// <summary><see cref="AllNotes"/> in English (a remark with no English text repeats the BM one).</summary>
         public List<string> AllNotesEn = new List<string>();
+        /// <summary>How many of <see cref="AllNotes"/> the capped <see cref="Notes"/> leave out
+        /// (the Borang says "+N more"); 0 when none is cut.</summary>
+        public int NotesHidden;
+        /// <summary>The one note naming everything the check found (BM / EN), "" when the check has none
+        /// or its notes are not capped. In <see cref="Notes"/> first; never in <see cref="AllNotes"/>.</summary>
+        public string SummaryNote = "", SummaryNoteEn = "";
         /// <summary>The rules that answered it (what was actually tested).</summary>
         public List<string> Rules = new List<string>();
         /// <summary>Backend results mapped here that do not count because the add-in's own
@@ -389,6 +405,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             var elements = byId.Keys.ToDictionary(k => k, k => new HashSet<string>());
             var failNotes = byId.Keys.ToDictionary(k => k, k => new List<string>());
             var otherNotes = byId.Keys.ToDictionary(k => k, k => new List<string>());
+            var summaries = new Dictionary<string, (string Bm, string En)>();
             // Checks a model or checker result answered (not the backend).
             var local = new HashSet<string>(StringComparer.Ordinal);
             // BM note → EN note, for the remarks that have both.
@@ -574,6 +591,12 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                     foreach (var x in ids) elements[id].Add(source + ":" + x);
                 else if (r.ElementCount > 0) elements[id].Add(source + ":" + r.RowKey + ":" + r.CheckId + ":" + r.ElementCount);
                 if (note.Length > 0) (IsFail(r.Status) ? failNotes : otherNotes)[id].Add(note);
+                if (IsFail(r.Status) && !string.IsNullOrWhiteSpace(r.SummaryNote) && !summaries.ContainsKey(id))
+                {
+                    var sb = Clean(r.SummaryNote);
+                    var se = Clean(r.SummaryNoteEn);
+                    summaries[id] = (sb, se.Length > 0 ? se : sb);
+                }
             }
 
             foreach (var kv in grouped)
@@ -621,6 +644,16 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 var cap = check.Class == SpecCellClass.List ? MaxListNotes : MaxNotes;
                 res.Notes = res.AllNotes.Take(cap).ToList();
                 res.NotesEn = res.AllNotesEn.Take(cap).ToList();
+                res.NotesHidden = Math.Max(0, res.AllNotes.Count - cap);
+                if (res.NotesHidden > 0 && summaries.TryGetValue(check.Id, out var sum))
+                {
+                    // One note that names everything, first; the per-item notes (cap - 1) follow.
+                    res.Notes = new[] { sum.Bm }.Concat(res.AllNotes.Take(cap - 1)).ToList();
+                    res.NotesEn = new[] { sum.En }.Concat(res.AllNotesEn.Take(cap - 1)).ToList();
+                    res.NotesHidden = res.AllNotes.Count - (cap - 1);
+                    res.SummaryNote = sum.Bm;
+                    res.SummaryNoteEn = sum.En;
+                }
                 report.Checks.Add(res);
             }
 

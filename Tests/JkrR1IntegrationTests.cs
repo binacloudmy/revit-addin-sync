@@ -59,7 +59,7 @@ namespace RevitWebAppSync.Tests
                 issues.AddRange(IssueMapper.FromAuditRecordsNotInSpec(records, specIssues, modelResults).Where(i => known.Add(i.Id)));
                 issues.AddRange(specIssues.Where(i => known.Add(i.Id)));
 
-                var exported = IssueExportRows.Select(issues, true, true);
+                var exported = IssueExportRows.Select(issues, true, true, true);
                 var codes = exported.Select(IssueExportRows.RuleCodeOf).ToList();
 
                 // ... the export has the SPEC- row for A2 and no BIM010-A2 duplicate.
