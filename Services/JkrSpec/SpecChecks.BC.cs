@@ -1298,7 +1298,8 @@ namespace RevitWebAppSync.Services.JkrSpec
                     gone.Add(d + " '" + l.Name + "' " + Show(l.Status));
                     goneEn.Add(d + " '" + l.Name + "' " + Show(l.Status));
                     failed.Add(SpecChecks.Fail(id, "KRITIKAL: link " + d + " '" + l.Name + "' " + Show(l.Status), elementName: "Link " + l.Name,
-                            actual: "'" + l.Name + "' " + Show(l.Status), required: "Loaded", key: d + "|" + l.Name)
+                            actual: "link " + d + " '" + l.Name + "' tidak dimuatkan (" + Show(l.Status) + ")", required: "Loaded",
+                            actualEn: d + " link '" + l.Name + "' not loaded (" + Show(l.Status) + ")", key: d + "|" + l.Name)
                         .En("CRITICAL: " + d + " link '" + l.Name + "' " + Show(l.Status)).Critical());
                 }
                 if (notLoaded.Count == 0) ok.Add(d + " (" + string.Join(", ", links.Select(l => l.Name)) + ")");
