@@ -625,18 +625,27 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 || string.Equals(c, "Text Notes", StringComparison.OrdinalIgnoreCase);
         }
 
-        /// <summary>Elements Revit added or modified beside the commits (their side effects), bookkeeping left out. A type parameter
-        /// write changes every instance of the type, which the card already states: only what Revit added counts for it.</summary>
-        internal static int RippledBy(IEnumerable<Envelope> commits)
+        /// <summary>Elements Revit added or modified beside the set_parameters commits (their side effects), bookkeeping left out. The
+        /// side effects list the written elements again under their own category (live 42deeb10: Comments on 1 door, "Doors": 1 in both
+        /// lists), so a modified count in a category the write touched counts only what is beyond the touched count (cb9899a5: 11 Pipes,
+        /// 1 written: 10). A type parameter write changes every instance of the type, which the card already states: only what Revit
+        /// added counts for it. Same rule as the backend's copilot_result/ripple.py. Pass only set_parameters commits.</summary>
+        internal static int RippledBy(IEnumerable<Envelope> writes)
         {
             var n = 0;
-            foreach (var env in commits ?? Enumerable.Empty<Envelope>())
+            foreach (var env in writes ?? Enumerable.Empty<Envelope>())
             {
                 var side = env?.Changes?.SideEffects;
                 if (side == null) continue;
-                var typeWrite = ToolResults.Write(env!)?.TypeParam == true;
-                foreach (var by in typeWrite ? new[] { side.AddedByCategory } : new[] { side.AddedByCategory, side.ModifiedByCategory })
-                    n += (by ?? new Dictionary<string, int>()).Where(kv => kv.Value > 0 && !IsBookkeeping(kv.Key)).Sum(kv => kv.Value);
+                n += (side.AddedByCategory ?? new Dictionary<string, int>()).Where(kv => kv.Value > 0 && !IsBookkeeping(kv.Key)).Sum(kv => kv.Value);
+                if (ToolResults.Write(env!)?.TypeParam == true) continue;
+                var own = env!.Changes!.TouchedByCategory?.ModifiedByCategory ?? new Dictionary<string, int>();
+                foreach (var kv in side.ModifiedByCategory ?? new Dictionary<string, int>())
+                {
+                    if (IsBookkeeping(kv.Key)) continue;
+                    var beyond = kv.Value - (own.TryGetValue(kv.Key.Trim(), out var t) ? t : own.TryGetValue(kv.Key, out var t2) ? t2 : 0);
+                    if (beyond > 0) n += beyond;
+                }
             }
             return n;
         }
@@ -651,7 +660,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
             var commits = calls.Where(c => c.Env.PhaseKind() == EnvelopePhaseKind.Commit
                 && (c.Env.StatusKind() == EnvelopeStatusKind.Done || c.Env.StatusKind() == EnvelopeStatusKind.Partial)).ToList();
             m.Deleted = DeletedBy(commits.Select(c => c.Env));
-            m.Rippled = RippledBy(commits.Select(c => c.Env));
+            m.Rippled = RippledBy(commits.Where(c => c.Call?.Tool == ToolNames.SetParameters).Select(c => c.Env));  // a section or schedule commit's own Viewport is no ripple
             // Net change: a value written and then put back (by a later call) is one row, or none.
             var net = new Dictionary<(long, string), (string? Before, string? After)>();
             var lastAt = new Dictionary<(long, string), int>();

@@ -107,17 +107,55 @@ namespace RevitAddinSync.Tests
                 },
             } };
             Assert.Equal(27, ResultCardModel.RippledBy(new[] { env }));
-            var m = new ResultCardModel { Kind = ResultKind.Changes, Rippled = 27 };
+            env.Changes.TouchedByCategory = new SideEffectsDto { ModifiedByCategory = new Dictionary<string, int> { ["Pipes"] = 1 } };
+            Assert.Equal(26, ResultCardModel.RippledBy(new[] { env }));   // the 11 Pipes of the diff include the written one
+            var m = new ResultCardModel { Kind = ResultKind.Changes, Rippled = 26 };
             var g = new TypeGroup { TypeName = "Copper", Instances = 1, Ids = new List<long> { 1598795 } };
             g.Rows.Add(new ChangeRow { Param = "Diameter", Ids = new List<long> { 1598795 } });
             m.Groups.Add(g);
             Assert.False(m.UndoRestoresExactly);
             var en = UndoBanner.For(m, ReceiptLanguage.En).Detail;
-            Assert.Equal("1 value put back to what it was on 1 element. Revit's own changes around it (27 elements) were undone too.", en);
+            Assert.Equal("1 value put back to what it was on 1 element. Revit's own changes around it (26 elements) were undone too.", en);
             Assert.DoesNotContain("Nothing else changed", en);
             var ms = UndoBanner.For(m, ReceiptLanguage.Ms).Detail;
-            Assert.Contains("(27 elemen) turut dibuat asal.", ms);
+            Assert.Contains("(26 elemen) turut dibuat asal.", ms);
             Assert.DoesNotContain("Tiada yang lain berubah", ms);
+        }
+
+        [Fact]
+        public void RippledBy_APlainDoorWrite_ListingItsOwnDoorsAgain_IsNoRipple()
+        {
+            // live 42deeb10 (Comments on 1 door: Doors 1 in side effects and touched) and b9ed8ec8 (3 doors written, side effects Doors 2)
+            Envelope Doors(int side, int touched) => new Envelope { Changes = new ChangeReportDto
+            {
+                SideEffects = new SideEffectsDto { ModifiedByCategory = new Dictionary<string, int> { ["Doors"] = side } },
+                TouchedByCategory = new SideEffectsDto { ModifiedByCategory = new Dictionary<string, int> { ["Doors"] = touched } },
+            } };
+            Assert.Equal(0, ResultCardModel.RippledBy(new[] { Doors(1, 1) }));
+            Assert.Equal(0, ResultCardModel.RippledBy(new[] { Doors(2, 3) }));
+            Assert.Equal(4, ResultCardModel.RippledBy(new[] { Doors(5, 1) }));
+        }
+
+        [Fact]
+        public void TheCard_CountsRippleOnlyOnSetParametersCommits_NotASectionsViewport()
+        {
+            ResultCardModel Card(string tool)
+            {
+                var env = new Envelope
+                {
+                    Ok = true, Status = EnvelopeStatus.Done, Phase = EnvelopePhase.Commit, Summary = "done", Count = 1,
+                    Changes = new ChangeReportDto { SideEffects = new SideEffectsDto { AddedByCategory = new Dictionary<string, int> { ["Viewports"] = 1 } } },
+                };
+                var ev = new TurnEvidence();
+                ev.Add(new ToolRequestDto
+                {
+                    RequestId = "r", Kind = ToolRequestKinds.Write,
+                    Calls = new List<ToolCallDto> { new ToolCallDto { CallId = "c", IdempotencyKey = "k", Tool = tool, Args = System.Text.Json.JsonDocument.Parse("{}").RootElement.Clone() } },
+                }, new[] { env });
+                return ResultCardModel.From(ev, ReceiptLanguage.En);
+            }
+            Assert.Equal(0, Card(ToolNames.RunRevitCode).Rippled);
+            Assert.Equal(1, Card(ToolNames.SetParameters).Rippled);
         }
 
         [Fact]
