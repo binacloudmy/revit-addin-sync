@@ -65,6 +65,16 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public static string FixStillFails(string lang = null) =>
             L(lang, "Pembaikan ditulis, tetapi semakan masih gagal. Baris kekal Terbuka.",
                     "The fix was written, but the check still fails. The row stays Open.");
+        public static string FixNotRechecked(string lang = null) =>
+            L(lang, "Nilai ditulis, tetapi semakan tidak dapat dijalankan. Baris kekal Terbuka; imbas semula untuk mengesahkan.",
+                    "The value was written, but the check could not run. The row stays Open; re-scan to confirm.");
+        public static string AiAsking(string lang = null) =>
+            L(lang, "AI sedang mencari cadangan…", "AI looking for a suggestion…");
+        public static string AiNothing(string lang = null) =>
+            L(lang, "Pembaiki AI tiada cadangan untuk item ini. Anda boleh masukkan nilai sendiri.",
+                    "The AI fixer has no suggestion for this item. You can enter the value yourself.");
+        public static string ManualRefused(string reason, string lang = null) =>
+            L(lang, "Nilai tidak ditulis: ", "Value not written: ") + reason;
         public static string FixUndone(int n, string lang = null) =>
             L(lang, $"{n} pembaikan dibatalkan — semakan gagal semula, baris dibuka semula.",
                     $"{n} fix{(n == 1 ? "" : "es")} undone — the check fails again, so the row is open again.");

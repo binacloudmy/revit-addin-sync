@@ -257,7 +257,7 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void Fix_all_counts_ready_made_fixes_and_issues_for_the_ai_fixer_in_the_section()
+        public void Fix_all_counts_only_ready_made_fixes_never_the_ai_fixers_rows()
         {
             var (r, _) = New();
             var ai = Issue("2", "A6");                            // no ready-made fix, a backend check
@@ -270,8 +270,8 @@ namespace RevitWebAppSync.Tests
             fixture.CheckId = "FIXTURE-FX-01";
             fixture.RevitElementId = 6;
             r.Load(new[] { Issue("1", "A4", fixable: true), ai, bim010, fixture }, Summary());
-            Assert.Equal(2, r.FixableN);
-            Assert.Equal("Baiki semua 2", r.FixAllLabel);
+            Assert.Equal(1, r.FixableN);                          // the AI-fixer row is written on its own row (AI-435)
+            Assert.Equal("Baiki semua 1", r.FixAllLabel);
             Assert.False(r.Rows.Single(x => x.Id == "2").ShowFix); // the row's ⚡ is for ready-made fixes only
             r.SelectSection("C");
             Assert.Equal(0, r.FixableN);
@@ -354,13 +354,13 @@ namespace RevitWebAppSync.Tests
             var ai = Issue("3", "A6"); ai.CheckId = "element.naming.01"; ai.RevitElementId = 1;
             var aiMarked = Issue("4", "A6", st: IssueStatus.ManualFixNeeded); aiMarked.CheckId = "element.naming.01"; aiMarked.RevitElementId = 2;
             r.Load(new[] { Issue("1", "A4", fixable: true), Issue("2", "A4", fixable: true, st: IssueStatus.ManualFixNeeded), ai, aiMarked }, Summary());
-            Assert.Equal(2, r.FixableN);
+            Assert.Equal(1, r.FixableN);
             var asked = 0;
             r.FixAllRequested += _ => asked++;
             r.FixAll();
             Assert.Equal(1, asked);
             r.SelectSection("A");
-            Assert.Equal(2, r.FixableN);
+            Assert.Equal(1, r.FixableN);
         }
 
         [Fact]

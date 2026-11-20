@@ -405,7 +405,7 @@ namespace RevitWebAppSync.Tests
 
     /// <summary>
     /// A realistic AI-fix request: 50 candidate issues over 40 element types, built the
-    /// way the panel builds it (FetchAiFixesAsync) from a JkrBuildingInfoExtractor
+    /// way the panel builds it (FetchAiProposalAsync) from a JkrBuildingInfoExtractor
     /// scan. fullTemplate: the JKR template's asset/FM shared parameters are filled
     /// (contractor, supplier, dates, documents), as on a project handed over at LOD
     /// 400+; lean: only the classification parameters.

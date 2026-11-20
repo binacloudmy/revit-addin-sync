@@ -43,13 +43,18 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 Req = i.Required ?? "",
                 Act = string.IsNullOrEmpty(actual) ? Text.Same("—")
                     : new Text(actual, !string.IsNullOrEmpty(i.ActualEn) && actual == i.Actual ? i.ActualEn : actual),
-                Prop = !human && i.AutoFixable && !string.IsNullOrEmpty(i.FixValue) ? i.FixValue : null,
+                Prop = !human && i.AutoFixable && !string.IsNullOrEmpty(i.FixValue) ? i.FixValue
+                     : !human && i.AiFixCandidate && i.AiProposal != null && !string.IsNullOrEmpty(i.AiProposal.Value) ? i.AiProposal.Value
+                     : null,
                 Cite = CiteOf(i),
                 Fix = !human && i.AutoFixable && !string.IsNullOrEmpty(i.FixAction) ? FixKind.Fix : FixKind.None,
                 Hash = i.Id ?? "",
                 Reason = human ? desc : null,
                 FixError = PaneText.FixReason(i.FixError ?? "", lang),
                 AiFix = i.AiFixCandidate,
+                AiAsked = i.AiAsked,
+                AiReason = i.AiFixCandidate && !string.IsNullOrWhiteSpace(i.AiProposal?.Reason) ? Text.Same(i.AiProposal.Reason.Trim()) : null,
+                Options = i.ReferenceValues ?? Array.Empty<string>(),
                 Status = human ? (i.Reviewed ? ItemStatus.Reviewed : ItemStatus.Open) : StatusOf(i.Status),
                 Passed = i.Status == IssueStatus.Fixed && i.FixVerified,
                 MarkedManual = i.Status == IssueStatus.ManualFixNeeded,
