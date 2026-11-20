@@ -535,31 +535,63 @@ cad2bim-headless --compare-runs <ref.json> <placed.json> [--kind=conduit|cable_t
 
 **`--fit`** runs `CadModelFit` on a drawing against a dump's walls, without Revit.
 
-**`--compare-devices`** matches reference devices to placed ones one to one, nearest first in plan:
-- **Match radius:** up to the pass reach, which is hypot(across, along) and at least 300 mm.
-- **Outcome:** `hit` within 50 mm, `near` within 300 mm, `far` beyond that.
+**`--compare-devices`** matches reference devices to placed ones one to one, nearest first in plan, so every pair within 50 mm is taken before any pair beyond it. It reports the issue's rule first (section 8):
+- **Issue metric:** the reference devices with a placed device within 50 mm (plan distance, one to one), as a share of the reference devices, PASS at 90% or more.
+- **Miss codes:** every other reference device gets the first code that applies. None is left blank:
+
+  | Code | When |
+  |---|---|
+  | `near_<N>mm` | a placed device within 500 mm: its own match beyond 50 mm, else the nearest placed device. The row gives the device and its offset across and along the wall. |
+  | `plan_flag:<flag>` | the nearest plan point within 500 mm carries a flag that explains a miss: one that excludes (`no_wall_in_reach`, `already_present`, `duplicate_in_drawing`, `family_host_mismatch`, `no_ceiling`, `no_height`) or `above_wall_top`. `plan_flag:excluded` for an excluded point with none of them. |
+  | `dropped:<reason>` | the nearest dropped drawing symbol within 500 mm, with its reason (`not_in_mapping`, `outside_model_footprint`, `other_plan`, `nested_in_mapped`, `ignored_class`...) |
+  | `not_in_drawing` | no plan point and no dropped symbol of any class within 1000 mm: the drafter modelled a socket that the drawing does not show. Only when the plan says `dropped_lists_every_symbol`. |
+  | `unexplained` | none of these. The rule requires 0. |
+
+  Without `--plan`, only `near_<N>mm` can apply, and the output says so.
+- **Extra placements:** a placed device with no reference device within 50 mm is `near_reference` (a reference device within 500 mm) or `not_in_reference` (the drafter did not model it).
+- **Exit gate:** PASS when the share passes and `unexplained` is 0.
+
+The rest is a **diagnostic**, not the issue's rule:
+- **Match radius:** up to the pass reach, which is hypot(across, along) and at least 500 mm.
+- **Outcome:** `hit` within 50 mm, `near` within 300 mm, `far` beyond that, `miss` when unmatched.
 - **Split:** each match is split into `across_mm` and `along_mm`.
   - `across_mm` is the offset along the planned point's facing.
   - `along_mm` is the offset perpendicular to it.
   - The facing comes from the plan point at the placed device, else the placed device's dump facing, else the reference's.
   - With no facing, the smaller axis component is taken as across. Such a split cannot tell a move across an axis-aligned wall from a move along one, so give the comparison a facing (a plan or face-correct dumps).
-- **Misses:** an unmatched reference device is explained by the nearest plan point's flag (`flag:<flag>`), else the nearest dropped instance's reason (`dropped:<reason>`), else `unexplained`.
 - **Options:**
   - `--ref-types` keeps the devices of both dumps whose family type contains the text.
   - `--ref-link` carries the reference through the placed dump's link of that name.
-  - `--role` counts only that role's plan points in the denominator.
+  - `--role` counts only that role's plan points in the diagnostic's denominator.
 
 **Text output** (invented figures):
 
 ```
-reference 40, hits 22, near 9, far 5, misses 4, unexplained 1, extra placements 2
-  miss flag:already_present: 2
-  miss dropped:outside_model_footprint: 1
-  miss unexplained: 1
-limits: across <= 50 mm, along <= 500 mm, |dz| <= 150 mm
-matched 36: across_ok 33, along_ok 35, height_ok 36, pass 32
-of 38 drawn: pass 32 (84.2%), across_ok 33 (86.8%)
+issue rule: ≥ 90% of sockets placed within 50mm of a hand-modelled reference floor on staging, with every miss explained by a flag (not silent).
+reference 40, within 50 mm 36 (90.0%): PASS (needs >= 90%)
+misses 4, unexplained 0: PASS (needs 0)
+exit gate: PASS
+miss codes:
+  dropped:not_in_mapping: 1
+  near_<N>mm: 1
+  not_in_drawing: 1
+  plan_flag:already_present: 1
+misses:
+  ref 2001: near_320mm (placed 6001, across 10 mm, along 320 mm)
+  ref 2002: plan_flag:already_present
+  ref 2003: dropped:not_in_mapping
+  ref 2004: not_in_drawing
+extra placements 3 (no reference within 50 mm):
+  near_reference: 2
+  not_in_reference: 1
+diagnostic (not the issue's rule): matches within 502 mm split across and along the wall
+  hits 36, near 0, far 1, unmatched 3
+  limits: across <= 50 mm, along <= 500 mm, |dz| <= 150 mm
+  matched 37: across_ok 37, along_ok 37, height_ok 37, pass 37
+  of 38 drawn: pass 37 (97.4%), across_ok 37 (97.4%)
 ```
+
+**`--json`** has the same parts: `issue` (`rule`, `reference`, `within_tolerance`, `share`, `required_share`, `share_passes`, `misses`, `unexplained`, `gate_passes`), `miss_codes`, `explainers` (`plan`, `every_drawn_symbol`), `extra_placements` (`count`, `codes`), `diagnostic`, then `rows` (each with `within_tolerance`, `miss_code` and the near device's `near_across_mm` and `near_along_mm`) and `extra_rows`.
 
 **Denominator:** the last line says `drawn` when `--plan` is given (every plan point, of `--role` when given, placed or excluded). Otherwise it says `placed`.
 
@@ -752,17 +784,21 @@ Keep every file in a private folder outside all repositories. Record numbers onl
 
     Add `--ref-link` when the reference is a link of the working copy.
 
-**Criteria:**
-- **Denominator:** the sockets **drawn** on that floor's plan, which are the plan's socket points, placed or excluded. Each one is matched one to one to the nearest reference device.
-- **A match passes** when all three hold:
+**The rule** (Linear AI-390, verbatim): "Phase 1 proof case (this is the Phase 1 exit gate): ≥ 90% of sockets placed within 50mm of a hand-modelled reference floor on staging, with every miss explained by a flag (not silent)."
+
+**Criteria**, as the comparison reports them first:
+- **Share:** the reference sockets with a placed socket within 50 mm in plan, matched one to one, divided by the reference sockets. It passes at 90% or more.
+- **Every miss explained:** each reference socket without a placed socket within 50 mm gets a miss code (`near_<N>mm`, `plan_flag:<flag>`, `dropped:<reason>`, `not_in_drawing`), see `--compare-devices` above. The count of `unexplained` must be 0. Give the comparison the `include_points` plan, or only `near_<N>mm` can apply; a plan without `dropped_lists_every_symbol` cannot show `not_in_drawing`.
+- **Exit gate:** both hold.
+- **Also report** the extra placements and their codes (`near_reference`, `not_in_reference`).
+
+**Diagnostic** (not the issue's rule; it shows why sockets are off, not whether the gate passes):
+- The denominator is the sockets **drawn** on that floor's plan, which are the plan's socket points, placed or excluded.
+- A match passes the split when all three hold:
   - across ≤ 50 mm: the right wall and the right face
   - along ≤ 500 mm: the drafter's shift along the wall
   - |dZ| ≤ 150 mm
-- **Report:**
-  - the **pass share** (pass ÷ drawn)
-  - the **across-only share** (across_ok ÷ drawn), which counts the right wall and face whatever the along shift and height
-  - the count of `unexplained` misses
-  - the host agreement
+- It reports the pass share (pass ÷ drawn), the across-only share (across_ok ÷ drawn, the right wall and face whatever the along shift and height), and the host agreement.
 
 **Manual checks:**
 - Look at 10 sockets in plan and 3D: on the right wall face, facing the room, at the right height.

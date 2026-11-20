@@ -10,12 +10,14 @@ namespace Cad2Bim.Headless {
     /// plan_cad_electrical wrote:
     ///
     /// `--compare-devices ref.json placed.json [--plan=plan.json] [--ref-types=text] [--ref-link=text] [--role=socket] [--across=50] [--along=500] [--dz=150] [--json]`
-    /// matches the reference devices to the placed ones (PlacementCompare). `--ref-types` keeps
-    /// the devices of both dumps whose family type contains the text; `--ref-link` carries the
-    /// reference through the placed dump's link whose name contains the text. Each match is
-    /// split across and along the wall; `--across`, `--along` and `--dz` (mm) set when it passes
-    /// (50, 500, 150). The shares are of the plan's points (`--role` keeps one role's), else of
-    /// the placed devices.
+    /// matches the reference devices to the placed ones (PlacementCompare) and reports the
+    /// issue's rule first: the share of reference devices with a placed device within 50 mm, one
+    /// to one, against 90%, and a code for every miss (the plan explains more of them).
+    /// `--ref-types` keeps the devices of both dumps whose family type contains the text;
+    /// `--ref-link` carries the reference through the placed dump's link whose name contains the
+    /// text. Diagnostic: each match is split across and along the wall; `--across`, `--along` and
+    /// `--dz` (mm) set when it passes (50, 500, 150). Those shares are of the plan's points
+    /// (`--role` keeps one role's), else of the placed devices.
     ///
     /// `file.dwg --fit=walls.json [--cluster=N] [--min-wall=50]` fits the drawing's walls to a
     /// dump's walls (CadModelFit): one level's walls, or every level's when the dump has
@@ -59,12 +61,15 @@ namespace Cad2Bim.Headless {
 
             var points = new List<PlannedPoint>();
             var dropped = new List<DroppedInstance>();
+            bool census = false;
             if (!string.IsNullOrEmpty(planPath)) {
                 using JsonDocument planDoc = Load(planPath);
-                PlacementCompare.ReadPlan(planDoc.RootElement, points, dropped);
+                census = PlacementCompare.ReadPlan(planDoc.RootElement, points, dropped);
             }
 
-            CompareResult result = PlacementCompare.Compare(reference, placed, points, dropped, 50, link, limits);
+            // The issue's rule: within 50 mm, one to one; every miss gets a code.
+            CompareResult result = PlacementCompare.Compare(reference, placed, points, dropped, 50, link, limits, census);
+            result.PlanGiven = !string.IsNullOrEmpty(planPath);
             // The denominator is the drawn sockets: every plan point (placed or excluded), of
             // --role when given. With no plan, the placed devices stand in.
             string? role = Value(args, "--role=");
