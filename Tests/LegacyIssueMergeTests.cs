@@ -166,5 +166,20 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(1, real.OtherFailing);
             Assert.Contains("1 other JKR rule", SpecChecklist.VerdictTitle(real, PanelStrings.En) + SpecChecklist.OthersNote(real, PanelStrings.En));
         }
+
+        [Fact]
+        public void A_FailOnly_spec_pass_does_not_hide_a_legacy_fail()
+        {
+            // A7.1 is FailOnly: its pass proves only part of the check, so the legacy
+            // materials_assigned FAIL is real evidence and must stay in the list.
+            var records = new[] { Rec("materials_assigned", "A", "7") };
+            var modelResults = new[] { new SpecResult { Source = SpecReport.Model, CheckId = "A7.1", Status = "pass", Coverage = SpecCoverage.FailOnly } };
+            var kept = IssueMapper.FromAuditRecordsNotInSpec(records, new IssueVm[0], modelResults);
+            Assert.Single(kept);
+            Assert.Equal("BIM010-A7", kept[0].CheckId);
+            // A FailOnly FAIL does judge the check.
+            var failing = new[] { new SpecResult { Source = SpecReport.Model, CheckId = "A7.1", Status = "fail", Coverage = SpecCoverage.FailOnly } };
+            Assert.Empty(IssueMapper.FromAuditRecordsNotInSpec(records, new IssueVm[0], failing));
+        }
     }
 }

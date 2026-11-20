@@ -393,8 +393,13 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             {
                 if (m == null || m.NotApplicable) continue;
                 var cov = m.Coverage ?? RevitWebAppSync.UI.Jkr.Panel.Core.SpecCoverage.Full;
-                if (cov != RevitWebAppSync.UI.Jkr.Panel.Core.SpecCoverage.Full && cov != RevitWebAppSync.UI.Jkr.Panel.Core.SpecCoverage.FailOnly) continue;
-                if (!RevitWebAppSync.UI.Jkr.Panel.Core.SpecReport.IsPass(m.Status) && !RevitWebAppSync.UI.Jkr.Panel.Core.SpecReport.IsFail(m.Status)) continue;
+                // Judged = a verdict: Full pass or fail, or a FailOnly FAIL. A FailOnly pass proves
+                // only part of the check, so it never hides a legacy finding.
+                var isPass = RevitWebAppSync.UI.Jkr.Panel.Core.SpecReport.IsPass(m.Status);
+                var isFail = RevitWebAppSync.UI.Jkr.Panel.Core.SpecReport.IsFail(m.Status);
+                var verdict = cov == RevitWebAppSync.UI.Jkr.Panel.Core.SpecCoverage.Full ? isPass || isFail
+                    : cov == RevitWebAppSync.UI.Jkr.Panel.Core.SpecCoverage.FailOnly && isFail;
+                if (!verdict) continue;
                 var cid = RevitWebAppSync.UI.Jkr.Panel.Core.SpecReport.ResolveCheckId(m.CheckId);
                 if (cid != null) judged.Add(cid);
             }
