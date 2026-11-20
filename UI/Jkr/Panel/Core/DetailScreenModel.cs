@@ -255,11 +255,17 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 if (c == null || card == null || !card.IsFixerRow) return _fixer = null;
                 var state = c.Prop != null ? FixerAiState.Suggested : c.AiAsked ? FixerAiState.NoSuggestion : FixerAiState.NotAsked;
                 if (_fixer != null && _fixer.IssueId == c.Id && _fixer.AiState == state && _fixer.AiValue == (c.Prop ?? "")
+                    && _fixer.IsPick == c.Pick && _fixer.PickCode == (c.Pick ? c.PickCode ?? "" : "")
                     && _fixer.Lang == _core.Lang && _fixer.Options.SequenceEqual(c.Options ?? Array.Empty<string>()))
                     return _fixer;
-                var typed = _fixer != null && _fixer.IssueId == c.Id ? _fixer.ManualValue : "";
-                _fixer = new JkrFixerRow(c.Id, RuleOf(c.Id), CategoryOf(c.Id), state, c.Prop ?? "", c.AiReason?.In(_core.Lang) ?? "", c.Options, _core.Lang);
-                _fixer.ManualValue = typed;
+                // What a person typed or chose survives a rebuild; a picker's untouched preselect does not
+                // (a new AI code must win over the first option).
+                var keep = _fixer != null && _fixer.IssueId == c.Id && (!_fixer.IsPick || _fixer.ManualTouched);
+                var typed = keep ? _fixer.ManualValue : null;
+                var reason = c.AiReason?.In(_core.Lang) ?? "";
+                _fixer = new JkrFixerRow(c.Id, RuleOf(c.Id), CategoryOf(c.Id), state, c.Prop ?? "", reason, c.Options, _core.Lang,
+                                         isPick: c.Pick, pickCode: c.PickCode ?? "", pickReason: reason);
+                if (typed != null) _fixer.ManualValue = typed;
                 return _fixer;
             }
         }

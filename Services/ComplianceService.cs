@@ -326,6 +326,19 @@ namespace RevitWebAppSync.Services
         [JsonProperty("level_name")]
         public string LevelName { get; set; }
 
+        // AI-434: the multi-valid-code picker. Empty / false from an older backend.
+        [JsonProperty("valid_options")]
+        public List<string> ValidOptions { get; set; }
+
+        [JsonProperty("ai_suggested_code")]
+        public string AiSuggestedCode { get; set; } = "";
+
+        [JsonProperty("ai_suggestion_reason")]
+        public string AiSuggestionReason { get; set; } = "";
+
+        [JsonProperty("requires_user_choice")]
+        public bool RequiresUserChoice { get; set; }
+
         [JsonProperty("status")]
         public string Status { get; set; }
 

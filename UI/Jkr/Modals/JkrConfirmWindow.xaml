@@ -1,6 +1,7 @@
 <Window x:Class="RevitWebAppSync.UI.Jkr.Modals.JkrConfirmWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:panel="clr-namespace:RevitWebAppSync.UI.Jkr.Panel"
         Width="600" SizeToContent="Height"
         WindowStyle="None" AllowsTransparency="True" ResizeMode="NoResize"
         Background="Transparent" WindowStartupLocation="CenterOwner"
@@ -187,6 +188,37 @@
                                 <TextBlock Text="{Binding AiCount}" Style="{StaticResource GroupCount}"/>
                             </Grid>
                             <ItemsControl ItemsSource="{Binding AiRows}" ItemTemplate="{StaticResource ChangeRow}" Focusable="False"/>
+                        </StackPanel>
+                        <!-- AI-434: rows with several valid codes. One picker per category + parameter; each element
+                             listed under it is still its own write and its own re-check. -->
+                        <StackPanel Visibility="{Binding HasPick, Converter={StaticResource B2V}}">
+                            <Grid Style="{StaticResource GroupHead}">
+                                <TextBlock Text="{Binding PickHeader}" Style="{StaticResource GroupLabel}"/>
+                                <TextBlock Text="{Binding PickCount}" Style="{StaticResource GroupCount}"/>
+                            </Grid>
+                            <ItemsControl ItemsSource="{Binding PickGroups}" Focusable="False">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Padding="0,9,0,9" BorderBrush="{StaticResource Bz.LineSoft}" BorderThickness="0,1,0,0">
+                                            <StackPanel>
+                                                <TextBlock FontSize="12" Foreground="{StaticResource Bz.Text2}" TextTrimming="CharacterEllipsis">
+                                                    <Run Text="{Binding Category, Mode=OneWay}"/><Run Text=" · "/><Run Text="{Binding Parameter, Mode=OneWay}"/><Run Text=" · "/><Run Text="{Binding CountLabel, Mode=OneWay}"/>
+                                                </TextBlock>
+                                                <panel:PickerBox Margin="0,6,0,0" Options="{Binding Options}" Selected="{Binding Selected, Mode=TwoWay}"
+                                                                 ShowBadge="{Binding ShowAiBadge}" BadgeText="{Binding Badge}" Tip="{Binding Tooltip}"/>
+                                                <ItemsControl ItemsSource="{Binding Rows}" Margin="0,6,0,0" Focusable="False">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <TextBlock Text="{Binding Caption}" FontSize="12" Foreground="{StaticResource Bz.Text3}"
+                                                                       TextTrimming="CharacterEllipsis" ToolTip="{Binding Caption}"/>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
                         </StackPanel>
                         <!-- The last row's bottom line -->
                         <Border BorderBrush="{StaticResource Bz.LineSoft}" BorderThickness="0,1,0,0"/>

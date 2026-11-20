@@ -80,7 +80,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             if (autoFixable && fixError != null)
                 autoFixable = false;
 
-            return new IssueVm
+            var vm = new IssueVm
             {
                 Id = dto.IssueId ?? "",
                 CheckId = dto.CheckId ?? "",
@@ -128,6 +128,9 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 Locatable = dto.Locatable && dto.ElementId > 0,
                 FixReference = dto.FixReference ?? "",
             };
+            // AI-434: several valid codes → a picker row (never auto-fixable, never in Fix all).
+            vm.SetPick(dto.ValidOptions, dto.AiSuggestedCode, dto.AiSuggestionReason, dto.RequiresUserChoice);
+            return vm;
         }
 
         /// <summary>Element's Revit category: the DTO's own field, else the backend

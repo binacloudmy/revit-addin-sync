@@ -348,6 +348,10 @@ namespace RevitWebAppSync.Services
                             FixSuggestion = check.FixSuggestion ?? "",
                             FixPriority = check.FixAction?.Priority ?? 10,
                             Confidence = check.Confidence ?? "",
+                            ValidOptions = check.ValidOptions,
+                            AiSuggestedCode = check.AiSuggestedCode ?? "",
+                            AiSuggestionReason = check.AiSuggestionReason ?? "",
+                            RequiresUserChoice = check.RequiresUserChoice,
                             // Spec evidence — each check cites the clause it was derived from.
                             SpecQuote = check.Evidence?.SpecQuote ?? "",
                             SpecDocNumber = check.Evidence?.DocNumber ?? "",
@@ -625,6 +629,19 @@ namespace RevitWebAppSync.Services
         [JsonProperty("fix_action")]
         public JkrFixActionV2 FixAction { get; set; }
 
+        // AI-434: several valid codes (Kod_Jenis / Sistem / Sub_Sistem). All absent from an older backend.
+        [JsonProperty("valid_options")]
+        public List<string> ValidOptions { get; set; }
+
+        [JsonProperty("ai_suggested_code")]
+        public string AiSuggestedCode { get; set; }
+
+        [JsonProperty("ai_suggestion_reason")]
+        public string AiSuggestionReason { get; set; }
+
+        [JsonProperty("requires_user_choice")]
+        public bool RequiresUserChoice { get; set; }
+
         /// <summary>Whether this check's element can be located in Revit 3D view (element_id > 0).</summary>
         [JsonProperty("locatable")]
         public bool Locatable { get; set; }
@@ -700,6 +717,14 @@ namespace RevitWebAppSync.Services
 
         [JsonProperty("reason")]
         public string Reason { get; set; } = "";
+
+        /// <summary>AI-434: the codes the rule accepts (Kod_Jenis / Sistem / Sub_Sistem). The backend re-derives
+        /// them from the category and intersects, so this cannot widen the set.</summary>
+        [JsonProperty("valid_options", NullValueHandling = NullValueHandling.Ignore)]
+        public List<string> ValidOptions { get; set; }
+
+        [JsonProperty("requires_user_choice", DefaultValueHandling = DefaultValueHandling.Ignore)]
+        public bool RequiresUserChoice { get; set; }
     }
 
     /// <summary>Backend: AutoFixRequestV2.</summary>
@@ -740,11 +765,32 @@ namespace RevitWebAppSync.Services
         [JsonProperty("unfixed_check_ids")]
         public List<string> UnfixedCheckIds { get; set; } = new List<string>();
 
+        /// <summary>AI-434: picks for ambiguous (multi-valid-code) issues; absent from an older backend.</summary>
+        [JsonProperty("suggestions")]
+        public List<JkrAutoFixSuggestion> Suggestions { get; set; } = new List<JkrAutoFixSuggestion>();
+
         [JsonProperty("model_used")]
         public string ModelUsed { get; set; } = "";
 
         [JsonProperty("error")]
         public string Error { get; set; } = "";
+    }
+
+    /// <summary>Backend: AmbiguousSuggestion. <c>ai_suggested_code</c> is always one of <c>valid_options</c>;
+    /// advisory only, the person still confirms.</summary>
+    public class JkrAutoFixSuggestion
+    {
+        [JsonProperty("check_id")]
+        public string CheckId { get; set; } = "";
+
+        [JsonProperty("ai_suggested_code")]
+        public string AiSuggestedCode { get; set; } = "";
+
+        [JsonProperty("ai_suggestion_reason")]
+        public string AiSuggestionReason { get; set; } = "";
+
+        [JsonProperty("valid_options")]
+        public List<string> ValidOptions { get; set; } = new List<string>();
     }
 
     public class JkrSpecEvidenceV2
