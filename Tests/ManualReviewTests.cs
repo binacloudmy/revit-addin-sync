@@ -167,5 +167,39 @@ namespace RevitWebAppSync.Tests
             results.ToggleReviewed("a1");
             Assert.Equal(0, asked);
         }
+
+        [Fact]
+        public void Mark_manual_moves_the_issue_from_the_Open_count_to_the_Manual_count_and_reopen_moves_it_back()
+        {
+            var core = new PanelCore(new List<PanelItem>(), null, new ManualClock());
+            var results = new ResultsScreenModel(core, new StartScreenModel(core));
+            var issues = new List<IssueVm> { Ai("a1"), Ai("a2"), Human("h1") };
+            var summary = AuditSummary.Build(new[]
+            {
+                new Bim010Cell { Key = "A1", Verdict = Bim010Verdict.Manual },
+                new Bim010Cell { Key = "A4", Verdict = Bim010Verdict.Fail },
+            });
+            results.Load(issues, summary);
+            var c0 = core.TabCounts();
+            Assert.Equal(2, c0[PanelTab.Open]);
+            Assert.Equal(1, c0[PanelTab.Manual]);
+            var pct = results.HeadPctLabel;
+
+            issues.Single(i => i.Id == "a1").Status = IssueStatus.ManualFixNeeded;   // "Tanda manual"; the host reloads
+            results.Load(issues, summary);
+            var c1 = core.TabCounts();
+            Assert.Equal(1, c1[PanelTab.Open]);
+            Assert.Equal(2, c1[PanelTab.Manual]);
+            Assert.Equal(c0[PanelTab.Ignore], c1[PanelTab.Ignore]);
+            Assert.Equal(c0[PanelTab.Resolved], c1[PanelTab.Resolved]);
+            Assert.Equal(pct, results.HeadPctLabel);                                  // a mark is not a verdict
+
+            issues.Single(i => i.Id == "a1").Status = IssueStatus.Open;              // Reopen
+            results.Load(issues, summary);
+            var c2 = core.TabCounts();
+            Assert.Equal(2, c2[PanelTab.Open]);
+            Assert.Equal(1, c2[PanelTab.Manual]);
+            Assert.Equal(pct, results.HeadPctLabel);
+        }
     }
 }

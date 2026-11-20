@@ -146,6 +146,25 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
+        public void A_marked_manual_item_moves_from_the_Open_count_to_the_Manual_count_and_back()
+        {
+            var (core, _) = AtResults();
+            var item = core.Issues.First(x => !x.IsHuman && x.Status == ItemStatus.Open);
+            var before = core.TabCounts();
+
+            item.MarkedManual = true;
+            var marked = core.TabCounts();
+            Assert.Equal(before[PanelTab.Open] - 1, marked[PanelTab.Open]);
+            Assert.Equal(before[PanelTab.Manual] + 1, marked[PanelTab.Manual]);
+            Assert.Equal(before[PanelTab.Ignore], marked[PanelTab.Ignore]);
+            Assert.Equal(before[PanelTab.Resolved], marked[PanelTab.Resolved]);
+
+            item.MarkedManual = false;
+            var back = core.TabCounts();
+            Assert.Equal((before[PanelTab.Open], before[PanelTab.Manual]), (back[PanelTab.Open], back[PanelTab.Manual]));
+        }
+
+        [Fact]
         public void Tab_counts_follow_the_section_filter()
         {
             var (core, _) = AtResults();
