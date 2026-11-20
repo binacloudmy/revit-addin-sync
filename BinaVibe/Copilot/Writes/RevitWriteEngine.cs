@@ -462,6 +462,14 @@ namespace BinaVibe.Copilot.Writes
                     RevitValueFingerprints.Fill(doc!, shape, builder.AddedIds);   // R75, compared with the preview's
                     st.Mark("value fingerprints");
                     var verdict = ShapeComparer.Compare(fresh, preview.Shape, shape);
+#if DEBUG
+                    // TEST ONLY (DriftInjector, Debug builds only): armed by a one-shot file, reports one real connected fitting the
+                    // preview changed as drifted, so the Force card path can be proven live. Only the comparison result changes.
+                    var injected = DriftInjector.At(batch.TurnId, batch.Calls.Select(ForceApproval.Signature).ToList(), batch.ForceConnected,
+                        verdict.IsMatch, measured, preview.Shape, connectedBefore, targetIds, out var injectLog);
+                    if (injectLog != null) st.Mark(injectLog);
+                    if (injected != null) verdict = ShapeVerdict.Drift(DriftInjector.Reason);
+#endif
                     var connectedAfter = batch.ForceConnected || !verdict.IsMatch ? ConnectedSet.Of(doc!, targetIds) : new Dictionary<long, string>();
                     // r18: existing allow-listed annotation (tags, dimensions, text, generic annotation; NonModelPolicy) never makes a drift unconnected.
                     var nonModel = batch.ForceConnected || !verdict.IsMatch
@@ -490,6 +498,9 @@ namespace BinaVibe.Copilot.Writes
                         // Judged against what is connected to the targets before and after the calls ran: a forced batch keeps a
                         // connected-only drift and reports it; anything else rolls back and says what differed (DriftData).
                         var connected = ShapeComparer.JudgeConnected(preview.Shape, shape, connectedBefore, connectedAfter, targetIds, measured, nonModel);
+#if DEBUG
+                        if (injected != null) connected = DriftInjector.Apply(connected, injected);
+#endif
                         // Safety audit P2: only what the Force card listed (ForceApproval) may be kept.
                         if (batch.ForceConnected && connected.ConnectedOnly && batch.ForceApproval != null && batch.ForceApproval.Covers(connected))
                         {

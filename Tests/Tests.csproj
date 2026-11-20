@@ -316,6 +316,7 @@
     <Compile Include="..\BinaVibe\Copilot\Writes\PlanHash.cs" Link="Copilot\Writes\PlanHash.cs" />
     <Compile Include="..\BinaVibe\Copilot\Writes\ShapeComparer.cs" Link="Copilot\Writes\ShapeComparer.cs" />
     <Compile Include="..\BinaVibe\Copilot\Writes\ShapeComparer.Connected.cs" Link="Copilot\Writes\ShapeComparer.Connected.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Writes\DriftInjector.cs" Link="Copilot\Writes\DriftInjector.cs" />
     <Compile Include="..\BinaVibe\Copilot\Writes\BornIds.cs" Link="Copilot\Writes\BornIds.cs" />
     <Compile Include="..\BinaVibe\Copilot\Writes\NonModelPolicy.cs" Link="Copilot\Writes\NonModelPolicy.cs" />
     <Compile Include="..\BinaVibe\Copilot\Guard\ForceScope.cs" Link="Copilot\Guard\ForceScope.cs" />
