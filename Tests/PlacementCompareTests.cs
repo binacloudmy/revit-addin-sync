@@ -70,7 +70,7 @@ namespace Tests
             CompareResult r = PlacementCompare.Compare(reference, new List<RefDevice>(), points, dropped);
 
             Assert.Equal("miss", r.Rows[0].Outcome);
-            Assert.Equal("flag:no_wall_in_reach", r.Rows[0].Explanation);
+            Assert.Equal("plan_flag:no_wall_in_reach", r.Rows[0].Explanation);
             Assert.Equal(0, r.Unexplained);
         }
 
@@ -197,12 +197,194 @@ namespace Tests
             Assert.Equal(2, r.Denominator);
             r.Drawn = 4;
 
-            Dictionary<string, object?> wire = r.ToWire();
+            var wire = (Dictionary<string, object?>)r.ToWire()["diagnostic"]!;
             Assert.Equal(4, wire["denominator"]);
             Assert.Equal("drawn", wire["denominator_is"]);
             Assert.Equal(0.25, wire["pass_share"]);
             Assert.Equal(0.25, wire["across_ok_share"]);
             Assert.Contains("of 4 drawn: pass 1 (25.0%), across_ok 1 (25.0%)", PlacementCompare.Summary(r));
+        }
+
+        // ---------------------------------------------------------------- the issue's rule
+
+        private static PlannedPoint Point(double x, double y, params string[] flags)
+        {
+            var p = new PlannedPoint { XMm = x, YMm = y };
+            p.Flags.AddRange(flags);
+            return p;
+        }
+
+        private static DroppedInstance Drop(double x, double y, string reason, string cls = "socket") =>
+            new DroppedInstance { Block = "OUTLET-Q", Class = cls, Reason = reason, X = x, Y = y };
+
+        [Fact]
+        public void Issue_metric_is_within_50mm_one_to_one()
+        {
+            // Two reference devices 40 mm apart share one placed device: only one is within.
+            // 49 mm is within, 51 mm is not.
+            var reference = new List<RefDevice> { Device(1, 0, 0), Device(2, 40, 0), Device(3, 5000, 0), Device(4, 10000, 0) };
+            var placed = new List<RefDevice> { Device(10, 10, 0), Device(11, 5049, 0), Device(12, 10051, 0) };
+
+            CompareResult r = PlacementCompare.Compare(reference, placed, NoPoints, NoneDropped);
+
+            Assert.Equal(new[] { true, false, true, false }, r.Rows.Select(x => x.Within).ToArray());
+            Assert.Equal(2, r.Within);
+            Assert.Equal(0.5, r.IssueShare, 6);
+            Assert.False(r.SharePasses);
+            var issue = (Dictionary<string, object?>)r.ToWire()["issue"]!;
+            Assert.Equal(2, issue["within_tolerance"]);
+            Assert.Equal(0.5, issue["share"]);
+            Assert.Equal(false, issue["share_passes"]);
+            Assert.Equal(PlacementCompare.IssueRule, issue["rule"]);
+
+            // 9 of 10 within is exactly 90%: the share passes.
+            var ten = Enumerable.Range(0, 10).Select(i => Device(i, i * 3000, 0)).ToList();
+            var nine = Enumerable.Range(0, 9).Select(i => Device(100 + i, (i * 3000) + 20, 0)).ToList();
+            CompareResult pass = PlacementCompare.Compare(ten, nine, NoPoints, NoneDropped);
+            Assert.Equal(9, pass.Within);
+            Assert.True(pass.SharePasses);
+        }
+
+        [Fact]
+        public void Miss_code_near_gives_across_and_along()
+        {
+            // The drafter moved the socket 300 mm along a wall that runs along X.
+            var reference = new List<RefDevice> { Device(1, 0, 0), Device(2, 40, 0) };
+            var placed = new List<RefDevice> { Facing(Device(10, 300, 20)), Device(11, 45, 0) };
+
+            CompareResult r = PlacementCompare.Compare(reference, placed, NoPoints, NoneDropped);
+
+            // Ref 2 takes placed 11 (5 mm); ref 1's own match is placed 10, beyond 50 mm.
+            CompareRow row = r.Rows[0];
+            Assert.False(row.Within);
+            Assert.Equal("near_301mm", row.Explanation);
+            Assert.Equal(10, row.NearPlacedId);
+            Assert.Equal(20, row.NearAcrossMm!.Value, 6);
+            Assert.Equal(300, row.NearAlongMm!.Value, 6);
+
+            // A placed device already taken by a closer reference still explains a miss.
+            CompareResult shared = PlacementCompare.Compare(reference, new List<RefDevice> { Device(12, 30, 0) }, NoPoints, NoneDropped);
+            Assert.True(shared.Rows[1].Within);
+            Assert.Equal("near_30mm", shared.Rows[0].Explanation);
+            Assert.Equal(0, shared.Unexplained);
+        }
+
+        [Fact]
+        public void Miss_code_plan_flag()
+        {
+            var reference = new List<RefDevice> { Device(1, 0, 0), Device(2, 9000, 0), Device(3, 20000, 0) };
+            var points = new List<PlannedPoint>
+            {
+                Point(200, 0, "provisional_alignment", "already_present"),
+                Point(9300, 0, "above_wall_top"),
+                new PlannedPoint { XMm = 20100, YMm = 0, Excluded = true },
+            };
+
+            CompareResult r = PlacementCompare.Compare(reference, new List<RefDevice>(), points, NoneDropped);
+
+            Assert.Equal("plan_flag:already_present", r.Rows[0].Explanation);
+            Assert.Equal("plan_flag:above_wall_top", r.Rows[1].Explanation);
+            Assert.Equal("plan_flag:excluded", r.Rows[2].Explanation);
+        }
+
+        [Fact]
+        public void Miss_code_dropped()
+        {
+            // The nearest plan point has only a flag that does not explain a miss: the dropped
+            // symbol behind it does.
+            var reference = new List<RefDevice> { Device(1, 0, 0), Device(2, 8000, 0) };
+            var points = new List<PlannedPoint> { Point(100, 0, "wet_room") };
+            var dropped = new List<DroppedInstance> { Drop(300, 0, "not_in_mapping", "unmapped"), Drop(8400, 0, "outside_model_footprint") };
+
+            CompareResult r = PlacementCompare.Compare(reference, new List<RefDevice>(), points, dropped);
+
+            Assert.Equal("dropped:not_in_mapping", r.Rows[0].Explanation);
+            Assert.Equal("dropped:outside_model_footprint", r.Rows[1].Explanation);
+        }
+
+        [Fact]
+        public void Miss_code_not_in_drawing()
+        {
+            var reference = new List<RefDevice> { Device(1, 0, 0) };
+            var points = new List<PlannedPoint> { Point(1500, 0) };
+            var dropped = new List<DroppedInstance> { Drop(0, 1200, "ignored_class", "ignore") };
+
+            CompareResult complete = PlacementCompare.Compare(reference, new List<RefDevice>(), points, dropped, censusComplete: true);
+            Assert.Equal("not_in_drawing", complete.Rows[0].Explanation);
+            Assert.Equal(0, complete.Unexplained);
+
+            // Without a plan that lists every symbol, the absence proves nothing.
+            CompareResult partial = PlacementCompare.Compare(reference, new List<RefDevice>(), points, dropped);
+            Assert.Equal("unexplained", partial.Rows[0].Explanation);
+        }
+
+        [Fact]
+        public void Unexplained_only_when_nothing_applies()
+        {
+            // A plan point 700 mm off with no flag: the drawing shows something there, but
+            // nothing says why no device was placed.
+            var reference = new List<RefDevice> { Device(1, 0, 0) };
+            var points = new List<PlannedPoint> { Point(700, 0) };
+            var placed = new List<RefDevice> { Device(10, 0, 600) };
+
+            CompareResult r = PlacementCompare.Compare(reference, placed, points, NoneDropped, censusComplete: true);
+
+            Assert.Equal("unexplained", r.Rows[0].Explanation);
+            Assert.Equal(1, r.Unexplained);
+            Assert.False(r.GatePasses);
+            Assert.Equal(1, r.MissCodes().Single(k => k.Key == "unexplained").Value);
+            var issue = (Dictionary<string, object?>)r.ToWire()["issue"]!;
+            Assert.Equal(1, issue["unexplained"]);
+            Assert.Equal(false, issue["gate_passes"]);
+
+            // Any one explainer clears it.
+            Assert.Equal(0, PlacementCompare.Compare(reference, placed, new List<PlannedPoint> { Point(700, 0, "no_height") },
+                                                     new List<DroppedInstance> { Drop(450, 0, "nested_in_mapped") }, censusComplete: true).Unexplained);
+        }
+
+        [Fact]
+        public void Every_miss_has_a_code()
+        {
+            var reference = Enumerable.Range(0, 6).Select(i => Device(i, i * 4000, 0)).ToList();
+            var placed = new List<RefDevice> { Device(10, 0, 20), Device(11, 4250, 0) };
+            var points = new List<PlannedPoint> { Point(8100, 0, "duplicate_in_drawing"), Point(16700, 0) };
+            var dropped = new List<DroppedInstance> { Drop(12200, 0, "other_plan") };
+
+            CompareResult r = PlacementCompare.Compare(reference, placed, points, dropped, censusComplete: true);
+
+            Assert.All(r.Rows.Where(x => !x.Within), x => Assert.False(string.IsNullOrEmpty(x.Explanation)));
+            Assert.Equal(new[] { null, "near_250mm", "plan_flag:duplicate_in_drawing", "dropped:other_plan", "unexplained", "not_in_drawing" },
+                         r.Rows.Select(x => x.Explanation).ToArray());
+        }
+
+        [Fact]
+        public void Extra_placements_are_near_reference_or_not_in_reference()
+        {
+            var reference = new List<RefDevice> { Device(1, 0, 0) };
+            var placed = new List<RefDevice> { Device(10, 5, 0), Device(11, 400, 0), Device(12, 7000, 0) };
+
+            CompareResult r = PlacementCompare.Compare(reference, placed, NoPoints, NoneDropped);
+
+            Assert.Equal(new[] { 11L, 12L }, r.ExtraRows.Select(e => e.Placed.Id).ToArray());
+            Assert.Equal(new[] { "near_reference", "not_in_reference" }, r.ExtraRows.Select(e => e.Code).ToArray());
+            Assert.Equal(400, r.ExtraRows[0].DistanceMm!.Value, 6);
+        }
+
+        [Fact]
+        public void Summary_puts_the_issue_rule_first()
+        {
+            var reference = new List<RefDevice> { Device(1, 0, 0), Device(2, 5000, 0) };
+            var placed = new List<RefDevice> { Device(10, 10, 0) };
+
+            CompareResult r = PlacementCompare.Compare(reference, placed, NoPoints, NoneDropped);
+            string[] lines = PlacementCompare.Summary(r).Split(new[] { Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries);
+
+            Assert.Equal("issue rule: " + PlacementCompare.IssueRule, lines[0]);
+            Assert.Equal("reference 2, within 50 mm 1 (50.0%): FAIL (needs >= 90%)", lines[1]);
+            Assert.Equal("misses 1, unexplained 1: FAIL (needs 0)", lines[2]);
+            Assert.Equal("exit gate: FAIL", lines[3]);
+            Assert.Contains("  ref 2: unexplained", lines);
+            Assert.Contains(lines, l => l.StartsWith("diagnostic (not the issue's rule)", StringComparison.Ordinal));
         }
     }
 }

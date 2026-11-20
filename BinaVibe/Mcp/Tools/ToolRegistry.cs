@@ -220,6 +220,9 @@ namespace BinaVibe.Mcp.Tools
                 // the model re-emitting them.
                 "place_socket_points"    => Electrical.SocketPlacement.PlaceSocketPoints(doc, args),
                 "place_socket_on_wall"   => Electrical.SocketPlacement.PlaceSocketOnWall(doc, args),
+                // Devices then conduit from one drawing plan, in one outer TransactionGroup:
+                // one confirmation card, one undo.
+                "place_cad_electrical"   => Electrical.CadElectricalWrite.PlaceCadElectrical(doc, args),
                 "create_wall"            => Mutators.CreateWall(doc, args),
                 "create_room"            => Mutators.CreateRoomXY(doc, args),
                 "create_level"           => Mutators.CreateLevel(doc, args),
@@ -279,6 +282,9 @@ namespace BinaVibe.Mcp.Tools
                 "trace_connections"             => MutatorsMepRouting.TraceConnections(doc, args),
                 "route_duct"                    => MutatorsMepRouting.RouteDuct(doc, args),
                 "route_pipe"                    => MutatorsMepRouting.RoutePipe(doc, args),
+                // Conduit runs: points_mm (one run, one Transaction, like route_pipe) or plan_id
+                // (a drawing plan's runs: one TransactionGroup, one Transaction per run).
+                "route_conduit"                 => MutatorsMepRouting.RouteConduit(doc, args),
                 "tap_branch"                    => MutatorsMepRouting.TapBranch(doc, args),
 
                 // Generic OSS-compatible wrappers — dispatch to typed tools.

@@ -70,6 +70,29 @@ namespace BinaVibe.Mcp.Tools.Electrical
         /// <summary>Left out of a default placement because of a flag; explicit indices
         /// still place it.</summary>
         public bool Excluded;
+        /// <summary>The device place_socket_points made for this point; null until then. A
+        /// conduit run's drop connects to it.</summary>
+        public long? PlacedId;
+        /// <summary>Diagnostic only, on a drawing plan: where this point would go from each
+        /// candidate anchor of its drawn symbol (centre first). Null on a rule plan.</summary>
+        public List<PlanAnchor>? Anchors;
+    }
+
+    /// <summary>
+    /// One candidate anchor of a drawn symbol (centre, insert, wall_edge_mid, bbox_min,
+    /// bbox_max), carried to the placement point the resolver would make of it: same wall,
+    /// side, face snap and Z as the point itself. Never used to place.
+    /// </summary>
+    public sealed class PlanAnchor
+    {
+        public string Name = "";
+        /// <summary>False when the candidate does not apply (a far insert point, no box, no
+        /// host wall for wall_edge_mid): X, Y, Z mean nothing.</summary>
+        public bool Known;
+        public double XMm, YMm, ZMm;
+        /// <summary>Signed, along the host wall from the centre anchor's point; null with no
+        /// host wall.</summary>
+        public double? AlongOffsetMm;
     }
 
     /// <summary>Where a drawing was found to sit on the model, for a drawing plan.</summary>
@@ -94,11 +117,52 @@ namespace BinaVibe.Mcp.Tools.Electrical
         public string Outcome = "";
         /// <summary>"fit" | "fit_faces" | "linked_instance"</summary>
         public string Method = "";
+        /// <summary>The CAD link or import whose position placed the drawing (method
+        /// linked_instance); null otherwise.</summary>
+        public long? LinkId;
     }
 
-    /// <summary>A conduit run between devices. Phase 2; no plan carries one yet.</summary>
+    /// <summary>A conduit or cable tray run of a drawing plan (CadRunPlan), in model mm.</summary>
     public sealed class PlannedRun
     {
+        /// <summary>Stable 0-based index across the plan's runs: what route_conduit selects by.</summary>
+        public int Index;
+        public string Layer = "";
+        /// <summary>"conduit" | "cable_tray"</summary>
+        public string Kind = "conduit";
+        /// <summary>"Family : Type" of the conduit or cable tray type.</summary>
+        public string? TypeName;
+        public double? DiameterMm, WidthMm, HeightMm;
+        public string LevelName = "";
+        /// <summary>Height of the horizontal run above the level.</summary>
+        public double RunHeightMm;
+        /// <summary>x, y, z in project-internal mm, drops included, start to end.</summary>
+        public List<double[]> PointsMm = new();
+        public RunEnd Start = new(), End = new();
+        public double LengthMm;
+        /// <summary>Vertical drops to devices this run has (0 to 2).</summary>
+        public int Drops;
+        /// <summary>open_end, junction, shares_drop, short_leg, drop_too_short, device_ambiguous,
+        /// provisional_alignment, closed_loop.</summary>
+        public List<string> Flags = new();
+        /// <summary>Left out of a default route_conduit because of a flag; explicit indices still route it.</summary>
+        public bool Excluded;
+        public string Source = "cad";
+        /// <summary>The elements route_conduit made for this run (segments and fittings).</summary>
+        public List<long> CreatedIds = new();
+    }
+
+    /// <summary>One end of a planned run.</summary>
+    public sealed class RunEnd
+    {
+        /// <summary>"open" | "device" | "junction" | "shares_drop"</summary>
+        public string Kind = "open";
+        /// <summary>The plan point the end drops to, when it is a planned device.</summary>
+        public int? PointIndex;
+        /// <summary>The model device the end drops to, when it is an existing one.</summary>
+        public long? ElementId;
+        /// <summary>Run height minus the device's height: positive drops down, 0 with no drop.</summary>
+        public double DropMm;
     }
 
     /// <summary>Everything one suggest_socket_points or plan_cad_electrical run produced.</summary>

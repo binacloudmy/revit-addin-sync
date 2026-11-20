@@ -51,6 +51,20 @@ namespace BinaVibe.Mcp.Tools.Electrical
             return string.IsNullOrWhiteSpace(argFamilyType) ? null : argFamilyType;
         }
 
+        /// <summary>
+        /// The runs route_conduit routes: explicit indices win, even over excluded runs;
+        /// otherwise every run not excluded.
+        /// </summary>
+        public static List<PlannedRun> SelectRuns(SocketPlan plan, IReadOnlyCollection<long> runIndices)
+        {
+            if (runIndices.Count > 0)
+            {
+                var wanted = new HashSet<long>(runIndices);
+                return plan.Runs.Where(r => wanted.Contains(r.Index)).ToList();
+            }
+            return plan.Runs.Where(r => !r.Excluded).ToList();
+        }
+
         private static string RoleOf(PlannedPoint p) => p.Role.Length == 0 ? "socket" : p.Role;
     }
 }

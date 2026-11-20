@@ -200,5 +200,34 @@ namespace RevitWebAppSync.Tests
             Assert.NotNull(back.Runs);
             Assert.Empty(back.Runs);
         }
+
+        [Fact]
+        public void Runs_survive_the_round_trip()
+        {
+            SocketPlan plan = Plan();
+            plan.Runs.Add(new PlannedRun
+            {
+                Index = 0, Layer = "E-CONDUIT", TypeName = "Conduit with Fittings : PVC", DiameterMm = 20, RunHeightMm = 2700,
+                PointsMm = { new[] { 0.0, 0, 2700 }, new[] { 1000.0, 0, 2700 } },
+                End = new RunEnd { Kind = "device", PointIndex = 1, DropMm = 2400 }, Drops = 1, Flags = { "open_end" },
+            });
+            var back = SocketPlanCache.Get(SocketPlanCache.Store(plan, "m.rvt"), "m.rvt");
+
+            PlannedRun run = Assert.Single(back.Runs);
+            Assert.Equal("conduit", run.Kind);
+            Assert.Equal("cad", run.Source);
+            Assert.Equal(2, run.PointsMm.Count);
+            Assert.Equal("open", run.Start.Kind);
+            Assert.Equal(1, run.End.PointIndex);
+            Assert.Empty(run.CreatedIds);
+            Assert.False(run.Excluded);
+        }
+
+        [Fact]
+        public void Placed_id_defaults_to_null()
+        {
+            var back = SocketPlanCache.Get(SocketPlanCache.Store(Plan(), "m.rvt"), "m.rvt");
+            Assert.All(back.Points, p => Assert.Null(p.PlacedId));
+        }
     }
 }

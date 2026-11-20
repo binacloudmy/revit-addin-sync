@@ -33,7 +33,7 @@ namespace Tests
         private static MappingFacts Facts() => new MappingFacts
         {
             BlockKeys = new HashSet<string>(StringComparer.Ordinal) { "SOCKET", "LIGHT-A", "anon:1a2b3c4d", "SWITCH-1G" },
-            LayerNames = new HashSet<string>(StringComparer.Ordinal) { "A-WALL", "E-POWER", "E-CONDUIT", "0" },
+            LayerNames = new HashSet<string>(StringComparer.Ordinal) { "A-WALL", "E-POWER", "E-CONDUIT", "E-TRUNK", "0" },
             PlanCount = 2,
             Levels = new HashSet<string>(StringComparer.Ordinal) { "Level 1", "Level 2" },
             FamilyTypeMatches = text =>
@@ -43,6 +43,23 @@ namespace Tests
                     ? exact
                     : ModelTypes.Where(t => t.IndexOf(text, StringComparison.OrdinalIgnoreCase) >= 0).ToList();
             },
+            ConduitTypeMatches = text => RunTypeInfo.Matches(ConduitTypes, text),
+            ConduitSizesMm = name => ConduitTypes.Single(t => t.Name == name).SizesMm,
+            TrayTypeMatches = text => RunTypeInfo.Matches(TrayTypes, text),
+        };
+
+        private static readonly RunTypeInfo[] TrayTypes =
+        {
+            new RunTypeInfo { Name = "Cable Tray with Fittings : Trunking", TypeName = "Trunking", WithFittings = true },
+            new RunTypeInfo { Name = "Cable Tray with Fittings : Ladder", TypeName = "Ladder", WithFittings = true },
+            new RunTypeInfo { Name = "Cable Tray without Fittings : Trunking", TypeName = "Trunking" },
+        };
+
+        private static readonly RunTypeInfo[] ConduitTypes =
+        {
+            new RunTypeInfo { Name = "Conduit with Fittings : PVC", TypeName = "PVC", WithFittings = true, SizesMm = { 16, 20, 25, 32 } },
+            new RunTypeInfo { Name = "Conduit with Fittings : Steel", TypeName = "Steel", WithFittings = true, SizesMm = { 20, 25 } },
+            new RunTypeInfo { Name = "Conduit without Fittings : PVC", TypeName = "PVC", WithFittings = false },
         };
 
         private static JsonElement Json(string text)
@@ -120,6 +137,21 @@ namespace Tests
         [InlineData(@"{""plans"": [{""cluster"": 0, ""level"": ""Level 9"", ""evidence"": ""e""}]}", "level_not_found", "plans[0].level")]
         [InlineData(@"{""symbols"": [{""block"": ""SOCKET"", ""role"": ""socket"", ""family_type"": ""Plug : Round"", ""evidence"": ""e""}]}", "family_type_not_found", "symbols[0].family_type")]
         [InlineData(@"{""symbols"": [{""block"": ""SOCKET"", ""role"": ""socket"", ""family_type"": ""Socket Outlet"", ""evidence"": ""e""}]}", "family_type_ambiguous", "symbols[0].family_type")]
+        [InlineData(@"{""layers"": [{""layer"": ""E-CONDUIT"", ""role"": ""conduit""}]}", "missing_evidence", "layers[0].evidence")]
+        [InlineData(@"{""layers"": [{""layer"": ""E-CONDUIT"", ""role"": ""conduit"", ""conduit_type"": ""Bamboo"", ""evidence"": ""e""}]}", "conduit_type_not_found", "layers[0].conduit_type")]
+        [InlineData(@"{""layers"": [{""layer"": ""E-CONDUIT"", ""role"": ""conduit"", ""conduit_type"": ""pvc"", ""evidence"": ""e""}]}", "conduit_type_ambiguous", "layers[0].conduit_type")]
+        [InlineData(@"{""layers"": [{""layer"": ""E-CONDUIT"", ""role"": ""conduit"", ""diameter_mm"": ""20"", ""evidence"": ""e""}]}", "bad_diameter", "layers[0].diameter_mm")]
+        [InlineData(@"{""layers"": [{""layer"": ""E-CONDUIT"", ""role"": ""conduit"", ""diameter_mm"": 0, ""evidence"": ""e""}]}", "bad_diameter", "layers[0].diameter_mm")]
+        [InlineData(@"{""layers"": [{""layer"": ""E-CONDUIT"", ""role"": ""conduit"", ""diameter_mm"": 250, ""evidence"": ""e""}]}", "bad_diameter", "layers[0].diameter_mm")]
+        [InlineData(@"{""layers"": [{""layer"": ""E-CONDUIT"", ""role"": ""conduit"", ""run_height_mm"": 12000, ""evidence"": ""e""}]}", "bad_run_height", "layers[0].run_height_mm")]
+        [InlineData(@"{""layers"": [{""layer"": ""E-CONDUIT"", ""role"": ""conduit"", ""run_height_mm"": -1500, ""evidence"": ""e""}]}", "bad_run_height", "layers[0].run_height_mm")]
+        [InlineData(@"{""layers"": [{""layer"": ""E-CONDUIT"", ""role"": ""conduit"", ""conduit_type"": ""Steel"", ""diameter_mm"": 32, ""evidence"": ""e""}]}", "diameter_not_in_standard", "layers[0].diameter_mm")]
+        [InlineData(@"{""layers"": [{""layer"": ""E-TRUNK"", ""role"": ""trunking""}]}", "missing_evidence", "layers[0].evidence")]
+        [InlineData(@"{""layers"": [{""layer"": ""E-TRUNK"", ""role"": ""trunking"", ""tray_type"": ""Basket"", ""evidence"": ""e""}]}", "tray_type_not_found", "layers[0].tray_type")]
+        [InlineData(@"{""layers"": [{""layer"": ""E-TRUNK"", ""role"": ""trunking"", ""tray_type"": ""Trunking"", ""evidence"": ""e""}]}", "tray_type_ambiguous", "layers[0].tray_type")]
+        [InlineData(@"{""layers"": [{""layer"": ""E-TRUNK"", ""role"": ""trunking"", ""width_mm"": 0, ""evidence"": ""e""}]}", "bad_tray_size", "layers[0].width_mm")]
+        [InlineData(@"{""layers"": [{""layer"": ""E-TRUNK"", ""role"": ""trunking"", ""height_mm"": ""50"", ""evidence"": ""e""}]}", "bad_tray_size", "layers[0].height_mm")]
+        [InlineData(@"{""layers"": [{""layer"": ""E-TRUNK"", ""role"": ""trunking"", ""width_mm"": 2500, ""evidence"": ""e""}]}", "bad_tray_size", "layers[0].width_mm")]
         public void Each_error_code_is_reported_at_its_path(string json, string code, string path)
         {
             (_, List<MappingIssue> issues) = ParseAndValidate(json);
@@ -217,15 +249,94 @@ namespace Tests
         }
 
         [Fact]
-        public void Conduit_layer_is_accepted_and_reported_as_deferred()
+        public void Conduit_row_keeps_type_diameter_and_height()
         {
             (CadElectricalMapping mapping, List<MappingIssue> issues) = ParseAndValidate(
-                @"{""layers"": [{""layer"": ""E-CONDUIT"", ""role"": ""conduit""}]}");
+                @"{""layers"": [{""layer"": ""e-conduit"", ""role"": ""conduit"", ""conduit_type"": ""conduit with fittings : pvc"",
+                    ""diameter_mm"": 20, ""run_height_mm"": 2700, ""evidence"": ""legend: '20mm PVC CONDUIT'""}]}");
 
             Assert.Empty(issues);
-            Assert.Equal("conduit", mapping.Layers[0].Role);
-            Assert.Contains("conduit_deferred: layer E-CONDUIT (phase 2)", mapping.Notes);
+            LayerRow row = Assert.Single(mapping.Layers);
+            Assert.Equal("E-CONDUIT", row.Layer);
+            Assert.Equal("conduit", row.Role);
+            Assert.Equal("Conduit with Fittings : PVC", row.ConduitType);
+            Assert.Equal(20, row.DiameterMm);
+            Assert.Equal(2700, row.RunHeightMm);
+            Assert.Equal("legend: '20mm PVC CONDUIT'", row.Evidence);
+            Assert.Empty(mapping.Notes);
             Assert.Empty(mapping.BackgroundLayers());
+            Assert.Null(CadElectricalMapping.UnplannedReason(row, null));
+        }
+
+        [Fact]
+        public void A_size_off_the_standard_lists_the_types_sizes()
+        {
+            (_, List<MappingIssue> issues) = ParseAndValidate(
+                @"{""layers"": [{""layer"": ""E-CONDUIT"", ""role"": ""conduit"", ""conduit_type"": ""Conduit with Fittings : PVC"",
+                    ""diameter_mm"": 21, ""evidence"": ""e""}]}");
+
+            MappingIssue issue = Assert.Single(issues);
+            Assert.Equal("diameter_not_in_standard", issue.Code);
+            Assert.Equal(new[] { "16", "20", "25", "32" }, issue.Candidates);
+        }
+
+        [Fact]
+        public void Conduit_row_without_a_type_is_unplanned_not_rejected()
+        {
+            (CadElectricalMapping mapping, List<MappingIssue> issues) = ParseAndValidate(
+                @"{""layers"": [{""layer"": ""E-CONDUIT"", ""role"": ""conduit"", ""diameter_mm"": 20, ""evidence"": ""e""}]}");
+
+            Assert.Empty(issues);
+            Assert.Equal("no_conduit_type", CadElectricalMapping.UnplannedReason(mapping.Layers[0], 2700));
+
+            var noDiameter = new LayerRow { Layer = "E-CONDUIT", Role = "conduit", ConduitType = "Conduit with Fittings : PVC" };
+            Assert.Equal("no_diameter", CadElectricalMapping.UnplannedReason(noDiameter, 2700));
+            Assert.Null(CadElectricalMapping.UnplannedReason(new LayerRow { Layer = "A-WALL", Role = "background" }, null));
+        }
+
+        [Fact]
+        public void Layer_height_wins_over_the_argument()
+        {
+            var row = new LayerRow { Role = "conduit", ConduitType = "Conduit with Fittings : PVC", DiameterMm = 20, RunHeightMm = 3000 };
+            Assert.Equal(3000, CadElectricalMapping.EffectiveRunHeight(row, 2700));
+            row.RunHeightMm = null;
+            Assert.Equal(2700, CadElectricalMapping.EffectiveRunHeight(row, 2700));
+        }
+
+        [Fact]
+        public void Trunking_row_keeps_tray_type_and_size()
+        {
+            (CadElectricalMapping mapping, List<MappingIssue> issues) = ParseAndValidate(
+                @"{""layers"": [{""layer"": ""E-TRUNK"", ""role"": ""trunking"", ""tray_type"": ""Ladder"",
+                    ""width_mm"": 100, ""height_mm"": 50, ""evidence"": ""text '100x50 TRUNKING'""}]}");
+
+            Assert.Empty(issues);
+            LayerRow row = Assert.Single(mapping.Layers);
+            Assert.Equal("trunking", row.Role);
+            Assert.Equal("Cable Tray with Fittings : Ladder", row.TrayType);
+            Assert.Equal(100, row.WidthMm);
+            Assert.Equal(50, row.HeightMm);
+            Assert.Null(row.ConduitType);
+            Assert.True(CadElectricalMapping.IsRunLayer(row.Role));
+            Assert.Equal("no_run_height", CadElectricalMapping.UnplannedReason(row, null));
+            Assert.Null(CadElectricalMapping.UnplannedReason(row, 3000));
+        }
+
+        [Fact]
+        public void Trunking_row_without_a_type_or_size_is_unplanned()
+        {
+            Assert.Equal("no_tray_type", CadElectricalMapping.UnplannedReason(
+                new LayerRow { Role = "trunking", WidthMm = 100, HeightMm = 50 }, 3000));
+            Assert.Equal("no_tray_size", CadElectricalMapping.UnplannedReason(
+                new LayerRow { Role = "trunking", TrayType = "Cable Tray with Fittings : Ladder", WidthMm = 100 }, 3000));
+        }
+
+        [Fact]
+        public void No_height_anywhere_is_no_run_height()
+        {
+            var row = new LayerRow { Role = "conduit", ConduitType = "Conduit with Fittings : PVC", DiameterMm = 20 };
+            Assert.Equal("no_run_height", CadElectricalMapping.UnplannedReason(row, null));
+            Assert.Null(CadElectricalMapping.EffectiveRunHeight(row, null));
         }
 
         [Fact]

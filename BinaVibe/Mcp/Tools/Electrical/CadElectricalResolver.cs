@@ -15,6 +15,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Architecture;
+using Autodesk.Revit.DB.Electrical;
 
 namespace BinaVibe.Mcp.Tools.Electrical
 {
@@ -29,7 +30,16 @@ namespace BinaVibe.Mcp.Tools.Electrical
         public Func<string, IReadOnlyList<string>> FamilyTypeMatches = _ => Array.Empty<string>();
         /// <summary>"Family : Type" to its hosting kind (CadElectricalTools.HostingKind).</summary>
         public Dictionary<string, string> HostingByType = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        /// <summary>"Family : Type" to its category id.</summary>
+        public Dictionary<string, long> CategoryByType = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
         public List<Level> Levels = new List<Level>();
+        /// <summary>Every device-category instance, with its id and contact height, mm: what a
+        /// conduit run's drop can reach.</summary>
+        public List<PresentDevice> Devices = new List<PresentDevice>();
+        /// <summary>The model's conduit types, "Family : Type", with fittings and trade sizes.</summary>
+        public List<RunTypeInfo> ConduitTypes = new List<RunTypeInfo>();
+        /// <summary>The model's cable tray types, "Family : Type", with fittings.</summary>
+        public List<RunTypeInfo> TrayTypes = new List<RunTypeInfo>();
     }
 
     internal static class CadElectricalResolver
@@ -63,14 +73,20 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 AddWalls(linkDoc, t, true, snapshot);
             }
 
-            snapshot.ExistingDevices = ExistingDevices(doc).Select(d => (d.X, d.Y, d.Z)).ToList();
+            snapshot.Devices = ExistingDevices(doc);
+            snapshot.ExistingDevices = snapshot.Devices.Select(d => (d.X, d.Y, d.Z)).ToList();
+            snapshot.ConduitTypes = ConduitTypes(doc);
+            snapshot.TrayTypes = TrayTypes(doc);
 
             var names = new FilteredElementCollector(doc).WhereElementIsElementType()
                 .OfClass(typeof(FamilySymbol)).Cast<FamilySymbol>()
-                .Select(fs => (Full: CadElectricalTools.FullName(fs), Type: fs.Name, Family: fs.Family))
+                .Select(fs => (Full: CadElectricalTools.FullName(fs), Type: fs.Name, Family: fs.Family, Category: CategoryId(fs)))
                 .ToList();
             foreach (var n in names)
+            {
                 snapshot.HostingByType[n.Full] = CadElectricalTools.HostingKind(n.Family);
+                if (n.Category.HasValue) snapshot.CategoryByType[n.Full] = n.Category.Value;
+            }
 
             snapshot.FamilyTypeMatches = text =>
             {
@@ -85,8 +101,9 @@ namespace BinaVibe.Mcp.Tools.Electrical
         }
 
         /// <summary>Every device-category instance with a location point, in mm: plan position
-        /// from the location point, Z its contact height (<see cref="ContactHeight"/>), and the
-        /// ceiling it is hosted on.</summary>
+        /// from the location point, Z its contact height (<see cref="ContactHeight"/>) and
+        /// whether that can be trusted, the origin's Z, the ceiling it is hosted on, its
+        /// category and its level's elevation.</summary>
         internal static List<PresentDevice> ExistingDevices(Document doc)
         {
             var devices = new List<PresentDevice>();
@@ -96,31 +113,144 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 if (!(el.Location is LocationPoint lp)) continue;
                 double zFt = lp.Point.Z;
                 long? ceilingId = null;
+                bool known = true;
                 if (el is FamilyInstance fi)
                 {
                     Contact c = ContactHeight(doc, fi);
                     zFt = c.ZFt;
                     ceilingId = c.CeilingId;
+                    known = c.Known;
                 }
                 devices.Add(new PresentDevice
                 {
                     X = lp.Point.X * MmPerFoot,
                     Y = lp.Point.Y * MmPerFoot,
                     Z = zFt * MmPerFoot,
+                    ZKnown = known,
+                    OriginZ = lp.Point.Z * MmPerFoot,
                     CeilingId = ceilingId,
+                    Id = el.Id.Value,
+                    CategoryId = CategoryId(el),
+                    LevelZMm = OwnLevel(doc, el)?.Elevation * MmPerFoot,
                 });
             }
             return devices;
+        }
+
+        /// <summary>An element's category id; null when it has none.</summary>
+        internal static long? CategoryId(Element el)
+        {
+            try { return el.Category?.Id.Value; } catch { return null; }
+        }
+
+        /// <summary>An element's own level: its LevelId, else its schedule or reference level.</summary>
+        internal static Level? OwnLevel(Document doc, Element el)
+        {
+            Level? level = null;
+            try { level = doc.GetElement(el.LevelId) as Level; } catch { level = null; }
+            return level
+                   ?? LevelParam(doc, el, BuiltInParameter.INSTANCE_SCHEDULE_ONLY_LEVEL_PARAM)
+                   ?? LevelParam(doc, el, BuiltInParameter.INSTANCE_REFERENCE_LEVEL_PARAM);
+        }
+
+        /// <summary>The level band a point on this level stands in, mm: the level's elevation up
+        /// to the next level's (null high when there is none above).</summary>
+        internal static (double Low, double? High) LevelBand(IReadOnlyList<Level> levels, Level level)
+        {
+            double low = level.Elevation * MmPerFoot;
+            double? high = null;
+            foreach (Level l in levels)
+            {
+                double z = l.Elevation * MmPerFoot;
+                if (z > low + OverheadPlacement.SameLevelMm && (!high.HasValue || z < high.Value)) high = z;
+            }
+            return (low, high);
+        }
+
+        /// <summary>The model's conduit types with their trade sizes (ConduitSizesMm).</summary>
+        internal static List<RunTypeInfo> ConduitTypes(Document doc)
+        {
+            List<(string Standard, double Mm)> sizes = ConduitSizeTable(doc);
+            var types = new List<RunTypeInfo>();
+            foreach (ConduitType t in new FilteredElementCollector(doc).OfClass(typeof(ConduitType)).Cast<ConduitType>())
+            {
+                bool withFittings = false;
+                try { withFittings = t.IsWithFitting; } catch { withFittings = false; }
+                types.Add(new RunTypeInfo
+                {
+                    Name = t.FamilyName + " : " + t.Name,
+                    TypeName = t.Name,
+                    WithFittings = withFittings,
+                    SizesMm = ConduitSizesMm(t, sizes),
+                });
+            }
+            return types.OrderBy(t => t.Name, StringComparer.OrdinalIgnoreCase).ToList();
+        }
+
+        /// <summary>The model's cable tray types.</summary>
+        internal static List<RunTypeInfo> TrayTypes(Document doc)
+        {
+            var types = new List<RunTypeInfo>();
+            foreach (CableTrayType t in new FilteredElementCollector(doc).OfClass(typeof(CableTrayType)).Cast<CableTrayType>())
+            {
+                bool withFittings = false;
+                try { withFittings = t.IsWithFitting; } catch { withFittings = false; }
+                types.Add(new RunTypeInfo { Name = t.FamilyName + " : " + t.Name, TypeName = t.Name, WithFittings = withFittings });
+            }
+            return types.OrderBy(t => t.Name, StringComparer.OrdinalIgnoreCase).ToList();
+        }
+
+        /// <summary>Every conduit standard's trade sizes in the model's size settings, mm
+        /// (nominal diameter, the sizes offered in size lists). Empty when it cannot be read.</summary>
+        internal static List<(string Standard, double Mm)> ConduitSizeTable(Document doc)
+        {
+            var table = new List<(string Standard, double Mm)>();
+            try
+            {
+                ConduitSizeSettings settings = ConduitSizeSettings.GetConduitSizeSettings(doc);
+                foreach (KeyValuePair<string, ConduitSizes> standard in settings)
+                {
+                    foreach (ConduitSize size in standard.Value)
+                    {
+                        if (size.UsedInSizeLists) table.Add((standard.Key, size.NominalDiameter * MmPerFoot));
+                    }
+                }
+            }
+            catch { /* no size settings: the diameter is not checked */ }
+            return table;
+        }
+
+        /// <summary>A conduit type's sizes: its standard's when the standard can be read and is in
+        /// the table, else every standard's (a looser check, never a wrong refusal).</summary>
+        internal static List<double> ConduitSizesMm(ConduitType type, List<(string Standard, double Mm)> table)
+        {
+            string? standard = null;
+            try
+            {
+                Parameter? p = type.get_Parameter(BuiltInParameter.CONDUIT_STANDARD_TYPE_PARAM);
+                standard = p?.AsValueString() ?? p?.AsString();
+            }
+            catch { standard = null; }
+
+            List<double> own = table.Where(s => standard != null && string.Equals(s.Standard, standard, StringComparison.OrdinalIgnoreCase))
+                .Select(s => s.Mm).ToList();
+            List<double> sizes = own.Count > 0 ? own : table.Select(s => s.Mm).ToList();
+            return sizes.Select(mm => Math.Round(mm, 2)).Distinct().OrderBy(mm => mm).ToList();
         }
 
         /// <summary>Where a device meets its host, feet, how that was read, and the ceiling it is on.</summary>
         internal readonly struct Contact
         {
             public readonly double ZFt;
-            /// <summary>host_face | ceiling_underside | level_offset | location</summary>
+            /// <summary>host_face | ceiling_underside | level_offset | offset_absolute |
+            /// origin_verified | vertical_plane | location</summary>
             public readonly string Via;
             public readonly long? CeilingId;
-            public Contact(double zFt, string via, long? ceilingId) { ZFt = zFt; Via = via; CeilingId = ceilingId; }
+            /// <summary>False when ZFt is a work-plane-based family's origin on a plane that is not
+            /// vertical: the origin can sit off that plane, so the height is not trusted.</summary>
+            public readonly bool Known;
+            public Contact(double zFt, string via, long? ceilingId, bool known = true)
+            { ZFt = zFt; Via = via; CeilingId = ceilingId; Known = known; }
         }
 
         /// <summary>
@@ -131,18 +261,24 @@ namespace BinaVibe.Mcp.Tools.Electrical
         ///   on a face (HostFace readable): that face's Z under the origin, plus the instance's
         ///     offset from it along the face normal;
         ///   on a ceiling with no face (a ceiling-hosted family): the ceiling's underside there;
+        ///   a work-plane-based family on a vertical plane (a wall face, read or not, or a
+        ///     vertical work plane with no host): the LocationPoint's Z. Its origin can sit off
+        ///     the plane only along the plane's normal, which is level, so Z is honest;
         ///   on a level or a horizontal work plane (LevelBase): that plane plus the offset
         ///     parameter read back (OffsetParams), work-plane-based and unhosted families alike;
         ///   anything else: the LocationPoint's Z, which an unhosted family's origin honours.
+        ///     For a work-plane-based family this is not trusted (Known false).
+        /// <paramref name="targetZFt"/> is the Z this tool just placed the device at, when the
+        /// caller knows it; it lets the level reading give way to an origin that is exactly there.
         /// </summary>
-        internal static Contact ContactHeight(Document doc, FamilyInstance fi)
+        internal static Contact ContactHeight(Document doc, FamilyInstance fi, double? targetZFt = null)
         {
             XYZ? at = (fi.Location as LocationPoint)?.Point;
             if (at == null)
             {
                 BoundingBoxXYZ? bb = null;
                 try { bb = fi.get_BoundingBox(null); } catch { bb = null; }
-                return new Contact(bb != null ? (bb.Min.Z + bb.Max.Z) / 2 : 0, "location", null);
+                return new Contact(bb != null ? (bb.Min.Z + bb.Max.Z) / 2 : 0, "location", null, known: false);
             }
 
             Element? host = null;
@@ -179,19 +315,53 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 }
             }
 
+            // On a vertical plane: the origin's Z. A face-based socket that the wall overload put
+            // on a wall plane, or on a vertical work plane with no host, used to fall through to
+            // the level rule below and read the level plus an "Offset from Host" of about 0: the
+            // floor, a mount height under where it stands.
+            bool workPlane = IsWorkPlaneBased(fi);
+            if (workPlane && OnVerticalPlane(fi, host))
+                return new Contact(at.Z, "vertical_plane", ceilingId);
+
             // On a level (or a horizontal work plane): the plane plus the offset parameter read
             // back, never the origin. A live test read a work-plane light's origin 2044 mm under
             // a level + offset that had taken.
+            // Checked against the origin (OverheadPlacement.LevelOrOrigin): a live test read a
+            // fallback socket's "Offset from Host" as its absolute Z, so level + offset counted
+            // the level twice.
             if (LevelBase(doc, fi, null, out double baseFt))
             {
-                double? contactMm = OverheadPlacement.LevelContactMm(
-                    baseFt * MmPerFoot,
-                    OffsetParams(fi).Select(b => DoubleParam(fi, b) * MmPerFoot).ToList());
-                if (contactMm.HasValue) return new Contact(contactMm.Value / MmPerFoot, "level_offset", null);
+                List<double?> offsets = OffsetParams(fi).Select(b => DoubleParam(fi, b) * MmPerFoot).ToList();
+                double? contactMm = OverheadPlacement.LevelContactMm(baseFt * MmPerFoot, offsets);
+                if (contactMm.HasValue)
+                {
+                    var (zMm, via) = OverheadPlacement.LevelOrOrigin(
+                        contactMm.Value, baseFt * MmPerFoot, offsets.FirstOrDefault(o => o.HasValue),
+                        at.Z * MmPerFoot, targetZFt * MmPerFoot);
+                    return new Contact(zMm / MmPerFoot, via, null);
+                }
             }
 
-            return new Contact(at.Z, "location", ceilingId);
+            return new Contact(at.Z, "location", ceilingId, known: !workPlane);
         }
+
+        private static bool IsWorkPlaneBased(FamilyInstance fi)
+        {
+            try { return fi.Symbol.Family.FamilyPlacementType == FamilyPlacementType.WorkPlaneBased; }
+            catch { return false; }
+        }
+
+        /// <summary>True when a work-plane-based instance stands on a vertical plane: hosted on a
+        /// wall, or its own work plane normal (GetTotalTransform().BasisZ) level.</summary>
+        private static bool OnVerticalPlane(FamilyInstance fi, Element? host)
+        {
+            if (host is Wall) return true;
+            try { return Math.Abs(fi.GetTotalTransform().BasisZ.Z) < VerticalPlaneNormalZ; }
+            catch { return false; }
+        }
+
+        /// <summary>A plane whose normal's Z is below this is vertical (a wall face).</summary>
+        private const double VerticalPlaneNormalZ = 0.1;
 
         /// <summary>The offset parameters of a device placed on a level, the one that applies
         /// first: a work-plane-based family's is "Offset from Host", an unhosted one's
@@ -457,6 +627,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                         Y2 = b.Y * MmPerFoot,
                         ThicknessMm = widthFt * MmPerFoot,
                         Linked = linked,
+                        TopZMm = zMax * MmPerFoot,
                     });
                 }
 

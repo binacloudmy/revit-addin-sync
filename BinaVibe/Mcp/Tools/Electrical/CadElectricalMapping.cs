@@ -39,6 +39,41 @@ namespace BinaVibe.Mcp.Tools.Electrical
     {
         public string Layer = "";
         public string Role = "";
+        /// <summary>Required on conduit and trunking rows; optional elsewhere.</summary>
+        public string Evidence = "";
+        /// <summary>A conduit row's "Family : Type", resolved to the model's spelling by Validate.</summary>
+        public string? ConduitType;
+        /// <summary>A trunking row's cable tray "Family : Type", resolved like the conduit type.</summary>
+        public string? TrayType;
+        public double? DiameterMm, WidthMm, HeightMm;
+        /// <summary>The run height above the level for this layer; wins over the call's argument.</summary>
+        public double? RunHeightMm;
+    }
+
+    /// <summary>A conduit or cable tray type of the model, as a mapping may name it.</summary>
+    internal sealed class RunTypeInfo
+    {
+        /// <summary>"Family : Type", e.g. "Conduit with Fittings : PVC".</summary>
+        public string Name = "";
+        /// <summary>The type name alone.</summary>
+        public string TypeName = "";
+        /// <summary>A "with fittings" type: bends and elbows can be built.</summary>
+        public bool WithFittings;
+        /// <summary>Trade sizes (conduit) the type's standard offers, mm; empty when unknown.</summary>
+        public List<double> SizesMm = new List<double>();
+
+        /// <summary>The names matching a mapping's text: the full name first, else every type
+        /// whose bare name matches (several: ambiguous).</summary>
+        public static IReadOnlyList<string> Matches(IEnumerable<RunTypeInfo> types, string text)
+        {
+            string wanted = text.Trim();
+            List<RunTypeInfo> all = types.ToList();
+            List<string> full = all.Where(t => string.Equals(t.Name, wanted, StringComparison.OrdinalIgnoreCase))
+                .Select(t => t.Name).Distinct(StringComparer.Ordinal).ToList();
+            if (full.Count > 0) return full;
+            return all.Where(t => string.Equals(t.TypeName, wanted, StringComparison.OrdinalIgnoreCase))
+                .Select(t => t.Name).Distinct(StringComparer.Ordinal).OrderBy(n => n, StringComparer.Ordinal).ToList();
+        }
     }
 
     internal sealed class PlanRow
@@ -67,6 +102,12 @@ namespace BinaVibe.Mcp.Tools.Electrical
         /// <summary>The model's "Family : Type" names matching a mapping's text: one is a
         /// match, none is not found, several are ambiguous.</summary>
         public Func<string, IReadOnlyList<string>> FamilyTypeMatches = _ => Array.Empty<string>();
+        /// <summary>The model's conduit types matching a mapping's text (RunTypeInfo.Matches).</summary>
+        public Func<string, IReadOnlyList<string>> ConduitTypeMatches = _ => Array.Empty<string>();
+        /// <summary>The model's cable tray types matching a mapping's text.</summary>
+        public Func<string, IReadOnlyList<string>> TrayTypeMatches = _ => Array.Empty<string>();
+        /// <summary>A resolved conduit type's trade sizes, mm; empty when they cannot be read.</summary>
+        public Func<string, IReadOnlyList<double>> ConduitSizesMm = _ => Array.Empty<double>();
     }
 
     internal sealed class CadElectricalMapping
@@ -79,17 +120,27 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
         public static readonly string[] Hosts = { "wall", "ceiling", "none" };
 
-        public static readonly string[] LayerRoles = { "background", "conduit", "wiring_schematic", "ignore", "unknown" };
+        public static readonly string[] LayerRoles = { "background", "conduit", "trunking", "wiring_schematic", "ignore", "unknown" };
+
+        /// <summary>Largest trunking (cable tray) width and height accepted, mm.</summary>
+        public const double MaxTrayWidthMm = 2000, MaxTrayHeightMm = 1000;
 
         /// <summary>Highest mount height accepted, mm. Above it is a typo, not a device.</summary>
         public const double MaxMountHeightMm = 4000;
+
+        /// <summary>Largest conduit diameter accepted, mm.</summary>
+        public const double MaxDiameterMm = 200;
+        /// <summary>Run heights accepted, mm above the level: a run under the slab of the level
+        /// below, up to one well above the ceiling.</summary>
+        public const double MinRunHeightMm = -1000, MaxRunHeightMm = 10000;
+        /// <summary>A diameter this close to one of the type's sizes is that size, mm.</summary>
+        public const double SizeToleranceMm = 0.5;
 
         public List<SymbolRow> Symbols = new List<SymbolRow>();
         public List<LayerRow> Layers = new List<LayerRow>();
         public List<PlanRow> Plans = new List<PlanRow>();
 
-        /// <summary>What the parse decided on the mapping's behalf, for the review:
-        /// host_defaulted and conduit_deferred.</summary>
+        /// <summary>What the parse decided on the mapping's behalf, for the review: host_defaulted.</summary>
         public List<string> Notes = new List<string>();
 
         public static bool IsPlaceable(string role) =>
@@ -107,6 +158,33 @@ namespace BinaVibe.Mcp.Tools.Electrical
             if (string.IsNullOrWhiteSpace(row.FamilyType)) return "no_family_type";
             if (row.Host == "wall" && !row.MountHeightMm.HasValue) return "no_mount_height";
             return null;
+        }
+
+        /// <summary>A layer whose linework is runs: conduit (and trunking, as cable tray).</summary>
+        public static bool IsRunLayer(string role) => role == "conduit" || role == "trunking";
+
+        /// <summary>The run height a run layer gets: its own row's, else the call's argument.</summary>
+        public static double? EffectiveRunHeight(LayerRow row, double? argRunHeightMm) => row.RunHeightMm ?? argRunHeightMm;
+
+        /// <summary>Why a run layer plans no runs, or null when it plans them (or is not a run
+        /// layer): no_conduit_type, no_tray_type, no_diameter, no_tray_size, no_run_height.</summary>
+        public static string? UnplannedReason(LayerRow row, double? argRunHeightMm)
+        {
+            if (row.Role == "conduit")
+            {
+                if (string.IsNullOrWhiteSpace(row.ConduitType)) return "no_conduit_type";
+                if (!row.DiameterMm.HasValue) return "no_diameter";
+            }
+            else if (row.Role == "trunking")
+            {
+                if (string.IsNullOrWhiteSpace(row.TrayType)) return "no_tray_type";
+                if (!row.WidthMm.HasValue || !row.HeightMm.HasValue) return "no_tray_size";
+            }
+            else
+            {
+                return null;
+            }
+            return EffectiveRunHeight(row, argRunHeightMm).HasValue ? null : "no_run_height";
         }
 
         /// <summary>The layers the mapping names as background, in its order.</summary>
@@ -157,6 +235,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 {
                     Layer = Text(row, "layer") ?? "",
                     Role = Normal(Text(row, "role")),
+                    Evidence = Text(row, "evidence") ?? "",
                 };
                 if (layer.Layer.Length == 0) Add(issues, path + ".layer", "layer_not_in_drawing", "the row names no layer");
                 if (Array.IndexOf(LayerRoles, layer.Role) < 0)
@@ -164,7 +243,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     Add(issues, path + ".role", "unknown_role",
                         "'" + layer.Role + "' is not a layer role", LayerRoles);
                 }
-                if (layer.Role == "conduit") result.Notes.Add("conduit_deferred: layer " + layer.Layer + " (phase 2)");
+                if (IsRunLayer(layer.Role)) ParseRunLayer(row, path, layer, issues);
                 result.Layers.Add(layer);
             }
 
@@ -248,6 +327,52 @@ namespace BinaVibe.Mcp.Tools.Electrical
             return symbol;
         }
 
+        /// <summary>A conduit row's evidence, type, diameter and run height. A missing value is
+        /// not an issue (the layer is then unplanned); a wrong one is.</summary>
+        private static void ParseRunLayer(JsonElement row, string path, LayerRow layer, List<MappingIssue> issues)
+        {
+            if (layer.Evidence.Trim().Length == 0)
+                Add(issues, path + ".evidence", "missing_evidence", "every " + layer.Role + " row needs its evidence");
+
+            layer.RunHeightMm = Number(row, "run_height_mm", path, "bad_run_height",
+                "the run height must be a number of mm from " + Mm(MinRunHeightMm) + " to " + Mm(MaxRunHeightMm),
+                mm => mm >= MinRunHeightMm && mm <= MaxRunHeightMm, issues);
+
+            if (layer.Role == "conduit")
+            {
+                layer.ConduitType = Blank(Text(row, "conduit_type"));
+                layer.DiameterMm = Number(row, "diameter_mm", path, "bad_diameter",
+                    "the diameter must be a number of mm above 0 and at most " + Mm(MaxDiameterMm),
+                    mm => mm > 0 && mm <= MaxDiameterMm, issues);
+            }
+            else if (layer.Role == "trunking")
+            {
+                layer.TrayType = Blank(Text(row, "tray_type"));
+                layer.WidthMm = Number(row, "width_mm", path, "bad_tray_size",
+                    "the trunking width must be a number of mm above 0 and at most " + Mm(MaxTrayWidthMm),
+                    mm => mm > 0 && mm <= MaxTrayWidthMm, issues);
+                layer.HeightMm = Number(row, "height_mm", path, "bad_tray_size",
+                    "the trunking height must be a number of mm above 0 and at most " + Mm(MaxTrayHeightMm),
+                    mm => mm > 0 && mm <= MaxTrayHeightMm, issues);
+            }
+        }
+
+        /// <summary>A number property: null when missing or null; an issue (and null) when it is
+        /// not a number or fails <paramref name="valid"/>.</summary>
+        private static double? Number(JsonElement row, string name, string path, string code, string message,
+                                      Func<double, bool> valid, List<MappingIssue> issues)
+        {
+            if (!row.TryGetProperty(name, out JsonElement value) || value.ValueKind == JsonValueKind.Null) return null;
+            if (value.ValueKind != JsonValueKind.Number || !valid(value.GetDouble()))
+            {
+                Add(issues, path + "." + name, code, message);
+                return null;
+            }
+            return value.GetDouble();
+        }
+
+        private static string Mm(double value) => value.ToString(CultureInfo.InvariantCulture);
+
         /// <summary>The rows of one list, as (row, path). A missing list is empty; a list that
         /// is not one, or a row that is not an object, is an issue.</summary>
         private static List<(JsonElement Row, string Path)> Rows(JsonElement mapping, string name, List<MappingIssue> issues)
@@ -322,6 +447,33 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 }
             }
 
+            for (int i = 0; i < Layers.Count; i++)
+            {
+                LayerRow row = Layers[i];
+                string path = "layers[" + i.ToString(CultureInfo.InvariantCulture) + "]";
+                if (row.Role == "conduit" && row.ConduitType != null)
+                {
+                    row.ConduitType = ResolveType(row.ConduitType, facts.ConduitTypeMatches, path + ".conduit_type",
+                                                  "conduit_type", "conduit type", issues);
+                    if (row.ConduitType != null && row.DiameterMm.HasValue)
+                    {
+                        IReadOnlyList<double> sizes = facts.ConduitSizesMm(row.ConduitType);
+                        double wanted = row.DiameterMm.Value;
+                        if (sizes.Count > 0 && !sizes.Any(s => Math.Abs(s - wanted) <= SizeToleranceMm))
+                        {
+                            Add(issues, path + ".diameter_mm", "diameter_not_in_standard",
+                                Mm(wanted) + " mm is not a size of " + row.ConduitType + "'s standard",
+                                sizes.OrderBy(s => s).Select(s => Mm(Math.Round(s, 1))));
+                        }
+                    }
+                }
+                else if (row.Role == "trunking" && row.TrayType != null)
+                {
+                    row.TrayType = ResolveType(row.TrayType, facts.TrayTypeMatches, path + ".tray_type",
+                                               "tray_type", "cable tray type", issues);
+                }
+            }
+
             Duplicates(Layers.Select(row => row.Layer), "layers", "layer", "duplicate_layer", issues);
 
             for (int i = 0; i < Plans.Count; i++)
@@ -367,6 +519,20 @@ namespace BinaVibe.Mcp.Tools.Electrical
                                       wanted.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0)
                        .ToList();
             near = near.OrderBy(name => name, StringComparer.Ordinal).Take(10).ToList();
+            return null;
+        }
+
+        /// <summary>A conduit or tray type in the model's spelling; null, with an issue
+        /// (code prefix_not_found or prefix_ambiguous), when it does not match exactly one.</summary>
+        private static string? ResolveType(string text, Func<string, IReadOnlyList<string>> matches, string path,
+                                           string codePrefix, string what, List<MappingIssue> issues)
+        {
+            IReadOnlyList<string> found = matches(text);
+            if (found.Count == 1) return found[0];
+            if (found.Count == 0)
+                Add(issues, path, codePrefix + "_not_found", "no " + what + " '" + text + "' in the model");
+            else
+                Add(issues, path, codePrefix + "_ambiguous", "'" + text + "' matches several " + what + "s", found);
             return null;
         }
 

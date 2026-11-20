@@ -379,6 +379,12 @@ namespace BinaVibe.Mcp.Tools.Electrical
             return Measure(cad, new ModelIndex(model), footprint, model.Sum(s => s.Length), t, o);
         }
 
+        /// <summary>The share of the model's wall length lying on a drawing wall placed by
+        /// <paramref name="t"/>: a measured placement's ModelCoverage.</summary>
+        public static double ModelCoverageOf(IReadOnlyList<FitSegment> cad, IReadOnlyList<FitSegment> model,
+                                             FitTransform t, FitOptions? o = null) =>
+            Coverage(model, cad.Select(s => t.Apply(s)).ToList(), o ?? new FitOptions());
+
         /// <summary>The best and its rivals, ordered as a drafter reads the sheet: top to bottom,
         /// then left to right (in metre bands), by the model footprint's centre carried back onto
         /// the drawing. Each one's place in the list is its pick.</summary>

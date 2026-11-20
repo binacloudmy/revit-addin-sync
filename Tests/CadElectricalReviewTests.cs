@@ -205,6 +205,107 @@ namespace Tests
         }
 
         [Fact]
+        public void Provisional_alignment_says_it_is_likely_right()
+        {
+            SocketPlan plan = Plan();
+            plan.Alignment!.Score = 0.512;
+            plan.Alignment.Outcome = "provisional";
+
+            Dictionary<string, object?> review = CadElectricalReview.PlanReview(plan, Unmapped, 0);
+
+            Assert.Equal("Level 1: 5 drawn, 3 will be placed, 2 excluded. Alignment 0.51 (provisional: likely right, spot-check).",
+                         review["headline"]);
+            string meaning = (string)Row(review["alignment"])["meaning"]!;
+            Assert.Equal(CadElectricalReview.ProvisionalMeaning, meaning);
+            Assert.StartsWith("Provisional fit: the drawing very likely sits correctly on this level", meaning);
+            Assert.EndsWith("This is not a misalignment.", meaning);
+        }
+
+        [Fact]
+        public void A_plan_from_a_positioned_link_says_so()
+        {
+            SocketPlan plan = Plan();
+            plan.Alignment!.Method = "linked_instance";
+            plan.Alignment.LinkId = 424242;
+            plan.Alignment.Score = 0.612;
+
+            Dictionary<string, object?> review = CadElectricalReview.PlanReview(plan, Unmapped, 0);
+
+            Assert.Equal("Level 1: 5 drawn, 3 will be placed, 2 excluded. Alignment 0.61 from your positioned link.",
+                         review["headline"]);
+            Dictionary<string, object?> a = Row(review["alignment"]);
+            Assert.Equal("linked_instance", a["method"]);
+            Assert.Equal(424242L, a["link_id"]);
+            Assert.Equal(CadElectricalReview.LinkAcceptedMeaning, a["meaning"]);
+            Assert.StartsWith("Placed from your positioned link", (string)a["meaning"]!);
+        }
+
+        [Fact]
+        public void A_provisional_link_plan_is_flagged_for_a_spot_check()
+        {
+            SocketPlan plan = Plan();
+            plan.Alignment!.Method = "linked_instance";
+            plan.Alignment.LinkId = 7;
+            plan.Alignment.Score = 0.31;
+            plan.Alignment.Outcome = "provisional";
+
+            Dictionary<string, object?> review = CadElectricalReview.PlanReview(plan, Unmapped, 0);
+
+            Assert.Equal("Level 1: 5 drawn, 3 will be placed, 2 excluded. Alignment 0.31 from your positioned link " +
+                         "(provisional: likely right, spot-check).", review["headline"]);
+            Assert.Equal(CadElectricalReview.LinkProvisionalMeaning, Row(review["alignment"])["meaning"]);
+            Assert.Contains("spot-check", CadElectricalReview.LinkProvisionalMeaning);
+            Assert.DoesNotContain('\n', CadElectricalReview.LinkProvisionalMeaning);
+        }
+
+        [Fact]
+        public void A_fit_plan_has_no_link()
+        {
+            Dictionary<string, object?> a = Row(CadElectricalReview.PlanReview(Plan(), Unmapped, 0)["alignment"]);
+
+            Assert.Equal("fit", a["method"]);
+            Assert.Null(a["link_id"]);
+        }
+
+        [Fact]
+        public void A_link_plan_survives_the_plan_cache()
+        {
+            SocketPlan plan = Plan();
+            plan.Alignment!.Method = "linked_instance";
+            plan.Alignment.LinkId = 31337;
+            plan.Alignment.Outcome = "provisional";
+            plan.Alignment.Score = 0.42;
+            plan.ParamsUsed["link_id"] = 31337L;
+
+            string id = SocketPlanCache.Store(plan, @"C:\models\PLAN A.rvt");
+            SocketPlan back = SocketPlanCache.Get(id, @"C:\models\PLAN A.rvt");
+
+            Assert.Equal("linked_instance", back.Alignment!.Method);
+            Assert.Equal(31337L, back.Alignment.LinkId);
+            Assert.Equal(31337L, back.ParamsUsed["link_id"]);
+            Dictionary<string, object?> a = Row(CadElectricalReview.PlanReview(back, Unmapped, 0)["alignment"]);
+            Assert.Equal(31337L, a["link_id"]);
+            Assert.Equal(CadElectricalReview.LinkProvisionalMeaning, a["meaning"]);
+        }
+
+        [Fact]
+        public void Accepted_and_failed_alignment_each_get_one_line()
+        {
+            SocketPlan plan = Plan();
+
+            Dictionary<string, object?> review = CadElectricalReview.PlanReview(plan, Unmapped, 0);
+
+            Assert.Equal(CadElectricalReview.AcceptedMeaning, Row(review["alignment"])["meaning"]);
+            Assert.DoesNotContain("provisional", (string)review["headline"]!);
+            Assert.DoesNotContain('\n', CadElectricalReview.AcceptedMeaning);
+
+            string failed = CadElectricalReview.AlignmentMeaning("failed");
+            Assert.Equal(CadElectricalReview.FailedMeaning, failed);
+            Assert.Contains("link the DWG into the model, move it onto the building", failed);
+            Assert.DoesNotContain('\n', failed);
+        }
+
+        [Fact]
         public void Review_carries_no_coordinates()
         {
             string json = Json(CadElectricalReview.PlanReview(Plan(), Unmapped, 3));
@@ -230,6 +331,73 @@ namespace Tests
             Assert.Equal(1, needs["wet_room"]);
             Assert.Equal(1, needs["provisional_alignment"]);
             Assert.Equal("3 placed; 5 things to check.", review["headline"]);
+        }
+
+        /// <summary>A placed device's row as place_socket_points builds it: z_mm absolute.</summary>
+        private static Dictionary<string, object?> PlacedRow(int index, double zMm, string? level = "Level 1",
+                                                             double? levelElevationMm = 3800)
+        {
+            var row = new Dictionary<string, object?> { ["index"] = index, ["z_mm"] = zMm, ["target_z_mm"] = zMm };
+            CadElectricalReview.AddLevelHeight(row, level, levelElevationMm);
+            return row;
+        }
+
+        [Fact]
+        public void A_placed_row_reports_its_height_above_the_level()
+        {
+            Dictionary<string, object?> row = PlacedRow(0, 4100.4);
+
+            Assert.Equal(4100.4, row["z_mm"]);
+            Assert.Equal("Level 1", row["level_name"]);
+            Assert.Equal(3800.0, row["level_elevation_mm"]);
+            Assert.Equal(300.0, row["height_above_level_mm"]);
+            Assert.Equal(1500.0, PlacedRow(1, 5299.6)["height_above_level_mm"]);
+            Assert.Equal(-150.0, PlacedRow(2, 3650)["height_above_level_mm"]);
+
+            Dictionary<string, object?> noLevel = PlacedRow(3, 4100, level: null, levelElevationMm: null);
+            Assert.True(noLevel.ContainsKey("height_above_level_mm"));
+            Assert.Null(noLevel["height_above_level_mm"]);
+            Assert.Null(noLevel["level_elevation_mm"]);
+        }
+
+        [Fact]
+        public void Place_review_reports_heights_above_the_level()
+        {
+            List<PlannedPoint> placed = Plan().Points.Where(p => !p.Excluded).ToList();
+            var rows = new List<Dictionary<string, object?>>();
+            for (int i = 0; i < 42; i++) rows.Add(PlacedRow(i, 4100));
+            for (int i = 0; i < 48; i++) rows.Add(PlacedRow(42 + i, 5300));
+            rows.Add(PlacedRow(90, 9900, "Level 2", 7200));
+            rows.Add(PlacedRow(91, 4100, level: null, levelElevationMm: null));   // height unknown: left out
+
+            Dictionary<string, object?> review = CadElectricalReview.PlaceReview(placed, 0, 0, rows);
+
+            Assert.Equal("3 placed; 1 things to check. Heights 300 mm (42), 1500 mm (48) above Level 1; " +
+                         "2700 mm (1) above Level 2.", review["headline"]);
+            var heights = ((List<object?>)review["heights"]!).Select(Row).ToList();
+            Assert.Equal(3, heights.Count);
+            Assert.Equal("Level 1", heights[0]["level"]);
+            Assert.Equal(300.0, heights[0]["height_above_level_mm"]);
+            Assert.Equal(42, heights[0]["count"]);
+            Assert.DoesNotContain("4100", (string)review["headline"]!);
+
+            // Past 5 heights on a level, the headline says how many more.
+            var many = Enumerable.Range(0, 7).Select(i => PlacedRow(i, 3800 + 100 * (i + 1))).ToList();
+            Assert.EndsWith("100 mm (1), 200 mm (1), 300 mm (1), 400 mm (1), 500 mm (1) and 2 more above Level 1.",
+                            (string)CadElectricalReview.PlaceReview(placed, 0, 0, many)["headline"]!);
+        }
+
+        [Fact]
+        public void Write_result_headline_carries_the_device_heights()
+        {
+            Dictionary<string, object?> devices = DevicesResult();
+            devices["review"] = CadElectricalReview.PlaceReview(new List<PlannedPoint>(), 0, 0,
+                new[] { PlacedRow(0, 4100), PlacedRow(1, 4100) });
+
+            Dictionary<string, object?> result = CadElectricalReview.WriteResult("socket_plan:1", devices, CadElectricalReview.SkippedRuns());
+
+            Assert.StartsWith("Devices: 2 placed, 1 failed, 1 already present. Heights 300 mm (2) above Level 1. Conduit:",
+                              (string)((Dictionary<string, object?>)result["review"]!)["headline"]!);
         }
 
         private static ElectricalCensusResult BigCensus(int classes, int layers)
@@ -267,26 +435,245 @@ namespace Tests
                     Texts = 9, Inserts = 50, LengthM = 123.456, OpenPolylinesOver1m = 4, PairsLikeWalls = i % 7 == 0,
                 });
             }
-            for (int i = 0; i < 6; i++) census.Plans.Add(new CensusPlan { Cluster = i, WidthM = 40, HeightM = 30, Walls = 300, Titles = { "PLAN LEVEL " + i } });
+            for (int i = 0; i < 6; i++) census.Plans.Add(PlanWithSymbols(i));
             for (int i = 0; i < 40; i++) census.Legend.Add(new CensusLegendRow { Block = "SYM-" + i.ToString("000"), Text = "13A SWITCHED SOCKET OUTLET " + i });
             return census;
         }
 
+        /// <summary>A plan with its full lists of 8 symbol blocks and 5 symbol layers.</summary>
+        private static CensusPlan PlanWithSymbols(int i)
+        {
+            var plan = new CensusPlan { Cluster = i, WidthM = 40, HeightM = 30, Walls = 300, Titles = { "PLAN LEVEL " + i }, Symbols = 400 };
+            for (int b = 0; b < 8; b++) plan.SymbolsByBlock.Add(new CensusCount { Name = "SYM-" + (i * 8 + b).ToString("000"), Count = 80 - b });
+            for (int l = 0; l < 5; l++) plan.SymbolLayers.Add(new CensusCount { Name = "E-LAYER-" + (i * 5 + l).ToString("000"), Count = 100 - l });
+            return plan;
+        }
+
+        /// <summary>A census whose classes carry no attributes and one short near text.</summary>
+        private static ElectricalCensusResult SmallCensus(int classes, int layers)
+        {
+            ElectricalCensusResult census = BigCensus(classes, layers);
+            foreach (CensusBlockClass block in census.Blocks)
+            {
+                block.Attributes.Clear();
+                block.NearTexts.RemoveRange(1, block.NearTexts.Count - 1);
+                block.Layers.RemoveAt(1);
+            }
+            return census;
+        }
+
         [Fact]
-        public void Slim_census_stays_under_40kb_for_150_classes()
+        public void Slim_census_keeps_150_classes_when_small()
+        {
+            // 200 classes and a typical drawing's 40 layers.
+            ElectricalCensusResult census = SmallCensus(200, 40);
+
+            // The caps alone; the budget is tested below.
+            Dictionary<string, object?> slim = CadElectricalReview.SlimCensus(census, budgetChars: int.MaxValue);
+
+            Assert.Equal(150, ((List<object?>)slim["blocks"]!).Count);
+            Assert.Equal(true, slim["blocks_truncated"]);
+            Assert.Equal(40, ((List<object?>)slim["layers"]!).Count);
+            Assert.Equal(false, slim["layers_truncated"]);
+            Assert.Equal(0, slim["budget_trimmed"]);
+            Assert.False(slim.ContainsKey("timings_s"));
+
+            // Layers stop at 150, with the flag.
+            Dictionary<string, object?> layered = CadElectricalReview.SlimCensus(SmallCensus(5, 200), budgetChars: int.MaxValue);
+            Assert.Equal(150, ((List<object?>)layered["layers"]!).Count);
+            Assert.Equal(true, layered["layers_truncated"]);
+            Assert.Equal(0, layered["budget_trimmed"]);
+        }
+
+        [Fact]
+        public void Slim_census_stays_under_budget_with_150_large_classes()
         {
             ElectricalCensusResult census = BigCensus(150, 150);
+            foreach (CensusBlockClass block in census.Blocks)
+            {
+                for (int i = 0; i < 6; i++) block.NearTexts.Add(new CensusCount { Name = "SWITCHED SOCKET OUTLET NOTE " + i, Count = 2 });
+                block.Attributes.Add(new CensusAttribute { Tag = "DESCRIPTION", Samples = { "SINGLE SOCKET OUTLET", "TWIN SOCKET OUTLET" } });
+            }
+            Assert.True(Json(CadElectricalReview.SlimCensus(census, budgetChars: int.MaxValue)).Length > CadElectricalReview.DefaultCensusBudgetChars);
 
             Dictionary<string, object?> slim = CadElectricalReview.SlimCensus(census);
-            int bytes = Encoding.UTF8.GetByteCount(Json(slim));
 
-            Assert.True(bytes < 40 * 1024, "slim census is " + bytes + " bytes");
+            int length = Json(slim).Length;
+            Assert.True(length <= CadElectricalReview.DefaultCensusBudgetChars, "slim census is " + length + " chars");
+            Assert.True((int)slim["budget_trimmed"]! > 0);
             var blocks = ((List<object?>)slim["blocks"]!).Select(Row).ToList();
-            Assert.Equal(80, blocks.Count);
+            Assert.True(blocks.Count == 150 || (bool)slim["blocks_truncated"]!);
+            Assert.All(blocks, b => Assert.True(!b.ContainsKey("near_texts") ||
+                                                ((List<object?>)b["near_texts"]!).Count <= CadElectricalReview.TrimmedNearTexts));
+
+            // Just over the budget: only the lowest-ranked classes shrink, the top one keeps everything.
+            int full = Json(CadElectricalReview.SlimCensus(census, budgetChars: int.MaxValue)).Length;
+            Dictionary<string, object?> near = CadElectricalReview.SlimCensus(census, budgetChars: full - 2000);
+            Assert.True(Json(near).Length <= full - 2000);
+            var nearBlocks = ((List<object?>)near["blocks"]!).Select(Row).ToList();
+            Assert.Equal(150, nearBlocks.Count);
+            Assert.Equal(9, ((List<object?>)nearBlocks[0]["near_texts"]!).Count);
+            Assert.True(nearBlocks[0].ContainsKey("attributes"));
+            Assert.Equal(CadElectricalReview.TrimmedNearTexts, ((List<object?>)nearBlocks[149]["near_texts"]!).Count);
+            Assert.Equal(false, near["blocks_truncated"]);
+
+            // A tighter budget drops whole classes, lowest-ranked first, and says so.
+            Dictionary<string, object?> tight = CadElectricalReview.SlimCensus(census, budgetChars: 25000);
+            Assert.True(Json(tight).Length <= 25000);
+            var kept = ((List<object?>)tight["blocks"]!).Select(Row).Select(b => (string)b["key"]!).ToList();
+            Assert.True(kept.Count < 150);
+            Assert.Equal(true, tight["blocks_truncated"]);
+            List<string> ranked = ((List<object?>)CadElectricalReview.SlimCensus(census, budgetChars: int.MaxValue)["blocks"]!)
+                .Select(Row).Select(b => (string)b["key"]!).ToList();
+            Assert.Equal(ranked.Take(kept.Count), kept);
+        }
+
+        /// <summary>A read_cad_electrical result as the tool builds it, census left out.</summary>
+        private static Dictionary<string, object?> ReadResult(int familyTypes)
+        {
+            var model = new Dictionary<string, object?>
+            {
+                ["levels"] = Enumerable.Range(1, 6).Select(i => (object?)new Dictionary<string, object?>
+                {
+                    ["name"] = "Level " + i, ["elevation_mm"] = 3600.0 * (i - 1),
+                }).ToList(),
+            };
+            CadElectricalReview.AddFamilyTypes(model, FamilyTypes(familyTypes));
+            model["conduit_types"] = Enumerable.Range(0, 4).Select(i => (object?)new Dictionary<string, object?>
+            {
+                ["type"] = "Conduit with Fittings : PVC " + i, ["with_fittings"] = true,
+                ["sizes_mm"] = new List<object?> { 16.0, 20.0, 25.0, 32.0, 40.0, 50.0 },
+            }).ToList();
+            model["cable_tray_types"] = new List<object?>
+            {
+                new Dictionary<string, object?> { ["type"] = "Cable Tray with Fittings : Trunking", ["with_fittings"] = true },
+            };
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["dwg_ref"] = "att:00000000-0000-0000-0000-000000000000",
+                ["schema"] = "cad.electrical.census/1",
+                ["census"] = null,
+                ["roles"] = CadElectricalMapping.Roles.Cast<object?>().ToList(),
+                ["hosts"] = CadElectricalMapping.Hosts.Cast<object?>().ToList(),
+                ["layer_roles"] = CadElectricalMapping.LayerRoles.Cast<object?>().ToList(),
+                ["model"] = model,
+                ["notes"] = new List<object?>(),
+            };
+        }
+
+        /// <summary>Invented family types, low-voltage ones listed before electrical ones.</summary>
+        private static IEnumerable<ModelFamilyType> FamilyTypes(int count) =>
+            Enumerable.Range(0, count).Select(i => new ModelFamilyType
+            {
+                FamilyType = (i % 2 == 0 ? "Data Outlet : Cat6 Port " : "Socket Outlet : 13A Twin Switched ") + i.ToString("000"),
+                Category = i % 2 == 0 ? "Data Devices" : "Electrical Fixtures",
+                CategoryRank = i % 2 == 0 ? 5 : 0,
+                Hosting = "face",
+            });
+
+        [Fact]
+        public void Read_result_with_a_large_census_fits_the_budget()
+        {
+            ElectricalCensusResult census = BigCensus(150, 150);
+            foreach (CensusBlockClass block in census.Blocks)
+            {
+                for (int i = 0; i < 6; i++) block.NearTexts.Add(new CensusCount { Name = "SWITCHED SOCKET OUTLET NOTE " + i, Count = 2 });
+            }
+            Assert.Equal(40, census.Legend.Count);
+
+            Dictionary<string, object?> result = CadElectricalReview.WithCensus(ReadResult(200), census);
+
+            int length = Json(result).Length;
+            Assert.True(length <= CadElectricalReview.ResultBudgetChars, "result is " + length + " chars");
+            var slim = Row(result["census"]);
+            Assert.True((int)slim["budget_trimmed"]! > 0);
             Assert.Equal(true, slim["blocks_truncated"]);
-            Assert.Equal(60, ((List<object?>)slim["layers"]!).Count);
-            Assert.Equal(true, slim["layers_truncated"]);
-            Assert.False(slim.ContainsKey("timings_s"));
+            // Layers are dropped down to their floor before blocks go past theirs, so neither
+            // list is emptied for the other; the blocks kept are the top-ranked ones.
+            var keptBlocks = ((List<object?>)slim["blocks"]!).Select(Row).Select(b => (string)b["key"]!).ToList();
+            Assert.NotEmpty(keptBlocks);
+            Assert.Equal(CadElectricalReview.BudgetFloor, ((List<object?>)slim["layers"]!).Count);
+            List<string> ranked = ((List<object?>)CadElectricalReview.SlimCensus(census, budgetChars: int.MaxValue)["blocks"]!)
+                .Select(Row).Select(b => (string)b["key"]!).ToList();
+            Assert.Equal(ranked.Take(keptBlocks.Count), keptBlocks);
+            // Every plan keeps its symbol lists: there are only 6.
+            Assert.All(((List<object?>)slim["plans"]!).Select(Row),
+                       plan => Assert.Equal(8, ((List<object?>)plan["symbols_by_block"]!).Count));
+            Assert.Equal(40, ((List<object?>)slim["legend"]!).Count);
+
+            var model = Row(result["model"]);
+            var types = ((List<object?>)model["family_types"]!).Select(Row).ToList();
+            Assert.Equal(CadElectricalReview.MaxFamilyTypes, types.Count);
+            Assert.Equal(200, model["family_types_total"]);
+            Assert.Equal(true, model["family_types_truncated"]);
+            // The 100 electrical types come first, so they fill all 80.
+            Assert.All(types.Take(100), t => Assert.Equal("Electrical Fixtures", t["category"]));
+        }
+
+        [Fact]
+        public void Read_result_with_a_small_census_is_untouched()
+        {
+            ElectricalCensusResult census = SmallCensus(10, 5);
+
+            Dictionary<string, object?> result = CadElectricalReview.WithCensus(ReadResult(12), census);
+
+            Assert.True(Json(result).Length <= CadElectricalReview.ResultBudgetChars);
+            var slim = Row(result["census"]);
+            Assert.Equal(0, slim["budget_trimmed"]);
+            Assert.Equal(Json(CadElectricalReview.SlimCensus(census, budgetChars: int.MaxValue)), Json(slim));
+            var model = Row(result["model"]);
+            Assert.Equal(12, ((List<object?>)model["family_types"]!).Count);
+            Assert.Equal(false, model["family_types_truncated"]);
+            // Electrical first, then by name.
+            List<string> names = ((List<object?>)model["family_types"]!).Select(Row).Select(t => (string)t["family_type"]!).ToList();
+            Assert.StartsWith("Socket Outlet", names[0]);
+            Assert.StartsWith("Data Outlet", names[6]);
+        }
+
+        [Fact]
+        public void Budget_shrinks_the_symbol_lists_of_small_plans_only()
+        {
+            ElectricalCensusResult census = BigCensus(150, 150);
+            for (int i = 6; i < 16; i++) census.Plans.Add(PlanWithSymbols(i));
+
+            Dictionary<string, object?> slim = CadElectricalReview.SlimCensus(census, budgetChars: 20000);
+
+            Assert.True(Json(slim).Length <= 20000);
+            var plans = ((List<object?>)slim["plans"]!).Select(Row).ToList();
+            Assert.Equal(16, plans.Count);
+            for (int i = 0; i < CadElectricalReview.PlanDetailFloor; i++)
+            {
+                Assert.Equal(8, ((List<object?>)plans[i]["symbols_by_block"]!).Count);
+                Assert.Equal(5, ((List<object?>)plans[i]["symbol_layers"]!).Count);
+            }
+            for (int i = CadElectricalReview.PlanDetailFloor; i < 16; i++)
+            {
+                Assert.Equal(CadElectricalReview.TrimmedPlanSymbols, ((List<object?>)plans[i]["symbols_by_block"]!).Count);
+                Assert.False(plans[i].ContainsKey("symbol_layers"));
+            }
+            // Never a coordinate in a plan.
+            Assert.All(plans, plan => Assert.DoesNotContain(plan.Keys, k => k.EndsWith("_mm") || k == "x" || k == "y"));
+        }
+
+        [Fact]
+        public void Legend_capped_at_40_with_truncated_flag()
+        {
+            ElectricalCensusResult census = SmallCensus(10, 5);
+            for (int i = 40; i < 65; i++) census.Legend.Add(new CensusLegendRow { Block = "SYM-" + i.ToString("000"), Text = "LEGEND ROW " + i });
+            census.LegendTruncated = false;
+
+            Dictionary<string, object?> slim = CadElectricalReview.SlimCensus(census);
+
+            var legend = (List<object?>)slim["legend"]!;
+            Assert.Equal(40, legend.Count);
+            Assert.Equal("SYM-000", Row(legend[0])["block"]);
+            Assert.Equal(true, slim["legend_truncated"]);
+
+            ElectricalCensusResult exact = SmallCensus(10, 5);
+            Dictionary<string, object?> whole = CadElectricalReview.SlimCensus(exact);
+            Assert.Equal(40, ((List<object?>)whole["legend"]!).Count);
+            Assert.Equal(false, whole["legend_truncated"]);
         }
 
         [Fact]
@@ -294,11 +681,12 @@ namespace Tests
         {
             ElectricalCensusResult census = BigCensus(150, 5);
 
-            Dictionary<string, object?> slim = CadElectricalReview.SlimCensus(census);
+            Dictionary<string, object?> slim = CadElectricalReview.SlimCensus(census, budgetChars: int.MaxValue);
 
             var keys = ((List<object?>)slim["blocks"]!).Select(Row).Select(b => (string)b["key"]!).ToList();
             List<string> symbols = census.Blocks.Where(b => !b.IsContainer && b.WidthMm <= 2000).Select(b => b.Key).ToList();
-            Assert.Equal(symbols.Take(80), keys);
+            Assert.Equal(150, keys.Count);
+            Assert.Equal(symbols, keys.Take(symbols.Count));
             Dictionary<string, object?> first = Row(((List<object?>)slim["blocks"]!)[0]);
             Assert.False(first.ContainsKey("anonymous"));
             Assert.False(first.ContainsKey("record_names"));
@@ -308,6 +696,227 @@ namespace Tests
             Assert.Equal(new[] { "inserts", "layer", "length_m", "open_polylines_over_1m", "pairs_like_walls" },
                          layer.Keys.OrderBy(k => k, StringComparer.Ordinal));
             Assert.Equal(false, slim["layers_truncated"]);
+        }
+
+        // ---------------------------------------------------------------- conduit (phase 2)
+
+        private static PlannedRun Run(int index, double length, string start, string end, int drops, params string[] flags)
+        {
+            var run = new PlannedRun
+            {
+                Index = index, Layer = "E-CONDUIT", TypeName = "Conduit with Fittings : PVC", DiameterMm = 20, RunHeightMm = 2700,
+                LengthMm = length, Drops = drops,
+                Start = new RunEnd { Kind = start }, End = new RunEnd { Kind = end },
+                PointsMm = { new[] { 98765.4321, -43210.987, 3700.5 }, new[] { 98765.4321 + length, -43210.987, 3700.5 } },
+            };
+            run.Flags.AddRange(flags);
+            run.Excluded = flags.Contains("closed_loop");
+            return run;
+        }
+
+        private static SocketPlan RunPlan()
+        {
+            SocketPlan plan = Plan();
+            plan.Runs.Add(Run(0, 4000, "device", "device", 2));
+            plan.Runs.Add(Run(1, 2500, "open", "device", 1, "open_end"));
+            plan.Runs.Add(Run(2, 1500, "junction", "open", 0, "open_end", "junction"));
+            plan.Runs.Add(Run(3, 4000, "open", "open", 0, "closed_loop"));
+            return plan;
+        }
+
+        [Fact]
+        public void Conduit_block_counts_runs_length_drops_and_open_ends()
+        {
+            var unplanned = new List<UnplannedLayer>();
+            Dictionary<string, object?> block = CadElectricalReview.ConduitReview(RunPlan(), unplanned, 3, 7, "planned", 11, 5);
+
+            Assert.Equal("planned", block["status"]);
+            Assert.Equal(4, block["runs"]);
+            Assert.Equal(3, block["will_route"]);
+            Assert.Equal(12.0, block["total_length_m"]);
+            Assert.Equal(3, block["drops"]);
+            Assert.Equal(2, block["open_ends"]);
+            Assert.Equal(1, block["junctions"]);
+            Assert.Equal(3, block["dropped_short"]);
+            Assert.Equal(7, block["free_arcs"]);
+            Assert.Equal(11, block["pieces_outside_footprint"]);
+            Assert.Equal(5, block["clutter_dropped"]);
+
+            Dictionary<string, object?> layer = Row(Assert.Single((List<object?>)block["by_layer"]!));
+            Assert.Equal("E-CONDUIT", layer["layer"]);
+            Assert.Equal("conduit", layer["kind"]);
+            Assert.Equal("Conduit with Fittings : PVC", layer["type"]);
+            Assert.Equal(20.0, layer["diameter_mm"]);
+            Assert.Equal(4, layer["runs"]);
+
+            List<Dictionary<string, object?>> flagged = ((List<object?>)block["flagged"]!).Select(Row).ToList();
+            Dictionary<string, object?> open = flagged.Single(f => (string)f["flag"]! == "open_end");
+            Assert.Equal(2, open["count"]);
+            Assert.Equal("kept", open["default"]);
+            Assert.Equal(new object?[] { 1, 2 }, (List<object?>)open["runs"]!);
+            Assert.Equal("excluded", flagged.Single(f => (string)f["flag"]! == "closed_loop")["default"]);
+        }
+
+        [Fact]
+        public void Needs_run_height_lists_the_layers_and_no_runs()
+        {
+            var unplanned = new List<UnplannedLayer> { new UnplannedLayer { Layer = "E-CONDUIT", Reason = "no_run_height", Pieces = 40, LengthMm = 81234 } };
+            SocketPlan plan = Plan();
+            Dictionary<string, object?> block = CadElectricalReview.ConduitReview(plan, unplanned, 0, 0, "needs_run_height");
+
+            Assert.Equal("needs_run_height", block["status"]);
+            Assert.Equal(0, block["runs"]);
+            Dictionary<string, object?> row = Row(Assert.Single((List<object?>)block["unplanned_layers"]!));
+            Assert.Equal("E-CONDUIT", row["layer"]);
+            Assert.Equal("no_run_height", row["reason"]);
+
+            string headline = (string)CadElectricalReview.PlanReview(plan, Unmapped, 0, null, 0, block)["headline"]!;
+            Assert.EndsWith(" Conduit: run height needed for 1 layer.", headline);
+        }
+
+        [Fact]
+        public void Unplanned_layers_carry_their_reason()
+        {
+            var unplanned = new List<UnplannedLayer>
+            {
+                new UnplannedLayer { Layer = "E-CONDUIT-2", Reason = "no_diameter", Pieces = 3, LengthMm = 4500 },
+                new UnplannedLayer { Layer = "E-CONDUIT-1", Reason = "no_conduit_type", Pieces = 9, LengthMm = 12000 },
+            };
+            List<Dictionary<string, object?>> rows = ((List<object?>)CadElectricalReview.ConduitReview(
+                Plan(), unplanned, 0, 0, "none")["unplanned_layers"]!).Select(Row).ToList();
+
+            Assert.Equal(new[] { "E-CONDUIT-1", "E-CONDUIT-2" }, rows.Select(r => (string)r["layer"]!));
+            Assert.Equal("no_conduit_type", rows[0]["reason"]);
+            Assert.Equal(9, rows[0]["pieces"]);
+            Assert.Equal(12.0, rows[0]["length_m"]);
+        }
+
+        [Fact]
+        public void Conduit_block_carries_no_coordinates()
+        {
+            SocketPlan plan = RunPlan();
+            string json = Json(CadElectricalReview.PlanReview(plan, Unmapped, 0, null, 0,
+                CadElectricalReview.ConduitReview(plan, new List<UnplannedLayer>(), 0, 0, "planned")));
+
+            Assert.DoesNotContain("98765", json);
+            Assert.DoesNotContain("43210", json);
+            Assert.DoesNotContain("3700", json);
+            Assert.DoesNotContain("points", json);
+        }
+
+        [Fact]
+        public void Headline_adds_the_conduit_sentence()
+        {
+            SocketPlan plan = RunPlan();
+            Dictionary<string, object?> review = CadElectricalReview.PlanReview(plan, Unmapped, 0, null, 0,
+                CadElectricalReview.ConduitReview(plan, new List<UnplannedLayer>(), 0, 0, "planned"));
+
+            Assert.EndsWith(" Conduit: 4 runs, 12.0 m, 3 drops, 2 open ends.", (string)review["headline"]!);
+            Assert.True(review.ContainsKey("conduit"));
+            Assert.False(CadElectricalReview.PlanReview(plan, Unmapped, 0).ContainsKey("conduit"));
+            Assert.DoesNotContain("Conduit", (string)CadElectricalReview.PlanReview(plan, Unmapped, 0)["headline"]!);
+        }
+
+        [Fact]
+        public void Trunking_runs_are_named_in_the_headline_and_have_no_open_ends()
+        {
+            SocketPlan plan = RunPlan();
+            PlannedRun tray = Run(4, 6000, "open", "open", 0);
+            tray.Layer = "E-TRUNK";
+            tray.Kind = "cable_tray";
+            tray.TypeName = "Cable Tray with Fittings : Trunking";
+            tray.DiameterMm = null;
+            tray.WidthMm = 100;
+            tray.HeightMm = 50;
+            plan.Runs.Add(tray);
+
+            Dictionary<string, object?> block = CadElectricalReview.ConduitReview(plan, new List<UnplannedLayer>(), 0, 0, "planned");
+            Assert.Equal(2, block["open_ends"]);
+            Dictionary<string, object?> trunk = ((List<object?>)block["by_layer"]!).Select(Row).Single(l => (string)l["layer"]! == "E-TRUNK");
+            Assert.Equal("cable_tray", trunk["kind"]);
+            Assert.Equal(100.0, trunk["width_mm"]);
+
+            string headline = (string)CadElectricalReview.PlanReview(plan, Unmapped, 0, null, 0, block)["headline"]!;
+            Assert.EndsWith(" Conduit and trunking: 5 runs, 18.0 m, 3 drops, 2 open ends.", headline);
+        }
+
+        // ─── place_cad_electrical result ────────────────────────────────
+
+        private static Dictionary<string, object?> DevicesResult(bool ok = true) => ok
+            ? new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["plan_id"] = "socket_plan:1",
+                ["count"] = 2,
+                ["created"] = new List<object>
+                {
+                    new Dictionary<string, object?> { ["index"] = 0, ["created_id"] = 1001L },
+                    new Dictionary<string, object?> { ["index"] = 1, ["created_id"] = 1002L },
+                },
+                ["failed"] = new List<object> { new Dictionary<string, object?> { ["index"] = 2, ["reason"] = "x" } },
+                ["skipped_already_present"] = new List<object?> { 3 },
+                ["review"] = new Dictionary<string, object?> { ["headline"] = "2 placed; 0 things to check." },
+            }
+            : new Dictionary<string, object?> { ["ok"] = false, ["error"] = "no candidates selected" };
+
+        private static Dictionary<string, object?> RunsResult() => new Dictionary<string, object?>
+        {
+            ["ok"] = true,
+            ["plan_id"] = "socket_plan:1",
+            ["runs_created"] = 1,
+            ["runs_failed"] = 0,
+            ["created"] = new List<object?>(),
+            ["failed"] = new List<object?>(),
+            ["skipped"] = new List<object?>(),
+            ["new_ids"] = new List<long> { 2001, 2002 },
+            ["fitting_ids"] = new List<long> { 2003 },
+            ["total_length_mm"] = 12345.0,
+            ["open_connectors"] = new Dictionary<string, object?> { ["count"] = 1 },
+            ["warnings"] = new List<string> { "run 0: device_not_placed" },
+        };
+
+        [Fact]
+        public void Write_result_nests_both_halves_and_flattens_new_ids()
+        {
+            Dictionary<string, object?> devices = DevicesResult(), runs = RunsResult();
+            Dictionary<string, object?> result = CadElectricalReview.WriteResult("socket_plan:1", devices, runs);
+
+            Assert.True((bool)result["ok"]!);
+            Assert.Equal("socket_plan:1", result["plan_id"]);
+            Assert.Same(devices, result["devices"]);
+            Assert.Same(runs, result["runs"]);
+            Assert.Equal(new List<long> { 1001, 1002, 2001, 2002, 2003 }, result["new_ids"]);
+            var review = (Dictionary<string, object?>)result["review"]!;
+            Assert.Equal("Devices: 2 placed, 1 failed, 1 already present. " +
+                         "Conduit: 1 runs routed, 0 failed, 0 skipped, 12.3 m.", review["headline"]);
+            Assert.Equal(1, review["run_warnings"]);
+            Assert.False(result.ContainsKey("error"));
+        }
+
+        [Fact]
+        public void Write_result_with_no_runs_says_skipped()
+        {
+            Dictionary<string, object?> result = CadElectricalReview.WriteResult("socket_plan:1", DevicesResult(),
+                                                                                  CadElectricalReview.SkippedRuns());
+            Assert.True((bool)result["ok"]!);
+            Assert.Equal("no_runs", ((Dictionary<string, object?>)result["runs"]!)["skipped"]);
+            Assert.Equal(new List<long> { 1001, 1002 }, result["new_ids"]);
+            Assert.EndsWith(" Conduit: no runs to route.", (string)((Dictionary<string, object?>)result["review"]!)["headline"]!);
+        }
+
+        [Fact]
+        public void Write_result_is_ok_when_only_the_runs_were_built()
+        {
+            Dictionary<string, object?> result = CadElectricalReview.WriteResult("socket_plan:1", DevicesResult(ok: false), RunsResult());
+            Assert.True((bool)result["ok"]!);
+            Assert.StartsWith("Devices: none placed (no candidates selected).",
+                              (string)((Dictionary<string, object?>)result["review"]!)["headline"]!);
+
+            Dictionary<string, object?> neither = CadElectricalReview.WriteResult("socket_plan:1", DevicesResult(ok: false),
+                                                                                   CadElectricalReview.SkippedRuns());
+            Assert.False((bool)neither["ok"]!);
+            Assert.Contains("none placed", (string)neither["error"]!);
+            Assert.Empty((List<long>)neither["new_ids"]!);
         }
     }
 }

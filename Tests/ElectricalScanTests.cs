@@ -15,6 +15,8 @@ using BinaVibe.Mcp.Tools.Electrical;
 using CSMath;
 using Xunit;
 using static Tests.CensusFixture;
+using Point = Cad2Bim.Point;
+using Segment = Cad2Bim.Segment;
 
 namespace Tests
 {
@@ -181,6 +183,19 @@ namespace Tests
                 Assert.NotEqual(ClusterAt(scan, 10000, (k * Pitch) + 7500), ClusterAt(scan, 40000, (k * Pitch) + (Pitch / 2) + 7500));
             }
             Assert.Equal(6, scan.Clusters.Select(c => ClusterAt(scan, (c.MinX + c.MaxX) / 2, (c.MinY + c.MaxY) / 2)).Distinct().Count());
+        }
+
+        [Fact]
+        public void Wall_centrelines_by_cluster_match_the_per_cluster_call()
+        {
+            ElectricalScan scan = ElectricalCensus.Scan(Staggered(bridge: true));
+            var layers = new[] { "A-WALL" };
+
+            List<List<FitSegment>> byCluster = scan.WallCentrelinesByCluster(layers, false);
+
+            Assert.Equal(scan.Clusters.Count, byCluster.Count);
+            for (int c = 0; c < scan.Clusters.Count; c++)
+                Assert.Equal(scan.WallCentrelines(c, layers, false), byCluster[c]);
         }
 
         [Fact]
@@ -355,6 +370,74 @@ namespace Tests
 
             Assert.Throws<ArgumentOutOfRangeException>(() => scan.WallCentrelines(1, layers, false));
             Assert.Empty(scan.FacePieces(new[] { "NO-SUCH-LAYER" }));
+        }
+
+        // ---------------------------------------------------------------- runs (phase 2)
+
+        [Fact]
+        public void Run_pieces_leave_out_symbol_linework_and_other_plans()
+        {
+            CadDocument doc = TwoRooms();
+            Line(doc, "E-CONDUIT", 1000, 1000, 4000, 1000);
+            Line(doc, "E-CONDUIT", 37000, 1000, 40000, 1000);
+            // A symbol drawn on the conduit layer: its linework is the symbol's, not a run.
+            Insert(doc, SquareBlock(doc, "SOCKET", 100), 2000, 3000, "E-CONDUIT");
+
+            ElectricalScan scan = ElectricalCensus.Scan(doc);
+            int first = ClusterAt(scan, 3000, 2500);
+
+            Segment piece = Assert.Single(scan.RunPieces(first, new[] { "E-CONDUIT" }));
+            Assert.Equal("E-CONDUIT", piece.Layer);
+            Assert.Equal(2500, (piece.P1.x + piece.P2.x) / 2, 3);
+
+            List<Segment> all = scan.RunPieces(new[] { "E-CONDUIT" }, (x, y) => true, out int left);
+            Assert.Equal(2, all.Count);
+            Assert.Equal(0, left);
+            scan.RunPieces(new[] { "E-CONDUIT" }, (x, y) => x < 10000, out left);
+            Assert.Equal(1, left);
+        }
+
+        [Fact]
+        public void An_arc_is_kept_as_a_span_with_its_ends_and_middle()
+        {
+            CadDocument doc = TwoRooms();
+            doc.Entities.Add(new Arc
+            {
+                Center = new XYZ(2000, 2000, 0), Radius = 500, StartAngle = 0, EndAngle = Math.PI / 2,
+                Layer = Layer(doc, "E-CONDUIT"),
+            });
+
+            ElectricalScan scan = ElectricalCensus.Scan(doc);
+            int first = ClusterAt(scan, 3000, 2500);
+
+            ArcSpan arc = Assert.Single(scan.RunArcs(first, new[] { "E-CONDUIT" }));
+            var ends = new[] { (arc.X1, arc.Y1), (arc.X2, arc.Y2) }.OrderBy(p => p.Item2).ToList();
+            Assert.Equal(2500, ends[0].Item1, 0);
+            Assert.Equal(2000, ends[0].Item2, 0);
+            Assert.Equal(2000, ends[1].Item1, 0);
+            Assert.Equal(2500, ends[1].Item2, 0);
+            double r45 = 500 * Math.Cos(Math.PI / 4);
+            Assert.True(Math.Abs(arc.MidX - (2000 + r45)) < 10 && Math.Abs(arc.MidY - (2000 + r45)) < 10,
+                        "middle " + arc.MidX + "," + arc.MidY);
+            Assert.Equal(Math.PI * 250, arc.LengthMm, 0);
+
+            Assert.Empty(scan.RunArcs(first, new[] { "A-WALL" }));
+            Assert.Empty(scan.RunArcs(new[] { "E-CONDUIT" }, (x, y) => false, out int left));
+            Assert.Equal(1, left);
+        }
+
+        [Fact]
+        public void Merge_gap_argument_defaults_to_the_wall_gap()
+        {
+            var pieces = new List<Segment>
+            {
+                new Segment(new Point(0, 0), new Point(1000, 0)),
+                new Segment(new Point(1100, 0), new Point(2000, 0)),
+            };
+
+            Assert.Single(ElectricalCensus.MergeByDirection(pieces));
+            Assert.Equal(2, ElectricalCensus.MergeByDirection(pieces, 20).Count);
+            Assert.Single(ElectricalCensus.MergeByDirection(pieces, 150));
         }
     }
 }

@@ -10,8 +10,10 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using Autodesk.Revit.DB;
+using Autodesk.Revit.DB.Electrical;
 using Autodesk.Revit.DB.Mechanical;
 using Autodesk.Revit.DB.Plumbing;
+using BinaVibe.Mcp.Tools.Electrical;
 
 namespace BinaVibe.Mcp.Tools
 {
@@ -348,6 +350,508 @@ namespace BinaVibe.Mcp.Tools
             catch (RouteFailure rf) { SafeRollback(tx); return Failure(rf.Message, rf.CornerIndex); }
             catch (Exception ex) { SafeRollback(tx); return Failure(ex.Message, -1); }
         }
+
+        // ─── route_conduit ──────────────────────────────────────────────
+        // Two modes. points_mm: one run from the given points in ONE Transaction, with the same
+        // result keys as route_pipe. plan_id: the runs plan_cad_electrical planned from a
+        // drawing, in one TransactionGroup with one Transaction per run: a run that fails rolls
+        // back alone and is listed, and the whole call is one undo step. Types and sizes are
+        // checked before any transaction.
+
+        private const double DeviceSearchMm = 150.0;
+        private const double DeviceConnectorReachMm = 300.0;
+        private const double ConnectorVerticalDeg = 30.0;
+
+        private sealed class RunCurveSpec
+        {
+            /// <summary>"conduit" | "cable_tray"</summary>
+            public string Kind = "conduit";
+            public string Name = "";
+            public ElementId TypeId = ElementId.InvalidElementId;
+            public double? DiameterFt, WidthFt, HeightFt;
+        }
+
+        public static Dictionary<string, object?> RouteConduit(Document doc, JsonElement args)
+        {
+            bool hasPoints = args.ValueKind == JsonValueKind.Object && args.TryGetProperty("points_mm", out var pv) &&
+                             pv.ValueKind != JsonValueKind.Null;
+            var planId = ArgsHelp.GetString(args, "plan_id");
+            if (hasPoints && planId != null)
+                return Failure("pass either points_mm (one run) or plan_id (a drawing plan's runs), not both", -1);
+            if (!hasPoints && planId == null)
+                return Failure("pass points_mm and level for one run, or plan_id from plan_cad_electrical", -1);
+            return planId != null
+                ? RoutePlanRuns(doc, planId, ArgsHelp.GetLongList(args, "run_indices"))
+                : RouteConduitPoints(doc, args);
+        }
+
+        private static Dictionary<string, object?> RouteConduitPoints(Document doc, JsonElement args)
+        {
+            Transaction? tx = null;
+            try
+            {
+                var pts = ArgsHelp.GetPointListMm(args, "points_mm");
+                if (pts.Count < 2)
+                    throw new RouteFailure("points_mm needs at least 2 points", -1);
+                var level = ResolveLevel(doc, args);
+                var conduitTypeName = ArgsHelp.GetString(args, "conduit_type_name");
+                var trayTypeName = ArgsHelp.GetString(args, "tray_type_name");
+                if (conduitTypeName != null && trayTypeName != null)
+                    throw new RouteFailure("pass conduit_type_name (conduit) or tray_type_name (cable tray), not both", -1);
+                var spec = trayTypeName != null
+                    ? ResolveTraySpec(doc, trayTypeName, ArgsHelp.GetDouble(args, "width_mm"),
+                                      ArgsHelp.GetDouble(args, "height_mm"), needsBends: pts.Count > 2)
+                    : ResolveConduitSpec(doc, conduitTypeName, ArgsHelp.GetDouble(args, "diameter_mm"), needsBends: pts.Count > 2);
+                var connectStartTo = ArgsHelp.GetLong(args, "connect_start_to");
+                var connectEndTo = ArgsHelp.GetLong(args, "connect_end_to");
+
+                tx = new Transaction(doc, "BinaVibe: route conduit");
+                TxGuard.StartSwallowing(tx);
+
+                var snapStart = ResolveSnap(doc, connectStartTo, pts[0]);
+                if (snapStart != null) pts[0] = snapStart.Origin;
+                var snapEnd = ResolveSnap(doc, connectEndTo, pts[pts.Count - 1]);
+                if (snapEnd != null) pts[pts.Count - 1] = snapEnd.Origin;
+
+                var (segments, fittingIds) = BuildRunLegs(doc, spec, level, pts);
+
+                var warnings = new List<string>();
+                SnapEndpoint(segments[0], pts[0], snapStart, "start", warnings);
+                SnapEndpoint(segments[segments.Count - 1], pts[pts.Count - 1], snapEnd, "end", warnings);
+
+                var result = BuildResult(segments, fittingIds, warnings);
+                TxGuard.CommitOrThrow(tx);
+                return result;
+            }
+            catch (RouteFailure rf) { SafeRollback(tx); return Failure(rf.Message, rf.CornerIndex); }
+            catch (Exception ex) { SafeRollback(tx); return Failure(ex.Message, -1); }
+        }
+
+        /// <summary>route_conduit's plan_id mode, shared with place_cad_electrical. Its own
+        /// TransactionGroup is assimilated when a run was built; started inside an outer group
+        /// (place_cad_electrical), it folds into that group's single undo step.</summary>
+        internal static Dictionary<string, object?> RoutePlanRuns(Document doc, string planId, List<long> wanted)
+        {
+            var plan = SocketPlanCache.Get(planId, SocketCandidates.DocKey(doc));
+            var selected = SocketPlanSelect.SelectRuns(plan, wanted);
+            if (selected.Count == 0)
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = false,
+                    ["plan_id"] = planId,
+                    ["error"] = plan.Runs.Count == 0
+                        ? "this plan has no conduit runs; run plan_cad_electrical with run_height_mm"
+                        : $"no runs selected from plan {planId} (plan holds {plan.Runs.Count} runs, " +
+                          $"{plan.Runs.Count(r => r.Excluded)} of them excluded; run_indices are 0-based)",
+                };
+
+            var created = new List<object?>();
+            var failed = new List<object?>();
+            var skipped = new List<object?>();
+            var allNew = new List<long>();
+            var allFittings = new List<long>();
+            var warnings = new List<string>();
+            double totalFt = 0;
+
+            // Each distinct type resolved once, before the group: a type error fails its runs.
+            var specs = new Dictionary<string, RunCurveSpec>(StringComparer.Ordinal);
+            var specErrors = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var run in selected)
+            {
+                string key = SpecKey(run);
+                if (specs.ContainsKey(key) || specErrors.ContainsKey(key)) continue;
+                try
+                {
+                    bool bends = selected.Any(r => SpecKey(r) == key && r.PointsMm.Count > 2);
+                    specs[key] = ResolveRunSpec(doc, run, bends);
+                }
+                catch (Exception ex) { specErrors[key] = ex.Message; }
+            }
+
+            var levels = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().ToList();
+            var present = Electrical.CadElectricalResolver.ExistingDevices(doc);
+            var todo = new List<PlannedRun>();
+            foreach (var run in selected)
+            {
+                if (run.CreatedIds.Count > 0 && run.CreatedIds.All(id => doc.GetElement(ElemIds.From(id)) != null))
+                {
+                    skipped.Add(new Dictionary<string, object?> { ["index"] = run.Index, ["reason"] = "already_routed" });
+                    continue;
+                }
+                if (specErrors.TryGetValue(SpecKey(run), out var typeError))
+                {
+                    failed.Add(FailedRun(run.Index, typeError, -1));
+                    continue;
+                }
+                if (run.PointsMm.Count < 2)
+                {
+                    failed.Add(FailedRun(run.Index, "the run has fewer than 2 points", -1));
+                    continue;
+                }
+                todo.Add(run);
+            }
+
+            using (var group = new TransactionGroup(doc, "BinaVibe: route_conduit"))
+            {
+                group.Start();
+                try
+                {
+                    foreach (var run in todo)
+                    {
+                        var level = levels.FirstOrDefault(l => string.Equals(l.Name, run.LevelName, StringComparison.Ordinal))
+                                    ?? levels.FirstOrDefault(l => string.Equals(l.Name, run.LevelName, StringComparison.OrdinalIgnoreCase));
+                        if (level == null)
+                        {
+                            failed.Add(FailedRun(run.Index, $"level '{run.LevelName}' not found", -1));
+                            continue;
+                        }
+
+                        var pts = run.PointsMm.Select(p => new XYZ(p[0] / MmPerFoot, p[1] / MmPerFoot, p[2] / MmPerFoot)).ToList();
+                        var runWarnings = new List<string>();
+                        var tx = new Transaction(doc, "BinaVibe: route conduit run");
+                        try
+                        {
+                            TxGuard.StartSwallowing(tx);
+                            var spec = specs[SpecKey(run)];
+                            Connector? startConn = null, endConn = null;
+                            if (spec.Kind == "conduit")
+                            {
+                                startConn = DeviceConnector(doc, plan, run.Start, pts, atStart: true, present, runWarnings);
+                                endConn = DeviceConnector(doc, plan, run.End, pts, atStart: false, present, runWarnings);
+                            }
+
+                            var (segments, fittingIds) = BuildRunLegs(doc, spec, level, pts);
+                            bool startConnected = Connect(segments[0], pts[0], startConn, "start", runWarnings);
+                            bool endConnected = Connect(segments[segments.Count - 1], pts[pts.Count - 1], endConn, "end", runWarnings);
+
+                            var newIds = segments.Select(s => (long)s.Id.Value).ToList();
+                            double lengthFt = segments.Sum(s => s.get_Parameter(BuiltInParameter.CURVE_ELEM_LENGTH)?.AsDouble() ?? 0);
+                            TxGuard.CommitOrThrow(tx);
+
+                            run.CreatedIds = newIds.Concat(fittingIds).ToList();
+                            allNew.AddRange(newIds);
+                            allFittings.AddRange(fittingIds);
+                            totalFt += lengthFt;
+                            warnings.AddRange(runWarnings.Select(w => $"run {run.Index}: {w}"));
+                            created.Add(new Dictionary<string, object?>
+                            {
+                                ["index"] = run.Index,
+                                ["new_ids"] = newIds,
+                                ["fitting_ids"] = fittingIds,
+                                ["length_mm"] = Math.Round(lengthFt * MmPerFoot, 1),
+                                ["start"] = EndRow(run.Start, startConnected),
+                                ["end"] = EndRow(run.End, endConnected),
+                            });
+                        }
+                        catch (RouteFailure rf)
+                        {
+                            SafeRollback(tx);
+                            failed.Add(FailedRun(run.Index, rf.Message, rf.CornerIndex));
+                        }
+                        catch (Exception ex)
+                        {
+                            SafeRollback(tx);
+                            failed.Add(FailedRun(run.Index, ex.Message, -1));
+                        }
+                        finally
+                        {
+                            tx.Dispose();
+                        }
+                    }
+
+                    if (Electrical.OverheadPlacement.KeepGroup(0, created.Count)) group.Assimilate();
+                    else group.RollBack();
+                }
+                catch
+                {
+                    if (group.GetStatus() == TransactionStatus.Started) group.RollBack();
+                    throw;
+                }
+            }
+
+            var elements = allNew.Concat(allFittings).Select(id => doc.GetElement(ElemIds.From(id))).Where(e => e != null);
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = created.Count > 0 || failed.Count == 0,
+                ["plan_id"] = planId,
+                ["runs_created"] = created.Count,
+                ["runs_failed"] = failed.Count,
+                ["created"] = created,
+                ["failed"] = failed,
+                ["skipped"] = skipped,
+                ["new_ids"] = allNew,
+                ["fitting_ids"] = allFittings,
+                ["total_length_mm"] = Math.Round(totalFt * MmPerFoot, 1),
+                ["open_connectors"] = ComputeOpenConnectors(elements!),
+                ["warnings"] = warnings,
+            };
+        }
+
+        private static string SpecKey(PlannedRun run) =>
+            run.Kind + "|" + (run.TypeName ?? "") + "|" + (run.DiameterMm?.ToString("R", System.Globalization.CultureInfo.InvariantCulture) ?? "") +
+            "|" + (run.WidthMm?.ToString("R", System.Globalization.CultureInfo.InvariantCulture) ?? "") +
+            "|" + (run.HeightMm?.ToString("R", System.Globalization.CultureInfo.InvariantCulture) ?? "");
+
+        private static RunCurveSpec ResolveRunSpec(Document doc, PlannedRun run, bool needsBends)
+        {
+            if (run.Kind == "conduit") return ResolveConduitSpec(doc, run.TypeName, run.DiameterMm, needsBends);
+            if (run.Kind == "cable_tray")
+                return ResolveTraySpec(doc, run.TypeName ?? throw new RouteFailure("the trunking run names no cable tray type", -1),
+                                       run.WidthMm, run.HeightMm, needsBends);
+            throw new RouteFailure($"run {run.Index} is a {run.Kind} run, which route_conduit cannot build", -1);
+        }
+
+        /// <summary>
+        /// A cable tray type (trunking) by "Family : Type", else by a unique bare type name. When
+        /// the run bends, the type must be a "with fittings" type. Width and height must be
+        /// positive. Throws RouteFailure with the fix.
+        /// </summary>
+        private static RunCurveSpec ResolveTraySpec(Document doc, string typeName, double? widthMm, double? heightMm, bool needsBends)
+        {
+            var types = new FilteredElementCollector(doc).OfClass(typeof(CableTrayType)).Cast<CableTrayType>().ToList();
+            var full = types.Where(t => string.Equals(t.FamilyName + " : " + t.Name, typeName.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
+            var matches = full.Count > 0 ? full
+                : types.Where(t => string.Equals(t.Name, typeName.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
+            if (matches.Count == 0)
+                throw new RouteFailure($"cable tray type '{typeName}' not found (use list_family_types(\"OST_CableTray\"))", -1);
+            if (matches.Count > 1)
+                throw new RouteFailure($"cable tray type '{typeName}' matches " +
+                    string.Join(", ", matches.Select(t => "'" + t.FamilyName + " : " + t.Name + "'")) +
+                    ": name it as 'Family : Type'", -1);
+            var type = matches[0];
+            string name = type.FamilyName + " : " + type.Name;
+
+            if (needsBends)
+            {
+                bool withFitting;
+                try { withFitting = type.IsWithFitting; } catch { withFitting = false; }
+                if (!withFitting)
+                    throw new RouteFailure($"cable tray type '{name}' is a type without fittings, so bends cannot be built: " +
+                                           "choose a Cable Tray with Fittings type", -1);
+            }
+            if (widthMm.HasValue && widthMm.Value <= 0) throw new RouteFailure("width_mm must be above 0", -1);
+            if (heightMm.HasValue && heightMm.Value <= 0) throw new RouteFailure("height_mm must be above 0", -1);
+
+            return new RunCurveSpec
+            {
+                Kind = "cable_tray", Name = name, TypeId = type.Id,
+                WidthFt = widthMm / MmPerFoot, HeightFt = heightMm / MmPerFoot,
+            };
+        }
+
+        private static Dictionary<string, object?> FailedRun(int index, string reason, int corner) => new()
+        {
+            ["index"] = index, ["reason"] = reason, ["failed_corner_index"] = corner,
+        };
+
+        private static Dictionary<string, object?> EndRow(RunEnd end, bool connected) => new()
+        {
+            ["kind"] = end.Kind, ["point_index"] = end.PointIndex, ["element_id"] = end.ElementId, ["connected"] = connected,
+        };
+
+        /// <summary>
+        /// A conduit type by "Family : Type", else by a unique bare type name; with no name, the
+        /// first type with fittings. When the run bends, the type must be a "with fittings" type
+        /// with a Bend assigned. The diameter must be one of the type's trade sizes, where they
+        /// can be read. Throws RouteFailure with the fix.
+        /// </summary>
+        private static RunCurveSpec ResolveConduitSpec(Document doc, string? typeName, double? diameterMm, bool needsBends)
+        {
+            var types = new FilteredElementCollector(doc).OfClass(typeof(ConduitType)).Cast<ConduitType>().ToList();
+            ConduitType type;
+            if (typeName == null)
+            {
+                type = types.FirstOrDefault(IsWithFitting) ?? types.FirstOrDefault()
+                    ?? throw new RouteFailure("no conduit types in project", -1);
+            }
+            else
+            {
+                var full = types.Where(t => string.Equals(t.FamilyName + " : " + t.Name, typeName.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
+                var matches = full.Count > 0 ? full
+                    : types.Where(t => string.Equals(t.Name, typeName.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
+                if (matches.Count == 0)
+                    throw new RouteFailure($"conduit type '{typeName}' not found (use list_family_types(\"OST_Conduit\"))", -1);
+                if (matches.Count > 1)
+                    throw new RouteFailure($"conduit type '{typeName}' matches " +
+                        string.Join(", ", matches.Select(t => "'" + t.FamilyName + " : " + t.Name + "'")) +
+                        ": name it as 'Family : Type'", -1);
+                type = matches[0];
+            }
+            string name = type.FamilyName + " : " + type.Name;
+
+            if (needsBends)
+            {
+                if (!IsWithFitting(type))
+                    throw new RouteFailure($"conduit type '{name}' is a type without fittings, so bends cannot be built: " +
+                                           "choose a Conduit with Fittings type", -1);
+                RequireBend(type, "conduit type", name);
+            }
+
+            double? diameterFt = null;
+            if (diameterMm.HasValue)
+            {
+                double d = diameterMm.Value;
+                if (d <= 0) throw new RouteFailure("diameter_mm must be above 0", -1);
+                var sizes = Electrical.CadElectricalResolver.ConduitSizesMm(type, Electrical.CadElectricalResolver.ConduitSizeTable(doc));
+                if (sizes.Count > 0 && !sizes.Any(s => Math.Abs(s - d) <= Electrical.CadElectricalMapping.SizeToleranceMm))
+                    throw new RouteFailure($"{d} mm is not a size of conduit type '{name}'; its sizes are " +
+                                           string.Join(", ", sizes.Select(s => Math.Round(s, 1))) + " mm", -1);
+                diameterFt = d / MmPerFoot;
+            }
+
+            return new RunCurveSpec { Kind = "conduit", Name = name, TypeId = type.Id, DiameterFt = diameterFt };
+        }
+
+        private static bool IsWithFitting(ConduitType t)
+        {
+            try { return t.IsWithFitting; } catch { return false; }
+        }
+
+        /// <summary>A type whose Bend fitting is unset cannot build a corner: say so before any
+        /// transaction. A type with no such parameter is left to the elbow call.</summary>
+        private static void RequireBend(ElementType type, string what, string name)
+        {
+            Parameter? bend = null;
+            try { bend = type.get_Parameter(BuiltInParameter.RBS_CURVETYPE_DEFAULT_BEND_PARAM); } catch { bend = null; }
+            if (bend != null && bend.StorageType == StorageType.ElementId && bend.AsElementId() == ElementId.InvalidElementId)
+                throw new RouteFailure($"{what} '{name}' has no Bend fitting assigned, so bends cannot be built: " +
+                                       "set its Bend in the type properties (Routing Preferences) or choose another type", -1);
+        }
+
+        /// <summary>One segment per leg, sized, and an elbow at every corner. Throws
+        /// RouteFailure with the leg or corner index.</summary>
+        private static (List<MEPCurve> Segments, List<long> FittingIds) BuildRunLegs(Document doc, RunCurveSpec spec,
+                                                                                     Level level, List<XYZ> pts)
+        {
+            var segments = new List<MEPCurve>();
+            for (int i = 0; i < pts.Count - 1; i++)
+            {
+                if (pts[i].DistanceTo(pts[i + 1]) < 1.0 / MmPerFoot)
+                    throw new RouteFailure($"leg {i} has no length", i);
+                MEPCurve seg;
+                try { seg = CreateLeg(doc, spec, level, pts[i], pts[i + 1]); }
+                catch (Exception ex) { throw new RouteFailure($"leg {i} creation failed: {ex.Message}", i); }
+                segments.Add(seg);
+            }
+
+            var fittingIds = new List<long>();
+            for (int corner = 1; corner < pts.Count - 1; corner++)
+                fittingIds.Add(CreateElbow(doc, segments[corner - 1], segments[corner], pts[corner], corner));
+            return (segments, fittingIds);
+        }
+
+        private static MEPCurve CreateLeg(Document doc, RunCurveSpec spec, Level level, XYZ a, XYZ b)
+        {
+            if (spec.Kind == "cable_tray")
+            {
+                var tray = CableTray.Create(doc, spec.TypeId, a, b, level.Id);
+                if (spec.WidthFt.HasValue) tray.get_Parameter(BuiltInParameter.RBS_CABLETRAY_WIDTH_PARAM)?.Set(spec.WidthFt.Value);
+                if (spec.HeightFt.HasValue) tray.get_Parameter(BuiltInParameter.RBS_CABLETRAY_HEIGHT_PARAM)?.Set(spec.HeightFt.Value);
+                return tray;
+            }
+            var conduit = Conduit.Create(doc, spec.TypeId, a, b, level.Id);
+            if (spec.DiameterFt.HasValue) conduit.get_Parameter(BuiltInParameter.RBS_CONDUIT_DIAMETER_PARAM)?.Set(spec.DiameterFt.Value);
+            return conduit;
+        }
+
+        /// <summary>
+        /// The free conduit connector of a run end's device, with the run's last two points moved
+        /// onto it, or null with a warning: device_not_placed (no device found), no_drop (the
+        /// end has no vertical leg), no_conduit_connector, connector_not_vertical.
+        /// </summary>
+        private static Connector? DeviceConnector(Document doc, SocketPlan plan, RunEnd end, List<XYZ> pts, bool atStart,
+                                                  List<Electrical.PresentDevice> present, List<string> warnings)
+        {
+            if (end.Kind != "device") return null;
+            string label = atStart ? "start" : "end";
+
+            Element? device = null;
+            if (end.ElementId.HasValue) device = doc.GetElement(ElemIds.From(end.ElementId.Value));
+            PlannedPoint? point = end.PointIndex.HasValue ? plan.Points.FirstOrDefault(p => p.Index == end.PointIndex.Value) : null;
+            if (device == null && point?.PlacedId != null) device = doc.GetElement(ElemIds.From(point.PlacedId.Value));
+            if (device == null && point != null)
+            {
+                Electrical.PresentDevice? near = present
+                    .Where(d => Math.Sqrt(Sq(d.X - point.XMm) + Sq(d.Y - point.YMm) + Sq(d.Z - point.ZMm)) <= DeviceSearchMm)
+                    .OrderBy(d => Sq(d.X - point.XMm) + Sq(d.Y - point.YMm) + Sq(d.Z - point.ZMm))
+                    .FirstOrDefault();
+                if (near != null && near.Id != 0) device = doc.GetElement(ElemIds.From(near.Id));
+            }
+            if (device == null)
+            {
+                warnings.Add($"{label}: device_not_placed (place the devices with place_socket_points first)");
+                return null;
+            }
+
+            int last = atStart ? 0 : pts.Count - 1;
+            int next = atStart ? 1 : pts.Count - 2;
+            if (pts.Count < 2 || Math.Sqrt(Sq(pts[last].X - pts[next].X) + Sq(pts[last].Y - pts[next].Y)) * MmPerFoot > 1)
+            {
+                warnings.Add($"{label}: no_drop (device {device.Id.Value} is not reached by a vertical leg)");
+                return null;
+            }
+
+            var found = FreeConduitConnector(device, pts[last], DeviceConnectorReachMm / MmPerFoot, out bool anyFree);
+            if (found == null)
+            {
+                warnings.Add($"{label}: no_conduit_connector (device {device.Id.Value} has " +
+                             (anyFree ? "no free conduit connector within 300 mm" : "no free conduit connector") + ")");
+                return null;
+            }
+            if (Math.Abs(found.CoordinateSystem.BasisZ.Z) < Math.Cos(ConnectorVerticalDeg * Math.PI / 180))
+            {
+                warnings.Add($"{label}: connector_not_vertical (device {device.Id.Value})");
+                return null;
+            }
+
+            var o = found.Origin;
+            pts[last] = o;
+            pts[next] = new XYZ(o.X, o.Y, pts[next].Z);
+            return found;
+        }
+
+        /// <summary>The nearest free conduit-domain connector of a device within reach of the aimed
+        /// point; <paramref name="anyFree"/> says whether it has one at all.</summary>
+        private static Connector? FreeConduitConnector(Element device, XYZ aim, double toleranceFt, out bool anyFree)
+        {
+            anyFree = false;
+            var cm = GetConnectorManager(device);
+            if (cm == null) return null;
+            Connector? best = null;
+            double bestDist = double.MaxValue;
+            foreach (Connector c in cm.Connectors)
+            {
+                if (c.Domain != Domain.DomainCableTrayConduit || c.IsConnected) continue;
+                anyFree = true;
+                double d = c.Origin.DistanceTo(aim);
+                if (d < bestDist) { bestDist = d; best = c; }
+            }
+            return best != null && bestDist <= toleranceFt ? best : null;
+        }
+
+        /// <summary>Connects the run's end to the device's connector; a refusal is a warning.</summary>
+        private static bool Connect(MEPCurve segment, XYZ point, Connector? target, string label, List<string> warnings)
+        {
+            if (target == null) return false;
+            var own = NearestConnector(ConnectorsOf(segment), point, double.MaxValue, freeOnly: true);
+            if (own == null)
+            {
+                warnings.Add($"{label}: no free connector on the run's end to connect");
+                return false;
+            }
+            try
+            {
+                own.ConnectTo(target);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                warnings.Add($"{label}: connect refused ({ex.Message})");
+                return false;
+            }
+        }
+
+        private static double Sq(double v) => v * v;
 
         // ─── shared helpers ─────────────────────────────────────────────
 

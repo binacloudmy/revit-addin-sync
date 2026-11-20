@@ -74,5 +74,26 @@ namespace Tests
             Assert.Null(SocketPlanSelect.FamilyTypeFor(Plan().Points[1], null));
             Assert.Null(SocketPlanSelect.FamilyTypeFor(Plan().Points[1], "  "));
         }
+
+        private static SocketPlan RunPlan()
+        {
+            SocketPlan plan = Plan();
+            plan.Runs.Add(new PlannedRun { Index = 0, Layer = "E-CONDUIT" });
+            plan.Runs.Add(new PlannedRun { Index = 1, Layer = "E-CONDUIT", Excluded = true, Flags = { "closed_loop" } });
+            plan.Runs.Add(new PlannedRun { Index = 2, Layer = "E-CONDUIT", Flags = { "open_end" } });
+            return plan;
+        }
+
+        [Fact]
+        public void Default_run_selection_skips_excluded_runs()
+        {
+            Assert.Equal(new[] { 0, 2 }, SocketPlanSelect.SelectRuns(RunPlan(), new long[0]).Select(r => r.Index));
+        }
+
+        [Fact]
+        public void Run_indices_override_exclusion()
+        {
+            Assert.Equal(new[] { 1 }, SocketPlanSelect.SelectRuns(RunPlan(), new long[] { 1, 7 }).Select(r => r.Index));
+        }
     }
 }

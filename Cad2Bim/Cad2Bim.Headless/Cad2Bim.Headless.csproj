@@ -38,6 +38,12 @@
     <Compile Include="..\..\BinaVibe\Mcp\Tools\Electrical\SocketLayout.cs" Link="Shared\SocketLayout.cs" />
   </ItemGroup>
 
+  <!-- The phase 2 checks (the runs and compare-runs options): run chaining and the run comparison. -->
+  <ItemGroup>
+    <Compile Include="..\..\BinaVibe\Mcp\Tools\Electrical\CadRunChain.cs" Link="Shared\CadRunChain.cs" />
+    <Compile Include="..\..\BinaVibe\Mcp\Tools\Electrical\RunCompare.cs" Link="Shared\RunCompare.cs" />
+  </ItemGroup>
+
   <!-- WPF-only sources that live at the project root next to the model. -->
   <ItemGroup>
     <Compile Remove="..\cad2bim\App.xaml.cs" />

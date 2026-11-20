@@ -33,6 +33,9 @@ namespace BinaVibe.Mcp.Tools
         // hand-off from the preprocessor to CommitOrThrow is safe and avoids
         // threading a preprocessor reference through every call site.
         [ThreadStatic] private static List<string>? _lastErrors;
+        // Warnings the preprocessor deleted since the last StartSwallowing, for tools that tell
+        // their caller what Revit said (link_file: "Imported model is out of range").
+        [ThreadStatic] private static List<string>? _lastWarnings;
 
         /// <summary>Starts <paramref name="tx"/> with a SwallowWarnings failure
         /// preprocessor attached. Use in place of a bare <c>tx.Start()</c> for
@@ -41,6 +44,7 @@ namespace BinaVibe.Mcp.Tools
         public static void StartSwallowing(Transaction tx)
         {
             _lastErrors = null;
+            _lastWarnings = null;
             tx.Start();
             var fho = tx.GetFailureHandlingOptions();
             fho.SetFailuresPreprocessor(new SwallowWarnings());
@@ -66,6 +70,14 @@ namespace BinaVibe.Mcp.Tools
 
         internal static void RecordErrors(IEnumerable<string> errors)
             => (_lastErrors ??= new List<string>()).AddRange(errors);
+
+        internal static void RecordWarning(string warning)
+            => (_lastWarnings ??= new List<string>()).Add(warning);
+
+        /// <summary>Text of the warnings swallowed since the last StartSwallowing on this
+        /// thread, distinct, in order.</summary>
+        internal static IReadOnlyList<string> SwallowedWarnings
+            => _lastWarnings == null ? Array.Empty<string>() : _lastWarnings.Distinct().ToList();
     }
 
     /// <summary>Deletes warnings during a transaction so a write can never block
@@ -83,6 +95,7 @@ namespace BinaVibe.Mcp.Tools
             {
                 if (f.GetSeverity() == FailureSeverity.Warning)
                 {
+                    TxGuard.RecordWarning(f.GetDescriptionText());
                     a.DeleteWarning(f);
                     swallowed++;
                 }
