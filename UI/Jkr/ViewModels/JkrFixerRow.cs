@@ -145,6 +145,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     ["manual"] = "Atau masukkan nilai sendiri",
                     ["write"] = "Tulis nilai",
                     ["pick"] = "Pilih nilai",
+                    ["aiBadge"] = "Dicadangkan AI",
                     ["note"] = "Tiada apa-apa ditulis sehingga anda sahkan, dan item hanya selesai selepas peraturan lulus semula.",
                 },
                 ["en"] = new Dictionary<string, string>
@@ -156,6 +157,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     ["manual"] = "Or enter the value yourself",
                     ["write"] = "Write value",
                     ["pick"] = "Pick a value",
+                    ["aiBadge"] = "AI suggested",
                     ["note"] = "Nothing is written until you confirm, and the item only resolves once the rule passes again.",
                 },
             };
@@ -175,7 +177,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public IReadOnlyList<string> Options { get; }
 
         public JkrFixerRow(string issueId, string rule, string revitCategory, FixerAiState state,
-                           string aiValue = "", string aiReason = "", IEnumerable<string> options = null, string lang = "en")
+                           string aiValue = "", string aiReason = "", IEnumerable<string> options = null, string lang = "en",
+                           bool isPick = false, string pickCode = "", string pickReason = "")
         {
             IssueId = issueId ?? "";
             _rule = rule ?? "";
@@ -185,21 +188,43 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             AiReason = state == FixerAiState.Suggested ? aiReason ?? "" : "";
             Options = (options ?? Enumerable.Empty<string>()).Where(o => !string.IsNullOrWhiteSpace(o)).ToList();
             Lang = T.ContainsKey(lang ?? "") ? lang.ToLowerInvariant() : "en";
+            // AI-434: a multi-valid-code picker. The dropdown starts on the AI's code when it gave one
+            // (badged "AI suggested"), else on the first option; nothing is written until a person writes it.
+            IsPick = isPick && Options.Count > 0;
+            if (IsPick)
+            {
+                PickCode = Options.FirstOrDefault(o => string.Equals(o, pickCode ?? "", StringComparison.OrdinalIgnoreCase)) ?? "";
+                PickReason = PickCode.Length > 0 ? pickReason ?? "" : "";
+                _manual = PickCode.Length > 0 ? PickCode : Options[0];
+            }
         }
+
+        /// <summary>The row is a multi-valid-code picker (AI-434).</summary>
+        public bool IsPick { get; }
+        /// <summary>The AI's code among the options, or "".</summary>
+        public string PickCode { get; } = "";
+        /// <summary>Why the AI chose it: the dropdown's tooltip.</summary>
+        public string PickReason { get; } = "";
+        public string PickTooltip => PickReason;
+        public string AiBadge => S("aiBadge");
+        /// <summary>The "AI suggested" badge: the dropdown sits on the AI's code.</summary>
+        public bool ShowAiBadge => IsPick && PickCode.Length > 0 && string.Equals(_manual, PickCode, StringComparison.OrdinalIgnoreCase);
+        /// <summary>The person has chosen a value themselves (a rebuild of the row keeps it).</summary>
+        public bool ManualTouched { get; private set; }
 
         private string S(string k) => T[Lang][k];
 
         /// <summary>The AI line: the explicit "no suggestion" text, or empty when a value is proposed.</summary>
-        public string AiLine => AiState == FixerAiState.NotAsked ? S("none")
+        public string AiLine => IsPick ? "" : AiState == FixerAiState.NotAsked ? S("none")
                               : AiState == FixerAiState.NoSuggestion ? S("noneAsked") : "";
         public bool HasAiValue => AiState == FixerAiState.Suggested;
         public bool HasAiReason => AiReason.Length > 0;
         /// <summary>Ask AI is offered until the fixer has proposed something.</summary>
-        public bool CanAsk => AiState != FixerAiState.Suggested;
-        public bool CanAccept => HasAiValue && AiValue.Length > 0;
+        public bool CanAsk => IsPick ? PickCode.Length == 0 && AiState != FixerAiState.NoSuggestion : AiState != FixerAiState.Suggested;
+        public bool CanAccept => !IsPick && HasAiValue && AiValue.Length > 0;
         public string AskLabel => S("ask");
         public string AcceptLabel => S("accept");
-        public string ManualLabel => S("manual");
+        public string ManualLabel => IsPick ? S("pick") : S("manual");
         public string WriteLabel => S("write");
         public string Note => S("note");
 
@@ -216,6 +241,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 var v = value ?? "";
                 if (_manual == v) return;
                 _manual = v;
+                ManualTouched = true;
+                Raise(nameof(ShowAiBadge));
                 Raise(nameof(ManualValue)); Raise(nameof(ManualError)); Raise(nameof(HasManualError)); Raise(nameof(CanWriteManual));
             }
         }

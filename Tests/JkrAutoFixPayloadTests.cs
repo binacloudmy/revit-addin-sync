@@ -661,6 +661,8 @@ namespace RevitWebAppSync.Services
         [JsonProperty("actual_value")] public string ActualValue { get; set; } = "";
         [JsonProperty("expected_value")] public string ExpectedValue { get; set; } = "";
         [JsonProperty("reason")] public string Reason { get; set; } = "";
+        [JsonProperty("valid_options", NullValueHandling = NullValueHandling.Ignore)] public List<string> ValidOptions { get; set; }
+        [JsonProperty("requires_user_choice", DefaultValueHandling = DefaultValueHandling.Ignore)] public bool RequiresUserChoice { get; set; }
     }
 
     public class JkrAutoFixRequest

@@ -138,8 +138,10 @@ namespace RevitWebAppSync.UI
             if (asked.Count == 1 && FindIssue(asked[0]) is IssueVm ai && ai.AiFixCandidate && ai.AiProposal != null)
                 ai.UseAiSuggestion();
             var issues = asked.Select(FindIssue)
-                .Where(i => i != null && !i.NeedsPerson && (i.AutoFixable || (asked.Count == 1 && i.AiFixCandidate && i.FixProposedByAi))
-                            && !string.IsNullOrEmpty(i.FixAction) && !IsEmptyRename(i))
+                .Where(i => i != null && !i.NeedsPerson
+                            && (i.IsPick   // AI-434: the confirm dialog carries the picker; the person chooses there
+                                || ((i.BulkFixable || (asked.Count == 1 && i.AiFixCandidate && i.FixProposedByAi))
+                                    && !string.IsNullOrEmpty(i.FixAction) && !IsEmptyRename(i))))
                 .ToList();
             if (issues.Count == 0) { _vm.ShowToast(Jkr.Panel.Core.PaneText.NoAutoFixHere()); return; }
             if (_fixInFlight) { _vm.ShowToast(Jkr.Panel.Core.PaneText.FixRunning()); return; }
@@ -148,16 +150,20 @@ namespace RevitWebAppSync.UI
                 TaskDialog.Show(Jkr.Panel.Core.PaneText.DialogTitle, Jkr.Panel.Core.PaneText.AutoFixUnavailable());
                 return;
             }
-            if (issues.Count == 1)
+            if (issues.Count == 1 && !issues[0].IsPick)
             {
                 await ApplyAutoFixAsync(issues[0], advance: false);
                 return;
             }
-            var fixable = issues.OrderBy(i => i.FixPriority).ToList();
-            if (!await ConfirmFixesAsync(fixable)) return;
+            var picks = issues.Where(i => i.IsPick).ToList();
+            var fixable = issues.Where(i => !i.IsPick).OrderBy(i => i.FixPriority).ToList();
+            if (!await ConfirmFixesAsync(fixable.Concat(picks).ToList())) return;
             try
             {
-                await ApplyFixBatch(fixable);
+                if (fixable.Count > 0) await ApplyFixBatch(fixable);
+                // AI-434: a picked code is written one element at a time, each re-checked on its own;
+                // the row resolves only when its rule re-passes.
+                foreach (var pick in picks) await ApplyAutoFixAsync(pick, advance: false);
             }
             catch (Exception ex)
             {
@@ -175,8 +181,8 @@ namespace RevitWebAppSync.UI
         public async Task FixManualAsync(string id, string value)
         {
             var issue = FindIssue(id);
-            if (issue == null || !issue.AiFixCandidate) return;
-            var plan = JkrManualFix.Plan(issue.RawRule, issue.RevitCategory, value, issue.ReferenceValues, Jkr.Panel.Core.PaneLanguage.Current);
+            if (issue == null || !(issue.AiFixCandidate || issue.IsPick)) return;
+            var plan = JkrManualFix.Plan(issue.RawRule, issue.RevitCategory, value, issue.IsPick ? issue.ValidOptions : issue.ReferenceValues, Jkr.Panel.Core.PaneLanguage.Current);
             if (!plan.Ok) { _vm.ShowToast(Jkr.Panel.Core.PaneText.ManualRefused(plan.Error)); return; }
             if (_fixInFlight) { _vm.ShowToast(Jkr.Panel.Core.PaneText.FixRunning()); return; }
             issue.UseManualValue(plan);
@@ -670,7 +676,7 @@ namespace RevitWebAppSync.UI
                 && (only == null || only.Contains(i.Id));
 
             var fixable = _vm.Issues
-                .Where(i => Retryable(i) && i.AutoFixable && !string.IsNullOrEmpty(i.FixAction)
+                .Where(i => Retryable(i) && i.BulkFixable && !string.IsNullOrEmpty(i.FixAction)   // never a pick row (AI-434)
                             && !IsEmptyRename(i))
                 .ToList();
 
@@ -737,7 +743,7 @@ namespace RevitWebAppSync.UI
                 if (!ok) return;   // backend error: already toasted, still "no suggestion yet"
                 issue.AiAsked = true;
                 issue.AiProposal = proposal;
-                if (proposal == null) _vm.ShowToast(Jkr.Panel.Core.PaneText.AiNothing());
+                if (proposal == null && !(issue.IsPick && issue.AiSuggestedCode.Length > 0)) _vm.ShowToast(Jkr.Panel.Core.PaneText.AiNothing());
             }
             catch (Exception ex)
             {
@@ -774,6 +780,9 @@ namespace RevitWebAppSync.UI
                         ActualValue = issue.Actual,
                         ExpectedValue = issue.Required,
                         Reason = issue.Description,
+                        // AI-434: the picker's inputs; the backend answers with a suggestion, never a fix.
+                        ValidOptions = issue.IsPick ? issue.ValidOptions.ToList() : null,
+                        RequiresUserChoice = issue.IsPick,
                     },
                 },
             });
@@ -786,6 +795,13 @@ namespace RevitWebAppSync.UI
             }
             System.Diagnostics.Debug.WriteLine(
                 $"[BINA AiFix] model={response.ModelUsed} fixes={response.Fixes?.Count ?? 0} unfixed={response.UnfixedCheckIds?.Count ?? 0}");
+            if (issue.IsPick)
+            {
+                // AI-434: a suggestion preselects the picker (always one of its options); nothing is written.
+                var s = (response.Suggestions ?? new List<JkrAutoFixSuggestion>()).FirstOrDefault(x => x.CheckId == issue.CheckId);
+                if (s != null) issue.SetPick(issue.ValidOptions, s.AiSuggestedCode, s.AiSuggestionReason, true);
+                return (true, null);
+            }
             var p = (response.Fixes ?? new List<JkrAutoFixProposal>())
                 .FirstOrDefault(f => f.FixAction != null && f.CheckId == issue.CheckId);
             if (p == null) return (true, null);
@@ -1044,11 +1060,24 @@ namespace RevitWebAppSync.UI
         private Task<bool> ConfirmFixesAsync(List<IssueVm> issues)
         {
             var rows = issues.Select(JkrConfirmRow.FromIssue).ToList();
+            // AI-434: a pick row starts on the AI's code (else the first option) so the affected count sees its
+            // write; the dialog's picker then decides the value that is actually written.
+            string PickPlanValue(IssueVm i) => !string.IsNullOrEmpty(i.AiSuggestedCode) ? i.AiSuggestedCode : i.ValidOptions[0];
+            foreach (var p in issues.Where(i => i.IsPick))
+                p.UseManualValue(JkrManualFix.Plan(p.RawRule, p.RevitCategory, PickPlanValue(p), p.ValidOptions, Jkr.Panel.Core.PaneLanguage.Current));
             var renames = issues.Where(i => string.Equals(i.FixAction, "rename_type", StringComparison.OrdinalIgnoreCase))
                                 .Select(i => i.RevitElementId).ToList();
             var fixes = issues.Where(i => !string.Equals(i.FixAction, "rename_type", StringComparison.OrdinalIgnoreCase))
                               .Select(ToFixAction).ToList();
-            return ConfirmWriteAsync(JkrConfirmKind.Fix, rows, renames, fixes);
+            return ConfirmWriteAsync(JkrConfirmKind.Fix, rows, renames, fixes, model =>
+            {
+                for (var k = 0; k < issues.Count; k++)
+                {
+                    if (!issues[k].IsPick) continue;
+                    var chosen = model.SelectedFor(rows[k]);
+                    issues[k].UseManualValue(JkrManualFix.Plan(issues[k].RawRule, issues[k].RevitCategory, chosen, issues[k].ValidOptions, Jkr.Panel.Core.PaneLanguage.Current));
+                }
+            });
         }
 
         /// <summary>Count the affected elements in Revit (instances of renamed types
@@ -1056,7 +1085,8 @@ namespace RevitWebAppSync.UI
         /// lock is held while counting and while the dialog is open, so a second
         /// click can't start another write. Nothing is written here.</summary>
         private async Task<bool> ConfirmWriteAsync(JkrConfirmKind kind, List<JkrConfirmRow> rows,
-                                                   List<long> renames, List<JkrFixAction> fixes)
+                                                   List<long> renames, List<JkrFixAction> fixes,
+                                                   Action<JkrConfirmModel> onConfirmed = null)
         {
             if (rows.Count == 0) return false;
             if (_fixInFlight) { _vm.ShowToast(Jkr.Panel.Core.PaneText.FixRunning()); return false; }
@@ -1081,7 +1111,9 @@ namespace RevitWebAppSync.UI
                 }
 
                 var model = new JkrConfirmModel(kind, rows, affected, lang: Jkr.Panel.Core.PaneLanguage.Current);
-                return JkrConfirmWindow.Ask(model, this);
+                var confirmed = JkrConfirmWindow.Ask(model, this);
+                if (confirmed) onConfirmed?.Invoke(model);
+                return confirmed;
             }
             finally
             {
@@ -1565,7 +1597,7 @@ namespace RevitWebAppSync.UI
             }
             // An AI-fixer row (AI-435) resolves only when the rule re-passed: if nothing could be
             // checked it stays Open (the value is in the model; a re-scan will clear it).
-            if (outcome == null && issue.AiFixCandidate)
+            if (outcome == null && (issue.AiFixCandidate || issue.IsPick))
             {
                 _vm.ShowToast(Jkr.Panel.Core.PaneText.FixNotRechecked());
                 return;
