@@ -55,10 +55,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             ResultCardView.CommitWarnings(root, card, lang, actions);
             var acts = ItemsCard.ActionBar(root);
             Button? copy = null;
-            copy = CardKit.Secondary("Copy list", async () =>
+            copy = CardKit.Secondary(ms ? "Salin senarai" : "Copy list", async () =>
             {
                 var ok = await ClipboardKit.CopyAsync(() => by.CopyText(), "copy-list", card.Created.Count);
-                if (ok && copy != null) ItemsCard.SetLabel(copy, "Copied");
+                if (ok && copy != null) ItemsCard.SetLabel(copy, ms ? "Disalin" : "Copied");
             }, CardKit.Icons.Copy);
             acts.Children.Add(copy);
             return true;

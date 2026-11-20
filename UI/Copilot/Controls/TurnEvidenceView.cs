@@ -177,7 +177,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 rs.Children.Add(CardKit.Text(ReceiptTemplates.Headline(ev.Receipt, lang), 12.5, "Cp.Ink", FontWeights.SemiBold));
                 var buttons = new WrapPanel { Margin = new Thickness(0, 6, 0, 0) };
                 if (ev.AnyCommitted && actions.Undo != null && SafeCanUndo(actions))
-                    buttons.Children.Add(CardKit.Secondary("Undo", actions.Undo));
+                    buttons.Children.Add(CardKit.Secondary(ms ? "Buat asal" : "Undo", actions.Undo));
                 if (buttons.Children.Count > 0) rs.Children.Add(buttons);
                 // L19: Undo is off (an edit in Revit after this turn, Revit's own Undo,
                 // already undone): say why in one line instead of a button that vanished.

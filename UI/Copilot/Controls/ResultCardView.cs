@@ -277,7 +277,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         /// <summary>The "Steps" text button: opens and closes the panel it is given (the board's replacement for a stock Expander).</summary>
         internal static Button StepsToggle(FrameworkElement panel, bool ms)
         {
-            var label = "Steps";
+            var label = ms ? "Langkah" : "Steps";
             Button toggle = null!;
             toggle = CardKit.Ghost(label + " ▾", () =>
             {
@@ -296,7 +296,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         {
             var tables = actions.ExportTables?.Where(EvidenceDedupe.WorthExporting).ToList();
             if (actions.Export == null || tables == null || tables.Count == 0) return null;
-            string Describe(ResultTable t) => ("Export to Excel") + (string.IsNullOrWhiteSpace(t.Title) ? "" : " · " + t.Title.Trim());
+            string Describe(ResultTable t) => (ms ? "Eksport ke Excel" : "Export to Excel") + (string.IsNullOrWhiteSpace(t.Title) ? "" : " · " + t.Title.Trim());
             Button button = null!;
             if (tables.Count == 1)
             {
@@ -317,7 +317,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 }
                 menu.IsOpen = true;
             }, CardKit.Icons.Grid);
-            button.ToolTip = "Export to Excel";
+            button.ToolTip = ms ? "Eksport ke Excel" : "Export to Excel";
             return button;
         }
 
@@ -354,13 +354,13 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             bool Ok(Func<bool>? f) { try { return f?.Invoke() ?? false; } catch { return false; } }
             var row = new WrapPanel { Margin = new Thickness(0, 12, 0, 0) };
             {
-                if (actions.UndoLast != null && Ok(actions.CanUndoLast)) row.Children.Add(CardKit.Secondary("Undo last part", actions.UndoLast));
-                if (actions.Redo != null && !undone && Ok(actions.CanRedo)) row.Children.Add(CardKit.Secondary("Redo", actions.Redo));   // the banner holds Redo once undone
+                if (actions.UndoLast != null && Ok(actions.CanUndoLast)) row.Children.Add(CardKit.Secondary(ms ? "Buat asal bahagian akhir" : "Undo last part", actions.UndoLast));
+                if (actions.Redo != null && !undone && Ok(actions.CanRedo)) row.Children.Add(CardKit.Secondary(ms ? "Buat semula" : "Redo", actions.Redo));   // the banner holds Redo once undone
             }
             var export = ExportButton(actions, ms);
             if (export != null) row.Children.Add(export);
             if (actions.SaveAsCommand != null)
-                row.Children.Add(CardKit.Secondary("Save as command", actions.SaveAsCommand, CardKit.Icons.Bookmark));
+                row.Children.Add(CardKit.Secondary(ms ? "Simpan sebagai arahan" : "Save as command", actions.SaveAsCommand, CardKit.Icons.Bookmark));
             return row.Children.Count > 0 ? row : null;
         }
 
@@ -383,7 +383,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             try { canRedo = actions.Redo != null && (actions.CanRedo?.Invoke() ?? false); } catch (Exception) { canRedo = false; }
             if (canRedo)
             {
-                var redo = CardKit.Secondary("Redo", actions.Redo!);
+                var redo = CardKit.Secondary(ms ? "Buat semula" : "Redo", actions.Redo!);
                 redo.VerticalAlignment = VerticalAlignment.Center;
                 DockPanel.SetDock(redo, Dock.Right); dock.Children.Add(redo);
             }
@@ -404,8 +404,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             var badge = new Border { CornerRadius = new CornerRadius(6), Padding = new Thickness(7, 1, 7, 1) };
             badge.SetResourceReference(Border.BackgroundProperty, ok ? "Cp.OkBg" : "Cp.AmberBg");
             var n = card.Mismatches.ToString(CultureInfo.InvariantCulture);
-            var text = ok ? ("✓ Read back from Revit")
-                          : (n + " mismatch" + (card.Mismatches == 1 ? "" : "es") + " in the read-back");
+            var text = ok ? (ms ? "✓ Dibaca balik dari Revit" : "✓ Read back from Revit")
+                          : (ms ? n + " tak sepadan dalam bacaan balik" : n + " mismatch" + (card.Mismatches == 1 ? "" : "es") + " in the read-back");
             badge.Child = CardKit.Text(text, 11, ok ? "Cp.Ink" : "Cp.AmberFg", FontWeights.Medium);
             row.Children.Add(badge);
             if (!string.IsNullOrEmpty(card.Elapsed)) row.Children.Add(CardKit.Text(card.Elapsed, 11, "Cp.Faint", margin: new Thickness(8, 0, 0, 0)));
@@ -453,7 +453,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             banner.SetResourceReference(Border.BackgroundProperty, "Cp.AmberBg");
             banner.SetResourceReference(Border.BorderBrushProperty, "Cp.LineSoft");
             var sp = new StackPanel();
-            sp.Children.Add(CardKit.Text("Revit raised " + n + (card.Warnings.Count == 1 ? " warning" : " warnings"), 12, "Cp.AmberFg", FontWeights.SemiBold));
+            sp.Children.Add(CardKit.Text(ms ? "Revit memberi " + n + " amaran" : "Revit raised " + n + (card.Warnings.Count == 1 ? " warning" : " warnings"), 12, "Cp.AmberFg", FontWeights.SemiBold));
             sp.Children.Add(CardKit.Text(ResultCardModel.CommitWarningsNote(lang), 11, "Cp.AmberFg"));
             var grid = new Grid { Margin = new Thickness(0, 4, 0, 0) };
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -470,7 +470,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 Cell(grid, r, 1, CardKit.Text(w.Ids.Count > 0 ? w.Ids.Count.ToString(CultureInfo.InvariantCulture) : "", 11.5, "Cp.Ink", wrap: false, margin: new Thickness(0, 3, 10, 3)));
                 if (w.Ids.Count > 0 && actions.ShowElements != null)
                 {
-                    var ids = w.Ids.ToArray(); var show = CardKit.Ghost("Show", () => actions.ShowElements(ids), compact: true);
+                    var ids = w.Ids.ToArray(); var show = CardKit.Ghost(ms ? "Tunjuk" : "Show", () => actions.ShowElements(ids), compact: true);
                     show.Margin = new Thickness(0, 0, 0, 2); Cell(grid, r, 2, show);
                 }
                 r++;
@@ -478,7 +478,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             if (card.Warnings.Count > MaxRows)
             {
                 grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-                var more = CardKit.Text("+ " + (card.Warnings.Count - MaxRows) + (" more"), 11, "Cp.Faint");
+                var more = CardKit.Text("+ " + (card.Warnings.Count - MaxRows) + (ms ? " lagi" : " more"), 11, "Cp.Faint");
                 Grid.SetRow(more, r); Grid.SetColumnSpan(more, 3); grid.Children.Add(more);
             }
             sp.Children.Add(grid);

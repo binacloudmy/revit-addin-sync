@@ -394,7 +394,7 @@ namespace RevitWebAppSync.UI.Copilot
                     // Undo is offered for a turn from a past session.
                     ResultCard = m.ResultCard,
                     Evidence = m.ResultCard != null ? new TurnEvidence() : null,
-                    Lang = PromptLanguage.Card(m.Lang),   // a card saved in Malay before G8 reads in English too
+                    Lang = PromptLanguage.Card(m.Lang),   // r21: a saved card reads in the language it was made in
                 });
             }
             Tab = CpTab.Chat;
@@ -1260,7 +1260,7 @@ namespace RevitWebAppSync.UI.Copilot
                 return;
             }
 
-            // The card's fixed labels are English whatever the drafter typed (G8): the one place the turn's language
+            // r21 (owner, 21 Nov): the card's fixed labels follow the drafter's language: the one place the turn's language
             // reaches the card, its receipts and its history line.
             var cardLang = PromptLanguage.Card(rr.Language);
             // The narrow no-op rule (B): a code no-op against a result that says things changed is a caution; the evidence needs the result first.

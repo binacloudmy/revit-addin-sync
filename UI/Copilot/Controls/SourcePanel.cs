@@ -50,7 +50,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             if (isDoc)
             {
                 var host = new ContentControl { Margin = new Thickness(0, 6, 0, 4) };
-                host.Content = CardKit.Text("Reading the page…", 10.5, "Cp.Faint");
+                host.Content = CardKit.Text(ms ? "Membaca halaman…" : "Reading the page…", 10.5, "Cp.Faint");
                 sp.Children.Add(host);
                 var full = false;
                 void Load() => LoadCrop(host, info!, written, lang, actions, full);
@@ -61,19 +61,19 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 sp.Children.Add(Compare(written, row.ChangedBack ? row.IntendedLabel : null, quote, ms));
                 var acts = new WrapPanel { Margin = new Thickness(0, 4, 0, 0) };
                 Button? fullBtn = null;
-                fullBtn = CardKit.Secondary("Open full page", () =>
+                fullBtn = CardKit.Secondary(ms ? "Buka halaman penuh" : "Open full page", () =>
                 {
                     full = !full;
-                    if (fullBtn != null) fullBtn.Content = full ? ("Show the crop only") : ("Open full page");
+                    if (fullBtn != null) fullBtn.Content = full ? (ms ? "Tunjuk petikan sahaja" : "Show the crop only") : (ms ? "Buka halaman penuh" : "Open full page");
                     Load();
                 });
                 acts.Children.Add(fullBtn);
                 if (actions.OpenSource != null)
                 {
                     var att = info!.Attachment!; var page = info.Page;
-                    acts.Children.Add(CardKit.Secondary("Open PDF", () => actions.OpenSource(att, page)));
+                    acts.Children.Add(CardKit.Secondary(ms ? "Buka PDF" : "Open PDF", () => actions.OpenSource(att, page)));
                 }
-                if (startEdit != null) acts.Children.Add(CardKit.Secondary("Edit value", startEdit));
+                if (startEdit != null) acts.Children.Add(CardKit.Secondary(ms ? "Ubah nilai" : "Edit value", startEdit));
                 sp.Children.Add(acts);
                 return outer;
             }
@@ -81,13 +81,13 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             // Not a document: say what it is, and what was written.
             var kind = SourceText.Kind(info?.Kind, lang);
             if (kind.Length > 0) sp.Children.Add(CardKit.Text(kind, 11, "Cp.Muted", margin: new Thickness(0, 3, 0, 0)));
-            string Or(string? s) => string.IsNullOrEmpty(s) ? ("empty") : s!;
-            sp.Children.Add(CardKit.Text(("Before · ") + Or(row.Before) + "   " + ("After · ") + Or(row.After), 11, "Cp.Muted", mono: true, margin: new Thickness(0, 3, 0, 0)));
+            string Or(string? s) => string.IsNullOrEmpty(s) ? (ms ? "kosong" : "empty") : s!;
+            sp.Children.Add(CardKit.Text((ms ? "Sebelum · " : "Before · ") + Or(row.Before) + "   " + (ms ? "Selepas · " : "After · ") + Or(row.After), 11, "Cp.Muted", mono: true, margin: new Thickness(0, 3, 0, 0)));
             if (!string.IsNullOrEmpty(quote)) sp.Children.Add(Compare(written, row.ChangedBack ? row.IntendedLabel : null, quote, ms));
             if (startEdit != null)
             {
                 var acts = new WrapPanel { Margin = new Thickness(0, 4, 0, 0) };
-                acts.Children.Add(CardKit.Secondary("Edit value", startEdit));
+                acts.Children.Add(CardKit.Secondary(ms ? "Ubah nilai" : "Edit value", startEdit));
                 sp.Children.Add(acts);
             }
             return outer;
@@ -100,10 +100,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             var w = new StackPanel { Margin = new Thickness(0, 0, 8, 0) };
-            w.Children.Add(CardKit.Text("Written", 10, "Cp.Faint", FontWeights.Medium));
-            w.Children.Add(CardKit.Text(string.IsNullOrEmpty(written) ? (writtenLabel ?? ("empty")) : written!, 11.5, "Cp.Ink", FontWeights.SemiBold, mono: true));
+            w.Children.Add(CardKit.Text(ms ? "Ditulis" : "Written", 10, "Cp.Faint", FontWeights.Medium));
+            w.Children.Add(CardKit.Text(string.IsNullOrEmpty(written) ? (writtenLabel ?? (ms ? "kosong" : "empty")) : written!, 11.5, "Cp.Ink", FontWeights.SemiBold, mono: true));
             var q = new StackPanel();
-            q.Children.Add(CardKit.Text("Brochure", 10, "Cp.Faint", FontWeights.Medium));
+            q.Children.Add(CardKit.Text(ms ? "Sumber" : "Brochure", 10, "Cp.Faint", FontWeights.Medium));
             q.Children.Add(CardKit.Text(string.IsNullOrEmpty(quote) ? "—" : quote!, 11.5, "Cp.Ink2", mono: true));
             Grid.SetColumn(w, 0); Grid.SetColumn(q, 1);
             g.Children.Add(w); g.Children.Add(q);

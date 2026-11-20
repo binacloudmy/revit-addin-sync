@@ -45,15 +45,16 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return ms ? ReceiptLanguage.Ms : ReceiptLanguage.En;
         }
 
-        /// <summary>The language of the pane's own fixed labels on a turn's result card, its receipts and its history line:
-        /// English, whatever language the drafter typed (the owner's ruling, first for the question form, then for the
-        /// result card, 14 Nov). The model's own sentences stay as written, and the turn still sends the drafter's language
-        /// to the cloud (<see cref="Code"/>) so the model answers in it. The Malay strings stay in the templates.</summary>
-        public static ReceiptLanguage Card(ReceiptLanguage turn) => ReceiptLanguage.En;
+        /// <summary>The language of the pane's own fixed labels on a turn's cards (the question form, the result card, its receipts and its
+        /// history line): the drafter's (owner, 21 Nov: "follow the best practice", which replaces the 14 Nov G8 ruling that kept them English).
+        /// A Malay chat gets Malay chrome, an English chat the English it always had; Revit names (categories, parameters, families, types,
+        /// views, levels, units) and the model's own sentences stay exactly as written. The turn sends the same language to the cloud
+        /// (<see cref="Code"/>), so the backend's own cards follow it too.</summary>
+        public static ReceiptLanguage Card(ReceiptLanguage turn) => turn;
 
         /// <summary>r18 (live L15 8f1279fc, a Malay chat): the language of the turn's running chrome, the "Working" card (Step, Stop, its
         /// helper line) and the Steps list ("AGENT ACTIVITY"), is the drafter's, as the step rows themselves have been since r17 (StepLabels
-        /// follows the turn's language). G8 (<see cref="Card"/>) stays the rule for the result card, its receipts and the question form.</summary>
+        /// follows the turn's language). Since r21 the cards follow it as well (<see cref="Card"/>).</summary>
         public static ReceiptLanguage Activity(string? prompt) => Detect(prompt);
 
         /// <summary>The wire code of <c>lang</c> in a turn request.</summary>
