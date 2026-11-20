@@ -73,6 +73,26 @@ namespace BinaVibe.Mcp.Tools.Electrical
         /// <summary>The device place_socket_points made for this point; null until then. A
         /// conduit run's drop connects to it.</summary>
         public long? PlacedId;
+        /// <summary>Diagnostic only, on a drawing plan: where this point would go from each
+        /// candidate anchor of its drawn symbol (centre first). Null on a rule plan.</summary>
+        public List<PlanAnchor>? Anchors;
+    }
+
+    /// <summary>
+    /// One candidate anchor of a drawn symbol (centre, insert, wall_edge_mid, bbox_min,
+    /// bbox_max), carried to the placement point the resolver would make of it: same wall,
+    /// side, face snap and Z as the point itself. Never used to place.
+    /// </summary>
+    public sealed class PlanAnchor
+    {
+        public string Name = "";
+        /// <summary>False when the candidate does not apply (a far insert point, no box, no
+        /// host wall for wall_edge_mid): X, Y, Z mean nothing.</summary>
+        public bool Known;
+        public double XMm, YMm, ZMm;
+        /// <summary>Signed, along the host wall from the centre anchor's point; null with no
+        /// host wall.</summary>
+        public double? AlongOffsetMm;
     }
 
     /// <summary>Where a drawing was found to sit on the model, for a drawing plan.</summary>

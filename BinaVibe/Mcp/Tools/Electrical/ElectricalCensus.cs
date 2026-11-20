@@ -416,6 +416,12 @@ namespace BinaVibe.Mcp.Tools.Electrical
         public double RotationRad;
         public bool Mirrored;
         public double WidthMm, HeightMm;
+        /// <summary>The insert point, mm (the anchor diagnostic's "insert"; never placed at).</summary>
+        public double InsertX, InsertY;
+        /// <summary>The definition's box corners carried to world, mm, in local order (min,min),
+        /// (max,min), (max,max), (min,max) as x0, y0, x1, y1, ...; all at the insert point for a
+        /// block that draws nothing. Empty when not read (the anchor diagnostic skips it).</summary>
+        public double[] Corners = new double[0];
         public int Depth;
         /// <summary>Index into <see cref="ElectricalScan.Symbols"/> of the insert holding this
         /// one; -1 at depth 0.</summary>
@@ -727,6 +733,9 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     Mirrored = instance.Mirrored,
                     WidthMm = instance.WidthMm,
                     HeightMm = instance.HeightMm,
+                    InsertX = instance.InsertX,
+                    InsertY = instance.InsertY,
+                    Corners = instance.Corners,
                     Depth = instance.Depth,
                     Parent = instance.Parent != null && index.TryGetValue(instance.Parent, out int parent) ? parent : -1,
                     Cluster = instance.Cluster,
@@ -1621,6 +1630,9 @@ namespace BinaVibe.Mcp.Tools.Electrical
             /// <summary>The plan it is in, -1 when in none: set where InPlan is.</summary>
             public int Cluster = -1;
             public double WidthMm, HeightMm;
+            /// <summary>See ScanSymbol.InsertX and Corners.</summary>
+            public double InsertX, InsertY;
+            public double[] Corners = new double[0];
             public int Depth;
             public IReadOnlyDictionary<string, string> Attributes = null!;
             public bool NearWall;
@@ -1860,6 +1872,17 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     Depth = depth,
                     Attributes = attributes,
                 };
+                // The anchor diagnostic's frame: read only when every part of it is finite.
+                double[] corners = block.HasGeometry
+                    ? SymbolFrame.Corners(block.MinX, block.MinY, block.MaxX, block.MaxY, x, y, instance.RotationRad,
+                                          scaleX, scaleY, mirrored)
+                    : new[] { x, y, x, y, x, y, x, y };
+                if (instance.Placed && IsFinite(x, y) && corners.All(IsFinite))
+                {
+                    instance.InsertX = x;
+                    instance.InsertY = y;
+                    instance.Corners = corners;
+                }
                 Instances.Add(instance);
                 _open.Add((depth, effective, instance));
             }
@@ -1877,12 +1900,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
             {
                 if (!block.HasGeometry) return (x, y);
                 double lx = (block.MinX + block.MaxX) / 2, ly = (block.MinY + block.MaxY) / 2;
-                double cos = Math.Cos(rotationRad), sin = Math.Sin(rotationRad);
-                double flip = mirrored ? -1 : 1;
-                // Columns of the insert's linear map: x axis scaleX * (cos, sin), y axis
-                // scaleY * (-sin, cos), turned over when mirrored.
-                double wx = x + (scaleX * cos * lx) - (flip * scaleY * sin * ly);
-                double wy = y + (scaleX * sin * lx) + (flip * scaleY * cos * ly);
+                (double wx, double wy) = SymbolFrame.ToWorld(lx, ly, x, y, rotationRad, scaleX, scaleY, mirrored);
                 return IsFinite(wx, wy) ? (wx, wy) : (x, y);
             }
 
@@ -1975,6 +1993,9 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     instance.Y *= scale;
                     instance.WidthMm *= scale;
                     instance.HeightMm *= scale;
+                    instance.InsertX *= scale;
+                    instance.InsertY *= scale;
+                    for (int i = 0; i < instance.Corners.Length; i++) instance.Corners[i] *= scale;
                 }
 
                 foreach (CensusText text in Texts)

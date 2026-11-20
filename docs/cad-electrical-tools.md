@@ -390,6 +390,7 @@ The review carries no coordinates.
   - then other plans' placeable symbols (`other_plan`)
 - `dropped_lists_every_symbol`: true when the 2000-row caps cut nothing but `other_plan` rows
 - `runs`: `index`, `layer`, `kind`, `points_mm`, `start` and `end` (`kind`, `point_index`, `element_id`, `drop_mm`), `length_mm`, `flags`, `excluded`
+- on each point, `anchors_mm` and `along_offset_mm`: the anchor diagnostic (section 6). These are not used to place.
 
 **Other errors:**
 - `cluster_needed`, `cluster_out_of_range`: with `candidates` of `{cluster, titles, symbols, width_m, height_m, level}`
@@ -524,7 +525,8 @@ The tool result adds the `cad_imports` and `device_types` counts.
 cad2bim-headless file.dwg --fit=walls.json [--cluster=N] [--min-wall=50]
 cad2bim-headless --compare-devices <ref.json> <placed.json> [--plan=plan.json]
                  [--ref-types=text] [--ref-link=text] [--role=socket]
-                 [--across=50] [--along=500] [--dz=150] [--json]
+                 [--across=50] [--along=500] [--dz=150]
+                 [--anchor=centre|insert|wall_edge_mid|bbox_min|bbox_max|all] [--json]
 cad2bim-headless file.dwg --runs --layers=E-CONDUIT[,E-TRUNK] [--cluster=N] [--min-run=300] [--points-out=runs.json]
 cad2bim-headless --compare-runs <ref.json> <placed.json> [--kind=conduit|cable_tray] [--tol=100] [--3d] [--json]
 ```
@@ -598,6 +600,37 @@ diagnostic (not the issue's rule): matches within 502 mm split across and along 
 **`--json`** prints the full result:
 - every row's `across_mm`, `along_mm`, `split`, `pass` and `dz_mm`
 - `limits`, `pass_share`, `across_ok_share`, `denominator` and `denominator_is`
+
+### Anchor diagnostic
+
+The plan places a symbol at its drawn centre, which is the centre of its geometry's box, snapped onto the wall face. A drafter may have modelled from another point of the symbol. The anchor diagnostic shows which point that was. It does not change placement.
+
+**In the plan.** With `include_points`, each point has `anchors_mm`. This maps each candidate to the point the resolver would make of it: the same wall, side and face snap, at the point's Z, in model mm. It is `null` when the candidate does not apply. `along_offset_mm` gives each candidate's signed offset along the host wall from `centre`. It is `null` with no host wall.
+
+| Candidate | Point of the symbol |
+|---|---|
+| `centre` | the drawn centre (what the plan places) |
+| `insert` | the block's insertion point. `null` when it is more than 2 times the symbol's extent from the drawn centre, which is a far base point. |
+| `wall_edge_mid` | the midpoint of the box side nearest the host wall's face, in the symbol's local frame (rotation and mirror applied). `null` with no host wall. |
+| `bbox_min`, `bbox_max` | the local box's min and max corners |
+
+A ceiling or `none` device, or one with no wall in reach, keeps each candidate as drawn.
+
+**In the compare.**
+- `--anchor=<name>` re-scores with each placed device moved to that candidate. A device is matched to its plan point, the nearest within 100 mm, one to one, and moves by that point's anchor less its centre. A device with no such point, or whose point lacks the anchor, stays where it is. The first line counts both.
+- `--anchor=all` prints the issue metric (within 50 mm, one to one) for every candidate, best first. Both options need a plan that has `anchors_mm`.
+
+Output on a synthetic case where the reference sockets stand at the insert points (one point's insert is far, and its reference stands at its centre):
+
+```
+anchor diagnostic (not the issue's rule, placement unchanged): the placed side moved to each candidate anchor
+anchor         within 50 mm            moved  kept  unexplained
+insert         4/4 (100.0%)                3     1            0
+centre         1/4 (25.0%)                 4     0            0
+wall_edge_mid  1/4 (25.0%)                 4     0            0
+bbox_min       0/4 (0.0%)                  4     0            0
+bbox_max       0/4 (0.0%)                  4     0            0
+```
 
 ## 7. Conduit and trunking runs (phase 2)
 

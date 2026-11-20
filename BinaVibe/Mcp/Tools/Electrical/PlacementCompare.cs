@@ -19,6 +19,10 @@
 // (up to the pass limits' reach) is split across the wall (along the placed point's facing) and
 // along it, and passes when it is on the right face, not too far along, and at the right height.
 //
+// The anchor diagnostic, also not the rule: with a plan that carries anchors_mm, the placed side
+// is moved to one candidate anchor of its drawn symbol (insert, wall_edge_mid, ...) and scored
+// again, to find the point of the symbol the drafter modelled from.
+//
 // Pure: reads the JSON that dump_electrical_reference and plan_cad_electrical write, so the
 // headless CLI runs it without Revit. Millimetres. Must compile on net48.
 
@@ -274,6 +278,18 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 }).ToList(),
             };
         }
+    }
+
+    /// <summary>The issue's metric with the placed side at one candidate anchor.</summary>
+    internal sealed class AnchorScore
+    {
+        public string Anchor = "";
+        /// <summary>Its place in CadSymbolResolve.AnchorNames: the tie break.</summary>
+        public int Order;
+        public int Reference, Within, Unexplained;
+        /// <summary>Placed devices moved to the anchor, and kept where they are (no plan point
+        /// within PlanMatchMm, or the anchor does not apply to it).</summary>
+        public int Moved, Kept;
     }
 
     internal static class PlacementCompare
@@ -537,6 +553,123 @@ namespace BinaVibe.Mcp.Tools.Electrical
         private static double Distance(double x1, double y1, double x2, double y2) =>
             Math.Sqrt(((x2 - x1) * (x2 - x1)) + ((y2 - y1) * (y2 - y1)));
 
+        // ---------------------------------------------------------------- the anchor diagnostic
+
+        /// <summary>A placed device is the plan point within this of it (nearest first, one to
+        /// one); a dump does not say which plan point a device was placed for.</summary>
+        public const double PlanMatchMm = 100;
+
+        /// <summary>True when the plan's points carry anchors_mm (an older plan has none).</summary>
+        public static bool HasAnchors(IReadOnlyList<PlannedPoint> points) => points.Any(p => p.Anchors != null);
+
+        /// <summary>
+        /// The placed devices as if each had been placed at <paramref name="anchor"/> instead of
+        /// its plan point's centre: every device matched to a plan point (PlanMatchMm, nearest
+        /// first, one to one) moves by that point's anchor minus the point, so a placement's own
+        /// offset from its plan point stays. A device with no plan point, or whose point lacks
+        /// the anchor, is kept where it is. Diagnostic only.
+        /// </summary>
+        public static List<RefDevice> AtAnchor(IReadOnlyList<RefDevice> placed, IReadOnlyList<PlannedPoint> points,
+                                               string anchor, out int moved, out int kept)
+        {
+            var pairs = new List<(int D, int P, double Mm)>();
+            for (int d = 0; d < placed.Count; d++)
+            {
+                for (int p = 0; p < points.Count; p++)
+                {
+                    if (points[p].Anchors == null) continue;
+                    double mm = Distance(placed[d].X, placed[d].Y, points[p].XMm, points[p].YMm);
+                    if (mm <= PlanMatchMm) pairs.Add((d, p, mm));
+                }
+            }
+            var pointOf = new int[placed.Count];
+            var taken = new bool[points.Count];
+            for (int i = 0; i < pointOf.Length; i++) pointOf[i] = -1;
+            foreach ((int d, int p, double _) in pairs.OrderBy(x => x.Mm).ThenBy(x => x.D).ThenBy(x => x.P))
+            {
+                if (pointOf[d] >= 0 || taken[p]) continue;
+                pointOf[d] = p;
+                taken[p] = true;
+            }
+
+            moved = 0;
+            kept = 0;
+            var result = new List<RefDevice>(placed.Count);
+            for (int d = 0; d < placed.Count; d++)
+            {
+                RefDevice device = placed[d];
+                PlannedPoint? point = pointOf[d] >= 0 ? points[pointOf[d]] : null;
+                PlanAnchor? a = point?.Anchors?.FirstOrDefault(x => string.Equals(x.Name, anchor, StringComparison.Ordinal));
+                if (point == null || a == null || !a.Known)
+                {
+                    kept++;
+                    result.Add(device);
+                    continue;
+                }
+                moved++;
+                result.Add(new RefDevice
+                {
+                    Id = device.Id,
+                    Category = device.Category,
+                    FamilyType = device.FamilyType,
+                    Level = device.Level,
+                    HostKind = device.HostKind,
+                    X = device.X + (a.XMm - point.XMm),
+                    Y = device.Y + (a.YMm - point.YMm),
+                    Z = device.Z + (a.ZMm - point.ZMm),
+                    FacingX = device.FacingX,
+                    FacingY = device.FacingY,
+                });
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// The issue's metric (within the tolerance, one to one) with the placed side moved to
+        /// each candidate anchor in turn, best first (most within, then report order).
+        /// </summary>
+        public static List<AnchorScore> ScoreAnchors(IReadOnlyList<RefDevice> reference, IReadOnlyList<RefDevice> placed,
+                                                     IReadOnlyList<PlannedPoint> planPoints, IReadOnlyList<DroppedInstance> dropped,
+                                                     double toleranceMm = 50, LinkTransform? refLink = null,
+                                                     PassLimits? limits = null, bool censusComplete = false)
+        {
+            var scores = new List<AnchorScore>();
+            for (int i = 0; i < CadSymbolResolve.AnchorNames.Count; i++)
+            {
+                string name = CadSymbolResolve.AnchorNames[i];
+                List<RefDevice> at = AtAnchor(placed, planPoints, name, out int moved, out int kept);
+                CompareResult r = Compare(reference, at, planPoints, dropped, toleranceMm, refLink, limits, censusComplete);
+                scores.Add(new AnchorScore
+                {
+                    Anchor = name, Order = i, Reference = r.Rows.Count, Within = r.Within, Moved = moved, Kept = kept,
+                    Unexplained = r.Unexplained,
+                });
+            }
+            return scores.OrderByDescending(s => s.Within).ThenBy(s => s.Order).ToList();
+        }
+
+        /// <summary>The --anchor=all table: one line per candidate, best first.</summary>
+        public static string AnchorTable(IReadOnlyList<AnchorScore> scores, double toleranceMm = 50)
+        {
+            var c = CultureInfo.InvariantCulture;
+            string tol = toleranceMm.ToString(c);
+            var lines = new List<string>
+            {
+                "anchor diagnostic (not the issue's rule, placement unchanged): the placed side moved to each candidate anchor",
+                string.Format(c, "{0,-15}{1,-22}{2,7}{3,6}{4,13}", "anchor", "within " + tol + " mm", "moved", "kept", "unexplained"),
+            };
+            foreach (AnchorScore s in scores)
+            {
+                lines.Add(string.Format(c, "{0,-15}{1,-22}{2,7}{3,6}{4,13}", s.Anchor,
+                                        s.Within.ToString(c) + "/" + s.Reference.ToString(c) + " " + Percent(s.Within, s.Reference),
+                                        s.Moved, s.Kept, s.Unexplained));
+            }
+            return string.Join(Environment.NewLine, lines) + Environment.NewLine;
+        }
+
+        private static string Percent(int count, int of) =>
+            "(" + (of == 0 ? 0.0 : 100.0 * count / of).ToString("0.0", CultureInfo.InvariantCulture) + "%)";
+
         // ---------------------------------------------------------------- reading the dumps
 
         /// <summary>The devices of a dump_electrical_reference file, those whose family type
@@ -622,6 +755,27 @@ namespace BinaVibe.Mcp.Tools.Electrical
                         foreach (JsonElement f in flags.EnumerateArray())
                         {
                             if (f.ValueKind == JsonValueKind.String) point.Flags.Add(f.GetString() ?? "");
+                        }
+                    }
+                    if (p.TryGetProperty("anchors_mm", out JsonElement anchors) && anchors.ValueKind == JsonValueKind.Object)
+                    {
+                        point.Anchors = new List<PlanAnchor>();
+                        p.TryGetProperty("along_offset_mm", out JsonElement alongs);
+                        foreach (JsonProperty a in anchors.EnumerateObject())
+                        {
+                            var anchor = new PlanAnchor { Name = a.Name };
+                            double[] at = Numbers(anchors, a.Name);
+                            if (at.Length >= 2)
+                            {
+                                anchor.Known = true;
+                                anchor.XMm = at[0];
+                                anchor.YMm = at[1];
+                                anchor.ZMm = at.Length > 2 ? at[2] : point.ZMm;
+                            }
+                            if (alongs.ValueKind == JsonValueKind.Object && alongs.TryGetProperty(a.Name, out JsonElement along) &&
+                                along.ValueKind == JsonValueKind.Number)
+                                anchor.AlongOffsetMm = along.GetDouble();
+                            point.Anchors.Add(anchor);
                         }
                     }
                     points.Add(point);

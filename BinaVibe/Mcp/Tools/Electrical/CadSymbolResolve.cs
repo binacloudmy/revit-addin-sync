@@ -79,10 +79,97 @@ namespace BinaVibe.Mcp.Tools.Electrical
         /// <summary>"wall" | "ceiling" | "none"</summary>
         public string Host = "wall";
         public double? MountHeightMm;
+        /// <summary>Diagnostic: the symbol's other candidate anchors, model mm. Null: none
+        /// reported (the point's Anchors stay null).</summary>
+        public List<AnchorInput>? Anchors = null;
+    }
+
+    /// <summary>
+    /// One candidate anchor of a drawn symbol, model mm: no candidate when it does not apply,
+    /// one point, or several of which the one nearest the host wall's face is taken (the
+    /// four side midpoints of the symbol's box, for wall_edge_mid).
+    /// </summary>
+    internal sealed class AnchorInput
+    {
+        public string Name = "";
+        public List<(double X, double Y)> Candidates = new List<(double X, double Y)>();
+    }
+
+    /// <summary>
+    /// An insert's local frame carried to world: rotation, then scale, the y axis turned over
+    /// when mirrored. The census places a symbol at its drawn centre with it, and the anchor
+    /// diagnostic reads the box corners with it.
+    /// </summary>
+    internal static class SymbolFrame
+    {
+        public static (double X, double Y) ToWorld(double lx, double ly, double x, double y, double rotationRad,
+                                                   double scaleX, double scaleY, bool mirrored)
+        {
+            double cos = Math.Cos(rotationRad), sin = Math.Sin(rotationRad);
+            double flip = mirrored ? -1 : 1;
+            // Columns of the insert's linear map: x axis scaleX * (cos, sin), y axis
+            // scaleY * (-sin, cos), turned over when mirrored.
+            return (x + (scaleX * cos * lx) - (flip * scaleY * sin * ly),
+                    y + (scaleX * sin * lx) + (flip * scaleY * cos * ly));
+        }
+
+        /// <summary>The local box's corners in world, in local order (min,min), (max,min),
+        /// (max,max), (min,max), as x0, y0, x1, y1, ...</summary>
+        public static double[] Corners(double minX, double minY, double maxX, double maxY, double x, double y,
+                                       double rotationRad, double scaleX, double scaleY, bool mirrored)
+        {
+            var corners = new double[8];
+            double[] lx = { minX, maxX, maxX, minX }, ly = { minY, minY, maxY, maxY };
+            for (int i = 0; i < 4; i++)
+            {
+                (double wx, double wy) = ToWorld(lx[i], ly[i], x, y, rotationRad, scaleX, scaleY, mirrored);
+                corners[2 * i] = wx;
+                corners[(2 * i) + 1] = wy;
+            }
+            return corners;
+        }
     }
 
     internal static class CadSymbolResolve
     {
+        /// <summary>The anchor diagnostic's candidates, in report order. Placement uses centre.</summary>
+        public static readonly IReadOnlyList<string> AnchorNames = new[] { "centre", "insert", "wall_edge_mid", "bbox_min", "bbox_max" };
+
+        /// <summary>An insert point farther than this many symbol extents from the drawn centre
+        /// is a far base point (phase 0 saw kilometres), not an anchor.</summary>
+        public const double FarInsertExtents = 2;
+
+        /// <summary>
+        /// A drawn symbol's candidate anchors other than its centre, carried to model mm by
+        /// <paramref name="toModel"/>: insert (none when farther than FarInsertExtents times
+        /// the symbol's extent from its drawn centre), wall_edge_mid (the box's four side
+        /// midpoints; the resolver takes the one nearest the wall's face), bbox_min and
+        /// bbox_max (the local box's corners). A symbol whose frame was not read gets none.
+        /// </summary>
+        public static List<AnchorInput> AnchorInputs(ScanSymbol symbol, Func<double, double, (double X, double Y)> toModel)
+        {
+            var insert = new AnchorInput { Name = "insert" };
+            var edge = new AnchorInput { Name = "wall_edge_mid" };
+            var min = new AnchorInput { Name = "bbox_min" };
+            var max = new AnchorInput { Name = "bbox_max" };
+            double[] c = symbol.Corners;
+            if (c.Length == 8)
+            {
+                double extent = Math.Max(symbol.WidthMm, symbol.HeightMm);
+                double dx = symbol.InsertX - symbol.X, dy = symbol.InsertY - symbol.Y;
+                if (Math.Sqrt((dx * dx) + (dy * dy)) <= (FarInsertExtents * extent) + 1e-6)
+                    insert.Candidates.Add(toModel(symbol.InsertX, symbol.InsertY));
+                for (int i = 0; i < 4; i++)
+                {
+                    int j = (i + 1) % 4;
+                    edge.Candidates.Add(toModel((c[2 * i] + c[2 * j]) / 2, (c[(2 * i) + 1] + c[(2 * j) + 1]) / 2));
+                }
+                min.Candidates.Add(toModel(c[0], c[1]));
+                max.Candidates.Add(toModel(c[4], c[5]));
+            }
+            return new List<AnchorInput> { insert, edge, min, max };
+        }
+
         /// <summary>Every review flag and whether it keeps a point out of a default placement.</summary>
         public static readonly IReadOnlyDictionary<string, bool> FlagExcludes = new Dictionary<string, bool>(StringComparer.Ordinal)
         {
@@ -156,8 +243,9 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
             // Ceiling and host "none" devices stay at the drawn centre.
             ModelWall? onWall = null;
+            double side = 1;
             RoomHit? room = s.Host == "wall"
-                ? OnWall(s, walls, wallIndex, roomAt, o, p, out onWall)
+                ? OnWall(s, walls, wallIndex, roomAt, o, p, out onWall, out side)
                 : roomAt(s.XMm, s.YMm);
 
             if (room == null) AddFlag(p, "no_room");
@@ -198,7 +286,81 @@ namespace BinaVibe.Mcp.Tools.Electrical
             if (AboveWallTop(p, onWall)) AddFlag(p, "above_wall_top");
 
             if (IsPresent(p.XMm, p.YMm, p.ZMm, existing, o.ExistingMm)) AddFlag(p, "already_present");
+            if (s.Anchors != null) p.Anchors = Anchors(s.Anchors, p, onWall, side);
             return p;
+        }
+
+        /// <summary>
+        /// The point each candidate anchor would give: on the point's wall, side and face
+        /// (SnapToFace, as the point itself), at the point's Z; with no host wall, the
+        /// candidate as drawn. Of several candidates the one nearest the chosen face is taken;
+        /// with no host wall that choice cannot be made and the anchor is not known.
+        /// </summary>
+        private static List<PlanAnchor> Anchors(IReadOnlyList<AnchorInput> inputs, PlannedPoint p, ModelWall? wall, double side)
+        {
+            var anchors = new List<PlanAnchor>
+            {
+                new PlanAnchor
+                {
+                    Name = "centre", Known = true, XMm = p.XMm, YMm = p.YMm, ZMm = p.ZMm,
+                    AlongOffsetMm = wall != null ? 0 : (double?)null,
+                },
+            };
+            foreach (AnchorInput a in inputs)
+            {
+                var anchor = new PlanAnchor { Name = a.Name };
+                anchors.Add(anchor);
+                if (a.Candidates.Count == 0 || (wall == null && a.Candidates.Count > 1)) continue;
+                (double X, double Y) pick = a.Candidates[0];
+                if (wall != null)
+                {
+                    double best = double.MaxValue;
+                    foreach ((double X, double Y) c in a.Candidates)
+                    {
+                        double gap = Math.Abs(Perp(wall, c.X, c.Y) - (side * wall.ThicknessMm / 2));
+                        if (gap >= best) continue;
+                        best = gap;
+                        pick = c;
+                    }
+                }
+                anchor.Known = true;
+                anchor.ZMm = p.ZMm;
+                if (wall == null)
+                {
+                    anchor.XMm = pick.X;
+                    anchor.YMm = pick.Y;
+                    continue;
+                }
+                (double x, double y, double station) = SnapToFace(wall, side, pick.X, pick.Y);
+                anchor.XMm = x;
+                anchor.YMm = y;
+                anchor.AlongOffsetMm = station - p.StationMm;
+            }
+            return anchors;
+        }
+
+        /// <summary>
+        /// The point on a wall's face nearest (x, y): its foot on the centreline, held to the
+        /// wall's ends, moved out half the thickness on <paramref name="side"/> (+1 to the left
+        /// of X1Y1 to X2Y2, -1 to the right). The station is along the wall from X1Y1. The
+        /// placement and the anchor diagnostic both snap with it.
+        /// </summary>
+        internal static (double X, double Y, double StationMm) SnapToFace(ModelWall w, double side, double x, double y)
+        {
+            double length = Length(w);
+            double ux = (w.X2 - w.X1) / length, uy = (w.Y2 - w.Y1) / length;
+            double along = ((x - w.X1) * ux) + ((y - w.Y1) * uy);
+            double station = Math.Max(0, Math.Min(length, along));
+            double half = w.ThicknessMm / 2;
+            return (w.X1 + (ux * station) - (uy * side * half), w.Y1 + (uy * station) + (ux * side * half), station);
+        }
+
+        /// <summary>The signed distance of (x, y) from a wall's centreline, + to the left.</summary>
+        private static double Perp(ModelWall w, double x, double y)
+        {
+            double length = Length(w);
+            double ux = (w.X2 - w.X1) / length, uy = (w.Y2 - w.Y1) / length;
+            return ((x - w.X1) * -uy) + ((y - w.Y1) * ux);
         }
 
         /// <summary>True when an existing device stands within <paramref name="withinMm"/> of the
@@ -244,9 +406,10 @@ namespace BinaVibe.Mcp.Tools.Electrical
         /// room the point faces into (null when none), with the wall picked.</summary>
         private static RoomHit? OnWall(ResolveInput s, IReadOnlyList<ModelWall> walls, SegmentIndex wallIndex,
                                        Func<double, double, RoomHit?> roomAt, ResolveOptions o, PlannedPoint p,
-                                       out ModelWall? chosen)
+                                       out ModelWall? chosen, out double side)
         {
             chosen = null;
+            side = 1;
             double maxHalf = 0;
             foreach (ModelWall w in walls) maxHalf = Math.Max(maxHalf, w.ThicknessMm / 2);
 
@@ -289,7 +452,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
             double half = best.ThicknessMm / 2;
 
             // 3. The side the symbol is drawn on; on the centreline, the side with a room.
-            double side = bestPerp >= 0 ? 1 : -1;
+            side = bestPerp >= 0 ? 1 : -1;
             if (Math.Abs(bestPerp) < o.SideAmbiguityMm)
             {
                 double probe = half + o.RoomProbeMm;
@@ -307,11 +470,9 @@ namespace BinaVibe.Mcp.Tools.Electrical
             }
 
             // 4. Snap to that face, facing out of it. The symbol's own rotation is not used.
-            p.XMm = px + (nx * side * half);
-            p.YMm = py + (ny * side * half);
+            (p.XMm, p.YMm, p.StationMm) = SnapToFace(best, side, s.XMm, s.YMm);
             p.FacingDx = nx * side;
             p.FacingDy = ny * side;
-            p.StationMm = station;
             p.WallLengthMm = wallLength;
 
             if (best.Linked)

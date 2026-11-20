@@ -426,7 +426,16 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
                 string host = row!.Host ?? CadElectricalMapping.DefaultHost(row.Role);
                 PlannedPoint p = CadSymbolResolve.Resolve(
-                    new ResolveInput { XMm = mx, YMm = my, Role = row.Role, Host = host, MountHeightMm = row.MountHeightMm },
+                    new ResolveInput
+                    {
+                        XMm = mx, YMm = my, Role = row.Role, Host = host, MountHeightMm = row.MountHeightMm,
+                        // Diagnostic only: where each candidate anchor would put the point.
+                        Anchors = CadSymbolResolve.AnchorInputs(symbol, (x, y) =>
+                        {
+                            fit.Transform.Apply(x, y, out double ax, out double ay);
+                            return (ax, ay);
+                        }),
+                    },
                     walls, wallIndex, roomAt, levelZMm, model.ExistingDevices, options, ceilingAt);
                 p.Index = points.Count;
                 p.LevelName = level.Name;
@@ -617,6 +626,14 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     ["facing"] = new List<object?> { Math.Round(p.FacingDx, 4), Math.Round(p.FacingDy, 4) },
                     ["flags"] = p.Flags.Cast<object?>().ToList(),
                     ["excluded"] = p.Excluded,
+                    // Diagnostic only (the anchor diagnostic, docs): where each candidate anchor
+                    // of the drawn symbol would put this point; null when it does not apply.
+                    ["anchors_mm"] = p.Anchors?.ToDictionary(a => a.Name, a => a.Known
+                        ? (object?)new List<object?> { Math.Round(a.XMm, 1), Math.Round(a.YMm, 1), Math.Round(a.ZMm, 1) }
+                        : null),
+                    ["along_offset_mm"] = p.Anchors?.ToDictionary(a => a.Name, a => a.Known && a.AlongOffsetMm.HasValue
+                        ? (object?)Math.Round(a.AlongOffsetMm.Value, 1)
+                        : null),
                 }).ToList();
                 result["points_truncated"] = points.Count > MaxPointRows;
                 int ownSymbols = dropped.Count + unplaceable.Count;

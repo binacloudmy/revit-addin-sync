@@ -9,7 +9,7 @@ namespace Cad2Bim.Headless {
     /// The phase 1 exit check without Revit, on files dump_electrical_reference and
     /// plan_cad_electrical wrote:
     ///
-    /// `--compare-devices ref.json placed.json [--plan=plan.json] [--ref-types=text] [--ref-link=text] [--role=socket] [--across=50] [--along=500] [--dz=150] [--json]`
+    /// `--compare-devices ref.json placed.json [--plan=plan.json] [--ref-types=text] [--ref-link=text] [--role=socket] [--across=50] [--along=500] [--dz=150] [--anchor=name|all] [--json]`
     /// matches the reference devices to the placed ones (PlacementCompare) and reports the
     /// issue's rule first: the share of reference devices with a placed device within 50 mm, one
     /// to one, against 90%, and a code for every miss (the plan explains more of them).
@@ -17,7 +17,9 @@ namespace Cad2Bim.Headless {
     /// `--ref-link` carries the reference through the placed dump's link whose name contains the
     /// text. Diagnostic: each match is split across and along the wall; `--across`, `--along` and
     /// `--dz` (mm) set when it passes (50, 500, 150). Those shares are of the plan's points
-    /// (`--role` keeps one role's), else of the placed devices.
+    /// (`--role` keeps one role's), else of the placed devices. `--anchor=<name>` scores with the
+    /// placed devices moved to that candidate anchor of their plan points (anchors_mm);
+    /// `--anchor=all` prints the issue metric for every candidate, best first. Diagnostic only.
     ///
     /// `file.dwg --fit=walls.json [--cluster=N] [--min-wall=50]` fits the drawing's walls to a
     /// dump's walls (CadModelFit): one level's walls, or every level's when the dump has
@@ -30,7 +32,7 @@ namespace Cad2Bim.Headless {
         internal static int Compare(string[] args) {
             int at = Array.IndexOf(args, "--compare-devices");
             if (at < 0 || at + 2 >= args.Length) {
-                Console.Error.WriteLine("usage: --compare-devices <ref.json> <placed.json> [--plan=plan.json] [--ref-types=text] [--ref-link=text] [--role=socket] [--across=50] [--along=500] [--dz=150] [--json]");
+                Console.Error.WriteLine("usage: --compare-devices <ref.json> <placed.json> [--plan=plan.json] [--ref-types=text] [--ref-link=text] [--role=socket] [--across=50] [--along=500] [--dz=150] [--anchor=name|all] [--json]");
                 return 2;
             }
 
@@ -67,6 +69,27 @@ namespace Cad2Bim.Headless {
                 census = PlacementCompare.ReadPlan(planDoc.RootElement, points, dropped);
             }
 
+            // The anchor diagnostic: the placed side moved to a candidate anchor of its drawn
+            // symbol (anchors_mm in the plan). Placement itself is not changed.
+            string? anchor = Value(args, "--anchor=");
+            int moved = 0, kept = 0;
+            if (anchor != null) {
+                if (!PlacementCompare.HasAnchors(points)) {
+                    Console.Error.WriteLine("--anchor needs a plan with anchors_mm: --plan=<plan_cad_electrical result made with include_points=true>");
+                    return 2;
+                }
+                if (anchor == "all") {
+                    List<AnchorScore> scores = PlacementCompare.ScoreAnchors(reference, placed, points, dropped, 50, link, limits, census);
+                    Console.Write(PlacementCompare.AnchorTable(scores));
+                    return 0;
+                }
+                if (!CadSymbolResolve.AnchorNames.Contains(anchor)) {
+                    Console.Error.WriteLine($"--anchor={anchor}: one of {string.Join(", ", CadSymbolResolve.AnchorNames)} or all");
+                    return 2;
+                }
+                placed = PlacementCompare.AtAnchor(placed, points, anchor, out moved, out kept);
+            }
+
             // The issue's rule: within 50 mm, one to one; every miss gets a code.
             CompareResult result = PlacementCompare.Compare(reference, placed, points, dropped, 50, link, limits, census);
             result.PlanGiven = !string.IsNullOrEmpty(planPath);
@@ -75,12 +98,20 @@ namespace Cad2Bim.Headless {
             string? role = Value(args, "--role=");
             if (!string.IsNullOrEmpty(planPath))
                 result.Drawn = points.Count(p => string.IsNullOrEmpty(role) || string.Equals(p.Role, role, StringComparison.OrdinalIgnoreCase));
+            string? anchorLine = anchor != null
+                ? $"anchor {anchor} (diagnostic, placement unchanged): {moved} placed devices moved to it, {kept} kept " +
+                  $"(no plan point within {PlacementCompare.PlanMatchMm:0} mm, or the anchor does not apply)"
+                : null;
             if (args.Contains("--json")) {
-                Console.WriteLine(JsonSerializer.Serialize(result.ToWire(), new JsonSerializerOptions {
+                Dictionary<string, object?> wire = result.ToWire();
+                if (anchor != null)
+                    wire["anchor"] = new Dictionary<string, object?> { ["name"] = anchor, ["moved"] = moved, ["kept"] = kept };
+                Console.WriteLine(JsonSerializer.Serialize(wire, new JsonSerializerOptions {
                     WriteIndented = true,
                     Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
                 }));
             } else {
+                if (anchorLine != null) Console.WriteLine(anchorLine);
                 Console.Write(PlacementCompare.Summary(result));
             }
             return 0;
