@@ -35,6 +35,16 @@ namespace BinaVibe.Mcp.Tools.Electrical
         public double LengthMm;
     }
 
+    /// <summary>A device family type of the model, as read_cad_electrical lists it.</summary>
+    internal sealed class ModelFamilyType
+    {
+        public string FamilyType = "";
+        public string Category = "";
+        /// <summary>Lower first: the category's place in the device category list.</summary>
+        public int CategoryRank;
+        public string Hosting = "";
+    }
+
     internal static class CadElectricalReview
     {
         /// <summary>Flagged items listed per flag; the count is always whole.</summary>
@@ -371,15 +381,26 @@ namespace BinaVibe.Mcp.Tools.Electrical
         private static int ListCount(Dictionary<string, object?> d, string key) =>
             d.TryGetValue(key, out object? v) && v is System.Collections.ICollection c ? c.Count : 0;
 
-        /// <summary>The backend truncates a tool result past 60,000 characters; read_cad_electrical
-        /// keeps its whole serialised result under this.</summary>
-        public const int ResultBudgetChars = 55000;
+        /// <summary>The whole read_cad_electrical result is kept under this many characters of
+        /// JSON. The local Copilot engine works in a 30,000-token context, and the tool result
+        /// shares it with the prompt, the tool list and the chat, so the result gets about 24,000
+        /// characters (roughly 8,000 to 12,000 tokens). The backend's own cut at 60,000 is far
+        /// above this.</summary>
+        public const int ResultBudgetChars = 24000;
 
         /// <summary>The slim census's own budget when the caller does not work one out.</summary>
-        public const int DefaultCensusBudgetChars = 45000;
+        public const int DefaultCensusBudgetChars = 18000;
 
         /// <summary>The least the census is given, however large the rest of the result.</summary>
-        public const int MinCensusBudgetChars = 20000;
+        public const int MinCensusBudgetChars = 10000;
+
+        /// <summary>The model's device family types listed in read_cad_electrical, electrical
+        /// categories first.</summary>
+        public const int MaxFamilyTypes = 80;
+
+        /// <summary>Block classes, and layers, the budget leaves before it drops past them into
+        /// the other list.</summary>
+        public const int BudgetFloor = 30;
 
         /// <summary>Near texts a block keeps once it has been shrunk for the budget.</summary>
         public const int TrimmedNearTexts = 2;
@@ -394,6 +415,44 @@ namespace BinaVibe.Mcp.Tools.Electrical
         public static int JsonLength(object? value) => System.Text.Json.JsonSerializer.Serialize(value).Length;
 
         /// <summary>
+        /// Puts the slim census into a read_cad_electrical <paramref name="result"/> whose other
+        /// parts are filled in: the census gets what they leave of <see cref="ResultBudgetChars"/>
+        /// (at least <see cref="MinCensusBudgetChars"/>).
+        /// </summary>
+        public static Dictionary<string, object?> WithCensus(Dictionary<string, object?> result, ElectricalCensusResult census)
+        {
+            result["census"] = null;
+            int rest = JsonLength(result) - "null".Length;
+            result["census"] = SlimCensus(census, budgetChars: CensusBudget(rest));
+            return result;
+        }
+
+        /// <summary>
+        /// The model's device family types for read_cad_electrical: at most
+        /// <paramref name="max"/>, ordered by category rank (electrical fixtures and equipment,
+        /// lighting, then the low-voltage and safety devices), then category name, then type
+        /// name. Sets <c>family_types</c>, <c>family_types_total</c> and
+        /// <c>family_types_truncated</c> on <paramref name="model"/>.
+        /// </summary>
+        public static void AddFamilyTypes(Dictionary<string, object?> model, IEnumerable<ModelFamilyType> types,
+                                          int max = MaxFamilyTypes)
+        {
+            List<ModelFamilyType> ordered = types
+                .OrderBy(t => t.CategoryRank)
+                .ThenBy(t => t.Category, StringComparer.Ordinal)
+                .ThenBy(t => t.FamilyType, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            model["family_types"] = ordered.Take(max).Select(t => (object?)new Dictionary<string, object?>
+            {
+                ["family_type"] = t.FamilyType,
+                ["category"] = t.Category,
+                ["hosting"] = t.Hosting,
+            }).ToList();
+            model["family_types_total"] = ordered.Count;
+            model["family_types_truncated"] = ordered.Count > max;
+        }
+
+        /// <summary>
         /// The census cut to fit one tool result: at most <paramref name="maxBlocks"/> classes,
         /// symbol-sized non-container ones first (those are what gets mapped), at most
         /// <paramref name="maxLayers"/> layers, each shrunk to its name, inserts, length, long
@@ -402,7 +461,8 @@ namespace BinaVibe.Mcp.Tools.Electrical
         /// census's, less its false flags and empty lists.
         /// <para>When the JSON is longer than <paramref name="budgetChars"/>, the lowest-ranked
         /// blocks are shrunk first, step by step: near texts past 2, then attributes, then whole
-        /// blocks, and last of all layers from the end. <c>budget_trimmed</c> counts the entries
+        /// blocks down to the first 30, then layers down to the first 30, then the rest of the
+        /// blocks and last of all the rest of the layers, each from the end. <c>budget_trimmed</c> counts the entries
         /// shrunk or dropped; a drop also sets the list's <c>truncated</c> flag.</para>
         /// </summary>
         public static Dictionary<string, object?> SlimCensus(ElectricalCensusResult census, int maxBlocks = 150,
@@ -503,16 +563,24 @@ namespace BinaVibe.Mcp.Tools.Electrical
             Shrink(block => block.Remove("attributes"));
 
             // 3. Whole blocks, then 4. layers, from the end; re-measured exactly until it fits.
+            // Each list keeps its first BudgetFloor entries until the other is down to its floor
+            // too, so a tight budget never leaves the AI blocks without layers or the reverse.
             int droppedBlocks = 0, droppedLayers = 0;
-            while (total > budget && (blocks.Count > 0 || layers.Count > 0))
+            void Drop(List<object?> list, int floor)
             {
-                List<object?> list = blocks.Count > 0 ? blocks : layers;
-                total -= JsonLength(list[list.Count - 1]) + 1;
-                list.RemoveAt(list.Count - 1);
-                if (list == blocks) droppedBlocks++;
-                else droppedLayers++;
-                if (total <= budget) total = JsonLength(wire);
+                while (total > budget && list.Count > floor)
+                {
+                    total -= JsonLength(list[list.Count - 1]) + 1;
+                    list.RemoveAt(list.Count - 1);
+                    if (list == blocks) droppedBlocks++;
+                    else droppedLayers++;
+                    if (total <= budget) total = JsonLength(wire);
+                }
             }
+            Drop(blocks, BudgetFloor);
+            Drop(layers, BudgetFloor);
+            Drop(blocks, 0);
+            Drop(layers, 0);
             if (droppedBlocks > 0) wire["blocks_truncated"] = true;
             if (droppedLayers > 0) wire["layers_truncated"] = true;
 

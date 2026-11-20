@@ -64,13 +64,19 @@ Units are millimetres in project-internal coordinates unless a field says otherw
 }
 ```
 
-**Slim census limits:** at most 150 block classes, 150 layers and 40 legend rows. A cap that cuts sets `blocks_truncated`, `layers_truncated` or `legend_truncated`. Each layer has name, inserts, length, long open polylines and the wall hint (`pairs_like_walls`).
+**Slim census limits:** at most 150 block classes, 150 layers and 40 legend rows. A cap that cuts sets `blocks_truncated`, `layers_truncated` or `legend_truncated`. Each layer has name, inserts, length, long open polylines and the wall hint (`pairs_like_walls`). These caps are maximums: the size budget below decides how much is actually sent.
 
-**Size budget:** the backend truncates a tool result past 60,000 characters, so the whole `read_cad_electrical` result is kept under 55,000 characters of JSON. The census gets what the rest of the result leaves (at least 20,000). Block classes are ranked symbol-sized non-container first. When the census is over its budget, it is shrunk from the lowest-ranked class up, one step at a time, until it fits:
+**Size budget:** the whole `read_cad_electrical` result is kept under 24,000 characters of JSON (`CadElectricalReview.ResultBudgetChars`).
+- Why 24,000: the local Copilot engine works in a 30,000-token context, shared by the prompt, the tool list, the chat and this result. A 55,000-character result (the earlier budget) hit that limit again and again in one turn. 24,000 characters is roughly 8,000 to 12,000 tokens.
+- The trade-off: the issue's caps of 150 classes and 150 layers only fit for a small drawing. On a large one, the lowest-ranked classes and layers are dropped, and `blocks_truncated` or `layers_truncated` says so. The top-ranked classes (symbol-sized, non-container) are kept, so what gets mapped is still there.
+- The census gets what the rest of the result leaves (at least 10,000). The model's `family_types` count against the budget, which is why they are capped at 80.
+
+Block classes are ranked symbol-sized non-container first. When the census is over its budget, it is shrunk from the lowest-ranked class up, one step at a time, until it fits:
 1. near texts past the first 2
 2. attributes
-3. whole classes (sets `blocks_truncated`)
-4. layers, from the end (sets `layers_truncated`)
+3. whole classes down to the first 30 (sets `blocks_truncated`)
+4. layers, from the end, down to the first 30 (sets `layers_truncated`)
+5. the rest of the classes, then the rest of the layers
 
 `budget_trimmed` counts the entries shrunk or dropped; 0 when the census fit.
 
@@ -80,11 +86,13 @@ Units are millimetres in project-internal coordinates unless a field says otherw
 - From the family's Host setting: `wall`, `ceiling`, `floor`, `roof`, `face`.
 - Otherwise from the placement type: `work_plane`, `hosted`, `none`.
 
-**`family_types`:** up to 200 types from the device categories:
-- electrical fixtures and equipment
-- lighting fixtures and devices
-- communication, data and telephone devices
-- fire alarm, security and nurse call devices
+**`family_types`:** up to 80 types from the device categories, in this order:
+1. electrical fixtures and equipment
+2. lighting fixtures and devices
+3. communication, data and telephone devices
+4. fire alarm, security and nurse call devices
+
+Within a category they are sorted by name. When the model has more, `family_types_truncated` is true and `family_types_total` gives the full count.
 
 **Errors and notes:**
 - `aec_refused`: `ok:false`. The drawing holds only AutoCAD vertical-product objects. Export it with EXPORTTOAUTOCAD and attach the exported file.

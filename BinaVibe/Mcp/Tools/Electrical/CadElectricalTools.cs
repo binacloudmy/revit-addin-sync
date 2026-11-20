@@ -27,7 +27,6 @@ namespace BinaVibe.Mcp.Tools.Electrical
         public const string Schema = "cad.electrical.census/1";
 
         private const double MmPerFoot = 304.8;
-        private const int MaxFamilyTypes = 200;
         private const int MaxScans = 2;
         private static readonly TimeSpan ScanTtl = TimeSpan.FromMinutes(30);
 
@@ -78,9 +77,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 ["notes"] = notes,
             };
             // The census gets what the rest of the result leaves of the budget.
-            int rest = CadElectricalReview.JsonLength(result) - "null".Length;
-            result["census"] = CadElectricalReview.SlimCensus(census, budgetChars: CadElectricalReview.CensusBudget(rest));
-            return result;
+            return CadElectricalReview.WithCensus(result, census);
         }
 
         // ─── plan_cad_electrical ───────────────────────────────────────
@@ -1036,8 +1033,8 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     : census.Drawing.AecWarning,
             };
 
-        /// <summary>Levels with their elevations, and up to 200 device family types with how
-        /// each one hosts: what a mapping may name.</summary>
+        /// <summary>Levels with their elevations, and up to 80 device family types (electrical
+        /// categories first) with how each one hosts: what a mapping may name.</summary>
         private static Dictionary<string, object?> ModelFacts(Document doc)
         {
             var levels = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
@@ -1049,27 +1046,26 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 })
                 .ToList();
 
-            List<FamilySymbol> types = DeviceTypes(doc)
-                .OrderBy(fs => fs.Category?.Name ?? "", StringComparer.Ordinal)
-                .ThenBy(fs => FullName(fs), StringComparer.OrdinalIgnoreCase)
-                .ToList();
-
-            return new Dictionary<string, object?>
+            var model = new Dictionary<string, object?> { ["levels"] = levels };
+            CadElectricalReview.AddFamilyTypes(model, DeviceTypes(doc).Select(fs => new ModelFamilyType
             {
-                ["levels"] = levels,
-                ["family_types"] = types.Take(MaxFamilyTypes).Select(fs => (object?)new Dictionary<string, object?>
-                {
-                    ["family_type"] = FullName(fs),
-                    ["category"] = fs.Category?.Name ?? "",
-                    ["hosting"] = HostingKind(fs.Family),
-                }).ToList(),
-                ["family_types_total"] = types.Count,
-                ["family_types_truncated"] = types.Count > MaxFamilyTypes,
-                ["conduit_types"] = RunTypeRows(CadElectricalResolver.ConduitTypes(doc), withSizes: true),
-                ["cable_tray_types"] = RunTypeRows(CadElectricalResolver.TrayTypes(doc), withSizes: false),
-            };
+                FamilyType = FullName(fs),
+                Category = fs.Category?.Name ?? "",
+                CategoryRank = CategoryRank(fs.Category),
+                Hosting = HostingKind(fs.Family),
+            }));
+            model["conduit_types"] = RunTypeRows(CadElectricalResolver.ConduitTypes(doc), withSizes: true);
+            model["cable_tray_types"] = RunTypeRows(CadElectricalResolver.TrayTypes(doc), withSizes: false);
+            return model;
         }
 
+        /// <summary>The category's place in <see cref="DeviceCategories"/>: electrical first.</summary>
+        private static int CategoryRank(Category? category)
+        {
+            if (category == null) return DeviceCategories.Length;
+            int rank = Array.IndexOf(DeviceCategories, (BuiltInCategory)category.Id.Value);
+            return rank >= 0 ? rank : DeviceCategories.Length;
+        }
         private const int MaxRunTypes = 50;
 
         /// <summary>Up to 50 conduit or cable tray types, with fittings and (conduit) trade sizes.</summary>

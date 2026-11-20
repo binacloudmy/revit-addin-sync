@@ -291,9 +291,9 @@ namespace Tests
             // 200 classes and a typical drawing's 40 layers.
             ElectricalCensusResult census = SmallCensus(200, 40);
 
-            Dictionary<string, object?> slim = CadElectricalReview.SlimCensus(census);
+            // The caps alone; the budget is tested below.
+            Dictionary<string, object?> slim = CadElectricalReview.SlimCensus(census, budgetChars: int.MaxValue);
 
-            Assert.True(Json(slim).Length <= CadElectricalReview.DefaultCensusBudgetChars, "slim census is " + Json(slim).Length + " chars");
             Assert.Equal(150, ((List<object?>)slim["blocks"]!).Count);
             Assert.Equal(true, slim["blocks_truncated"]);
             Assert.Equal(40, ((List<object?>)slim["layers"]!).Count);
@@ -302,7 +302,7 @@ namespace Tests
             Assert.False(slim.ContainsKey("timings_s"));
 
             // Layers stop at 150, with the flag.
-            Dictionary<string, object?> layered = CadElectricalReview.SlimCensus(SmallCensus(5, 200));
+            Dictionary<string, object?> layered = CadElectricalReview.SlimCensus(SmallCensus(5, 200), budgetChars: int.MaxValue);
             Assert.Equal(150, ((List<object?>)layered["layers"]!).Count);
             Assert.Equal(true, layered["layers_truncated"]);
             Assert.Equal(0, layered["budget_trimmed"]);
@@ -349,6 +349,101 @@ namespace Tests
             List<string> ranked = ((List<object?>)CadElectricalReview.SlimCensus(census, budgetChars: int.MaxValue)["blocks"]!)
                 .Select(Row).Select(b => (string)b["key"]!).ToList();
             Assert.Equal(ranked.Take(kept.Count), kept);
+        }
+
+        /// <summary>A read_cad_electrical result as the tool builds it, census left out.</summary>
+        private static Dictionary<string, object?> ReadResult(int familyTypes)
+        {
+            var model = new Dictionary<string, object?>
+            {
+                ["levels"] = Enumerable.Range(1, 6).Select(i => (object?)new Dictionary<string, object?>
+                {
+                    ["name"] = "Level " + i, ["elevation_mm"] = 3600.0 * (i - 1),
+                }).ToList(),
+            };
+            CadElectricalReview.AddFamilyTypes(model, FamilyTypes(familyTypes));
+            model["conduit_types"] = Enumerable.Range(0, 4).Select(i => (object?)new Dictionary<string, object?>
+            {
+                ["type"] = "Conduit with Fittings : PVC " + i, ["with_fittings"] = true,
+                ["sizes_mm"] = new List<object?> { 16.0, 20.0, 25.0, 32.0, 40.0, 50.0 },
+            }).ToList();
+            model["cable_tray_types"] = new List<object?>
+            {
+                new Dictionary<string, object?> { ["type"] = "Cable Tray with Fittings : Trunking", ["with_fittings"] = true },
+            };
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["dwg_ref"] = "att:00000000-0000-0000-0000-000000000000",
+                ["schema"] = "cad.electrical.census/1",
+                ["census"] = null,
+                ["roles"] = CadElectricalMapping.Roles.Cast<object?>().ToList(),
+                ["hosts"] = CadElectricalMapping.Hosts.Cast<object?>().ToList(),
+                ["layer_roles"] = CadElectricalMapping.LayerRoles.Cast<object?>().ToList(),
+                ["model"] = model,
+                ["notes"] = new List<object?>(),
+            };
+        }
+
+        /// <summary>Invented family types, low-voltage ones listed before electrical ones.</summary>
+        private static IEnumerable<ModelFamilyType> FamilyTypes(int count) =>
+            Enumerable.Range(0, count).Select(i => new ModelFamilyType
+            {
+                FamilyType = (i % 2 == 0 ? "Data Outlet : Cat6 Port " : "Socket Outlet : 13A Twin Switched ") + i.ToString("000"),
+                Category = i % 2 == 0 ? "Data Devices" : "Electrical Fixtures",
+                CategoryRank = i % 2 == 0 ? 5 : 0,
+                Hosting = "face",
+            });
+
+        [Fact]
+        public void Read_result_with_a_large_census_fits_the_budget()
+        {
+            ElectricalCensusResult census = BigCensus(150, 150);
+            foreach (CensusBlockClass block in census.Blocks)
+            {
+                for (int i = 0; i < 6; i++) block.NearTexts.Add(new CensusCount { Name = "SWITCHED SOCKET OUTLET NOTE " + i, Count = 2 });
+            }
+            Assert.Equal(40, census.Legend.Count);
+
+            Dictionary<string, object?> result = CadElectricalReview.WithCensus(ReadResult(200), census);
+
+            int length = Json(result).Length;
+            Assert.True(length <= CadElectricalReview.ResultBudgetChars, "result is " + length + " chars");
+            var slim = Row(result["census"]);
+            Assert.True((int)slim["budget_trimmed"]! > 0);
+            Assert.Equal(true, slim["blocks_truncated"]);
+            // Neither list is emptied for the other: each keeps its first BudgetFloor entries.
+            Assert.True(((List<object?>)slim["blocks"]!).Count >= CadElectricalReview.BudgetFloor);
+            Assert.True(((List<object?>)slim["layers"]!).Count >= CadElectricalReview.BudgetFloor);
+            Assert.Equal(40, ((List<object?>)slim["legend"]!).Count);
+
+            var model = Row(result["model"]);
+            var types = ((List<object?>)model["family_types"]!).Select(Row).ToList();
+            Assert.Equal(CadElectricalReview.MaxFamilyTypes, types.Count);
+            Assert.Equal(200, model["family_types_total"]);
+            Assert.Equal(true, model["family_types_truncated"]);
+            // The 100 electrical types come first, so they fill all 80.
+            Assert.All(types.Take(100), t => Assert.Equal("Electrical Fixtures", t["category"]));
+        }
+
+        [Fact]
+        public void Read_result_with_a_small_census_is_untouched()
+        {
+            ElectricalCensusResult census = SmallCensus(10, 5);
+
+            Dictionary<string, object?> result = CadElectricalReview.WithCensus(ReadResult(12), census);
+
+            Assert.True(Json(result).Length <= CadElectricalReview.ResultBudgetChars);
+            var slim = Row(result["census"]);
+            Assert.Equal(0, slim["budget_trimmed"]);
+            Assert.Equal(Json(CadElectricalReview.SlimCensus(census, budgetChars: int.MaxValue)), Json(slim));
+            var model = Row(result["model"]);
+            Assert.Equal(12, ((List<object?>)model["family_types"]!).Count);
+            Assert.Equal(false, model["family_types_truncated"]);
+            // Electrical first, then by name.
+            List<string> names = ((List<object?>)model["family_types"]!).Select(Row).Select(t => (string)t["family_type"]!).ToList();
+            Assert.StartsWith("Socket Outlet", names[0]);
+            Assert.StartsWith("Data Outlet", names[6]);
         }
 
         [Fact]
