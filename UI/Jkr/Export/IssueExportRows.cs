@@ -25,11 +25,21 @@ namespace RevitWebAppSync.UI.Jkr.Export
 
         private static string Pick(string ms, string en) => RevitWebAppSync.UI.Jkr.Panel.Core.PaneLanguage.Pick(ms, en);
 
-        /// <summary>The issues the export writes: open ones and/or the rest (resolved or ignored).</summary>
-        public static IssueVm[] Select(IEnumerable<IssueVm> issues, bool includeOpen, bool includeResolved) =>
+        /// <summary>The issues the export writes. Every issue is in exactly one bucket, so the three
+        /// together are all issues: Open = the pane's Open tab (AI verdict, Status Open, a "marked manual"
+        /// one stays); Manual = the pane's Manual tab (needs a person); Resolved = the rest (ignored,
+        /// approved, fixed).</summary>
+        public static IssueVm[] Select(IEnumerable<IssueVm> issues, bool includeOpen, bool includeManual, bool includeResolved) =>
             (issues ?? Enumerable.Empty<IssueVm>())
-                .Where(i => { var open = IsInOpenBucket(i); return (includeOpen && open) || (includeResolved && !open); })
+                .Where(i => { var b = BucketOf(i); return (includeOpen && b == Bucket.Open) || (includeManual && b == Bucket.Manual) || (includeResolved && b == Bucket.Resolved); })
                 .ToArray();
+
+        private enum Bucket { Open, Manual, Resolved }
+
+        private static Bucket BucketOf(IssueVm i) =>
+            i.NeedsPerson ? Bucket.Manual
+            : i.IsOpen || i.Status == IssueStatus.ManualFixNeeded ? Bucket.Open
+            : Bucket.Resolved;
 
         private static readonly System.Text.RegularExpressions.Regex RuleCode =
             new System.Text.RegularExpressions.Regex(@"^(?:SPEC-|BIM010-)(.+?)(?:-[0-9a-f]{12})?$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
@@ -43,11 +53,8 @@ namespace RevitWebAppSync.UI.Jkr.Export
             return m.Success ? m.Groups[1].Value : id;
         }
 
-        /// <summary>Open, or marked as manual (a marked item stays in Open: spec 10a option b).</summary>
-        private static bool IsInOpenBucket(IssueVm i) => i.IsOpen || i.Status == IssueStatus.ManualFixNeeded;
-
-        /// <summary>How many issues the export writes with the dialog's default options (Open and Resolved both on).</summary>
-        public static int DefaultCount(IEnumerable<IssueVm> issues) => Select(issues, true, true).Length;
+        /// <summary>How many issues the export writes with the dialog's default options (all three boxes on): every issue.</summary>
+        public static int DefaultCount(IEnumerable<IssueVm> issues) => Select(issues, true, true, true).Length;
 
         public static string[] Cells(IssueVm i)
         {

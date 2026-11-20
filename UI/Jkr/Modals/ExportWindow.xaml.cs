@@ -39,10 +39,9 @@ namespace RevitWebAppSync.UI.Jkr.Modals
             ExportBtn.Content = PaneText.ExportAction();
             CloseBtn.ToolTip = L("Tutup", "Close");
             System.Windows.Automation.AutomationProperties.SetName(CloseBtn, L("Tutup", "Close"));
-            int openN = IssueExportRows.Select(_vm.Issues, true, false).Length;
-            int restN = IssueExportRows.Select(_vm.Issues, false, true).Length;
-            CbOpen.Content = L($"Terbuka ({openN})", $"Open ({openN})");
-            CbResolved.Content = L($"Diabaikan atau selesai ({restN})", $"Ignored or resolved ({restN})");
+            CbOpen.Content = PaneText.ExportOpenBox(IssueExportRows.Select(_vm.Issues, true, false, false).Length);
+            CbManual.Content = PaneText.ExportManualBox(IssueExportRows.Select(_vm.Issues, false, true, false).Length);
+            CbResolved.Content = PaneText.ExportResolvedBox(IssueExportRows.Select(_vm.Issues, false, false, true).Length);
             SetFormat(format);
             UpdateCount();
             // Esc, x or a click on the backdrop closes without exporting.
@@ -70,7 +69,7 @@ namespace RevitWebAppSync.UI.Jkr.Modals
         }
 
         private IssueVm[] FilteredRows() =>
-            IssueExportRows.Select(_vm.Issues, CbOpen.IsChecked == true, CbResolved.IsChecked == true);
+            IssueExportRows.Select(_vm.Issues, CbOpen.IsChecked == true, CbManual.IsChecked == true, CbResolved.IsChecked == true);
 
         private static string[] BuildHeader() => IssueExportRows.Header;
         private static string[] RowCells(IssueVm i) => IssueExportRows.Cells(i);
