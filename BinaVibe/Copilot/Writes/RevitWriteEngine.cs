@@ -227,6 +227,10 @@ namespace BinaVibe.Copilot.Writes
                     if (note != null && outcome.Envelopes[kv.Key] != null) AddWarning(outcome.Envelopes[kv.Key], note);
                 }
 
+            // r19 (live F1, b7d86820): an element one call added and a later call deleted never existed outside the write.
+            if (!outcome.HasFailures)
+                FoldAddedThenDeleted(runs.OrderBy(kv => kv.Key).Select(kv => (outcome.Envelopes[kv.Key], kv.Value)).ToList());
+
             // r18 (BornIds, live 4e70cf53): every element that existed before the write exists again now. A deleted or modified id that
             // does not was created inside the preview by Revit itself (reported deleted, never added): it is not an existing element.
             if (!outcome.HasFailures && outcome.Shape != null)
@@ -434,6 +438,7 @@ namespace BinaVibe.Copilot.Writes
 
                     var shape = builder.Build(id => Describe(doc!, id, builder.AddedIds));
                     st.Mark("shape");
+                    FoldAddedThenDeleted(Enumerable.Range(0, n).Where(i => commitRuns[i] != null).Select(i => (envelopes[i], commitRuns[i]!)).ToList());   // r19 (live F1)
                     // r18 (BornIds, live 4e70cf53): a deleted or modified id at or above the lowest id this write is known to have created
                     // (the preview's, or the commit's own additions) never existed before it: Revit's own transient element, not a drift.
                     var born = BornIds.AtOrAbove(shape.Deleted.Concat(shape.Modified), BornIds.Floor(preview.Shape?.BornFloor, null, builder.AddedIds));
@@ -592,10 +597,27 @@ namespace BinaVibe.Copilot.Writes
             /// category they were counted under (re-review I-1: fixed after the rollback).</summary>
             public Dictionary<long, string> DeletedTouched = new();
             public Dictionary<long, string> DeletedSide = new();
+            /// <summary>r19: added ids the envelope counts as side effects, with their category (an addition a later call deleted is taken back out).</summary>
+            public Dictionary<long, string> AddedSide = new();
             /// <summary>Code previews (live-test L15): values of the first edited elements after the
             /// code ran (read again as "before" once the preview rolled back), and how many were edited.</summary>
             public Dictionary<long, IReadOnlyList<ValueCell>>? ValuesAfter;
             public List<long> ModifiedIds = new();
+        }
+
+        /// <summary>r19 (live F1, b7d86820): takes ids one call added and a later call deleted out of the envelopes (BornIds.AddedThenDeleted):
+        /// the result says "added 1 Duct Fitting", not "added 2 Duct Fittings; removed 1 Other". Call order.</summary>
+        private static void FoldAddedThenDeleted(IReadOnlyList<(Envelope? Env, CallRun Run)> calls)
+        {
+            if (calls.Count < 2) return;
+            var gone = BornIds.AddedThenDeleted(calls.Select(c => ((IEnumerable<long>?)c.Run.Changes?.Added, (IEnumerable<long>?)c.Run.Changes?.Deleted)).ToList());
+            if (gone.Count == 0) return;
+            foreach (var (env, run) in calls)
+            {
+                BornIds.DropFromEnvelope(env, run.DeletedTouched, run.DeletedSide, gone);
+                BornIds.DropAddedFromEnvelope(env, run.AddedSide, gone);
+                run.Existing.RemoveAll(gone.Contains);
+            }
         }
 
         private static CallRun RunCall(Document doc, IWriteTool tool, ToolContext ctx, ToolCallDto call, WritePlan plan,
@@ -698,6 +720,9 @@ namespace BinaVibe.Copilot.Writes
                     if (touchedSet.Contains(id)) run.DeletedTouched[id] = cat;
                     else run.DeletedSide[id] = cat;
                 }
+                var bookkeeping = new HashSet<long>(ChangeSetMath.BookkeepingIds(labelled));
+                foreach (var id in labelled.Added.Where(id => !benign.Contains(id) && !touchedSet.Contains(id) && !bookkeeping.Contains(id)))
+                    run.AddedSide[id] = labelled.CategoryOf.TryGetValue(id, out var c) && !string.IsNullOrWhiteSpace(c) ? c : EnvelopeChanges.UnknownCategory;
                 builder.AddCall(
                     labelled.Added.Where(id => !benign.Contains(id)),
                     labelled.Modified.Where(id => !benign.Contains(id)),

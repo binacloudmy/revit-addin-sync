@@ -229,5 +229,38 @@ namespace RevitAddinSync.Tests
             Assert.Equal(new Dictionary<string, int> { ["Duct Fittings"] = 1 }, env.Changes.SideEffects.DeletedByCategory);
             Assert.Single(side);
         }
+    
+        [Fact]
+        public void LiveF1_AFittingTheWidthWriteAddedAndTheHeightWriteReplaced_IsOneFittingAddedAndNothingRemoved()
+        {
+            // r19 (live F1, b7d86820): call 0 (Width) added fitting A; call 1 (Height) deleted A (unnamed: "Other") and added fitting B.
+            const long A = 1550700, B = 1550710;
+            var env0 = new Envelope { Changes = new ChangeReportDto { SideEffects = new SideEffectsDto { AddedByCategory = new Dictionary<string, int> { ["Duct Fittings"] = 1 } } } };
+            var env1 = new Envelope { Changes = new ChangeReportDto { SideEffects = new SideEffectsDto {
+                AddedByCategory = new Dictionary<string, int> { ["Duct Fittings"] = 1 }, DeletedByCategory = new Dictionary<string, int> { ["Other"] = 1 } } } };
+            var added0 = new Dictionary<long, string> { [A] = "Duct Fittings" };
+            var added1 = new Dictionary<long, string> { [B] = "Duct Fittings" };
+            var deleted1 = new Dictionary<long, string> { [A] = "Other" };
+
+            var gone = BornIds.AddedThenDeleted(new List<(IEnumerable<long>?, IEnumerable<long>?)> { (new[] { A }, Array.Empty<long>()), (new[] { B }, new[] { A }) });
+            Assert.Equal(new[] { A }, gone.ToArray());
+            BornIds.DropFromEnvelope(env0, new Dictionary<long, string>(), new Dictionary<long, string>(), gone);
+            BornIds.DropAddedFromEnvelope(env0, added0, gone);
+            BornIds.DropFromEnvelope(env1, new Dictionary<long, string>(), deleted1, gone);
+            BornIds.DropAddedFromEnvelope(env1, added1, gone);
+
+            Assert.Empty(env0.Changes.SideEffects.AddedByCategory);
+            Assert.Equal(new Dictionary<string, int> { ["Duct Fittings"] = 1 }, env1.Changes.SideEffects.AddedByCategory);
+            Assert.Empty(env1.Changes.SideEffects.DeletedByCategory);
+        }
+
+        [Fact]
+        public void AddedThenDeleted_OnlyALaterCallsDeletionOfAnEarlierAddition()
+        {
+            // an existing element deleted, or an element deleted before a later call adds the same id, is not folded
+            var calls = new List<(IEnumerable<long>?, IEnumerable<long>?)> { (Array.Empty<long>(), new[] { Elbow }), (new[] { 1550700L }, null), (null, new[] { Elbow }) };
+            Assert.Empty(BornIds.AddedThenDeleted(calls));
+            Assert.Empty(BornIds.AddedThenDeleted(new List<(IEnumerable<long>?, IEnumerable<long>?)> { (new[] { 1550700L }, new[] { 1550700L }) }));   // one call: its own net
+        }
     }
 }

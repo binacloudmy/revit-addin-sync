@@ -102,6 +102,32 @@ namespace BinaVibe.Copilot.Writes
                 changes.SideEffects.DeletedByCategory = Count(sideDeleted);
         }
 
+        /// <summary>r19 (live F1, b7d86820): ids one call of the batch added and a later call deleted. Revit replaced a fitting the Width write
+        /// had just made when the Height write ran: call 0 counted "added 1 Duct Fitting", call 1 "added 1 Duct Fitting" and "deleted 1 Other"
+        /// (the id no longer existed to be named), so the result said "added 2 Duct Fittings; removed 1 Other" for a net one fitting added.
+        /// BatchShapeBuilder already folds these away (drift never saw them); the envelopes did not. <paramref name="calls"/> in call order.</summary>
+        public static HashSet<long> AddedThenDeleted(IReadOnlyList<(IEnumerable<long>? Added, IEnumerable<long>? Deleted)> calls)
+        {
+            var gone = new HashSet<long>();
+            var earlier = new HashSet<long>();
+            foreach (var c in calls ?? Array.Empty<(IEnumerable<long>?, IEnumerable<long>?)>())
+            {
+                foreach (var id in c.Deleted ?? Enumerable.Empty<long>())
+                    if (earlier.Contains(id)) gone.Add(id);
+                earlier.UnionWith(c.Added ?? Enumerable.Empty<long>());
+            }
+            return gone;
+        }
+
+        /// <summary>Takes <paramref name="gone"/> out of one call's side-effect additions (<paramref name="sideAdded"/>: id and the category it was
+        /// counted under) and, when any was there, recounts the envelope's added-by-category side effects from what is left.</summary>
+        public static void DropAddedFromEnvelope(Envelope? env, IDictionary<long, string>? sideAdded, ICollection<long> gone)
+        {
+            if (gone == null || gone.Count == 0 || !Remove(sideAdded, gone)) return;
+            var side = env?.Changes?.SideEffects;
+            if (side != null) side.AddedByCategory = Count(sideAdded);
+        }
+
         private static bool Remove(IDictionary<long, string>? map, ICollection<long> born)
         {
             if (map == null) return false;
