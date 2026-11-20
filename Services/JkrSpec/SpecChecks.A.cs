@@ -1195,7 +1195,7 @@ namespace RevitWebAppSync.Services.JkrSpec
                 {
                     // AI-419: the type has a material (e.g. a Material-typed parameter) but the placed
                     // elements themselves carry none — a per-instance gap the type level hides.
-                    if (t.MaterialFromTypeParamOnly && t.NoMaterialInstanceIds != null && t.NoMaterialInstanceIds.Count > 0)
+                    if (SpecType.InstanceMaterialCheckApplies(t.Category) && t.MaterialFromTypeParamOnly && t.NoMaterialInstanceIds != null && t.NoMaterialInstanceIds.Count > 0)
                     {
                         var k = Math.Max(t.NoMaterialInstanceCount, t.NoMaterialInstanceIds.Count);
                         var bm = t.NoMaterialInstancesSampled ? $"sekurang-kurangnya {k}" : $"{k}";
