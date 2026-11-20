@@ -613,6 +613,7 @@ namespace RevitWebAppSync.Services.JkrSpec
             ReadInstanceTexts(first, t);
             ReadNumbers(doc, category, type, instances, t);
             ReadTypeMaterials(doc, type, first, t);
+            ReadNoMaterialInstances(instances, t);
             return t;
         }
 
@@ -768,6 +769,26 @@ namespace RevitWebAppSync.Services.JkrSpec
         {
             if (e == null) return;
             try { foreach (var id in e.GetMaterialIds(false)) AddMaterial(doc, id, t); } catch { }
+        }
+
+        /// <summary>AI-419: one pass over the placed instances (read-only, no transaction): those whose own
+        /// GetMaterialIds(false) is empty. Skipped for hosts whose material lives in sub-elements
+        /// (curtain walls, stairs, railings) — the type-level read already walks those.
+        /// UNVERIFIED in live Revit until a re-probe.</summary>
+        private static void ReadNoMaterialInstances(List<Element> instances, SpecType t)
+        {
+            var first = instances[0];
+            if ((first is Wall w && w.CurtainGrid != null) || first is Stairs || first is Railing) return;
+            foreach (var e in instances)
+            {
+                try
+                {
+                    if (e.GetMaterialIds(false).Count > 0) continue;
+                    t.NoMaterialInstanceCount++;
+                    if (t.NoMaterialInstanceIds.Count < InstanceIdCap) t.NoMaterialInstanceIds.Add(IdOf(e.Id));
+                }
+                catch { }
+            }
         }
 
         private static void ReadTypeMaterials(Document doc, ElementType type, Element first, SpecType t)
