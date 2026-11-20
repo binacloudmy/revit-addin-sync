@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using BinaVibe.Mcp.Tools.Audit;
@@ -177,6 +178,46 @@ namespace RevitWebAppSync.Tests
             var notes = SpecBorang.Build(report, list).Rows["C4.2"].Notes;
             Assert.Equal(3, notes.Count(n => n.StartsWith("Sheet ")));      // the cap is unchanged: 3 shown ...
             Assert.Contains("+7 more", notes);                              // ... and the 7 left out are named, not silent
+        }
+
+        // ---------- the PDF remark (BorangDoc.RemarkFor over the real summary + issues) ----------
+
+        private static string PdfRemark(List<SpecResult> list, string row)
+        {
+            var summary = SpecBorang.Build(SpecReport.Build(list), list);
+            var issues = IssueMapper.FromModelResults(list, PanelStrings.En);
+            var (text, _) = BorangDoc.RemarkFor(row, summary.Rows[row].Mark, summary, issues);
+            return text;
+        }
+
+        [Fact]
+        public void PDF_C511_six_unloaded_links_the_remark_names_every_link_through_the_summary()
+        {
+            var text = PdfRemark(Run("C5.1.1", SixUnloadedLinks()), "C5.1");
+            foreach (var link in new[] { "jkrST22_4a", "jkrME22_4a_ACMV", "jkrME22_3b_SP", "jkrME22_3b_FP", "jkrME22_3b_CW", "jkrEL22_3b" })
+                Assert.Contains(link, text);
+            Assert.StartsWith("CRITICAL: 6 link problem(s)", text);          // the summary is first
+            // The six issue texts read the same ("C5.1.1 · Discipline links ST / ME / EL"), so they dedupe to
+            // one after the summary: nothing is left out, hence no "+N more" (BorangDoc.Cap still adds it past 5 items).
+            Assert.DoesNotContain("more", text);
+        }
+
+        [Fact]
+        public void PDF_C152_four_missing_levels_all_four_are_named()
+        {
+            var text = PdfRemark(Run("C1.5.2", SixLevelsTwoWith3D()), "C1.5");
+            foreach (var lv in new[] { "Tanah", "Pentas", "Langkan", "Aras Bumbung" })
+                Assert.Contains(lv, text);
+            Assert.StartsWith("3D view for every level: 2/6", text);
+        }
+
+        [Fact]
+        public void PDF_a_check_without_a_summary_is_unchanged_three_issue_texts_no_marker()
+        {
+            var m = new SpecModel { Discipline = "AR" };
+            for (var i = 1; i <= 3; i++) m.Sheets.Add(new SpecSheet { Id = i, Number = "A-" + i, Name = "S" + i, TitleBlock = "" });
+            var text = PdfRemark(Run("C4.2.1", m), "C4.2");
+            Assert.DoesNotContain("more", text);
         }
     }
 }
