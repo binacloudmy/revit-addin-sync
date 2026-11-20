@@ -226,5 +226,25 @@ namespace RevitWebAppSync.Tests
             Assert.False(SpecReport.IsInfoOnlyLegacyRule("Doors", "Level Naming Convention L##"));
             Assert.False(SpecReport.IsInfoOnlyLegacyRule(null, null));
         }
+
+        [Fact]
+        public void A_spec_issue_that_needs_a_person_does_not_cover_a_legacy_clear_fail()
+        {
+            // A4.1 unjudged (cannot_verify): the spec gives a needs-a-person issue, no verdict.
+            var records = new[] { Rec("base_point", "A", "4") };
+            var unjudged = new[] { Spec("A4.1", "cannot_verify", "spec-a41") };
+            var specIssues = IssueMapper.FromModelResults(unjudged, PanelStrings.En);
+            Assert.Single(specIssues);
+            Assert.Equal(IssueVerification.Human, specIssues[0].Verification);
+            var kept = IssueMapper.FromAuditRecordsNotInSpec(records, specIssues, unjudged);
+            Assert.Single(kept);
+            Assert.Equal("BIM010-A4", kept[0].CheckId);
+
+            // Control: the spec judged A4.1 a FAIL -> the legacy duplicate is dropped.
+            var judged = new[] { Spec("A4.1", "fail", "spec-a41") };
+            var judgedIssues = IssueMapper.FromModelResults(judged, PanelStrings.En);
+            Assert.Equal(IssueVerification.Ai, judgedIssues.Single().Verification);
+            Assert.Empty(IssueMapper.FromAuditRecordsNotInSpec(records, judgedIssues, judged));
+        }
     }
 }
