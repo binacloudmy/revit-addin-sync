@@ -387,8 +387,11 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             var recs = (records ?? Enumerable.Empty<AuditRecord>()).Where(r => r?.Row?.RowRef != null).ToList();
             // Spec check ids that already have a SPEC- issue (CheckId "SPEC-<id>", maybe a "-<hash>" tail).
             var specChecks = new HashSet<string>(StringComparer.Ordinal);
+            // Only an AI verdict (a judged fail) covers: a SPEC- issue that needs a person
+            // (unjudged) is not an answer, so the legacy checker's clear fail stays.
             foreach (var i in specIssues ?? Enumerable.Empty<IssueVm>())
             {
+                if (i == null || i.Verification != IssueVerification.Ai) continue;
                 var cid = SpecCheckIdOf(i?.CheckId);
                 if (cid != null) specChecks.Add(cid);
             }
