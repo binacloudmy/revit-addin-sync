@@ -369,6 +369,7 @@ namespace RevitWebAppSync.UI
             _vm.PropertyChanged += Vm_PropertyChanged;
 
             Loaded += (_, __) => { Keyboard.Focus(this); RenderAll(); };
+            BinaVibe.DocState.DocumentRevisionTracker.UndoRedoApplied += OnUndoRedo;
             KeyDown += OnKeyDown;
 
             PreviewKeyDown += (_, e) =>
@@ -1217,8 +1218,12 @@ namespace RevitWebAppSync.UI
         /// <param name="preservedAfterFix">Issues just attempted in an auto-fix batch — both successes
         /// (Status=Fixed, land in Resolved) and failures (Status=Open, stay visible). Re-injected after
         /// the rescan so neither group silently vanishes when the recheck omits them.</param>
+        /// <param name="onlyElements">AI-427 targeted re-check: only rows on these Revit elements change (see
+        /// JkrRecheck.Reconcile); every other row stays. The result is left in _lastRecheck.</param>
+        /// <param name="justWritten">With onlyElements: rows the caller just wrote; reported, not resolved here.</param>
         /// <returns>False when no document is open (nothing was scanned).</returns>
-        private async Task<bool> RunScanInner(bool clearAudit = false, bool isRecheck = false, List<IssueVm> preservedAfterFix = null)
+        private async Task<bool> RunScanInner(bool clearAudit = false, bool isRecheck = false, List<IssueVm> preservedAfterFix = null,
+                                              IReadOnlyCollection<long> onlyElements = null, IReadOnlyCollection<IssueVm> justWritten = null)
         {
             // The scan's discipline and LOD, read here (not on Revit's thread): the
             // user's pick, else the model's detected discipline (same rule as below).
@@ -1232,6 +1237,7 @@ namespace RevitWebAppSync.UI
             {
                 var doc = app.ActiveUIDocument?.Document;
                 if (doc == null) return null;
+                BinaVibe.DocState.DocumentRevisionTracker.EnsureSubscribed(app);   // AI-427: undo / redo re-checks
                 var snap = new ScanSnapshot
                 {
                     DocPath = doc.PathName ?? "",
@@ -1265,6 +1271,8 @@ namespace RevitWebAppSync.UI
                 return snap;
             });
             if (snapshot == null) return false;
+            // A targeted re-check of another model's elements would corrupt this pane's rows.
+            if (onlyElements != null && snapshot.DocPath != _scannedDocPath) return false;
             _scannedDocPath = snapshot.DocPath;
             // Failed fixes are remembered per model (element ids repeat across models).
             IssueMapper.BlockScope = _scannedDocPath ?? "";
@@ -1432,8 +1440,124 @@ namespace RevitWebAppSync.UI
                 }
             }
 
+            if (onlyElements != null)
+            {
+                var outcome = JkrRecheck.Reconcile(_vm.Issues.ToList(), onlyElements, issues, backendError == null, justWritten);
+                _vm.ReplaceIssues(outcome.Issues);
+                _lastRecheck = outcome;
+                return true;
+            }
+
             _vm.ReplaceIssues(issues);
             return true;
+        }
+
+        // ────────────────────────────────────────────────
+        // AI-427: the one write → re-check mechanism
+        // ────────────────────────────────────────────────
+
+        private JkrRecheckOutcome<IssueVm> _lastRecheck;
+        private readonly System.Threading.SemaphoreSlim _recheckGate = new System.Threading.SemaphoreSlim(1, 1);
+        private readonly HashSet<long> _undoIds = new HashSet<long>();
+        private System.Windows.Threading.DispatcherTimer _undoTimer;
+
+        /// <summary>
+        /// THE entry point for "did that change really fix the rule?". Re-runs the check
+        /// (the /jkr-recheck pass, like Fix all's) and awaits it, then changes ONLY the
+        /// rows on <paramref name="elementIds"/> by whether their rule passes now
+        /// (JkrRecheck.Reconcile): Resolved rows whose rule fails again reopen, Open
+        /// rows whose rule passes leave the list, a partial scan proves no pass.
+        /// Pass <paramref name="justWritten"/> for rows the caller just wrote: they are
+        /// left as they are and come back in Verified / StillFailing, so the caller
+        /// resolves them only when the rule re-passed. Returns null when nothing could
+        /// be checked (no scan yet, another scan running, other model, or an error);
+        /// callers then keep their old behaviour. Must be called on the pane's thread.
+        /// The full Re-scan button and the pass after Fix all do not use this.
+        /// </summary>
+        public async Task<JkrRecheckOutcome<IssueVm>> RecheckAsync(
+            IReadOnlyCollection<long> elementIds, IReadOnlyCollection<IssueVm> justWritten = null)
+        {
+            if (elementIds == null || elementIds.Count == 0) return null;
+            await _recheckGate.WaitAsync();
+            try
+            {
+                if (_vm.Scanning || _vm.Spec == null) return null;   // a full scan covers it / nothing scanned yet
+                _vm.Scanning = true;   // Re-scan and Reset wait, like for the pass after Fix all
+                BusyChanged?.Invoke(Jkr.Panel.Core.PaneText.Rescanning());
+                _lastRecheck = null;
+                try
+                {
+                    var ran = await RunScanInner(isRecheck: true, onlyElements: elementIds, justWritten: justWritten);
+                    return ran ? _lastRecheck : null;
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[BINA JKR] targeted re-check failed: {ex.Message}");
+                    return null;
+                }
+                finally
+                {
+                    _vm.Scanning = false;
+                    BusyChanged?.Invoke(null);
+                }
+            }
+            finally { _recheckGate.Release(); }
+        }
+
+        /// <summary>Revit thread, inside DocumentChanged: record the ids and hand off.</summary>
+        private void OnUndoRedo(Autodesk.Revit.DB.Document doc, IReadOnlyList<long> ids)
+        {
+            try
+            {
+                if (doc == null || ids == null || ids.Count == 0) return;
+                if ((doc.PathName ?? "") != _scannedDocPath) return;
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    foreach (var id in ids) _undoIds.Add(id);
+                    ArmUndoRecheck();
+                }));
+            }
+            catch { /* a recorder never breaks a commit */ }
+        }
+
+        private void ArmUndoRecheck()
+        {
+            if (_undoTimer == null)
+            {
+                _undoTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
+                _undoTimer.Tick += async (_, __) =>
+                {
+                    _undoTimer.Stop();
+                    if (_vm.Scanning) { _undoTimer.Start(); return; }   // wait out a running scan
+                    var rowElements = new HashSet<long>(_vm.Issues.Select(i => i.RevitElementId));
+                    var ids = _undoIds.Where(rowElements.Contains).ToList();
+                    _undoIds.Clear();
+                    if (ids.Count == 0) return;
+                    var outcome = await RecheckAsync(ids);
+                    if (outcome != null && outcome.Reopened.Count > 0)
+                        _vm.ShowToast(Jkr.Panel.Core.PaneText.FixUndone(outcome.Reopened.Count));
+                };
+            }
+            _undoTimer.Stop();
+            _undoTimer.Start();
+        }
+
+        /// <summary>After a single auto-fix wrote: resolve the row only if its rule re-passed.</summary>
+        private async Task FinishSingleFixAsync(IssueVm issue, bool advance)
+        {
+            var outcome = await RecheckAsync(new[] { issue.RevitElementId }, new[] { issue });
+            if (outcome != null && outcome.StillFailing.Contains(issue))
+            {
+                // Written, but the rule still fails: the row stays Open.
+                _vm.ShowToast(Jkr.Panel.Core.PaneText.FixStillFails());
+                return;
+            }
+            // Verified, or nothing could be checked (busy / no backend): resolve as before;
+            // FixVerified says whether a scan proved it.
+            issue.FixVerified = outcome != null && outcome.Verified.Contains(issue);
+            _vm.ApplyAction(issue, IssueStatus.Fixed, advance);
+            try { JkrAuditStore.Save(_scannedDocPath, issue); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[BINA] audit save failed: {ex.Message}"); }
         }
 
         /// <summary>Toast when the backend check failed and the run shows the add-in's own results only.</summary>
@@ -1895,17 +2019,9 @@ namespace RevitWebAppSync.UI
                         RenderAll();
                         return;
                     }
-                    // Success — flip the VM (advances queue + shows toast).
+                    // Written. The row is Fixed only once the rule re-passes (AI-427).
                     issue.FixError = "";
-                    _vm.ApplyAction(issue, IssueStatus.Fixed, advance);
-                    try
-                    {
-                        JkrAuditStore.Save(_scannedDocPath, issue);
-                    }
-                    catch (Exception ex)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"[BINA] audit save failed: {ex.Message}");
-                    }
+                    _ = FinishSingleFixAsync(issue, advance);
                 });
             };
 

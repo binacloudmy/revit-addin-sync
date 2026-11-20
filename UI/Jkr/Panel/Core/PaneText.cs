@@ -62,6 +62,12 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             L(lang, "Tiada pembaikan dibuat. Tiada apa-apa ditulis ke model.", "No fixes applied. Nothing was written to the model.");
         public static string FixFailedNothingWritten(string lang = null) =>
             L(lang, "Pembaikan gagal. Tiada apa-apa ditulis ke model.", "Fix failed. Nothing was written to the model.");
+        public static string FixStillFails(string lang = null) =>
+            L(lang, "Pembaikan ditulis, tetapi semakan masih gagal. Baris kekal Terbuka.",
+                    "The fix was written, but the check still fails. The row stays Open.");
+        public static string FixUndone(int n, string lang = null) =>
+            L(lang, $"{n} pembaikan dibatalkan — semakan gagal semula, baris dibuka semula.",
+                    $"{n} fix{(n == 1 ? "" : "es")} undone — the check fails again, so the row is open again.");
         public static string NeedsPerson(string lang = null) =>
             L(lang, "Item ini perlu disemak oleh manusia — AI tidak menilainya.",
                     "This item needs a person to review it — the AI did not judge it.");
