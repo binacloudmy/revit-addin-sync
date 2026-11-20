@@ -78,5 +78,38 @@ namespace RevitAddinSync.Tests
             Assert.False(WatchdogPolicy.NameDialog(TimeSpan.FromHours(3)));   // the UI-pumped verdict after a dialog shown hours ago
             Assert.False(WatchdogPolicy.NameDialog(TimeSpan.MaxValue));        // no dialog seen at all
         }
+
+        // ---- r17: the window that blocks Revit (tester feedback 20 Nov; live 8a76e57d, 095aea2f: revit_busy with no dialog named) ----
+
+        [Fact]
+        public void PumpingWithNoModalWindow_WaitsUpToTheCeiling_InsteadOfFailingAsADialog()
+        {
+            Assert.Equal(WatchdogVerdict.Wait, WatchdogPolicy.Decide(S(12), idleSinceArm: false, uiPumpedSinceProbe: true, S(5), LongAgo, modalOpen: false));
+            Assert.Equal(WatchdogVerdict.FailBusy, WatchdogPolicy.Decide(S(61), idleSinceArm: false, uiPumpedSinceProbe: true, S(50), LongAgo, modalOpen: false));
+            Assert.Equal(WatchdogVerdict.FailDialog, WatchdogPolicy.Decide(S(12), idleSinceArm: false, uiPumpedSinceProbe: true, S(5), LongAgo, modalOpen: true));
+            Assert.Equal(WatchdogVerdict.FailDialog, WatchdogPolicy.Decide(S(12), idleSinceArm: false, uiPumpedSinceProbe: true, S(5), LongAgo));   // unknown: the old rule
+        }
+
+        private static ThreadWindow W(long h, string cls, string title = "", bool visible = true, bool enabled = true, long owner = 0) =>
+            new ThreadWindow { Handle = h, ClassName = cls, Title = title, Visible = visible, Enabled = enabled, Owner = owner };
+
+        [Fact]
+        public void ModalPolicy_PicksTheDialogNotThePaneOrTheMainWindow()
+        {
+            const long main = 100;
+            var pane = W(200, "HwndWrapper[Revit;;abc]", "BINA Copilot");
+            // Nothing modal: the main window is enabled and the floating pane is not a dialog.
+            Assert.Null(ModalPolicy.Blocking(new[] { W(main, "Afx:Revit"), pane }, main, mainEnabled: true));
+            // Revit's Options dialog (#32770) owned by the main window, which it disabled.
+            var options = W(300, ModalPolicy.DialogClass, "Options", owner: main);
+            Assert.Same(options, ModalPolicy.Blocking(new[] { W(main, "Afx:Revit", enabled: false), W(200, "HwndWrapper[x]", "BINA Copilot", enabled: false), options }, main, mainEnabled: false));
+            Assert.Equal("Options", ModalPolicy.Name(options));
+            // An add-in's WPF ShowDialog (no #32770): the main window is disabled, the dialog is the enabled one.
+            var save = W(400, "HwndWrapper[Revit;;def]", "Export schedule");
+            Assert.Same(save, ModalPolicy.Blocking(new[] { W(main, "Afx:Revit", enabled: false), W(200, "HwndWrapper[x]", "BINA Copilot", enabled: false), save }, main, mainEnabled: false));
+            // A hidden window is never the answer; an untitled dialog is named by its class.
+            Assert.Null(ModalPolicy.Blocking(new[] { W(500, ModalPolicy.DialogClass, "Hidden", visible: false) }, main, mainEnabled: true));
+            Assert.Equal("a window (#32770)", ModalPolicy.Name(W(600, ModalPolicy.DialogClass)));
+        }
     }
 }

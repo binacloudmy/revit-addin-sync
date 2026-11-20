@@ -23,6 +23,21 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void ADialogThatSavesDeletesOrDiscards_IsNeverAnswered_EvenForAListedId()
+        {
+            // Tester feedback 20 Nov: only harmless dialogs get an automatic answer; anything that saves, deletes or discards waits for the drafter.
+            foreach (var text in new[] { "Do you want to save changes to MRSM1-run.rvt?", "2 elements will be deleted. Continue?", "Discard the changes?", "Padam elemen ini?" })
+            {
+                var d = DialogPolicy.Decide("Dialog_Revit_DocWarnDialog", text, inOurCallback: true);
+                Assert.Equal(DialogAction.Busy, d.Action);
+                Assert.Null(d.AnsweredWith);
+            }
+            Assert.True(DialogPolicy.IsDestructive("TaskDialog_Save_File_Reminder", null));
+            Assert.False(DialogPolicy.IsDestructive("Dialog_Revit_PasteSimilarSymbolsPaste", "Some types already exist in the destination project."));
+            foreach (var kv in DialogPolicy.Known) Assert.False(DialogPolicy.IsDestructive(kv.Key, null));
+        }
+
+        [Fact]
         public void EveryKnownEntryHasAnAnswer()
         {
             Assert.NotEmpty(DialogPolicy.Known);

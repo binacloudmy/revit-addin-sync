@@ -483,12 +483,18 @@ namespace BinaVibe.Copilot.Writes
             // then only measured, after that work ran, so the envelope describes the selection
             // and view the drafter actually has.
             var queued = contexts.Any(c => c.AfterCommit != null && c.AfterCommit.Count > 0);
-            if (queued && AfterCommitRunner.ShouldRun(CommitKind.Committed, undoEntry: !noop))
-                foreach (var f in AfterCommitRunner.Run(contexts.Select(c => (IReadOnlyList<Action>)c.AfterCommit).ToList()))
-                    AddWarning(envelopes[f.Call], AfterCommitRunner.WarningText(f));
-            // r13 (0.0.148), live fb713fc2: the commit no longer selects what it touched (it left 10 elements selected after a section box);
-            // the highlight is only measured. A run's own select request (queued UI work) still sets the selection before this.
-            if (!noop) Highlight(uidoc!, doc!, envelopes, builder.AddedIds, select: false);
+            // r17: the UI work after the commit (opening a view, a selection) is ours too: a known harmless dialog it raises is answered
+            // and reported, any other waits for the drafter and is named (DialogWatch), instead of sitting unseen behind the pane.
+            using (var later = DialogWatch.Collect())
+            {
+                if (queued && AfterCommitRunner.ShouldRun(CommitKind.Committed, undoEntry: !noop))
+                    foreach (var f in AfterCommitRunner.Run(contexts.Select(c => (IReadOnlyList<Action>)c.AfterCommit).ToList()))
+                        AddWarning(envelopes[f.Call], AfterCommitRunner.WarningText(f));
+                // r13 (0.0.148), live fb713fc2: the commit no longer selects what it touched (it left 10 elements selected after a section box);
+                // the highlight is only measured. A run's own select request (queued UI work) still sets the selection before this.
+                if (!noop) Highlight(uidoc!, doc!, envelopes, builder.AddedIds, select: false);
+                if (n > 0) AddDialogs(envelopes[0], later.Snapshot());
+            }
             foreach (var e in envelopes.Where(e => e != null)) EnvelopeChanges.Recheck(e);
             return new CommitOutcome { Kind = CommitKind.Committed, Envelopes = envelopes, UndoEntry = !noop };
         }
