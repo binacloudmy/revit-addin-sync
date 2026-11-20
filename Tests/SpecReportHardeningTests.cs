@@ -530,7 +530,7 @@ namespace RevitWebAppSync.Tests
             // Spec revision 2: A7.2 is human-decides (NeedsPerson, was not checked); 8 human + Db.2 unjudged.
             Assert.Equal(9, r.NeedsPersonChecks);
             Assert.Equal(33, r.NotCheckedChecks);
-            Assert.Equal(4, r.OtherFailing);
+            Assert.Equal(3, r.OtherFailing);   // was 4: one unmapped backend "warning" now counts as a pass (AI-466)
             // A2.1: the backend's file-name rules are one result beside the file_naming checker's.
             Assert.Equal((1, 1), (r.For("A2.1").Passed, r.For("A2.1").Failed));
             Assert.Equal(new[] { "na1", "dn1", "dn2", "BIM010-D10" }, r.For("Da.1").IssueIds);
