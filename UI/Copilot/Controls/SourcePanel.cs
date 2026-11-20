@@ -42,8 +42,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 badge.Child = CardKit.Text(badgeText, 10.5, ok ? "Cp.Ink" : "Cp.AmberFg", FontWeights.SemiBold);
                 DockPanel.SetDock(badge, Dock.Right); head.Children.Add(badge);
             }
-            var title = string.IsNullOrEmpty(row.Source) ? ("Your prompt") : row.Source;
-            head.Children.Add(CardKit.Text(("Source · ") + title, 11, "Cp.Ink2", FontWeights.Medium));
+            var title = string.IsNullOrEmpty(row.Source) ? CreatedSummary.PromptSource(lang) : row.Source;   // r18: "Prompt anda" in Malay (L3 aa736b6e)
+            head.Children.Add(CardKit.Text((ms ? "Sumber · " : "Source · ") + title, 11, "Cp.Ink2", FontWeights.Medium));
             sp.Children.Add(head);
 
             var isDoc = info != null && info.Kind == ResultSourceKinds.Document && !string.IsNullOrEmpty(info.Attachment) && info.Page is int;

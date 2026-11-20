@@ -100,6 +100,16 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void OneWriteCall_IsStepOne_NotStepThree()
+        {
+            // Live L15 read "Working / Step 3" for its one call: the server's step 1 rode on the "Applying the change" row the call row replaces.
+            var steps = OneWriteCall(new Dictionary<string, string>(), done: false);
+            Assert.Equal(1, RunningText.StepNumber(steps));
+            Assert.Equal("Langkah 1", RunningText.StepLabel(steps, ReceiptLanguage.Ms));
+            Assert.Equal("Langkah 1 · 5s", RunningText.HeaderText("5s", true, steps, ReceiptLanguage.Ms));
+        }
+
+        [Fact]
         public void TheRunningChrome_FollowsTheDraftersLanguage_TheCardStaysEnglish()
         {
             Assert.Equal(ReceiptLanguage.Ms, PromptLanguage.Activity(Intent));

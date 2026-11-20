@@ -1277,6 +1277,7 @@ namespace RevitWebAppSync.UI.Copilot
                     TurnId = rr.TurnId,
                     Evidence = rr.Evidence,
                     Lang = cardLang,
+                    ActivityLanguage = rr.Language,   // r18: its Steps list follows the drafter's language
                     Steps = rr.Steps,
                     Time = System.DateTime.Now.ToString("h:mm tt"),
                 });

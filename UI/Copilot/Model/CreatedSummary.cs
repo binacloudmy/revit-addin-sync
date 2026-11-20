@@ -98,7 +98,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
             summary.Supporting = Math.Max(0, added - summary.Total);
             var ms = lang == ReceiptLanguage.Ms;
             var at = string.IsNullOrWhiteSpace(attachment) ? "" : attachment!.Trim();
-            summary.Source = at.Length > 0 ? at : ms ? "Prompt anda" : "Your prompt";
+            summary.Source = at.Length > 0 ? at : PromptSource(lang);
             return summary;
         }
 
@@ -147,6 +147,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
         {
             "Sun Path", "Work Plane Grid", "Schedule Graphics", "SketchPlane", "GraphicsStyle", "Center Line",
         };
+
+        /// <summary>The source of a value the drafter's own words gave: "Your prompt" ("Prompt anda" in Malay). One wording for the created
+        /// summary, the change rows and the source panel (r18: those two had "Your prompt" hard-coded, live L3 aa736b6e).</summary>
+        public static string PromptSource(ReceiptLanguage lang) => lang == ReceiptLanguage.Ms ? "Prompt anda" : "Your prompt";
 
         /// <summary>"Source: Your prompt" / "Source: brochure.pdf".</summary>
         public string SourceLine(ReceiptLanguage lang) => (lang == ReceiptLanguage.Ms ? "Sumber: " : "Source: ") + Source;

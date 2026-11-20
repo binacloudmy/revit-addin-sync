@@ -18,7 +18,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
             var all = (steps ?? Enumerable.Empty<ProgressStep>()).Where(s => s != null).ToList();
             var said = all.Where(s => s.ModelStep > 0).Select(s => s.ModelStep).DefaultIfEmpty(0).Max();
             if (said > 0 && all.Any(s => s.State == StepState.Running)) return said;
-            var visible = ProgressTrail.UserVisible(steps).Where(s => !ProgressTrail.IsWaitStep(s)).ToList();
+            // r18 (live L15 "Working / Step 3" for ONE call): a write call's own sub-rows are not steps of their own (StepCollapse.Shown).
+            var visible = StepCollapse.Shown(ProgressTrail.UserVisible(steps)).Where(s => !ProgressTrail.IsWaitStep(s)).ToList();
             for (var i = visible.Count - 1; i >= 0; i--)
                 if (visible[i].State == StepState.Running) return i + 1;
             return 0;

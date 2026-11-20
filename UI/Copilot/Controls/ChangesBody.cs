@@ -439,7 +439,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             {
                 text.Cursor = System.Windows.Input.Cursors.Hand;
                 text.Background = System.Windows.Media.Brushes.Transparent;   // the whole line is the click target, not only its glyphs
-                text.ToolTip = ("Source: ") + (string.IsNullOrEmpty(row.Source) ? ("Your prompt") : row.Source);
+                text.ToolTip = (ms ? "Sumber: " : "Source: ") + (string.IsNullOrEmpty(row.Source) ? CreatedSummary.PromptSource(lang) : row.Source);
                 text.MouseEnter += (_, __) => text.TextDecorations = TextDecorations.Underline;
                 text.MouseLeave += (_, __) => text.TextDecorations = null;
                 text.MouseLeftButtonUp += (_, e) =>
@@ -558,7 +558,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 mid.Children.Add(value);
                 var was = ChangesBodyText.Was(row.Before, lang);
                 if (was.Length > 0) mid.Children.Add(CardKit.Text(was, 11.5, "Cp.Faint", margin: new Thickness(0, 2, 0, 0)));
-                var src = CardKit.Text(string.IsNullOrEmpty(row.Source) ? ("Your prompt") : Short(row.Source, 40), 11.5, "Cp.Faint", margin: new Thickness(0, 2, 0, 0));
+                var src = CardKit.Text(string.IsNullOrEmpty(row.Source) ? CreatedSummary.PromptSource(lang) : Short(row.Source, 40), 11.5, "Cp.Faint", margin: new Thickness(0, 2, 0, 0));
                 mid.Children.Add(src);
                 Grid.SetColumn(mid, 1); grid.Children.Add(mid);
 
