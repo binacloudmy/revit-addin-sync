@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows.Media;
@@ -93,9 +94,58 @@ namespace RevitWebAppSync.UI.Copilot.Model
         {
             foreach (var t in Curated)
                 t.CommandId = _backendIds.TryGetValue(t.Id, out var bid) ? bid : t.Id;
+            _curated = new List<SlashTool>(Curated);
             _all = new List<SlashTool>(Curated);
             _byId = Curated.ToDictionary(t => t.Id);
         }
+
+        // ── Curated tier from the backend's catalogue (r17) ─────────────────
+        private static List<SlashTool> _curated;
+
+        /// <summary>The curated commands now in the menu: the backend's catalogue when it loaded, else the built-in list.</summary>
+        public static IReadOnlyList<SlashTool> CuratedNow => _curated;
+
+        /// <summary>The curated tier from GET /revit-copilot/commands (r17): one tool per live non-"mine" row, keeping the built-in id, category
+        /// and badge where the row is a known command (quick-create is "create"), the built-in local commands (open-view) always; null or no
+        /// live row keeps the built-in list (the fall back when the fetch fails).</summary>
+        public static IReadOnlyList<SlashTool> CuratedFrom(IEnumerable<Models.CatalogCommandDto> rows)
+        {
+            var live = (rows ?? Enumerable.Empty<Models.CatalogCommandDto>())
+                .Where(r => r != null && !string.IsNullOrWhiteSpace(r.Id) && r.Group != "mine" && (r.Status ?? "live") == "live").ToList();
+            if (live.Count == 0) return Curated;
+            var local = _backendIds.ToDictionary(kv => kv.Value, kv => kv.Key);
+            var builtIn = Curated.ToDictionary(t => t.Id);
+            var tools = new List<SlashTool>();
+            foreach (var r in live)
+            {
+                var id = local.TryGetValue(r.Id, out var l) ? l : r.Id;
+                builtIn.TryGetValue(id, out var known);
+                tools.Add(new SlashTool
+                {
+                    Id = id, CommandId = r.Id,
+                    Name = string.IsNullOrWhiteSpace(r.NameEn) ? known?.Name ?? r.Id : r.NameEn,
+                    Subtitle = string.IsNullOrWhiteSpace(r.DescriptionEn) ? known?.Subtitle ?? "" : r.DescriptionEn,
+                    Category = known?.Category ?? "General",
+                    Badge = known?.Badge ?? (r.Engine == "report" ? ToolBadge.Report : r.Engine == "deterministic" ? ToolBadge.Deterministic : ToolBadge.AiAssisted),
+                    IconKey = string.IsNullOrWhiteSpace(r.Icon) ? known?.IconKey ?? "ti-command" : r.Icon,
+                    Keywords = known?.Keywords ?? string.Join(" ", r.Keywords ?? new List<string>()),
+                });
+            }
+            foreach (var t in Curated.Where(t => t.Local && tools.All(x => x.Id != t.Id))) tools.Insert(Math.Min(4, tools.Count), t);
+            return tools;
+        }
+
+        /// <summary>Put the backend's curated tier in the menu (or the built-in list back when <paramref name="rows"/> is null or empty).</summary>
+        public static void MergeCurated(IEnumerable<Models.CatalogCommandDto> rows)
+        {
+            _curated = CuratedFrom(rows).ToList();
+            Rebuild();
+        }
+
+        /// <summary>The command id a chosen tool sends with its turn (r17): the backend's id for a curated command; null for a local command
+        /// (handled in the add-in) and for a command saved on this PC (its own template is the prompt).</summary>
+        public static string WireCommandId(SlashTool tool) =>
+            tool == null || tool.Local || tool.Editable || tool.Category == "Mine" ? null : tool.BackendId;
 
         // ── User tier (Mine) — merged from GET /revit-copilot/commands ──────
         private static List<SlashTool> _mine = new List<SlashTool>();
@@ -111,7 +161,12 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public static void MergeRemote(IEnumerable<SlashTool> mine)
         {
             _mine = (mine ?? Enumerable.Empty<SlashTool>()).Where(t => t != null).ToList();
-            _all = _mine.Concat(Curated).ToList();
+            Rebuild();
+        }
+
+        private static void Rebuild()
+        {
+            _all = _mine.Concat(_curated ?? (IEnumerable<SlashTool>)Curated).ToList();
             var map = new Dictionary<string, SlashTool>();
             foreach (var t in _all) map[t.Id] = t;
             _byId = map;

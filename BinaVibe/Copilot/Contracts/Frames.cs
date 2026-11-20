@@ -115,6 +115,11 @@ namespace BinaVibe.Copilot.Contracts
         [JsonPropertyName("mentions")]
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public List<MentionDto>? Mentions { get; set; }
+        /// <summary>The curated slash command the message comes from (r17), e.g. "quick-create": the cloud adds that command's instructions.
+        /// Null: a plain message (omitted on the wire; an older backend sees the same body).</summary>
+        [JsonPropertyName("command_id")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? CommandId { get; set; }
     }
 
     /// <summary>One @ mention of a turn's message: kind (level, view, sheet, category, family, type, selection), the text it put in the message, and the element id when known.</summary>

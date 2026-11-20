@@ -130,6 +130,11 @@
               "id": { "type": "integer" }
             }
           }
+        },
+        "command_id": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "The curated slash command the message comes from (app/commands/*.md id, e.g. quick-create): the cloud adds its instructions. Absent: a plain message."
         }
       }
     },

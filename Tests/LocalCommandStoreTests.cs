@@ -367,7 +367,8 @@ namespace RevitAddinSync.Tests
             Assert.Contains("store.Update(d.EditingId, d)", commands);
             Assert.Contains("ToolCatalog.MergeMine(LocalCommandStore.Default.ToTools())", commands);
 
-            // Running expands the template in the add-in and sends it as a normal prompt; no command id leaves the pane.
+            // Running expands the template in the add-in and sends it as a normal prompt. r17: only a curated command sends its id
+            // (ToolCatalog.WireCommandId); a command saved on this PC sends none (SlashCommandR17Tests).
             var vm = File.ReadAllText(Path.Combine(Root(), "UI/Copilot/CopilotViewModel.cs"));
             Assert.Contains("SlashPromptText.Build(tool?.Name, tool?.PromptTemplate, typed, inputs)", vm);
             Assert.DoesNotContain(".BackendId", vm);
