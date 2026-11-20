@@ -1350,17 +1350,19 @@ namespace RevitWebAppSync.UI
 
             var issues = IssueMapper.MapAll(response);
 
-            // BIM010 rows from fill_audit join the list (before the audit-store
-            // merge, so Ignore / Manual decisions apply to them too), and the
-            // section-and-cell summary is built from both sources.
-            var auditIssues = IssueMapper.FromAuditRecords(snapshot.AuditRecords);
-            var knownIds = new HashSet<string>(issues.Select(i => i.Id));
-            issues.AddRange(auditIssues.Where(i => knownIds.Add(i.Id)));
-            // The spec evaluators' findings join the same way (stable ids, so the
-            // audit-store merge below keeps their Ignore / Reviewed decisions).
+            // The spec evaluators' findings join first (stable ids, so the audit-store
+            // merge below keeps their Ignore / Reviewed decisions) ...
             var modelResults = await modelTask;
-            issues.AddRange(IssueMapper.FromModelResults(modelResults, Jkr.Panel.Core.PaneLanguage.Current)
-                .Where(i => !string.IsNullOrEmpty(i.Id) && knownIds.Add(i.Id)));
+            var knownIds = new HashSet<string>(issues.Select(i => i.Id));
+            var specIssues = IssueMapper.FromModelResults(modelResults, Jkr.Panel.Core.PaneLanguage.Current)
+                .Where(i => !string.IsNullOrEmpty(i.Id)).ToList();
+            // ... then the BIM010 rows from fill_audit, only for rules the spec does not
+            // cover (AI-412: a row the spec answers is a duplicate). The list keeps its
+            // old order: backend, BIM010, spec. They join before the audit-store merge,
+            // so Ignore / Manual decisions apply to them too.
+            var auditIssues = IssueMapper.FromAuditRecordsNotInSpec(snapshot.AuditRecords, specIssues, modelResults);
+            issues.AddRange(auditIssues.Where(i => knownIds.Add(i.Id)));
+            issues.AddRange(specIssues.Where(i => knownIds.Add(i.Id)));
             // The same run against the spec's 61 checks (Checklist tab). Built from
             // every result — MapAll above drops passes — plus the BIM010 records and
             // the spec evaluators' results.

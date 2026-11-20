@@ -63,6 +63,14 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public static string FixErrorFor(long elementId, string fixAction, string parameterName) =>
             _FixBlocklist.TryGetValue(BlockKey(elementId, fixAction ?? "", parameterName ?? ""), out var why) ? why : null;
 
+        /// <summary>
+        /// Legacy backend rules with no JKR spec check: kept in the list but information
+        /// only (needs a person, Low priority, no fix) - never a fail or High. Director
+        /// ruling 2026-11-20 (reversible): "Level Naming Convention L##".
+        /// </summary>
+        public static bool IsInfoOnlyLegacyRule(string rule) =>
+            (rule ?? "").Trim().StartsWith("Level Naming Convention", StringComparison.OrdinalIgnoreCase);
+
         public static IssueVm FromDto(ComplianceIssueDto dto)
         {
             if (dto == null) return null;
@@ -79,6 +87,14 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             var fixError = FixErrorFor(dto.ElementId, dto.FixAction ?? "", dto.FixParameterName ?? "");
             if (autoFixable && fixError != null)
                 autoFixable = false;
+
+            // Legacy-only rules the spec has no check for stay listed, as information only.
+            if (IsInfoOnlyLegacyRule(dto.Rule))
+            {
+                verification = IssueVerification.Human;
+                autoFixable = false;
+                tier = IssuePriority.Low;
+            }
 
             return new IssueVm
             {
@@ -216,7 +232,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             }
             // Same issue id FromAuditRecords gives the row.
             list.AddRange(RevitWebAppSync.UI.Jkr.Panel.Core.SpecReport.FromAuditRecords(
-                records, key => JkrComplianceService.ComputeIssueId("BIM010", key, 0)));
+                records, key => JkrIssueId.Compute("BIM010", key, 0)));
             foreach (var m in modelResults ?? Enumerable.Empty<RevitWebAppSync.UI.Jkr.Panel.Core.SpecResult>())
             {
                 if (m == null) continue;
@@ -318,9 +334,13 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 if (Bim010Form.Find(key) == null) continue;
                 var firstId = r.ElementIds != null && r.ElementIds.Count > 0 ? r.ElementIds[0] : 0;
                 var category = "Borang " + r.Row.Section;
+                // A finding beside a spec check a person decides (A6 Department -> A6.3) is
+                // information only: it never gives a fail verdict or High priority.
+                var infoOnly = RevitWebAppSync.UI.Jkr.Panel.Core.SpecReport.MapAudit(
+                    r.CheckerId, key, r.Row.Description ?? "", false)?.Coverage == RevitWebAppSync.UI.Jkr.Panel.Core.SpecCoverage.Context;
                 list.Add(new IssueVm
                 {
-                    Id = JkrComplianceService.ComputeIssueId("BIM010", key, 0),
+                    Id = JkrIssueId.Compute("BIM010", key, 0),
                     CheckId = "BIM010-" + key,
                     Domain = "bim010",
                     RawRule = r.Row.Description,
@@ -330,8 +350,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     Required = r.RulePattern ?? "",
                     Actual = "",
                     AutoFixable = false,
-                    Verification = verdict == Bim010Verdict.Manual ? IssueVerification.Human : IssueVerification.Ai,
-                    Priority = PriorityOf(r.Severity),
+                    Verification = verdict == Bim010Verdict.Manual || infoOnly ? IssueVerification.Human : IssueVerification.Ai,
+                    Priority = infoOnly ? IssuePriority.Low : PriorityOf(r.Severity),
                     Status = IssueStatus.Open,
                     RevitElementId = firstId,
                     Locatable = firstId > 0,
@@ -347,6 +367,49 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 });
             }
             return list;
+        }
+
+        /// <summary>
+        /// <see cref="FromAuditRecords"/> without the rows the spec already answers
+        /// (AI-412, option c): a legacy BIM010 issue stays only for a rule the spec does
+        /// not cover. It is a duplicate, and dropped, when its record maps (SpecReport.MapAudit)
+        /// to a spec check that judges (Full / FailOnly) and either a SPEC- issue has the
+        /// same Borang key or the add-in's own evaluators judged that check. Records for
+        /// list-only / human-decides checks (Listing / Context) and rows the spec has no
+        /// check for stay.
+        /// </summary>
+        public static List<IssueVm> FromAuditRecordsNotInSpec(
+            IEnumerable<AuditRecord> records,
+            IEnumerable<IssueVm> specIssues,
+            IEnumerable<RevitWebAppSync.UI.Jkr.Panel.Core.SpecResult> modelResults)
+        {
+            var recs = (records ?? Enumerable.Empty<AuditRecord>()).Where(r => r?.Row?.RowRef != null).ToList();
+            var specKeys = new HashSet<string>(
+                (specIssues ?? Enumerable.Empty<IssueVm>())
+                    .Where(i => i != null && (i.CheckId ?? "").StartsWith("SPEC-", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(i.BorangKey))
+                    .Select(i => i.BorangKey), StringComparer.OrdinalIgnoreCase);
+            var judged = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var m in modelResults ?? Enumerable.Empty<RevitWebAppSync.UI.Jkr.Panel.Core.SpecResult>())
+            {
+                if (m == null || m.NotApplicable) continue;
+                var cov = m.Coverage ?? RevitWebAppSync.UI.Jkr.Panel.Core.SpecCoverage.Full;
+                if (cov != RevitWebAppSync.UI.Jkr.Panel.Core.SpecCoverage.Full && cov != RevitWebAppSync.UI.Jkr.Panel.Core.SpecCoverage.FailOnly) continue;
+                if (!RevitWebAppSync.UI.Jkr.Panel.Core.SpecReport.IsPass(m.Status) && !RevitWebAppSync.UI.Jkr.Panel.Core.SpecReport.IsFail(m.Status)) continue;
+                var cid = RevitWebAppSync.UI.Jkr.Panel.Core.SpecReport.ResolveCheckId(m.CheckId);
+                if (cid != null) judged.Add(cid);
+            }
+
+            var covered = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var r in recs)
+            {
+                var key = Bim010Form.KeyOf(r.Row.Section, r.Row.RowRef);
+                var map = RevitWebAppSync.UI.Jkr.Panel.Core.SpecReport.MapAudit(r.CheckerId, key, r.Row.Description ?? "", false);
+                if (map == null) continue;
+                var cov = map.Value.Coverage;
+                if (cov != RevitWebAppSync.UI.Jkr.Panel.Core.SpecCoverage.Full && cov != RevitWebAppSync.UI.Jkr.Panel.Core.SpecCoverage.FailOnly) continue;
+                if (specKeys.Contains(key) || judged.Contains(map.Value.Id)) covered.Add(key);
+            }
+            return FromAuditRecords(recs).Where(i => !covered.Contains(i.BorangKey)).ToList();
         }
 
         /// <summary>Checker severity → pane priority (critical/major/minor → High/Medium/Low).</summary>
