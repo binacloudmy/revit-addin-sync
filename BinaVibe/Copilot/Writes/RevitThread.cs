@@ -285,7 +285,9 @@ namespace BinaVibe.Copilot.Writes
             if (verdict == WatchdogVerdict.Wait) return;
 
             var message = WatchdogPolicy.Message(verdict);
-            var dialog = verdict == WatchdogVerdict.FailDialog;   // a dialog the drafter can see: name it when Revit told us which
+            // Name the dialog only when Revit showed it just now (WatchdogPolicy.NameDialog): the UI-pumped verdict can come long after, and the
+            // last dialog seen may be hours old and closed. Otherwise the backend says it cannot tell which dialog blocks Revit.
+            var dialog = verdict == WatchdogVerdict.FailDialog && WatchdogPolicy.NameDialog(Since(Volatile.Read(ref _lastDialogTicks)));
             var dialogId = dialog ? Volatile.Read(ref _lastDialogId) : null;
             var dialogText = dialog ? Volatile.Read(ref _lastDialogText) : null;
             while (Queue.TryDequeue(out var work))

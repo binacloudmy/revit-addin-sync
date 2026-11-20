@@ -43,6 +43,10 @@ namespace BinaVibe.Copilot.Writes
             return WatchdogVerdict.Wait;
         }
 
+        /// <summary>A failed-as-dialog queue names the last dialog Revit showed only when that was within <see cref="DialogRecent"/>
+        /// (never for a dialog Revit raised long before, nor when none was seen: Since gives MaxValue).</summary>
+        public static bool NameDialog(TimeSpan sinceDialog) => sinceDialog <= DialogRecent;
+
         /// <summary>The failure text; nothing ran, so nothing was changed.</summary>
         public static string Message(WatchdogVerdict verdict) => verdict == WatchdogVerdict.FailDialog
             ? "Revit was busy or showing a dialog and did not run the change, so nothing was changed. If a dialog is open, ask the drafter to close it, then try again."

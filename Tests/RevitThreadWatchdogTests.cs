@@ -68,5 +68,15 @@ namespace RevitAddinSync.Tests
             Assert.False(WatchdogPolicy.ShouldProbe(S(8), idleSinceArm: false, probedSinceArm: true));
             Assert.False(WatchdogPolicy.ShouldProbe(S(8), idleSinceArm: true, probedSinceArm: false));
         }
+
+        [Fact]
+        public void ADialogIsNamedOnlyWhenRevitShowedItJustNow()
+        {
+            Assert.True(WatchdogPolicy.NameDialog(S(0)));
+            Assert.True(WatchdogPolicy.NameDialog(S(20)));
+            Assert.False(WatchdogPolicy.NameDialog(S(21)));
+            Assert.False(WatchdogPolicy.NameDialog(TimeSpan.FromHours(3)));   // the UI-pumped verdict after a dialog shown hours ago
+            Assert.False(WatchdogPolicy.NameDialog(TimeSpan.MaxValue));        // no dialog seen at all
+        }
     }
 }
