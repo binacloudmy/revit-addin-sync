@@ -148,10 +148,14 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>r13: elements the turn's commits deleted (touched or by Revit), 0 when none. An Undo brings them back, so the
         /// undone banner may not say "Nothing else changed." then.</summary>
         public int Deleted;
+        /// <summary>r14: elements Revit added or adjusted by itself beside the commits (side effects: fittings added and the run moved
+        /// when a pipe is resized, live cb9899a5), bookkeeping entries left out. An Undo reverts them too, so the undone banner says so
+        /// and never "Nothing else changed." then.</summary>
+        public int Rippled;
         /// <summary>r13: the Undo put back exactly what the card lists (values written, or elements made) and nothing the card
         /// does not show (no deleted elements came back). Only then does the undone banner say "Nothing else changed."</summary>
         public bool UndoRestoresExactly =>
-            Deleted == 0 && ((Kind == ResultKind.Changes && ChangeCount > 0 && Created.Count == 0) || (Kind == ResultKind.Created && Created.Count > 0));
+            Deleted == 0 && Rippled == 0 && ((Kind == ResultKind.Changes && ChangeCount > 0 && Created.Count == 0) || (Kind == ResultKind.Created && Created.Count > 0));
         /// <summary>r13: the line under "Revit raised N warnings": the change is in the open model, not saved to the file.</summary>
         public static string CommitWarningsNote(ReceiptLanguage lang) => lang == ReceiptLanguage.Ms
             ? "Perubahan telah dibuat dalam Revit. Semak apa yang Revit tandakan di bawah dalam model."
@@ -604,6 +608,39 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return n;
         }
 
+        /// <summary>Diff entries that are Revit's bookkeeping, not elements a drafter checks: an API class with no category
+        /// ("class:View"), the centre lines a pipe or duct carries, the system an MEP element belongs to, the annotation that only
+        /// redraws what was written (tags, legends, dimensions, text notes). Same rule as the backend's
+        /// copilot_result/ripple.py.</summary>
+        internal static bool IsBookkeeping(string? category)
+        {
+            var c = (category ?? "").Trim();
+            return c.StartsWith("class:", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(c.Replace(" ", ""), "Centerline", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(c.Replace(" ", ""), "Centreline", StringComparison.OrdinalIgnoreCase)
+                || c.EndsWith(" Systems", StringComparison.OrdinalIgnoreCase)
+                || c.EndsWith(" Tags", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(c, "Legend Components", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(c, "Dimensions", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(c, "Text Notes", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>Elements Revit added or modified beside the commits (their side effects), bookkeeping left out. A type parameter
+        /// write changes every instance of the type, which the card already states: only what Revit added counts for it.</summary>
+        internal static int RippledBy(IEnumerable<Envelope> commits)
+        {
+            var n = 0;
+            foreach (var env in commits ?? Enumerable.Empty<Envelope>())
+            {
+                var side = env?.Changes?.SideEffects;
+                if (side == null) continue;
+                var typeWrite = ToolResults.Write(env!)?.TypeParam == true;
+                foreach (var by in typeWrite ? new[] { side.AddedByCategory } : new[] { side.AddedByCategory, side.ModifiedByCategory })
+                    n += (by ?? new Dictionary<string, int>()).Where(kv => kv.Value > 0 && !IsBookkeeping(kv.Key)).Sum(kv => kv.Value);
+            }
+            return n;
+        }
+
         public static ResultCardModel From(TurnEvidence ev, ReceiptLanguage lang, string? attachment = null)
         {
             var m = new ResultCardModel();
@@ -614,6 +651,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
             var commits = calls.Where(c => c.Env.PhaseKind() == EnvelopePhaseKind.Commit
                 && (c.Env.StatusKind() == EnvelopeStatusKind.Done || c.Env.StatusKind() == EnvelopeStatusKind.Partial)).ToList();
             m.Deleted = DeletedBy(commits.Select(c => c.Env));
+            m.Rippled = RippledBy(commits.Select(c => c.Env));
             // Net change: a value written and then put back (by a later call) is one row, or none.
             var net = new Dictionary<(long, string), (string? Before, string? After)>();
             var lastAt = new Dictionary<(long, string), int>();

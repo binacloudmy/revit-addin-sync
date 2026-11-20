@@ -17,6 +17,12 @@ namespace RevitWebAppSync.UI.Copilot.Model
             // or a card that lists nothing, does not claim it.
             var nothing = card != null && card.UndoRestoresExactly ? (ms ? " Tiada yang lain berubah." : " Nothing else changed.") : "";
             if (card == null) return (title, "");
+            // r14: Revit's own changes beside the write (fittings added, the run adjusted) are reverted by the same Undo: said, never hidden.
+            var rippled = card.Rippled > 0
+                ? (ms ? " Perubahan Revit sendiri di sekitarnya (" + N(card.Rippled) + " elemen) turut dibuat asal."
+                      : " Revit's own changes around it (" + N(card.Rippled) + (card.Rippled == 1 ? " element" : " elements") + ") were undone too.")
+                : "";
+            nothing = rippled + nothing;
 
             if (card.Kind == ResultKind.Changes && card.ChangeCount > 0)
             {

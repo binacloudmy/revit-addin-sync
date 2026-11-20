@@ -94,6 +94,57 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void TheUndoneBanner_ForARippleWrite_SaysRevitsOwnChangesWereUndone_NotNothingElseChanged()
+        {
+            // live cb9899a5: Diameter 1/2" -> 3/4" on one pipe; Revit added 2 Pipe Fittings and adjusted 11 Pipes, 11 fittings, 3 fixtures
+            var env = new Envelope { Changes = new ChangeReportDto
+            {
+                SideEffects = new SideEffectsDto
+                {
+                    AddedByCategory = new Dictionary<string, int> { ["Pipe Fittings"] = 2, ["Center line"] = 2 },
+                    ModifiedByCategory = new Dictionary<string, int> { ["class:View"] = 1, ["class:Element"] = 4, ["Plumbing Fixtures"] = 3,
+                        ["Piping Systems"] = 1, ["Pipes"] = 11, ["Center Line"] = 12, ["Pipe Fittings"] = 11, ["Center line"] = 11 },
+                },
+            } };
+            Assert.Equal(27, ResultCardModel.RippledBy(new[] { env }));
+            var m = new ResultCardModel { Kind = ResultKind.Changes, Rippled = 27 };
+            var g = new TypeGroup { TypeName = "Copper", Instances = 1, Ids = new List<long> { 1598795 } };
+            g.Rows.Add(new ChangeRow { Param = "Diameter", Ids = new List<long> { 1598795 } });
+            m.Groups.Add(g);
+            Assert.False(m.UndoRestoresExactly);
+            var en = UndoBanner.For(m, ReceiptLanguage.En).Detail;
+            Assert.Equal("1 value put back to what it was on 1 element. Revit's own changes around it (27 elements) were undone too.", en);
+            Assert.DoesNotContain("Nothing else changed", en);
+            var ms = UndoBanner.For(m, ReceiptLanguage.Ms).Detail;
+            Assert.Contains("(27 elemen) turut dibuat asal.", ms);
+            Assert.DoesNotContain("Tiada yang lain berubah", ms);
+        }
+
+        [Fact]
+        public void RippledBy_IgnoresBookkeepingOnly_SoAPlainWriteStillSaysNothingElseChanged()
+        {
+            var env = new Envelope { Changes = new ChangeReportDto { SideEffects = new SideEffectsDto
+            {
+                AddedByCategory = new Dictionary<string, int> { ["Center line"] = 1 },
+                ModifiedByCategory = new Dictionary<string, int> { ["class:View"] = 1, ["Piping Systems"] = 1, ["Centre Line"] = 2, ["Door Tags"] = 4, ["Legend Components"] = 1 },
+            } } };
+            Assert.Equal(0, ResultCardModel.RippledBy(new[] { env }));
+            Assert.Equal(0, ResultCardModel.RippledBy(new[] { new Envelope() }));
+            // a type write: its own instances are the card's "on N types", not Revit's ripple; only what Revit added counts
+            var typeWrite = new Envelope
+            {
+                Data = System.Text.Json.JsonDocument.Parse("{\"param\":\"Model\",\"type_param\":true}").RootElement.Clone(),
+                Changes = new ChangeReportDto { SideEffects = new SideEffectsDto
+                {
+                    ModifiedByCategory = new Dictionary<string, int> { ["Lighting Fixtures"] = 21 },
+                    AddedByCategory = new Dictionary<string, int> { ["Pipe Fittings"] = 1 },
+                } },
+            };
+            Assert.Equal(1, ResultCardModel.RippledBy(new[] { typeWrite }));
+            Assert.EndsWith("Nothing else changed.", UndoBanner.For(TwoTypes(), ReceiptLanguage.En).Detail);
+        }
+
+        [Fact]
         public void TheUndoneBanner_ForACreatedCard_NamesWhatWasRemoved()
         {
             var m = new ResultCardModel { Kind = ResultKind.Created };
