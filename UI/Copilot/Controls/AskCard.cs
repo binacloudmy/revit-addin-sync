@@ -447,9 +447,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             {
                 var body = new StackPanel { Margin = new Thickness(14, 0, 14, 12) };
                 if (_m.ShowsMultiHint) body.Children.Add(MultiHintLine(new Thickness(2, 0, 0, 7)));   // r13: "Pick any"
-                for (var i = 0; i < _m.Options.Count; i++)
+                var tiles = _m.OptionTiles;   // r18: a multi card's skip is the quiet row below, not a numbered tick box
+                for (var i = 0; i < tiles.Count; i++)
                 {
-                    var o = _m.Options[i];
+                    var o = tiles[i];
                     var hint = _m.Multi ? (i < 9 ? (i + 1).ToString(System.Globalization.CultureInfo.InvariantCulture) : "") : AskCardModel.OptionKeyHint(o, i);
                     var tile = new Tile(o.Label, o.Meta, hint, big: true, multi: _m.Multi);
                     tile.Button.Margin = new Thickness(0, 0, 0, 6);
@@ -464,6 +465,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     }
                     body.Children.Add(tile.Button);
                 }
+                var skip = _m.MultiSkip;
+                if (skip != null) body.Children.Add(SkipRow(skip.Label, () => { _m.ToggleMulti(skip.Id); Refresh(); }, () => _m.MultiPicks.Contains(skip.Id)));
                 body.Children.Add(CardKit.Text(AskCardModel.TypeOwnHint, 11, "Cp.Faint", margin: new Thickness(2, 2, 0, 0)));
                 return body;
             }
@@ -733,9 +736,15 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             {
                 var skip = AskCardModel.SkipChoice(f);
                 if (skip == null) return;
+                sp.Children.Add(SkipRow(skip.Label, () => PickSkip(f, skip), () => _m.Picked(f)?.Id == skip.Id));
+            }
+
+            /// <summary>The quiet skip row (a dash and the label), lit while <paramref name="isOn"/>; a multi field's and (r18) a multi options card's.</summary>
+            private FrameworkElement SkipRow(string label, Action click, Func<bool> isOn)
+            {
                 var row = new StackPanel { Orientation = Orientation.Horizontal };
                 var icon = new Border { Width = 9, Height = 1.6, CornerRadius = new CornerRadius(1), Margin = new Thickness(1, 0, 7, 0), VerticalAlignment = VerticalAlignment.Center };
-                var text = CardKit.Text(skip.Label, 12, "Cp.Muted", wrap: true);
+                var text = CardKit.Text(label, 12, "Cp.Muted", wrap: true);
                 text.VerticalAlignment = VerticalAlignment.Center;
                 row.Children.Add(icon);
                 row.Children.Add(text);
@@ -743,16 +752,16 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 b.Padding = new Thickness(4, 4, 6, 4);
                 b.HorizontalAlignment = HorizontalAlignment.Left;
                 b.Margin = new Thickness(-4, 0, 0, 0);   // its dash on the labels' edge; the padding is only the hover area
-                b.Click += (_, __) => PickSkip(f, skip);
+                b.Click += (_, __) => click();
                 _refresh.Add(() =>
                 {
-                    var on = _m.Picked(f)?.Id == skip.Id;
+                    var on = isOn();
                     var brush = on ? "Cp.BlueText" : "Cp.Muted";
                     text.SetResourceReference(TextBlock.ForegroundProperty, brush);
                     text.FontWeight = on ? FontWeights.SemiBold : FontWeights.Normal;
                     icon.SetResourceReference(Border.BackgroundProperty, brush);
                 });
-                sp.Children.Add(b);
+                return b;
             }
 
             private FrameworkElement TypedField(AskFieldModel f, bool number)
@@ -876,7 +885,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                         break;
                     case AskCardKind.Options:
                         var picked = _m.MultiPicked;
-                        var summary = string.Join(", ", picked.Select(o => o.Label));
+                        var summary = _m.MultiSummary;
                         Send(_m.AnswerForOptions(picked.Select(o => o.Id)), summary, Line("", summary));
                         break;
                 }

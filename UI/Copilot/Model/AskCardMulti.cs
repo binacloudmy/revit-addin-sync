@@ -5,6 +5,7 @@
 // its question ("Pick any"; Malay turn: "Pilih satu atau lebih"), and the Send button counts the ticks ("Send (2)").
 // Single-choice tiles are unchanged (number hint until picked, then the disc tick). WPF-free so it is unit-tested.
 
+using System.Collections.Generic;
 using System.Linq;
 using BinaVibe.Copilot.Contracts;
 
@@ -48,11 +49,21 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
         /// <summary>How many choices are ticked: a multi options card's ticks, or every multi field's ticks (a skip is not a tick).</summary>
         public int TickCount =>
-            Kind == AskCardKind.Options ? (Multi ? MultiPicks.Count : 0)
+            Kind == AskCardKind.Options ? (Multi ? MultiPicks.Count(id => !Options.Any(o => o.Id == id && o.IsSkip)) : 0)
             : Kind == AskCardKind.Fields
                 ? Fields.Where(f => f.Multi).Sum(f => TickedIds(f, Picks.TryGetValue(f.Id, out var v) ? v : "")
                     .Count(id => !f.Choices.Any(c => c.Id == id && c.IsSkip)))
                 : 0;
+
+        /// <summary>r18: the tiles of a multi options card: every option but its skip (a skip is the quiet row under the tiles, as on a multi
+        /// field, never a numbered tick box counted in "Send (N)"). A single question keeps every option as a tile.</summary>
+        public IReadOnlyList<AskOptionModel> OptionTiles => Multi ? Options.Where(o => !o.IsSkip).ToList() : Options;
+
+        /// <summary>r18: the skip option a multi options card draws as its quiet row; null for none (or a single question).</summary>
+        public AskOptionModel? MultiSkip => Multi ? Options.FirstOrDefault(o => o.IsSkip) : null;
+
+        /// <summary>The collapsed record of a sent multi options card: the ticked labels, or "Skipped" for a skip.</summary>
+        public string MultiSummary => MultiPicked.Count == 1 && MultiPicked[0].IsSkip ? SkippedText : string.Join(", ", MultiPicked.Select(o => o.Label));
 
         /// <summary>"Send (2)": the send label with the tick count, "Send" with none.</summary>
         public static string SendWithCount(int n) =>

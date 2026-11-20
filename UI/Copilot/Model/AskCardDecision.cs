@@ -387,7 +387,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
             var k = char.ToLowerInvariant(key);
             if (k == 'c') return Options.FirstOrDefault(o => o.IsCreate);
             if (k == 's') return Options.FirstOrDefault(o => o.IsSkip);
-            if (k >= '1' && k <= '9') { var n = k - '1'; return n < Options.Count ? Options[n] : null; }
+            if (k >= '1' && k <= '9') { var n = k - '1'; var tiles = OptionTiles; return n < tiles.Count ? tiles[n] : null; }   // r18: a multi card's skip has no number
             return null;
         }
 
