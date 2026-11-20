@@ -111,6 +111,8 @@
                     <StackPanel>
                         <TextBlock Text="{Binding Caption}" FontSize="12" Foreground="{StaticResource Bz.Text2}"
                                    TextTrimming="CharacterEllipsis" ToolTip="{Binding Caption}"/>
+                        <TextBlock Text="{Binding Detail}" FontSize="11" Margin="0,2,0,0" Foreground="{StaticResource Bz.Text3}"
+                                   TextWrapping="Wrap" Visibility="{Binding HasDetail, Converter={StaticResource B2V}}"/>
                         <WrapPanel Margin="0,3,0,0">
                             <TextBlock Text="{Binding Old}" FontFamily="{StaticResource Bz.Font.Mono}" FontSize="12"
                                        Foreground="{StaticResource Bz.Tone.Fail}" TextDecorations="Strikethrough" TextWrapping="Wrap"

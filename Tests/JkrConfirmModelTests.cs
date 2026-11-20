@@ -209,5 +209,52 @@ namespace RevitWebAppSync.Tests
             Assert.Equal("(missing)", r.Old);
             Assert.Equal("AR-01", r.Proposed);
         }
+
+        [Fact]
+        public void Row_from_an_issue_names_the_parameter_count_and_confidence()
+        {
+            var r = JkrConfirmRow.FromIssue(new IssueVm
+            {
+                Title = "Kod_Jenis missing", FixParameterName = "Kod_Jenis", FixValue = "AR-01",
+                LocateCount = 12, Confidence = "high",
+            });
+            Assert.Equal("Kod_Jenis", r.ParameterName);
+            Assert.Equal(12, r.AffectedCount);
+            Assert.Equal("high", r.Confidence);
+        }
+
+        [Fact]
+        public void Detail_line_lists_parameter_affected_count_and_confidence_in_english()
+        {
+            var m = new JkrConfirmModel(JkrConfirmKind.Fix, new[]
+            {
+                new JkrConfirmRow("Doors", "t", "a", "b", parameterName: "Kod_Jenis", affectedCount: 12, confidence: "high"),
+            }, 12);
+            Assert.Equal("Parameter: Kod_Jenis · affects 12 elements · Confidence: high", m.Rows[0].Detail);
+        }
+
+        [Fact]
+        public void Detail_line_in_malay()
+        {
+            var m = new JkrConfirmModel(JkrConfirmKind.Fix, new[]
+            {
+                new JkrConfirmRow("Doors", "t", "a", "b", parameterName: "Kod_Jenis", affectedCount: 12, confidence: "high"),
+            }, 12, lang: "ms");
+            Assert.Equal("Parameter: Kod_Jenis · melibatkan 12 elemen · Keyakinan: high", m.Rows[0].Detail);
+        }
+
+        [Fact]
+        public void Detail_line_hides_what_it_does_not_have_and_a_single_element_is_not_a_batch()
+        {
+            var m = new JkrConfirmModel(JkrConfirmKind.Fix, new[]
+            {
+                new JkrConfirmRow("Doors", "t", "a", "b", parameterName: "Kod_Jenis", affectedCount: 1),
+                new JkrConfirmRow("Doors", "t", "a", "b"),
+            }, 2);
+            Assert.Equal("Parameter: Kod_Jenis", m.Rows[0].Detail);
+            Assert.True(m.Rows[0].HasDetail);
+            Assert.Equal("", m.Rows[1].Detail);
+            Assert.False(m.Rows[1].HasDetail);
+        }
     }
 }
