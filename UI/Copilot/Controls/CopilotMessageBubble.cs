@@ -105,8 +105,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     tools.Children.Add(EditButton(onEdit));
                     tools.Children.Add(CopyButton(text));
                     row.Children.Add(HoverReveal(row, tools));
-                    // A double-click on the bubble (outside its selectable text, which keeps word selection) edits too.
-                    bubble.MouseLeftButtonDown += (_, e) => { if (e.ClickCount == 2) { e.Handled = true; onEdit(); } };
+                    // A double-click anywhere on the bubble edits too (the text inside is selectable; copy stays on the
+                    // button and the right-click menu).
+                    bubble.PreviewMouseLeftButtonDown += (_, e) => { if (e.ClickCount == 2) { e.Handled = true; onEdit(); } };
                     bubble.ToolTip = "Double-click to edit and send again";
                 }
                 else row.Children.Add(HoverReveal(row, CopyButton(text)));

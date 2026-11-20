@@ -689,7 +689,8 @@ namespace RevitWebAppSync.UI.Copilot
         /// is sent and the thread is not changed. False (and nothing happens) while a turn runs or for a slash command.</summary>
         public bool EditPrompt(ChatMessage m)
         {
-            var text = PromptRecall.TextFor(m, TurnBusy);
+            // A question parked on the assistant would take the edited prompt as its answer: edit after it is answered.
+            var text = PromptRecall.TextFor(m, TurnBusy || TurnRouter?.PendingAsk != null);
             if (text == null) return false;
             PromptToEdit?.Invoke(text);
             return true;
