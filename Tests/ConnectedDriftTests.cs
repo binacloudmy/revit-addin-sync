@@ -237,6 +237,12 @@ namespace RevitAddinSync.Tests
             Assert.Empty(engine.Batches);
             await runner.RunAsync(Request(ConnectedDrift.ForceConnected, turn: "t3"), CancellationToken.None);
             Assert.All(engine.Batches, b => { Assert.True(b.ForceConnected); Assert.Contains(1543386L, b.ForceApproval!.Ids); });
+
+            // One click forces once: the same calls forced again in the turn are refused (re-audit P3).
+            engine.Batches.Clear();
+            var twice = await runner.RunAsync(Request(ConnectedDrift.ForceConnected, turn: "t3", width: "11.81"), CancellationToken.None);
+            Assert.StartsWith("Not approved:", twice[0].Error!.Message);
+            Assert.Empty(engine.Batches);
         }
 
         [Fact]

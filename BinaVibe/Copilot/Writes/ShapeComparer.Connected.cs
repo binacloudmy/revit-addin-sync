@@ -246,13 +246,16 @@ namespace BinaVibe.Copilot.Writes
             }
         }
 
-        /// <summary>The approval for exactly these calls in this turn, or null.</summary>
-        public static ForceApproval? Find(string turnId, IReadOnlyCollection<string> signatures)
+        /// <summary>The approval for exactly these calls in this turn, or null. Used up when found (re-audit P3): one click forces once,
+        /// the same calls cannot be forced a second time in the turn.</summary>
+        public static ForceApproval? Take(string turnId, IReadOnlyCollection<string> signatures)
         {
             lock (Gate)
             {
                 if (!ByTurn.TryGetValue(turnId ?? "", out var a)) return null;
-                return signatures.Count > 0 && signatures.All(a.Signatures.Contains) && a.Signatures.All(signatures.Contains) ? a : null;
+                if (signatures.Count == 0 || !signatures.All(a.Signatures.Contains) || !a.Signatures.All(signatures.Contains)) return null;
+                ByTurn.Remove(turnId ?? "");
+                return a;
             }
         }
     }

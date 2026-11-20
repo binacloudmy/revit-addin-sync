@@ -126,7 +126,7 @@ namespace BinaVibe.Copilot.Writes
             ForceApproval? approval = null;
             if (force)
             {
-                approval = ForceApprovals.Find(req.TurnId, pending.Select(i => ForceApproval.Signature(calls[i])).ToList());
+                approval = ForceApprovals.Take(req.TurnId, pending.Select(i => ForceApproval.Signature(calls[i])).ToList());
                 if (approval == null)
                 {
                     foreach (var i in pending)
