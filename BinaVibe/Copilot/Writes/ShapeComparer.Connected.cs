@@ -15,6 +15,10 @@
 // Anything else (an element of another run, a wall, a host) still refuses, forced or not. JudgeConnected says whether the
 // drift is connected-only (so the backend may offer the force card) and lists every difference by category and id, for
 // the card before and the result after.
+// r18 (live 4e70cf53): the pairs above (1543386/1543387, 1550728/1550729) proved not to be fittings but elements Revit created and removed
+// inside the same write, reported deleted and never added; BornIds now drops them before any comparison, so that resize matches. The force
+// path stays for a drift in real connected elements; view-specific and non-model elements (nonModel, AddedShape.NonModel) never count as
+// unconnected.
 
 using System;
 using System.Collections.Generic;
