@@ -331,7 +331,9 @@ namespace RevitWebAppSync.Tests
             r.Load(new[] { Issue("1", "A4", st: IssueStatus.ManualFixNeeded), Issue("2", "A4") }, Summary());
             Assert.Equal(2, core.ToGo);
             Assert.Equal(0, core.ResolvedN);
-            Assert.Equal(2, core.TabCounts()[PanelTab.Open]);
+            // AI-445: a marked item leaves Open for Manual; it still counts in ToGo.
+            Assert.Equal(1, core.TabCounts()[PanelTab.Open]);
+            Assert.Equal(1, core.TabCounts()[PanelTab.Manual]);
             Assert.Equal(0, core.TabCounts()[PanelTab.Ignore]);
         }
 

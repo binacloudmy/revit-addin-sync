@@ -61,7 +61,7 @@ namespace RevitWebAppSync.Tests
             Assert.Equal("Search issues", r.SearchPlaceholder);
             Assert.Equal("1 of 5 resolved", r.ProgressLabel);
             Assert.Equal(new[] { "1 high", "2 medium", "1 low" }, r.SevChips.Select(c => c.Text));
-            Assert.Equal("Fix all 1", r.FixAllLabel);
+            Assert.Equal("Fix all 1 change", r.FixAllLabel); // AI-442: the label names the unit
             Assert.Equal("4 shown", r.ShownLabel);
             Assert.Equal("Issue state", r.StateTabsAria);
 
@@ -69,7 +69,7 @@ namespace RevitWebAppSync.Tests
             Assert.Equal("Cari isu", r.SearchPlaceholder);
             Assert.Equal("1 daripada 5 selesai", r.ProgressLabel);
             Assert.Equal(new[] { "1 tinggi", "2 sederhana", "1 rendah" }, r.SevChips.Select(c => c.Text));
-            Assert.Equal("Baiki semua 1", r.FixAllLabel);
+            Assert.Equal("Baiki semua 1 perubahan", r.FixAllLabel);
             Assert.Equal("4 dipapar", r.ShownLabel);
             Assert.Equal("Status isu", r.StateTabsAria);
         }

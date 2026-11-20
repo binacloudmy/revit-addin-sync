@@ -542,6 +542,8 @@ namespace RevitWebAppSync.Tests
             r.ManualFixRequested += (id, v) => written = (id, v);
             d.AskAi();
             Assert.Equal("1", asked);
+            Assert.True(d.IsBusy);                               // AI-443: busy until the host answers
+            r.EndBusy();                                         // the host's answer
             d.Fixer.ManualValue = "Basic Door";                  // fails the rule's own check
             d.WriteManual();
             Assert.Null(written);
