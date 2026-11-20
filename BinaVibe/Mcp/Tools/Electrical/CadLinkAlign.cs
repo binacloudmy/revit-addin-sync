@@ -65,7 +65,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
     internal static class CadLinkAlign
     {
-        public const string Method = "linked_instance";
+        public const string Method = CadElectricalReview.LinkedInstance;
         /// <summary>A link at this score or more is accepted: the user placed it.</summary>
         public const double AcceptScore = 0.50;
         /// <summary>Below this a link never places.</summary>

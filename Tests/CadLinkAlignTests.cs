@@ -191,6 +191,43 @@ namespace Tests
             Assert.Equal(Math.Round(fit.Transform.TyMm, 1), (double)fields["best_ty_mm"]!, 9);
         }
 
+        // ─── A sheet of two plans ──────────────────────────────────────
+
+        /// <summary>
+        /// A sheet holding PLAN A (cluster 0, the L floor) and PLAN B (cluster 1, a different
+        /// floor 80 m to its right). The model is PLAN B's building; the user linked the sheet
+        /// and moved it so PLAN B lies on it. Measured on cluster 0 the link misses, and the
+        /// cluster scores show cluster 1 is the plan the link was laid on.
+        /// </summary>
+        [Fact]
+        public void A_link_laid_on_the_other_plan_of_the_sheet_shows_which()
+        {
+            var planB = new List<FitSegment>
+            {
+                new FitSegment(80000, 0, 92000, 0),
+                new FitSegment(92000, 0, 92000, 18000),
+                new FitSegment(92000, 18000, 80000, 18000),
+                new FitSegment(80000, 18000, 80000, 0),
+                new FitSegment(80000, 7000, 86500, 7000),
+                new FitSegment(86500, 0, 86500, 12500),
+                new FitSegment(83000, 12500, 92000, 12500),
+            };
+            var sheet = new Dictionary<int, IReadOnlyList<FitSegment>> { [0] = LPlan(), [1] = planB };
+            FitTransform link = Turn(17, -60000, 225000);
+            List<FitSegment> model = Move(planB, link);
+
+            FitResult onA = CadLinkAlign.Measure(sheet[0], model, link);
+            Assert.Equal("failed", onA.Outcome);
+            Assert.True(onA.Score < CadLinkAlign.FloorScore);
+
+            List<(int Cluster, double Score)> scores = CadLinkAlign.ClusterScores(2, c => sheet[c], model, link);
+
+            Assert.Equal(new[] { 1, 0 }, scores.Select(s => s.Cluster));
+            Assert.Equal(1.0, scores[0].Score, 3);
+            Assert.True(scores[1].Score < CadLinkAlign.FloorScore);
+            Assert.Equal("accepted", CadLinkAlign.Measure(sheet[1], model, link).Outcome);
+        }
+
         // ─── Choose ────────────────────────────────────────────────────
 
         private static LinkMeasure Measured(long id, FitTransform at, FitTransform truth)

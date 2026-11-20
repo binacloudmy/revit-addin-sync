@@ -76,6 +76,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                               Count(drawn - place) + " excluded.";
             if (plan.Alignment != null)
                 headline += " Alignment " + Round2(plan.Alignment.Score) +
+                            (plan.Alignment.Method == LinkedInstance ? " from your positioned link" : "") +
                             (plan.Alignment.Outcome == "provisional" ? " (provisional: likely right, spot-check)" : "") + ".";
             if (conduit != null) headline += ConduitSentence(plan, conduit);
 
@@ -705,10 +706,14 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     ["inside_share"] = Math.Round(a.InsideShare, 3),
                     ["model_coverage"] = Math.Round(a.ModelCoverage, 3),
                     ["outcome"] = a.Outcome,
-                    ["meaning"] = AlignmentMeaning(a.Outcome),
+                    ["meaning"] = AlignmentMeaning(a.Outcome, a.Method),
                     ["method"] = a.Method,
                     ["pick"] = a.Pick >= 0 ? a.Pick : (int?)null,
+                    ["link_id"] = a.LinkId,
                 };
+
+        /// <summary>The alignment method of a drawing placed from a positioned CAD link.</summary>
+        public const string LinkedInstance = "linked_instance";
 
         public const string ProvisionalMeaning =
             "Provisional fit: the drawing very likely sits correctly on this level, but the wall overlap score " +
@@ -723,10 +728,23 @@ namespace BinaVibe.Mcp.Tools.Electrical
             "Check the level and the background layers; or link the DWG into the model, move it onto the " +
             "building, and run plan_cad_electrical again.";
 
+        public const string LinkAcceptedMeaning =
+            "Placed from your positioned link: the link's position lays the drawing's walls on this level's walls. " +
+            "Points are placed as planned.";
+
+        public const string LinkProvisionalMeaning =
+            "Placed from your positioned link, provisional: the link's position lays only part of the drawing's walls " +
+            "on this level's walls. Points are placed and flagged so the drafter can spot-check a few.";
+
         /// <summary>One line on what an alignment outcome means for the points, for the AI to
-        /// pass on: a provisional fit is not a misalignment.</summary>
-        public static string AlignmentMeaning(string outcome) =>
-            outcome == "accepted" ? AcceptedMeaning : outcome == "provisional" ? ProvisionalMeaning : FailedMeaning;
+        /// pass on: a provisional fit is not a misalignment. A placement from a positioned link
+        /// (method linked_instance) says so.</summary>
+        public static string AlignmentMeaning(string outcome, string? method = null)
+        {
+            if (method == LinkedInstance && outcome == "accepted") return LinkAcceptedMeaning;
+            if (method == LinkedInstance && outcome == "provisional") return LinkProvisionalMeaning;
+            return outcome == "accepted" ? AcceptedMeaning : outcome == "provisional" ? ProvisionalMeaning : FailedMeaning;
+        }
 
         private static string Count(int n) => n.ToString(CultureInfo.InvariantCulture);
 

@@ -173,6 +173,33 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
             List<FitSegment> cad = scan.WallCentrelines(cluster, background, pairAcross);
 
+            // link_id: the drawing is placed where the user moved this CAD link or import, and
+            // the automatic fit is not run.
+            long? linkArg = ArgsHelp.GetLong(args, "link_id");
+            LinkBasis? givenLink = null;
+            FitTransform? givenTransform = null;
+            if (linkArg.HasValue)
+            {
+                if (!(doc.GetElement(ElemIds.From(linkArg.Value)) is ImportInstance givenImp))
+                {
+                    Dictionary<string, object?> missing = Failed(dwgRef, "link_not_found",
+                        "no CAD link or import with id " + linkArg.Value + " in this model — call list_cad_links");
+                    missing["link_id"] = linkArg.Value;
+                    return missing;
+                }
+                givenLink = ReadLink(doc, givenImp, out string? unreadable);
+                givenTransform = unreadable == null ? CadLinkAlign.FromBasis(givenLink, out unreadable) : null;
+                if (givenTransform == null)
+                {
+                    Dictionary<string, object?> unusable = Failed(dwgRef, "link_unusable",
+                        "link " + linkArg.Value + " is " + unreadable + ": only a link that is turned and moved, " +
+                        "not mirrored, tilted or scaled, can place the drawing");
+                    unusable["link_id"] = linkArg.Value;
+                    unusable["reason"] = unreadable;
+                    return unusable;
+                }
+            }
+
             // Fit and host on structural walls only (finish walls under 50 mm left out).
             var structural = new Dictionary<string, List<ModelWall>>(StringComparer.Ordinal);
             var modelByLevel = new Dictionary<string, IReadOnlyList<FitSegment>>(StringComparer.Ordinal);
@@ -215,6 +242,34 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     return Failed(dwgRef, "level_not_found", "no level '" + levelName + "' in the model",
                         model.Levels.Select(l => (object?)l.Name).ToList());
             }
+            else if (givenTransform != null)
+            {
+                // The link's place measured on every level: the best wins, a near tie asks.
+                List<LevelFit> byLink = modelByLevel
+                    .Select(pair => new LevelFit { Level = pair.Key, Fit = CadLinkAlign.Measure(cad, pair.Value, givenTransform, fitOptions) })
+                    .OrderByDescending(f => f.Fit.Score)
+                    .ThenByDescending(f => f.Fit.CoveredMm)
+                    .ThenBy(f => f.Level, StringComparer.Ordinal)
+                    .ToList();
+                if (byLink.Count == 0)
+                    return Failed(dwgRef, "no_model_walls", "the model has no levels to place on");
+                if (byLink.Count > 1 && byLink[0].Fit.Outcome != "failed" &&
+                    byLink[0].Fit.Score - byLink[1].Fit.Score <= CadLinkAlign.TieMargin)
+                {
+                    Dictionary<string, object?> ambiguous = Failed(dwgRef, "level_ambiguous",
+                        "link " + linkArg!.Value + " lays the drawing on several levels about equally (typical floors) — pass level",
+                        byLink.Take(5).Select(f => (object?)new Dictionary<string, object?>
+                        {
+                            ["level"] = f.Level,
+                            ["score"] = Math.Round(f.Fit.Score, 3),
+                            ["outcome"] = f.Fit.Outcome,
+                        }).ToList());
+                    ambiguous["cluster"] = cluster;
+                    ambiguous["link_id"] = linkArg.Value;
+                    return ambiguous;
+                }
+                level = model.Levels.First(l => l.Name == byLink[0].Level);
+            }
             else
             {
                 List<LevelFit> fits = CadModelFit.FitLevels(cad, modelByLevel, fitOptions, out bool tie,
@@ -241,35 +296,85 @@ namespace BinaVibe.Mcp.Tools.Electrical
                                  other.Level + " to place that one");
             }
 
-            // 5. The fit: centrelines, then faces. A positioned CAD link is not tried yet.
+            // 5. The placement: a given link's, else the fit (centrelines, then faces), else a
+            // positioned link of this drawing found in the model. A passing fit is never overridden.
             List<ModelWall> walls = structural.TryGetValue(level.Name, out List<ModelWall>? onLevel)
                 ? onLevel : new List<ModelWall>();
             int thinIgnored = model.WallsByLevel.TryGetValue(level.Name, out List<ModelWall>? allOnLevel)
                 ? allOnLevel.Count - walls.Count : 0;
             if (!modelByLevel.ContainsKey(level.Name)) modelByLevel[level.Name] = new List<FitSegment>();
-            fit = fit ?? CadModelFit.Fit(cad, modelByLevel[level.Name], fitOptions);
             string method = "fit";
-            if (fit.Outcome == "failed" && fit.FailReason != "no_model_walls")
+            long? linkUsed = null;
+            bool linkAutomatic = false;
+            double fitScoreBeforeLink = 0;
+            List<object?>? linksTried = null;
+            if (givenTransform != null)
             {
-                ScanCluster box = scan.Clusters[cluster];
-                double margin = new CensusOptions().NearWallMm;
-                List<FitSegment> cadFaces = ElectricalCensus.MergeByDirection(scan.FacePieces(background))
-                    .Where(s => s.Length >= fitOptions.MinVoteLengthMm)
-                    .Select(s => new FitSegment(s.P1.x, s.P1.y, s.P2.x, s.P2.y))
-                    .Where(s =>
-                    {
-                        double mx = (s.X1 + s.X2) / 2, my = (s.Y1 + s.Y2) / 2;
-                        return mx >= box.MinX - margin && mx <= box.MaxX + margin &&
-                               my >= box.MinY - margin && my <= box.MaxY + margin;
-                    })
-                    .ToList();
-                List<FitSegment> modelFaces = CadModelFit.ModelFaces(
-                    walls.Select(w => (new FitSegment(w.X1, w.Y1, w.X2, w.Y2), w.ThicknessMm)));
-                FitResult faces = CadModelFit.Fit(cadFaces, modelFaces, fitOptions);
-                if (faces.Score > fit.Score)
+                fit = CadLinkAlign.Measure(cad, modelByLevel[level.Name], givenTransform, fitOptions);
+                method = CadLinkAlign.Method;
+                linkUsed = linkArg!.Value;
+                if (fit.Outcome == "failed" && (fit.FailReason == "alignment_failed" || fit.FailReason == "crop_too_small"))
+                    return LinkMisaligned(dwgRef, scan, background, pairAcross, cluster, level.Name, linkArg.Value,
+                                          modelByLevel[level.Name], fit, fitOptions);
+                if (givenLink != null && givenLink.File != null &&
+                    !string.Equals(givenLink.File, Path.GetFileName(path), StringComparison.OrdinalIgnoreCase))
+                    fitNotes.Add("link " + linkArg.Value + " is of " + givenLink.File + ", not " + Path.GetFileName(path) +
+                                 ": its position was used for this drawing");
+            }
+            else
+            {
+                fit = fit ?? CadModelFit.Fit(cad, modelByLevel[level.Name], fitOptions);
+                if (fit.Outcome == "failed" && fit.FailReason != "no_model_walls")
                 {
-                    fit = faces;
-                    method = "fit_faces";
+                    ScanCluster box = scan.Clusters[cluster];
+                    double margin = new CensusOptions().NearWallMm;
+                    List<FitSegment> cadFaces = ElectricalCensus.MergeByDirection(scan.FacePieces(background))
+                        .Where(s => s.Length >= fitOptions.MinVoteLengthMm)
+                        .Select(s => new FitSegment(s.P1.x, s.P1.y, s.P2.x, s.P2.y))
+                        .Where(s =>
+                        {
+                            double mx = (s.X1 + s.X2) / 2, my = (s.Y1 + s.Y2) / 2;
+                            return mx >= box.MinX - margin && mx <= box.MaxX + margin &&
+                                   my >= box.MinY - margin && my <= box.MaxY + margin;
+                        })
+                        .ToList();
+                    List<FitSegment> modelFaces = CadModelFit.ModelFaces(
+                        walls.Select(w => (new FitSegment(w.X1, w.Y1, w.X2, w.Y2), w.ThicknessMm)));
+                    FitResult faces = CadModelFit.Fit(cadFaces, modelFaces, fitOptions);
+                    if (faces.Score > fit.Score)
+                    {
+                        fit = faces;
+                        method = "fit_faces";
+                    }
+                }
+
+                // Both fits failed: a link of this drawing that the user moved onto the building.
+                if (fit.Outcome == "failed" && (fit.FailReason == "alignment_failed" || fit.FailReason == "crop_too_small"))
+                {
+                    IReadOnlyList<FitSegment> levelWalls = modelByLevel[level.Name];
+                    List<LinkMeasure> measured = MatchingLinks(doc, path).Select(link =>
+                    {
+                        FitTransform? t = CadLinkAlign.FromBasis(link, out string? unusable);
+                        return new LinkMeasure
+                        {
+                            Id = link.Id,
+                            Unusable = unusable,
+                            Fit = t != null ? CadLinkAlign.Measure(cad, levelWalls, t, fitOptions) : null,
+                        };
+                    }).ToList();
+                    LinkChoice choice = CadLinkAlign.Choose(measured, automatic: true, fitOptions);
+                    if (choice.Status == "ambiguous")
+                        return LinkAmbiguous(dwgRef, level.Name, cluster, choice);
+                    if (choice.Status == "chosen")
+                    {
+                        fitScoreBeforeLink = fit.Score;
+                        fit = choice.Best!.Fit!;
+                        method = CadLinkAlign.Method;
+                        linkUsed = choice.Best.Id;
+                        linkAutomatic = true;
+                    }
+                    else if (choice.Ranked.Count > 0)
+                        linksTried = choice.Ranked.Select(l => (object?)LinkRow(l)).ToList();
                 }
             }
             if (fit.Outcome == "failed")
@@ -280,6 +385,8 @@ namespace BinaVibe.Mcp.Tools.Electrical
                       " (score " + Math.Round(fit.Score, 2).ToString(System.Globalization.CultureInfo.InvariantCulture) +
                       "). Check the level and the background layers; or link the DWG into the model, move it " +
                       "onto the building, and run plan_cad_electrical again.";
+                if (linksTried != null)
+                    message += " The drawing's links in the model (links_tried) do not lay it on the building either.";
                 Dictionary<string, object?> failed = Failed(dwgRef, fit.FailReason ?? "alignment_failed", message);
                 failed["level"] = level.Name;
                 failed["cluster"] = cluster;
@@ -290,8 +397,14 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 // Where the fit came closest: the vector to move a link at the origin by.
                 if (fit.FailReason == "alignment_failed" || fit.FailReason == "crop_too_small")
                     foreach (var pair in CadLinkAlign.TransformFields(fit.Transform, "best_")) failed[pair.Key] = pair.Value;
+                if (linksTried != null) failed["links_tried"] = linksTried;
                 return failed;
             }
+            if (linkAutomatic)
+                fitNotes.Add("the automatic fit failed (score " +
+                             Math.Round(fitScoreBeforeLink, 2).ToString(System.Globalization.CultureInfo.InvariantCulture) +
+                             "), so the drawing was placed from your positioned link " + linkUsed +
+                             "; pass link_id to place from another");
 
             // Copies of one floor drawn on one sheet fit equally well at each copy: geometry
             // cannot choose, so the caller picks one by the titles under it.
@@ -558,6 +671,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     Pick = pick,
                     Outcome = fit.Outcome,
                     Method = method,
+                    LinkId = linkUsed,
                 },
                 ParamsUsed = new Dictionary<string, object?>
                 {
@@ -565,6 +679,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     ["cluster"] = cluster,
                     ["level"] = level.Name,
                     ["pick"] = pick >= 0 ? pick : (int?)null,
+                    ["link_id"] = linkUsed,
                     ["background_layers"] = background.Cast<object?>().ToList(),
                     ["pair_across_layers"] = pairAcross,
                     ["min_wall_mm"] = CadSymbolResolve.MinStructuralWallMm,
@@ -593,7 +708,10 @@ namespace BinaVibe.Mcp.Tools.Electrical
             notes.AddRange(fitNotes);
             if (runHeightArg.HasValue && runRows.Count == 0)
                 notes.Add("run_height_mm was given but the mapping has no conduit or trunking layer; it was not used");
-            if (provisional)
+            if (provisional && method == CadLinkAlign.Method)
+                notes.Add("the alignment from your positioned link is provisional (score under 0.50): the link lays only " +
+                          "part of the drawing's walls on this level's walls; check a few points before placing.");
+            else if (provisional)
                 notes.Add("the alignment is provisional (score under 0.80): the drawing very likely sits correctly; " +
                           "check a few points before placing. This is not a misalignment.");
 
@@ -664,6 +782,134 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 result["runs_truncated"] = runs.Count > MaxPointRows;
             }
             return result;
+        }
+
+        // ─── the positioned CAD link (plan step 5) ──────────────────────
+
+        /// <summary>A CAD link or import and its total transform; <paramref name="unreadable"/>
+        /// says why there is none.</summary>
+        private static LinkBasis ReadLink(Document doc, ImportInstance imp, out string? unreadable)
+        {
+            unreadable = null;
+            string path = DwgReader.PathOf(doc, imp);
+            var link = new LinkBasis
+            {
+                Id = imp.Id.Value,
+                IsLinked = imp.IsLinked,
+                File = string.IsNullOrEmpty(path) ? null : Path.GetFileName(path),
+            };
+            try
+            {
+                Transform t = imp.GetTotalTransform();
+                link.OriginMm = new[] { t.Origin.X * MmPerFoot, t.Origin.Y * MmPerFoot, t.Origin.Z * MmPerFoot };
+                link.BasisX = Xyz(t.BasisX);
+                link.BasisY = Xyz(t.BasisY);
+                link.BasisZ = Xyz(t.BasisZ);
+            }
+            catch (Exception) { unreadable = "without a readable transform"; }
+            return link;
+        }
+
+        /// <summary>
+        /// The CAD links of the model (imports have no file and are only used by link_id) whose
+        /// file is the drawing's: by full path, else by file name. An att: ref resolves to the
+        /// file the pane attached, not a copy, so its path matches a link of the same file.
+        /// </summary>
+        private static List<LinkBasis> MatchingLinks(Document doc, string path)
+        {
+            string full = SafeFullPath(path);
+            string name = Path.GetFileName(path);
+            var byPath = new List<LinkBasis>();
+            var byName = new List<LinkBasis>();
+            foreach (ImportInstance imp in new FilteredElementCollector(doc).OfClass(typeof(ImportInstance))
+                         .Cast<ImportInstance>())
+            {
+                if (!imp.IsLinked) continue;
+                string linked = DwgReader.PathOf(doc, imp);
+                if (string.IsNullOrEmpty(linked)) continue;
+                bool samePath = string.Equals(SafeFullPath(linked), full, StringComparison.OrdinalIgnoreCase);
+                bool sameName = string.Equals(Path.GetFileName(linked), name, StringComparison.OrdinalIgnoreCase);
+                if (!samePath && !sameName) continue;
+                LinkBasis link = ReadLink(doc, imp, out string? unreadable);
+                if (unreadable != null) continue;
+                (samePath ? byPath : byName).Add(link);
+            }
+            return byPath.Count > 0 ? byPath : byName;
+        }
+
+        private static string SafeFullPath(string path)
+        {
+            try { return Path.GetFullPath(path); }
+            catch (Exception) { return path; }
+        }
+
+        /// <summary>links_tried and link_ambiguous rows: the link, its score and outcome under
+        /// its own transform, and where it lays the drawing.</summary>
+        private static Dictionary<string, object?> LinkRow(LinkMeasure link)
+        {
+            var row = new Dictionary<string, object?>
+            {
+                ["link_id"] = link.Id,
+                ["score"] = link.Fit != null ? Math.Round(link.Fit.Score, 3) : (double?)null,
+                ["outcome"] = link.Fit?.Outcome,
+                ["unusable"] = link.Unusable,
+            };
+            if (link.Fit != null)
+                foreach (var pair in CadLinkAlign.TransformFields(link.Fit.Transform)) row[pair.Key] = pair.Value;
+            return row;
+        }
+
+        private static Dictionary<string, object?> LinkAmbiguous(string dwgRef, string level, int cluster, LinkChoice choice)
+        {
+            Dictionary<string, object?> ambiguous = Failed(dwgRef, "link_ambiguous",
+                "the model holds " + choice.Ranked.Count + " links of this drawing and the fit failed — pass link_id " +
+                "with the link moved onto " + level,
+                choice.Ranked.Select(l => (object?)LinkRow(l)).ToList());
+            ambiguous["level"] = level;
+            ambiguous["cluster"] = cluster;
+            return ambiguous;
+        }
+
+        /// <summary>link_id given, and its place does not lay the cluster on the level: every
+        /// cluster's score under the link, so a link laid on another plan of the sheet shows.</summary>
+        private static Dictionary<string, object?> LinkMisaligned(string dwgRef, ElectricalScan scan, List<string> background,
+                                                                  bool pairAcross, int cluster, string level, long linkId,
+                                                                  IReadOnlyList<FitSegment> levelWalls, FitResult fit,
+                                                                  FitOptions fitOptions)
+        {
+            List<(int Cluster, double Score)> scores = CadLinkAlign.ClusterScores(scan.Clusters.Count,
+                c => scan.WallCentrelines(c, background, pairAcross),
+                levelWalls, fit.Transform, fitOptions);
+            var titles = scan.Census.Plans.GroupBy(p => p.Cluster).ToDictionary(g => g.Key, g => g.First().Titles);
+            (int Cluster, double Score) better = scores.FirstOrDefault(s => s.Cluster != cluster && s.Score >= CadLinkAlign.FloorScore &&
+                                                                            s.Score > fit.Score);
+            string message = "link " + linkId + " does not lay cluster " + cluster + " on " + level + "'s walls (score " +
+                             Math.Round(fit.Score, 2).ToString(System.Globalization.CultureInfo.InvariantCulture) +
+                             ", under " + CadLinkAlign.FloorScore.ToString(System.Globalization.CultureInfo.InvariantCulture) +
+                             "). Move the link onto the building, or check the level and the cluster.";
+            if (fit.FailReason == "crop_too_small")
+                message = "link " + linkId + " lays too little of cluster " + cluster + "'s walls inside " + level +
+                          "'s walls. Move the link onto the building, or check the level and the cluster.";
+            if (better.Cluster != cluster && better.Score > 0)
+                message += " Under this link cluster " + better.Cluster + " scores " +
+                           Math.Round(better.Score, 2).ToString(System.Globalization.CultureInfo.InvariantCulture) +
+                           ": call again with cluster=" + better.Cluster + " if that is the plan you placed.";
+            Dictionary<string, object?> failed = Failed(dwgRef, "link_misaligned", message,
+                scores.Select(s => (object?)new Dictionary<string, object?>
+                {
+                    ["cluster"] = s.Cluster,
+                    ["titles"] = (titles.TryGetValue(s.Cluster, out List<string>? t) ? t : new List<string>()).Cast<object?>().ToList(),
+                    ["score"] = Math.Round(s.Score, 3),
+                }).ToList());
+            failed["link_id"] = linkId;
+            failed["level"] = level;
+            failed["cluster"] = cluster;
+            failed["score"] = Math.Round(fit.Score, 3);
+            failed["score_uncropped"] = Math.Round(fit.ScoreUncropped, 3);
+            failed["inside_share"] = Math.Round(fit.InsideShare, 3);
+            failed["reason"] = fit.FailReason;
+            foreach (var pair in CadLinkAlign.TransformFields(fit.Transform)) failed[pair.Key] = pair.Value;
+            return failed;
         }
 
         private static Dictionary<string, object?> RunEndRow(RunEnd end) => new Dictionary<string, object?>

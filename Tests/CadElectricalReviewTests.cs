@@ -222,6 +222,73 @@ namespace Tests
         }
 
         [Fact]
+        public void A_plan_from_a_positioned_link_says_so()
+        {
+            SocketPlan plan = Plan();
+            plan.Alignment!.Method = "linked_instance";
+            plan.Alignment.LinkId = 424242;
+            plan.Alignment.Score = 0.612;
+
+            Dictionary<string, object?> review = CadElectricalReview.PlanReview(plan, Unmapped, 0);
+
+            Assert.Equal("Level 1: 5 drawn, 3 will be placed, 2 excluded. Alignment 0.61 from your positioned link.",
+                         review["headline"]);
+            Dictionary<string, object?> a = Row(review["alignment"]);
+            Assert.Equal("linked_instance", a["method"]);
+            Assert.Equal(424242L, a["link_id"]);
+            Assert.Equal(CadElectricalReview.LinkAcceptedMeaning, a["meaning"]);
+            Assert.StartsWith("Placed from your positioned link", (string)a["meaning"]!);
+        }
+
+        [Fact]
+        public void A_provisional_link_plan_is_flagged_for_a_spot_check()
+        {
+            SocketPlan plan = Plan();
+            plan.Alignment!.Method = "linked_instance";
+            plan.Alignment.LinkId = 7;
+            plan.Alignment.Score = 0.31;
+            plan.Alignment.Outcome = "provisional";
+
+            Dictionary<string, object?> review = CadElectricalReview.PlanReview(plan, Unmapped, 0);
+
+            Assert.Equal("Level 1: 5 drawn, 3 will be placed, 2 excluded. Alignment 0.31 from your positioned link " +
+                         "(provisional: likely right, spot-check).", review["headline"]);
+            Assert.Equal(CadElectricalReview.LinkProvisionalMeaning, Row(review["alignment"])["meaning"]);
+            Assert.Contains("spot-check", CadElectricalReview.LinkProvisionalMeaning);
+            Assert.DoesNotContain('\n', CadElectricalReview.LinkProvisionalMeaning);
+        }
+
+        [Fact]
+        public void A_fit_plan_has_no_link()
+        {
+            Dictionary<string, object?> a = Row(CadElectricalReview.PlanReview(Plan(), Unmapped, 0)["alignment"]);
+
+            Assert.Equal("fit", a["method"]);
+            Assert.Null(a["link_id"]);
+        }
+
+        [Fact]
+        public void A_link_plan_survives_the_plan_cache()
+        {
+            SocketPlan plan = Plan();
+            plan.Alignment!.Method = "linked_instance";
+            plan.Alignment.LinkId = 31337;
+            plan.Alignment.Outcome = "provisional";
+            plan.Alignment.Score = 0.42;
+            plan.ParamsUsed["link_id"] = 31337L;
+
+            string id = SocketPlanCache.Store(plan, @"C:\models\PLAN A.rvt");
+            SocketPlan back = SocketPlanCache.Get(id, @"C:\models\PLAN A.rvt");
+
+            Assert.Equal("linked_instance", back.Alignment!.Method);
+            Assert.Equal(31337L, back.Alignment.LinkId);
+            Assert.Equal(31337L, back.ParamsUsed["link_id"]);
+            Dictionary<string, object?> a = Row(CadElectricalReview.PlanReview(back, Unmapped, 0)["alignment"]);
+            Assert.Equal(31337L, a["link_id"]);
+            Assert.Equal(CadElectricalReview.LinkProvisionalMeaning, a["meaning"]);
+        }
+
+        [Fact]
         public void Accepted_and_failed_alignment_each_get_one_line()
         {
             SocketPlan plan = Plan();

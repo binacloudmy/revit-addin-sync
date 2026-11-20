@@ -117,6 +117,9 @@ namespace BinaVibe.Mcp.Tools.Electrical
         public string Outcome = "";
         /// <summary>"fit" | "fit_faces" | "linked_instance"</summary>
         public string Method = "";
+        /// <summary>The CAD link or import whose position placed the drawing (method
+        /// linked_instance); null otherwise.</summary>
+        public long? LinkId;
     }
 
     /// <summary>A conduit or cable tray run of a drawing plan (CadRunPlan), in model mm.</summary>
