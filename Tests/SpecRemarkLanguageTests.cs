@@ -46,7 +46,8 @@ namespace RevitWebAppSync.Tests
             @"\b(ada|tiada|pada|elemen|kosong|dikesan|nama fail|ketinggian|saiz|amaran|setiap|bilik|dengan|dalam|tidak|atau|dan|yang|untuk|dari|kod|nilai|isi|keperluan|peraturan|ketinggian siling|saiz pintu|pintu utama|pagar hiasan|sistem bumbung|jadual|senarai|sahkan|menutup|semakan|jumpa|dijumpai|sepatutnya|bahan|nama|sistem|belum|mesti|perlu|lagi)\b",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
-        private static string StripLabel(string s) => (s ?? "").Replace("SEMAK MANUAL", "").Replace("Semak manual", "").Replace("semak manual", "");
+        // A name the model gives ('Jadual SoA') is data, not remark wording: quoted names are not scanned.
+        private static string StripLabel(string s) => Regex.Replace((s ?? "").Replace("SEMAK MANUAL", "").Replace("Semak manual", "").Replace("semak manual", ""), "'[^']*'", "''");
 
         public static IEnumerable<object[]> Samples() => new[] { new object[] { "jkr_run_failing.json" }, new object[] { "jkr_run_compliant.json" } };
 

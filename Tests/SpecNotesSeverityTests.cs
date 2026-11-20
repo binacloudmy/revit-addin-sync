@@ -200,9 +200,9 @@ namespace RevitWebAppSync.Tests
             foreach (var link in new[] { "jkrST22_4a", "jkrME22_4a_ACMV", "jkrME22_3b_SP", "jkrME22_3b_FP", "jkrME22_3b_CW", "jkrEL22_3b" })
                 Assert.Contains(link, text);
             Assert.StartsWith("CRITICAL: 6 link problem(s)", text);          // the summary is first
-            // The six issue texts read the same ("C5.1.1 · Discipline links ST / ME / EL"), so they dedupe to
-            // one after the summary: nothing is left out, hence no "+N more" (BorangDoc.Cap still adds it past 5 items).
-            Assert.DoesNotContain("more", text);
+            // Summary + the six issues, each now saying which link: 7 items, the cap shows 5 and says how many more.
+            Assert.Contains("+2 more", text);
+            Assert.Contains("ST link 'jkrST22_4a.rvt' Unloaded", text);
         }
 
         [Fact]
@@ -231,6 +231,53 @@ namespace RevitWebAppSync.Tests
             var (text, _) = BorangDoc.RemarkFor("C1.5", summary.Rows["C1.5"].Mark, summary, new List<IssueVm>());   // no live issues
             Assert.Contains("no Dokumen 3D view: Tanah, Pentas, Langkan, Aras Bumbung", text);
             Assert.Equal(1, System.Text.RegularExpressions.Regex.Matches(text, "no Dokumen 3D view:").Count);
+        }
+
+        // ---------- one issue per element: the texts name their own element ----------
+
+        private static SpecModel SheetsWithAuthor(int n)
+        {
+            var m = new SpecModel { Discipline = "AR" };
+            for (var sh = 1; sh <= n; sh++)
+                m.Sheets.Add(new SpecSheet
+                {
+                    Id = sh * 100, Number = "A-" + sh, Name = "Pelan " + sh, TitleBlock = "jkrAR_TitleBlock_A1 : A1",
+                    Params = new Dictionary<string, string>
+                    {
+                        ["Project Name"] = "Ibu Pejabat JKR", ["Sheet Name"] = "Pelan " + sh, ["Drawn By"] = "Author", ["Sheet Issue Date"] = "16.11.2026",
+                    },
+                });
+            return m;
+        }
+
+        [Fact]
+        public void AI420_PDF_C422_three_sheets_with_Author_the_remark_names_each_sheet()
+        {
+            var text = PdfRemark(Run("C4.2.2", SheetsWithAuthor(3)), "C4.2");
+            foreach (var sh in new[] { "A-1 Pelan 1", "A-2 Pelan 2", "A-3 Pelan 3" })
+                Assert.Contains("Sheet " + sh, text);
+            Assert.DoesNotContain("more", text);
+        }
+
+        [Fact]
+        public void AI420_PDF_C422_more_than_five_sheets_list_five_and_say_how_many_more()
+        {
+            var text = PdfRemark(Run("C4.2.2", SheetsWithAuthor(8)), "C4.2");
+            Assert.Contains("Sheet A-5 Pelan 5", text);
+            Assert.DoesNotContain("Sheet A-6 Pelan 6", text);
+            Assert.Contains("+3 more", text);
+        }
+
+        [Fact]
+        public void AI414_xlsx_C511_six_links_six_distinct_Actual_values_each_naming_its_link()
+        {
+            var issues = IssueMapper.FromModelResults(Run("C5.1.1", SixUnloadedLinks()), PanelStrings.En);
+            var actuals = issues.Select(i => IssueExportRows.Cells(i)[6]).ToList();
+            Assert.Equal(6, actuals.Distinct().Count());
+            Assert.Contains(actuals, a => a.Contains("jkrEL22_3b.rvt") && a.Contains("Unloaded"));
+            var none = IssueMapper.FromModelResults(Run("C5.1.1", new SpecModel { Discipline = "AR" }), PanelStrings.En)
+                .Select(i => IssueExportRows.Cells(i)[6]).ToList();
+            Assert.Equal(3, none.Distinct().Count());                         // ST / ME / EL: no link of each
         }
     }
 }

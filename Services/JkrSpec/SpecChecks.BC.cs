@@ -1287,8 +1287,8 @@ namespace RevitWebAppSync.Services.JkrSpec
                 {
                     gone.Add("tiada link " + d);
                     goneEn.Add("no " + d + " link");
-                    failed.Add(SpecChecks.Fail(id, "KRITIKAL: tiada link " + d, elementName: "Link " + d, actual: "tiada link",
-                            required: "link " + d + " berstatus Loaded", actualEn: "no link", requiredEn: "link " + d + " with status Loaded", key: d)
+                    failed.Add(SpecChecks.Fail(id, "KRITIKAL: tiada link " + d, elementName: "Link " + d, actual: "tiada link " + d,
+                            required: "link " + d + " berstatus Loaded", actualEn: "no " + d + " link", requiredEn: "link " + d + " with status Loaded", key: d)
                         .En("CRITICAL: no " + d + " link").Critical());
                     continue;
                 }
@@ -1298,7 +1298,7 @@ namespace RevitWebAppSync.Services.JkrSpec
                     gone.Add(d + " '" + l.Name + "' " + Show(l.Status));
                     goneEn.Add(d + " '" + l.Name + "' " + Show(l.Status));
                     failed.Add(SpecChecks.Fail(id, "KRITIKAL: link " + d + " '" + l.Name + "' " + Show(l.Status), elementName: "Link " + l.Name,
-                            actual: Show(l.Status), required: "Loaded", key: d + "|" + l.Name)
+                            actual: "'" + l.Name + "' " + Show(l.Status), required: "Loaded", key: d + "|" + l.Name)
                         .En("CRITICAL: " + d + " link '" + l.Name + "' " + Show(l.Status)).Critical());
                 }
                 if (notLoaded.Count == 0) ok.Add(d + " (" + string.Join(", ", links.Select(l => l.Name)) + ")");
