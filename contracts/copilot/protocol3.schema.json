@@ -196,14 +196,15 @@
       "not": { "required": ["rule_set"] }
     },
     "addin_args_set_parameters": {
-      "description": "set_parameters args as the add-in receives them: from_table (an attachment name) was replaced by table_rows, one object per table row keyed by column name. Every other field is as in tools.json.",
+      "description": "set_parameters args as the add-in receives them: from_table (an attachment name) was replaced by table_rows, one object per table row keyed by column name; a size the cloud converted to a bare number in the parameter's display unit carries shown. Every other field is as in tools.json.",
       "type": "object",
       "properties": {
         "table_rows": {
           "type": "array",
           "minItems": 1,
           "items": { "type": "object", "additionalProperties": { "$ref": "#/$defs/cell" } }
-        }
+        },
+        "shown": { "type": "string", "description": "The value as the model wrote it (\"300 mm\") when value was converted to the bare number in the display unit; for display only, never written." }
       },
       "not": { "required": ["from_table"] }
     },

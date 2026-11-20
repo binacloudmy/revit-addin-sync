@@ -114,9 +114,16 @@ namespace RevitWebAppSync.UI.Copilot.Model
             if (!args.TryGetProperty("value", out var v)) return new PreviewRecord(param, "", true);
             var text = (v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : v.GetRawText()).Trim();
             if (text.Length == 0 || v.ValueKind == JsonValueKind.Null) return new PreviewRecord(param, "", true);
+            text = Shown(args) ?? text;
             if (text.Length > MaxValueChars) text = text.Substring(0, MaxValueChars - 1) + "…";
             return new PreviewRecord(param, text, false);
         }
+
+        /// <summary>The size as the drafter asked for it ("300 mm"), when the cloud sent the value as the bare number in the parameter's
+        /// display unit (args.shown; live 4e70cf53 showed "11.811023622" for 300 mm on a duct shown in inches); null otherwise.</summary>
+        private static string? Shown(JsonElement args) =>
+            args.TryGetProperty("shown", out var s) && s.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(s.GetString())
+                ? s.GetString()!.Trim() : null;
 
         private static string Line(ToolCallDto c, bool ms)
         {
@@ -135,7 +142,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                        + (ms ? " nilai daripada jadual" : " values from the table");
             if (!args.TryGetProperty("value", out var v)) return "";
             var text = v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : v.GetRawText();
-            text = text.Trim();
+            text = Shown(args) ?? text.Trim();
             if (text.Length > MaxValueChars) text = text.Substring(0, MaxValueChars - 1) + "…";
             return param + ": " + text;
         }
