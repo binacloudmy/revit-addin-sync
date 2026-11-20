@@ -89,18 +89,37 @@ namespace RevitWebAppSync.Services
         public async Task<List<UI.Copilot.Model.LibrarySection>> GetPromptLibraryAsync(
             string accessToken, CancellationToken cancellationToken = default)
         {
-            try
+            // r17 (tester 20 Nov, "Couldn't load the prompt library"): the copilot's own backend first (the one the turns go to, which signed
+            // the token and serves the same route), then the cloud base. A pane pointed at a test backend asked the cloud with the test token.
+            foreach (var root in LibraryRoots(_baseUrl, BinaConfig.Load().ResolvedCloudBaseUrl))
             {
-                var cloudBase = BinaConfig.Load().ResolvedCloudBaseUrl;
-                using var req = new HttpRequestMessage(HttpMethod.Get, $"{cloudBase}/agents/revit-ai/library");
-                if (!string.IsNullOrEmpty(accessToken))
-                    req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-                var resp = await _httpClient.SendAsync(req, cancellationToken);
-                if (!resp.IsSuccessStatusCode) return null;
-                var body = await resp.Content.ReadAsStringAsync();
-                return JsonConvert.DeserializeObject<LibraryResponse>(body)?.Sections;
+                try
+                {
+                    using var req = new HttpRequestMessage(HttpMethod.Get, $"{root}/agents/revit-ai/library");
+                    if (!string.IsNullOrEmpty(accessToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+                    var resp = await _httpClient.SendAsync(req, cancellationToken);
+                    if (!resp.IsSuccessStatusCode) continue;
+                    var body = await resp.Content.ReadAsStringAsync();
+                    var sections = JsonConvert.DeserializeObject<LibraryResponse>(body)?.Sections;
+                    if (sections != null && sections.Count > 0) return sections;
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { return null; }
+                catch { /* the next base */ }
             }
-            catch { return null; }
+            return null;
+        }
+
+        /// <summary>Where the library is asked for, in order: the copilot backend, then the cloud base when it is another host.</summary>
+        public static List<string> LibraryRoots(string copilotBase, string cloudBase)
+        {
+            var roots = new List<string>();
+            foreach (var b in new[] { copilotBase, cloudBase })
+            {
+                var t = (b ?? "").Trim().TrimEnd('/');
+                if (t.Length > 0 && !roots.Exists(r => string.Equals(r, t, StringComparison.OrdinalIgnoreCase))) roots.Add(t);
+            }
+            return roots;
         }
 
         /// <summary>Wire shape of GET /agents/revit-ai/library.</summary>

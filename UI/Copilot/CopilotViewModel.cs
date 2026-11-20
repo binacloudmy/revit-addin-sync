@@ -670,10 +670,14 @@ namespace RevitWebAppSync.UI.Copilot
 
         // ─── Chat ──────────────────────────────────────────────────────────────
 
+        private List<Mention> _pendingMentions;
+        private string _pendingCommandId;
+
         /// <summary>Command entry: the PromptBar sends a PromptPayload when
         /// screenshots are attached; chips/follow-ups still send a plain string.</summary>
         private void ChatSendAny(object p)
         {
+            _pendingMentions = (p as PromptPayload)?.Mentions;   // r17: consumed by the next turn start only
             if (p is PromptPayload pp) ChatSend(pp.Text, pp.ImagesBase64, pp.Files, displayText: pp.DisplayText);
             else ChatSend(p as string);
         }
@@ -819,9 +823,10 @@ namespace RevitWebAppSync.UI.Copilot
             _lastReplyText = null;
             try { _turnDocKey = BinaVibe.Copilot.Read.SnapshotService.ActiveDocKey ?? ""; } catch (Exception) { _turnDocKey = ""; }
             try { ModelResultStale?.Invoke(); } catch (Exception) { /* the toast is a convenience */ }
-            // Slash command: protocol 3 has no server-side command ids, so the
-            // command travels as its own prompt (template + typed inputs).
+            // Slash command: the command travels as its own prompt (template + typed inputs); a curated command also sends its id
+            // (r17), so the backend adds that command's instructions. A command saved on this PC sends none.
             var routeTextOverride = slashChip != null ? SlashPrompt(slashChip, text, commandArgs) : null;
+            _pendingCommandId = ToolCatalog.WireCommandId(slashChip);
             Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Thinking, Text = "Thinking…" });
             _ = SendWithAttachmentsAsync(routeTextOverride ?? text, files, interp.ToolId, images, text);
         }
@@ -1160,7 +1165,11 @@ namespace RevitWebAppSync.UI.Copilot
                     router.PendingImages = images;
                     router.PendingTables = tables;
                     router.PendingDocuments = documents;
+                    router.PendingMentions = MentionWire.For(_pendingMentions);
+                    router.PendingCommandId = _pendingCommandId;
                 }
+                _pendingMentions = null;
+                _pendingCommandId = null;
                 IsSending = true;   // send button shows Stop until the reply resolves
                 try { rr = await Router.RouteAsync(routeText, fallbackToolId); }
                 catch { rr = null; }

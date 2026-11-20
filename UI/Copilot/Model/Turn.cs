@@ -310,14 +310,30 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>True from a batch's second preview on.</summary>
         internal bool PreviewAgain(string batchId) { lock (_lock) return !_previewed.Add(batchId); }
 
+        private readonly Dictionary<string, string> _alias = new Dictionary<string, string>(StringComparer.Ordinal);
+
         internal void Step(string id, string phase, string label, StepState state, string? detail = null)
         {
             lock (_lock)
             {
+                id = StepCollapse.Resolve(_alias, id);
                 ProgressReducer.Apply(_steps, id, phase, label, detail ?? "", state);
                 _lastStepId = id;
             }
         }
+
+        /// <summary>A tool call's row (r17): the server's generic "Running the code in Revit" row before it goes, a repeat folds into the row before.</summary>
+        internal void ToolStep(string id, string label, bool ms)
+        {
+            lock (_lock)
+            {
+                StepCollapse.DropServerRun(_steps);
+                _lastStepId = StepCollapse.AddTool(_steps, _alias, id, label, ms);
+            }
+        }
+
+        /// <summary>The row id a call's step id now points at.</summary>
+        internal string StepIdOf(string id) { lock (_lock) return StepCollapse.Resolve(_alias, id); }
 
         /// <summary>A progress frame. One that repeats the previous step's kind and
         /// text (the cloud sends progress{thinking} every ~20 s) keeps its row.</summary>

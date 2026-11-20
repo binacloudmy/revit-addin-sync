@@ -88,6 +88,7 @@ namespace RevitWebAppSync.UI.Copilot
                 ToolCatalog.MergeMine(LocalCommandStore.Default.ToTools());
                 DropCachedBackendMine();
                 PaletteInvalidated?.Invoke();
+                _ = RefreshCuratedCatalogAsync();   // r17: the curated tier from the backend's catalogue (CopilotViewModel.Catalog.cs)
             }
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] saved commands: " + ex.Message); }
             return System.Threading.Tasks.Task.CompletedTask;

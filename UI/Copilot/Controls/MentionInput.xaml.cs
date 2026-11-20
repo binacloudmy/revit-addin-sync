@@ -327,6 +327,20 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             if (_slashOpen) { _slashOpen = false; _setSlashVisible?.Invoke(false); }
         }
 
+        /// <summary>True when a "/" command palette is attached to this box (the chat composer); other composers have none.</summary>
+        public bool HasSlashPalette => _palette != null;
+
+        /// <summary>Open the "/" palette over a draft without touching its text (r17: the "/" button on a non-empty composer only focused
+        /// the box, so the tools list never showed). A pick then adds the command chip and leaves the draft as it is.</summary>
+        public bool OpenSlashOverDraft()
+        {
+            if (_palette == null) return false;
+            _slashIndex = -1;
+            if (!_slashOpen) { _palette.Open(""); _slashOpen = true; _setSlashVisible?.Invoke(true); }
+            else _palette.SetQuery("");
+            return true;
+        }
+
         /// <summary>Close the palette from the host (scrim click-outside).</summary>
         public void CloseSlashExternal() => CloseSlash();
 
@@ -721,7 +735,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 try { selNow = src.ReadSelection(); } catch { selNow = null; }
             }
             var sent = _chips.Expand(Editor.Text ?? "", selNow).Trim();
-            var mentions = _chips.Mentions(selNow).Select(m => new Mention(m.kind, m.sent)).ToList();
+            var mentions = _chips.Records(selNow);   // with ids (r17): the turn carries them as structured mentions
             Submitted?.Invoke(sent, shown, mentions);
             _chips.Clear();
             Editor.Clear();

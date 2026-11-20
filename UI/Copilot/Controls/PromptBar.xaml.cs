@@ -99,11 +99,12 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 // while the thread shows the message as the drafter wrote it.
                 string display = shown != text ? shown : null;
                 object payload = text;
-                if (display != null && _images.Count == 0 && _files.Count == 0)
-                    payload = new RevitWebAppSync.UI.Copilot.Model.PromptPayload { Text = text, DisplayText = display };
+                var picked = mentions != null && mentions.Count > 0 ? mentions : null;   // r17: the mentions travel with the turn
+                if ((display != null || picked != null) && _images.Count == 0 && _files.Count == 0)
+                    payload = new RevitWebAppSync.UI.Copilot.Model.PromptPayload { Text = text, DisplayText = display, Mentions = picked };
                 if (_images.Count > 0 || _files.Count > 0)
                 {
-                    var pp = new RevitWebAppSync.UI.Copilot.Model.PromptPayload { Text = text, DisplayText = display };
+                    var pp = new RevitWebAppSync.UI.Copilot.Model.PromptPayload { Text = text, DisplayText = display, Mentions = picked };
                     if (_images.Count > 0)
                     {
                         var encoded = new System.Collections.Generic.List<string>();
@@ -271,11 +272,15 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         public void OpenCommandPalette()
         {
             if (Input?.Editor == null) return;
+            // r17 (tester: "the / button inserted only a slash, no tools menu"): a composer with no palette attached never gets a lone "/";
+            // a draft keeps its text and the palette opens over it.
+            if (!Input.HasSlashPalette) { Input.Editor.Focus(); return; }
             if (string.IsNullOrWhiteSpace(Input.Editor.Text))
             {
                 Input.Editor.Text = "/";
                 Input.Editor.CaretIndex = 1;
             }
+            else Input.OpenSlashOverDraft();
             Input.Editor.Focus();
         }
 

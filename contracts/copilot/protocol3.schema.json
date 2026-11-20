@@ -115,7 +115,27 @@
           "description": "The language of the drafter's prompt, detected by the add-in. The reply follows it. Absent: the reply follows the language of the prompt text."
         },
         "snapshot": { "$ref": "snapshot.schema.json" },
-        "attachments": { "type": "array", "items": { "$ref": "#/$defs/attachment" } }
+        "attachments": { "type": "array", "items": { "$ref": "#/$defs/attachment" } },
+        "mentions": {
+          "type": "array",
+          "maxItems": 20,
+          "description": "The @ mentions the drafter picked: kind (level, view, sheet, category, family, type, selection), the text it put in the message, and the element id of a level, view or sheet. Absent: none.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "name"],
+            "properties": {
+              "kind": { "type": "string" },
+              "name": { "type": "string" },
+              "id": { "type": "integer" }
+            }
+          }
+        },
+        "command_id": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "The curated slash command the message comes from (app/commands/*.md id, e.g. quick-create): the cloud adds its instructions. Absent: a plain message."
+        }
       }
     },
     "tool_result": {
