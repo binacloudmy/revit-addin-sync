@@ -287,14 +287,22 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void Pdf_header_KOD_DOKUMEN_reads_BIM010_not_BIM_005()
+        public void Pdf_header_KOD_DOKUMEN_is_the_BIM010_form_code()
+        {
+            // At the source: the value the header prints.
+            Assert.Equal("BIM010", BorangPdf.DocumentCode);
+        }
+
+        [Fact]
+        public void Pdf_header_prints_the_form_code_not_BIM_005()
         {
             var doc = BorangDoc.Build(AuditSummary.Build(new Bim010Cell[0]), new IssueVm[0], new BorangHeader());
             using var pdf = UglyToad.PdfPig.PdfDocument.Open(BorangPdf.Pdf(doc));
-            var text = string.Join("\n", pdf.GetPages().Select(p => p.Text)); text = new string(text.Where(c => !char.IsWhiteSpace(c)).ToArray());
+            var raw = string.Join("\n", pdf.GetPages().Select(p => p.Text));
+            var text = new string(raw.Where(c => !char.IsWhiteSpace(c)).ToArray());
             var at = text.IndexOf("KODDOKUMEN", StringComparison.Ordinal);
-            Assert.True(at >= 0, "KOD DOKUMEN not found");
-            Assert.Contains("BIM010", text.Substring(at, 30));
+            Assert.True(at >= 0, "KOD DOKUMEN not found in: " + text.Substring(0, Math.Min(200, text.Length)));
+            Assert.Contains("BIM010", text.Substring(at, Math.Min(30, text.Length - at)));
             Assert.DoesNotContain("BIM005", text);
         }
 
