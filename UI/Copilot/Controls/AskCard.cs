@@ -432,7 +432,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 note.SetResourceReference(Border.BackgroundProperty, "Cp.Sunken");
                 note.SetResourceReference(Border.BorderBrushProperty, "Cp.LineSoft");
                 var ns = new StackPanel();
-                ns.Children.Add(CardKit.Text("Project note to save", 10.5, "Cp.Faint", FontWeights.SemiBold));
+                ns.Children.Add(CardKit.Text(_m.Say(AskCardModel.ProjectNoteHeading), 10.5, "Cp.Faint", FontWeights.SemiBold));
                 ns.Children.Add(CardKit.Text(_m.NoteText ?? "", 12, "Cp.Ink"));
                 note.Child = ns;
                 body.Children.Add(note);
@@ -699,7 +699,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 more.HorizontalAlignment = HorizontalAlignment.Center;
                 more.Margin = new Thickness(0, 2, 0, 4);
                 sp.Children.Add(more);
-                var empty = CardKit.Text("Nothing matches.", 12, "Cp.Faint", margin: new Thickness(4, 4, 0, 6));
+                var empty = CardKit.Text(_m.Say(AskCardModel.NothingMatchesText), 12, "Cp.Faint", margin: new Thickness(4, 4, 0, 6));
                 sp.Children.Add(empty);
 
                 var rowRefresh = new List<Action>();

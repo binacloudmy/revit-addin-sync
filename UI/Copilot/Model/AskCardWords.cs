@@ -32,6 +32,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
             [SkipAllLabel] = "Langkau semua",
             [AnsweredText] = "dijawab",
             [MakeNothingLabel] = "Jangan buat apa-apa",
+            [ProjectNoteHeading] = "Nota projek untuk disimpan",
+            [NothingMatchesText] = "Tiada yang sepadan.",
             [DroppedNote] = "Sebahagian pilihan disembunyikan kerana ia kelihatan seperti kelulusan, dan BINA tidak pernah meminta kata laluan atau token di sini.",
         };
 
@@ -42,6 +44,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public const string SkipAllLabel = "Skip all";
         public const string AnsweredText = "answered";
         public const string MakeNothingLabel = "Make nothing";
+        public const string ProjectNoteHeading = "Project note to save";
+        public const string NothingMatchesText = "Nothing matches.";
         public const string DroppedNote = "Some choices were hidden because they looked like approval, and BINA never asks for passwords or tokens here.";
 
         /// <summary>One of the card's fixed words in <paramref name="lang"/>: the English constant itself on an English turn.</summary>
