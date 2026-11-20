@@ -282,10 +282,10 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             var inCat = InCat;
             return new Dictionary<PanelTab, int>
             {
-                [PanelTab.Open] = inCat.Count(x => !x.IsHuman && x.Status == ItemStatus.Open),
+                [PanelTab.Open] = inCat.Count(x => !x.IsHuman && x.Status == ItemStatus.Open && !x.MarkedManual),
                 [PanelTab.Ignore] = inCat.Count(x => x.Status == ItemStatus.Ignored),
                 [PanelTab.Resolved] = inCat.Count(x => x.Status == ItemStatus.Resolved),
-                [PanelTab.Manual] = inCat.Count(x => x.IsHuman),
+                [PanelTab.Manual] = inCat.Count(x => x.IsHuman || x.MarkedManual),
             };
         }
 
