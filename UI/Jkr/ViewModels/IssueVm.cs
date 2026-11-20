@@ -172,6 +172,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public string FixParameterName { get; set; } = "";
         public string FixValue { get; set; } = "";
         public string FixOldValue { get; set; } = "";
+        /// <summary>Backend confidence in the fix ("high"/"medium"/"low"); "" when none. Display only.</summary>
+        public string Confidence { get; set; } = "";
 
         /// <summary>The fix (FixAction / FixValue) came from the backend AI fixer during
         /// Fix all, not from the scan: the confirm lists it under "Proposed by the AI fixer".</summary>
