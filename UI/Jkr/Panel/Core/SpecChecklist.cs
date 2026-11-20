@@ -304,7 +304,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             ["stateTabs"] = ("Status isu", "Issue state"),
             ["searchIssues"] = ("Cari isu", "Search issues"),
             ["progResolved"] = ("{0} daripada {1} selesai", "{0} of {1} resolved"),
-            ["fixAllN"] = ("Baiki semua {0}", "Fix all {0}"),
+            // AI-442: the unit is the change, as in the progress line, toast and result window.
+            ["fixAllN"] = ("Baiki semua {0} perubahan", "Fix all {0} changes"),
+            ["fixAllN1"] = ("Baiki semua {0} perubahan", "Fix all {0} change"),
             // The AI fixer mark: "proposal" only when a proposed value exists on the row.
             ["aiProposal"] = ("Cadangan pembaiki AI", "AI fixer proposal"),
             ["aiCanMeta"] = ("Pembaiki AI boleh mencadangkan", "AI fixer can propose"),

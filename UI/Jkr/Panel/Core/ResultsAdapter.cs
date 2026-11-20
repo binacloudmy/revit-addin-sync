@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using BinaVibe.Mcp.Tools.Audit;
+using RevitWebAppSync.Handlers;
 using RevitWebAppSync.UI.Jkr.ViewModels;
 
 namespace RevitWebAppSync.UI.Jkr.Panel.Core
@@ -48,6 +49,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                      : null,
                 Cite = CiteOf(i),
                 Fix = !human && i.AutoFixable && !string.IsNullOrEmpty(i.FixAction) ? FixKind.Fix : FixKind.None,
+                FixKey = FixKeyOf(i),
                 Hash = i.Id ?? "",
                 Reason = human ? desc : null,
                 FixError = PaneText.FixReason(i.FixError ?? "", lang),
@@ -63,6 +65,14 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 MarkedManual = i.Status == IssueStatus.ManualFixNeeded,
                 CanMarkManual = !human && i.CanMarkManual,
             };
+        }
+
+        private static string FixKeyOf(IssueVm i)
+        {
+            if (string.IsNullOrEmpty(i.FixAction)) return null;
+            var rename = string.Equals(i.FixAction, "rename_type", StringComparison.OrdinalIgnoreCase);
+            if (rename && string.IsNullOrEmpty(i.FixValue)) return "";
+            return JkrFixBatch.StepKey(rename, i.RevitElementId, i.FixParameterName);
         }
 
         /// <summary>An issue from the add-in's own spec evaluators (CheckId "SPEC-A1.2").</summary>

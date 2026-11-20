@@ -276,11 +276,11 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
 
         // ── actions ──
         public string IgnoreAllLabel => T("ignoreAll");
-        /// <summary>Fix all (n): open items in the section with a ready-made fix. AI-fixer rows are
+        /// <summary>Fix all (n): changes (not rows) for the open items in the section with a ready-made fix. AI-fixer rows are
         /// not in it: they are accepted or typed one at a time (AI-435).</summary>
-        public int FixableN => _core.FixableOpen().Count;
+        public int FixableN => _core.FixableChanges();
 
-        public string FixAllLabel => string.Format(S("fixAllN"), FixableN);
+        public string FixAllLabel => string.Format(S(FixableN == 1 ? "fixAllN1" : "fixAllN"), FixableN);
         public bool CanFixAll => FixableN > 0 && CanAct;
 
         // ── list toolbar ──

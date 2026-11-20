@@ -47,6 +47,10 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public string Prop;
         public string Cite = "";
         public FixKind Fix = FixKind.None;
+        /// <summary>AI-442: the batch step this row's fix becomes (<c>JkrFixBatch.StepKey</c>); rows
+        /// with the same key are one change. "" = the row is no step (a rename with no new name);
+        /// null = not set (own change).</summary>
+        public string FixKey;
         public string Hash = "";
         /// <summary>Why the AI did not judge it (items that need a person).</summary>
         public Text Reason;

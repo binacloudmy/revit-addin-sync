@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using BinaVibe.Mcp.Tools.Audit;
+using RevitWebAppSync.Handlers;
 using RevitWebAppSync.UI.Jkr.Panel.Core;
 using RevitWebAppSync.UI.Jkr.ViewModels;
 using Xunit;
@@ -122,7 +123,7 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(1, r.PendTotal);
             Assert.Equal(new[] { "50%", "100%", "—", "—", "—" }, r.Sections.Select(s => s.PctLabel));
             Assert.Equal("+1", r.Sections[2].PendLabel);
-            Assert.Equal("Baiki semua 1", r.FixAllLabel);
+            Assert.Equal("Baiki semua 1 perubahan", r.FixAllLabel);
             Assert.Equal((1, 0, 1), (r.SevChips[0].N, r.SevChips[1].N, r.SevChips[2].N));
         }
 
@@ -271,7 +272,7 @@ namespace RevitWebAppSync.Tests
             fixture.RevitElementId = 6;
             r.Load(new[] { Issue("1", "A4", fixable: true), ai, bim010, fixture }, Summary());
             Assert.Equal(1, r.FixableN);                          // the AI-fixer row is written on its own row (AI-435)
-            Assert.Equal("Baiki semua 1", r.FixAllLabel);
+            Assert.Equal("Baiki semua 1 perubahan", r.FixAllLabel);
             Assert.False(r.Rows.Single(x => x.Id == "2").ShowFix); // the row's ⚡ is for ready-made fixes only
             r.SelectSection("C");
             Assert.Equal(0, r.FixableN);
@@ -408,6 +409,56 @@ namespace RevitWebAppSync.Tests
             Assert.True(ResultsAdapter.FromIssue(Issue("2", "A4")).CanMarkManual);
             Assert.False(ResultsAdapter.FromIssue(Issue("1", "A4", IssuePriority.High)).CanMarkManual);
             Assert.False(ResultsAdapter.FromIssue(Issue("4", "C5.1", human: true)).CanMarkManual);
+        }
+
+        // ── AI-442: the Fix all number is the batch's unit (changes), not issues ──
+
+        private static IssueVm ParamIssue(string id, long element, string param)
+        {
+            var i = Issue(id, "A4", fixable: true);
+            i.FixAction = "set_parameter"; i.FixParameterName = param; i.FixValue = "v";
+            i.RevitElementId = element;
+            return i;
+        }
+
+        [Fact]
+        public void Fix_all_button_counts_changes_and_the_result_adds_up_to_it()
+        {
+            var (r, core) = New();
+            // element 7: three issues ask for the same Kod write (one change); 8 and 9: one each.
+            var issues = new[]
+            {
+                ParamIssue("1", 7, "Kod"), ParamIssue("2", 7, "Kod"), ParamIssue("3", 7, "Kod"),
+                ParamIssue("4", 8, "Kod"), ParamIssue("5", 9, "Kod"),
+            };
+            r.Load(issues, Summary());
+            Assert.Equal(3, r.FixableN);
+            Assert.Equal("Baiki semua 3 perubahan", r.FixAllLabel);
+            core.SetLang("en");
+            Assert.Equal("Fix all 3 changes", r.FixAllLabel);
+
+            // the batch the click builds has the same number, and a run's tally adds up to it
+            var batch = JkrFixBatch<(long El, string Param)>.Build(new (long, string)[0],
+                issues.Select(i => (i.RevitElementId, i.FixParameterName)),
+                f => f.El, f => 0, f => f.Param);
+            Assert.Equal(r.FixableN, batch.ChangeCount);
+            var tally = JkrFixTally.Of(batch.ChangeCount, new RenameResult { ParamFixed = 1, Failed = 1, Skipped = 1 });
+            Assert.Equal(r.FixableN, tally.Written + tally.Failed);
+            Assert.True(tally.AddsUp);
+        }
+
+        [Fact]
+        public void Fix_all_label_says_one_change_in_the_singular_and_skips_empty_renames()
+        {
+            var (r, core) = New();
+            var empty = Issue("2", "A4", fixable: true);       // rename with no new name: never a step
+            empty.FixValue = "";
+            empty.RevitElementId = 12;
+            var one = ParamIssue("1", 7, "Kod");
+            r.Load(new[] { one, empty }, Summary());
+            core.SetLang("en");
+            Assert.Equal(1, r.FixableN);
+            Assert.Equal("Fix all 1 change", r.FixAllLabel);
         }
     }
 }
