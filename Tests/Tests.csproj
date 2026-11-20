@@ -216,6 +216,8 @@
          out of ToolLoopService.cs precisely so they compile here. -->
     <Compile Include="..\Services\ToolLoopDtos.cs" Link="ToolLoopDtos.cs" />
     <Compile Include="..\Services\ConfirmGate.cs" Link="ConfirmGate.cs" />
+    <!-- EngineWriteGate: the engine-mode Ya/Tidak gate (no WPF, no Revit). -->
+    <Compile Include="..\Services\EngineWriteGate.cs" Link="EngineWriteGate.cs" />
     <Compile Include="..\Models\AIResponse.cs" Link="AIResponse.cs" />
     <!-- AttachmentGate: pure file-type/size gate (System + System.IO only).
          a3d74b6 added it WITH AttachmentGateTests.cs but never linked it —
