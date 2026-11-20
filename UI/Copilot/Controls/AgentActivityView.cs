@@ -307,7 +307,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             head.Children.Add(label);
             var time = new TextBlock
             {
-                Text = s.State == StepState.Done || s.State == StepState.Error ? s.ElapsedText : "",
+                Text = s.State == StepState.Done || s.State == StepState.Error ? s.ElapsedText
+                     : s.State == StepState.Rejected ? "Not run" : "",
                 FontSize = 11, Margin = new Thickness(8, 1, 0, 0),
             };
             time.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Faint");
@@ -409,6 +410,17 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         private FrameworkElement MarkerFor(StepState st)
         {
             if (st == StepState.Running) return RingSpinner(13);
+            if (st == StepState.Rejected)
+            {
+                // Not run (declined on the write card): a hollow ring with a
+                // dash, no green tick and no red cross.
+                var ring = new Border { Width = 13, Height = 13, CornerRadius = new CornerRadius(99), BorderThickness = new Thickness(1.4) };
+                ring.SetResourceReference(Border.BorderBrushProperty, "Cp.Muted");
+                var dash = new Rectangle { Width = 6, Height = 1.6, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+                dash.SetResourceReference(Shape.FillProperty, "Cp.Muted");
+                ring.Child = dash;
+                return ring;
+            }
             if (st == StepState.Done || st == StepState.Error)
             {
                 // Filled check-circle (design ph-fill ph-check-circle) / error ✗.
