@@ -91,7 +91,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel
             ShowStage();
             ActiveModelSource.Changed += OnActiveModelChanged;
             // A hidden dockable pane is unloaded and loaded again: subscribe on every load.
-            _keys = new PaneKeyHook(HandleHookKey);
+            _keys = new PaneKeyHook(HandleHookKey, () => IsKeyboardFocusWithin || (_detailWindow != null && _detailWindow.IsActive));
             Loaded += (_, __) =>
             {
                 ActiveModelSource.Changed -= OnActiveModelChanged;
