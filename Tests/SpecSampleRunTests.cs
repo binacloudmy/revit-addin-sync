@@ -14,6 +14,7 @@ namespace RevitWebAppSync.Tests
     /// evaluators: the passing sample's model really fails nothing, the failing one
     /// fails what it was built to fail. Keeps the screenshots honest.
     /// </summary>
+    [Xunit.Collection("PaneLanguage")]
     public class SpecSampleRunTests
     {
         private static SpecModel Model(string file)

@@ -287,6 +287,13 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
+        public void Pdf_header_KOD_DOKUMEN_is_the_BIM010_form_code()
+        {
+            // At the source: the value the header prints.
+            Assert.Equal("BIM010", BorangPdf.DocumentCode);
+        }
+
+        [Fact]
         public void The_old_remark_path_is_unchanged_for_a_BIM010_cell_summary()
         {
             var old = AuditSummary.Build(new List<Bim010Cell> { new Bim010Cell { Key = "A2", Verdict = Bim010Verdict.Fail, Note = "bad name" } });

@@ -100,11 +100,13 @@ namespace RevitWebAppSync.Services.JkrSpec
         /// makes the issue id stable when there is no element (e.g. a level name).</summary>
         public static SpecResult Fail(string id, string note, long elementId = 0, string elementName = "",
                                       string actual = "", string required = "", string key = null,
-                                      SpecCoverage coverage = SpecCoverage.Full, IEnumerable<long> elementIds = null)
+                                      SpecCoverage coverage = SpecCoverage.Full, IEnumerable<long> elementIds = null,
+                                      string actualEn = null, string requiredEn = null)
         {
             var ids = (elementIds ?? (elementId > 0 ? new[] { elementId } : Array.Empty<long>())).Where(x => x > 0).ToList();
             return new SpecResult
             {
+                ActualEn = actualEn ?? "", RequiredEn = requiredEn ?? "",
                 CheckId = id, Status = "fail", Note = note ?? "", Coverage = coverage, Rule = id,
                 ElementId = elementId > 0 ? elementId : ids.FirstOrDefault(),
                 ElementIds = ids, ElementCount = Math.Max(ids.Count, elementId > 0 ? 1 : 0),
@@ -160,6 +162,13 @@ namespace RevitWebAppSync.Services.JkrSpec
         public static SpecResult EnAct(this SpecResult r, string english)
         {
             if (r != null) r.ActualEn = english ?? "";
+            return r;
+        }
+
+        /// <summary>Add the English for what the spec requires (<see cref="SpecResult.Required"/>).</summary>
+        public static SpecResult EnReq(this SpecResult r, string english)
+        {
+            if (r != null) r.RequiredEn = english ?? "";
             return r;
         }
 

@@ -48,6 +48,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public string ActualEn = "";
         /// <summary>Model: what the spec requires ("≥ 900 mm").</summary>
         public string Required = "";
+        /// <summary>Model: <see cref="Required"/> in English ("" = same as BM).</summary>
+        public string RequiredEn = "";
         /// <summary>Model: element label ("Doors · PT1p_850x2100").</summary>
         public string ElementName = "";
         /// <summary>Model: Revit element ids behind the result (first one is located).</summary>
@@ -138,7 +140,10 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public string Rule = "";
         public int Passed, Failed, Unjudged;
         public List<string> IssueIds = new List<string>();
-        public SpecState State => Failed > 0 ? SpecState.Fail : Unjudged > 0 ? SpecState.NeedsPerson : SpecState.Pass;
+        /// <summary>Legacy-only rule that is information only (<see cref="SpecReport.IsInfoOnlyLegacyRule(string,string)"/>):
+        /// its findings never count as a fail; a person reads them (AI-412).</summary>
+        public bool InfoOnly;
+        public SpecState State => Failed > 0 && !InfoOnly ? SpecState.Fail : Failed > 0 || Unjudged > 0 ? SpecState.NeedsPerson : SpecState.Pass;
     }
 
     public sealed class SpecSectionCount
@@ -501,7 +506,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                     var rl = r.Rule ?? "";
                     if (rl.Length == 0 && source == Model) rl = (r.CheckId ?? "").Trim();
                     var key = where + "\u0001" + rl;
-                    if (!others.TryGetValue(key, out var o)) others[key] = o = new OtherResult { Where = where, Rule = rl };
+                    if (!others.TryGetValue(key, out var o)) others[key] = o = new OtherResult { Where = where, Rule = rl, InfoOnly = IsInfoOnlyLegacyRule(r.Category, rl) };
                     if (IsPass(r.Status)) o.Passed++;
                     else
                     {
@@ -644,6 +649,25 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
 
         /// <summary>Several backend results of one <see cref="BackendOneResultChecks"/> check, as one.</summary>
         private sealed class OneResult { public bool Passed, Partly, Failed, Unjudged; }
+
+        /// <summary>
+        /// THE one definition of a legacy-only backend rule that is information only (Director
+        /// ruling 2026-11-20, reversible: delete the entries of <see cref="InfoOnlyLegacyRules"/>
+        /// to turn it off). The backend sends no stable rule code in this repo (its check_id is
+        /// per run), so the match is explicit and exact: the "Levels" category with the rule text
+        /// "Level naming convention" / "Level Naming Convention L##" - not a prefix match.
+        /// IssueMapper.FromDto and the Others note both call it.
+        /// </summary>
+        public static bool IsInfoOnlyLegacyRule(string category, string rule)
+        {
+            if (!string.Equals((category ?? "").Trim(), "Levels", StringComparison.OrdinalIgnoreCase)) return false;
+            var r = (rule ?? "").Trim();
+            foreach (var known in InfoOnlyLegacyRules)
+                if (string.Equals(r, known, StringComparison.OrdinalIgnoreCase)) return true;
+            return false;
+        }
+
+        private static readonly string[] InfoOnlyLegacyRules = { "Level naming convention", "Level Naming Convention L##" };
 
         /// <summary>Where an unmapped result is listed under Others.</summary>
         private static string WhereOf(SpecResult r, string source)
@@ -849,6 +873,14 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
 
         /// <summary>What the model has (<see cref="SpecResult.Actual"/>) in the pane's language:
         /// the evaluator's English when it gave one, else <see cref="ActualToEnglish"/>.</summary>
+        /// <summary>What the spec requires in the language: the evaluator's English when it gave one.</summary>
+        public static string RequiredIn(SpecResult r, string lang)
+        {
+            if (r == null) return "";
+            if (!string.Equals(lang, PanelStrings.En, StringComparison.OrdinalIgnoreCase)) return r.Required ?? "";
+            return !string.IsNullOrEmpty(r.RequiredEn) ? r.RequiredEn : r.Required ?? "";
+        }
+
         public static string ActualIn(SpecResult r, string lang)
         {
             if (r == null) return "";
@@ -909,7 +941,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             {
                 var pair = new List<string>();
                 if (actual.Length > 0) pair.Add("Model: " + actual);
-                if (required.Length > 0) pair.Add((en ? "Required: " : "Keperluan: ") + required);
+                if (required.Length > 0) pair.Add((en ? "Required: " : "Keperluan: ") + (en ? SpecReport.Clean(RequiredIn(r, lang)) : required));
                 parts.Add(string.Join(" · ", pair));
             }
             var ids = ElementIdsOf(r);

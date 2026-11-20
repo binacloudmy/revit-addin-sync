@@ -13,6 +13,7 @@ namespace RevitWebAppSync.Tests
     /// messages, element words. Every check passes the language explicitly, so
     /// these tests never depend on (or change) the shared current language.
     /// </summary>
+    [Xunit.Collection("PaneLanguage")]
     public class PaneLanguageTests
     {
         private const string Ms = PanelStrings.Ms;

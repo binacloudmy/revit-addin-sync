@@ -9,6 +9,7 @@ namespace RevitWebAppSync.Tests
     /// event through AIServiceStreamExtensions.ParseEvent, and count frames
     /// through ProgressReducer.ApplyCount — clamp rules, freeze-on-done, and
     /// the legacy fallbacks.</summary>
+    [Xunit.Collection("PaneLanguage")]
     public class ProgressCountTests
     {
         // ─── Parser (A1) ─────────────────────────────────────────────────────

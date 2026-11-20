@@ -17,6 +17,7 @@ namespace RevitWebAppSync.Tests
     /// of IssueMapper.FromModelResults (SpecModelIssues). No IssueVm, so these run on
     /// the Mac harness too.
     /// </summary>
+    [Xunit.Collection("PaneLanguage")]
     public class SpecReportHardeningTests
     {
         private static SpecResult Audit(string checker, string key, string status, bool na = false, string issueId = "", string note = "") =>
@@ -530,7 +531,7 @@ namespace RevitWebAppSync.Tests
             // Spec revision 2: A7.2 is human-decides (NeedsPerson, was not checked); 8 human + Db.2 unjudged.
             Assert.Equal(9, r.NeedsPersonChecks);
             Assert.Equal(33, r.NotCheckedChecks);
-            Assert.Equal(4, r.OtherFailing);
+            Assert.Equal(3, r.OtherFailing);
             // A2.1: the backend's file-name rules are one result beside the file_naming checker's.
             Assert.Equal((1, 1), (r.For("A2.1").Passed, r.For("A2.1").Failed));
             Assert.Equal(new[] { "na1", "dn1", "dn2", "BIM010-D10" }, r.For("Da.1").IssueIds);
@@ -686,7 +687,7 @@ namespace RevitWebAppSync.Tests
             Assert.DoesNotContain(c.Notes, n => n.StartsWith("Peraturan"));
             Assert.DoesNotContain(c.Rules, x => x.StartsWith("C4.1:"));
             Assert.Empty(c.NotCounted);                        // dropped, not kept as context
-            Assert.Equal((0, 4), SpecChecklist.Score(r, "C"));
+            Assert.Equal((0, 1), SpecChecklist.Score(r, "C"));   // one cell: C4.1.3, however many sheets
 
             var bm = Row(r, "C4.1.3", PanelStrings.Ms);
             var en = Row(r, "C4.1.3", PanelStrings.En);
@@ -774,7 +775,7 @@ namespace RevitWebAppSync.Tests
             Assert.DoesNotContain("adopt", c.IssueIds);
             Assert.DoesNotContain("BIM010-D10", c.IssueIds);
             Assert.Equal(new[] { "backend: Element naming adoption" }, c.NotCounted);
-            Assert.Equal((1, 6), SpecChecklist.Score(r, "D"));
+            Assert.Equal((0, 1), SpecChecklist.Score(r, "D"));   // one cell: Da.1 (7 results behind it)
             var en = Row(r, "Da.1", PanelStrings.En).Tested;
             var bm = Row(r, "Da.1", PanelStrings.Ms).Tested;
             Assert.Contains("Also reported by backend: Element naming adoption — not counted", en);
@@ -933,7 +934,7 @@ namespace RevitWebAppSync.Tests
         // ── headline ──
 
         [Fact]
-        public void The_headline_says_it_counts_results_not_checks_in_both_languages()
+        public void The_headline_says_it_counts_checks_not_results_in_both_languages()
         {
             var r = SpecReport.Build(new[]
             {
@@ -943,11 +944,11 @@ namespace RevitWebAppSync.Tests
             });
             var bm = SpecChecklist.ResultsLabel(r, PanelStrings.Ms);
             var en = SpecChecklist.ResultsLabel(r, PanelStrings.En);
-            Assert.Equal("1 / 3 keputusan lulus\n(bukan bilangan semakan)", bm);
-            Assert.Equal("1 / 3 results pass\n(not a count of checks)", en);
+            Assert.Equal("1 / 2 semakan lulus\n(semakan manual tidak dikira)", bm);   // A2.1 passes; A1.2 fails on two doors = one cell
+            Assert.Equal("1 / 2 checks pass\n(manual checks not counted)", en);
             // Each line fits the pane's summary line (about 30 characters before "…").
             Assert.All(bm.Split('\n').Concat(en.Split('\n')), line => Assert.True(line.Length <= 30, line));
-            Assert.Equal("1 / 1 result passes\n(not a count of checks)", SpecChecklist.Plural("hResults", PanelStrings.En, 1, 1, 1));
+            Assert.Equal("1 / 1 check passes\n(manual checks not counted)", SpecChecklist.Plural("hResults", PanelStrings.En, 1, 1, 1));
         }
 
         // ── "Show all" lists everything, or says plainly that it does not ──

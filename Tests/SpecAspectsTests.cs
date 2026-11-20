@@ -68,7 +68,7 @@ namespace RevitWebAppSync.Tests
         private static void AssertRowOf(GroupRow row, List<SpecCheckResult> checks)
         {
             var scored = checks.Where(c => c.Check.Class == SpecCellClass.Ai && (c.State == SpecState.Pass || c.State == SpecState.Fail)).ToList();
-            int p = scored.Sum(c => c.Passed), t = scored.Sum(c => c.Passed + c.Failed);
+            int p = scored.Count(c => c.State == SpecState.Pass), t = scored.Count;
             int? pct = t == 0 ? (int?)null : (int)Math.Round(100.0 * p / t, MidpointRounding.AwayFromZero);
             Assert.Equal(checks.Count, row.Checks);
             Assert.Equal(pct, row.Pct);

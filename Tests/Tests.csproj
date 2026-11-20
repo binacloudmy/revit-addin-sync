@@ -166,6 +166,10 @@
     <Compile Include="..\BinaVibe\Dimensions\DimensionPlans.cs" Link="DimensionPlans.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\JkrTierMap.cs" Link="JkrTierMap.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\IssueVm.cs" Link="IssueVm.cs" />
+    <!-- IssueMapper (AI-412 legacy-vs-spec issue merge) and the plain DTO file and issue-id hash it reads. -->
+    <Compile Include="..\UI\Jkr\ViewModels\IssueMapper.cs" Link="IssueMapper.cs" />
+    <Compile Include="..\Services\ComplianceService.cs" Link="Services\ComplianceService.cs" />
+    <Compile Include="..\Services\JkrIssueId.cs" Link="Services\JkrIssueId.cs" />
     <!-- Backend check status → AI verdict or "needs a person" (cannot_verify), and the pane's counts / % that leave people's items out. -->
     <Compile Include="..\UI\Jkr\ViewModels\JkrCheckStatus.cs" Link="JkrCheckStatus.cs" />
     <!-- The pane view model (toast Undo, counts, filters): WPF types only (DispatcherTimer,

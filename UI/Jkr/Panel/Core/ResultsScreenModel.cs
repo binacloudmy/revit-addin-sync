@@ -443,7 +443,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public bool HasVerdictSub => VerdictSub.Length > 0;
         /// <summary>The bold start of the score sentence: "18% compliant".</summary>
         public string HeadPctStrong => string.Format(S("hPct"), HeadPctLabel);
-        /// <summary>", 19 of 104 results pass. The % counts results, not checks."</summary>
+        /// <summary>", 19 of 104 checks pass. The % counts spec checks, not results."</summary>
         public string HeadResultsRest
         {
             get

@@ -8,6 +8,7 @@ namespace RevitWebAppSync.Tests
 {
     /// <summary>The pane's toast comes from PanelVm. A decision (Ignore, Ignore all)
     /// is a plain toast with the normal time: no Undo, no 6 s timer.</summary>
+    [Xunit.Collection("PaneLanguage")]
     public class PanelVmToastTests
     {
         private static (PanelVm vm, List<IssueVm> issues) Vm(int n = 3)

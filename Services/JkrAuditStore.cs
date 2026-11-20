@@ -335,6 +335,8 @@ namespace RevitWebAppSync.Services
         [JsonProperty("element_name")] public string ElementName { get; set; } = "";
         [JsonProperty("element_id_label")] public string ElementIdLabel { get; set; } = "—";
         [JsonProperty("revit_element_id")] public long RevitElementId { get; set; }
+        /// <summary>All elements behind the issue; optional (absent in older snapshots, then RevitElementId alone).</summary>
+        [JsonProperty("revit_element_ids", NullValueHandling = NullValueHandling.Ignore)] public List<long> RevitElementIds { get; set; }
         [JsonProperty("required")] public string Required { get; set; } = "";
         [JsonProperty("actual")] public string Actual { get; set; } = "";
         [JsonProperty("example")] public string Example { get; set; } = "";
@@ -359,6 +361,14 @@ namespace RevitWebAppSync.Services
         [JsonProperty("revit_category")] public string RevitCategory { get; set; } = "";
         [JsonProperty("locate_count")] public int LocateCount { get; set; } = 1;
         [JsonProperty("needs_person")] public bool NeedsPerson { get; set; }
+        // Optional (AI-421): the English of title / description / required / actual for the add-in's own
+        // spec results. Snapshots written before have none; a restored issue then shows the BM text.
+        [JsonProperty("title_en", DefaultValueHandling = DefaultValueHandling.Ignore)] public string TitleEn { get; set; }
+        [JsonProperty("description_en", DefaultValueHandling = DefaultValueHandling.Ignore)] public string DescriptionEn { get; set; }
+        [JsonProperty("required_en", DefaultValueHandling = DefaultValueHandling.Ignore)] public string RequiredEn { get; set; }
+        [JsonProperty("actual_en", DefaultValueHandling = DefaultValueHandling.Ignore)] public string ActualEn { get; set; }
+
+        private static string NullIfEmpty(string s) => string.IsNullOrEmpty(s) ? null : s;
 
         public static IssueSnapshot From(IssueVm vm)
         {
@@ -370,6 +380,7 @@ namespace RevitWebAppSync.Services
                 ElementName = vm.Element?.Name ?? "",
                 ElementIdLabel = vm.Element?.Id ?? "—",
                 RevitElementId = vm.RevitElementId,
+                RevitElementIds = vm.RevitElementIds != null && vm.RevitElementIds.Count > 0 ? new List<long>(vm.RevitElementIds) : null,
                 Required = vm.Required ?? "",
                 Actual = vm.Actual ?? "",
                 Example = vm.Example ?? "",
@@ -394,6 +405,8 @@ namespace RevitWebAppSync.Services
                 RevitCategory = vm.RevitCategory ?? "",
                 LocateCount = vm.LocateCount,
                 NeedsPerson = vm.NeedsPerson,
+                TitleEn = NullIfEmpty(vm.TitleEn), DescriptionEn = NullIfEmpty(vm.DescriptionEn),
+                RequiredEn = NullIfEmpty(vm.RequiredEn), ActualEn = NullIfEmpty(vm.ActualEn),
             };
         }
 
@@ -407,6 +420,7 @@ namespace RevitWebAppSync.Services
                 Description = Description ?? "",
                 Element = new ElementRef { Name = ElementName ?? "", Id = ElementIdLabel ?? "—" },
                 RevitElementId = RevitElementId,
+                RevitElementIds = RevitElementIds != null && RevitElementIds.Count > 0 ? new List<long>(RevitElementIds) : (RevitElementId > 0 ? new List<long> { RevitElementId } : new List<long>()),
                 Required = Required ?? "",
                 Actual = Actual ?? "",
                 Example = Example ?? "",
@@ -437,6 +451,7 @@ namespace RevitWebAppSync.Services
                 RevitCategory = RevitCategory ?? "",
                 LocateCount = Math.Max(1, LocateCount),
                 Verification = NeedsPerson ? IssueVerification.Human : IssueVerification.Ai,
+                TitleEn = TitleEn ?? "", DescriptionEn = DescriptionEn ?? "", RequiredEn = RequiredEn ?? "", ActualEn = ActualEn ?? "",
             };
             if (Enum.TryParse<IssuePriority>(Priority ?? "Medium", ignoreCase: true, out var p))
                 vm.Priority = p;

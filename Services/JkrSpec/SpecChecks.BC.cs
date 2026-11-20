@@ -378,6 +378,7 @@ namespace RevitWebAppSync.Services.JkrSpec
                         r.Field.Name + " | wajib LOi " + r.Field.LoiRange + " | " + Show(r.Value) + " | " + r.Status,
                         elementName: "Project Information · " + r.Field.Name, actual: Show(r.Value),
                         required: "diisi (wajib LOi " + r.Field.LoiRange + ", PB p." + r.Field.Page + ")",
+                        requiredEn: "filled (mandatory LOi " + r.Field.LoiRange + ", PB p." + r.Field.Page + ")",
                         key: r.Field.Name, coverage: cov)
                     .En(r.Field.Name + " | mandatory at LOi " + r.Field.LoiRange + " | " + Show(r.Value) + " | " + r.StatusEn);
             }
@@ -412,8 +413,8 @@ namespace RevitWebAppSync.Services.JkrSpec
             {
                 yield return SpecChecks.Fail(id,
                         d + ": Tidak patuh — " + bad.Count + " field belum diisi: " + string.Join(", ", bad),
-                        elementName: "Project Information (" + d + ")", actual: bad.Count + " field kosong",
-                        required: "field wajib " + LoiBm(c) + " (" + c.Pages + ") diisi", key: d, coverage: cov)
+                        elementName: "Project Information (" + d + ")", actual: bad.Count + " field kosong", actualEn: bad.Count + " empty fields",
+                        required: "field wajib " + LoiBm(c) + " (" + c.Pages + ") diisi", requiredEn: "mandatory fields at " + LoiEn(c) + " (" + c.Pages + ") filled", key: d, coverage: cov)
                     .En(d + ": Not compliant — " + bad.Count + " fields not filled: " + string.Join(", ", bad));
             }
             else
@@ -635,6 +636,7 @@ namespace RevitWebAppSync.Services.JkrSpec
             {
                 yield return SpecChecks.Fail(id, "Set " + set + ": tiada " + KindBm(k) + " (" + list + ")" + FoundBm(views),
                         elementName: "Set " + set, actual: views.Count + " view " + set, required: string.Join(", ", kinds.Select(KindBm)),
+                        actualEn: views.Count + " " + set + " views", requiredEn: string.Join(", ", kinds.Select(KindEn)),
                         key: set + "|" + k)
                     .En(set + " set: no " + KindEn(k) + " (" + listEn + ")" + FoundEn(views));
             }
@@ -717,7 +719,8 @@ namespace RevitWebAppSync.Services.JkrSpec
                 }
                 yield return SpecChecks.Fail(id, bm, lv.Id, lv.Name,
                         actual: outside != null ? "3D view di luar set Dokumen: " + outside.Name : "tiada 3D view Dokumen",
-                        required: "3D view Dokumen bagi setiap aras", key: lv.Name)
+                        required: "3D view Dokumen bagi setiap aras",
+                        actualEn: outside != null ? "3D view outside the Dokumen set: " + outside.Name : "no Dokumen 3D view", requiredEn: "a Dokumen 3D view for every level", key: lv.Name)
                     .En(en);
             }
             if (missing.Count == 0)
@@ -761,7 +764,7 @@ namespace RevitWebAppSync.Services.JkrSpec
             if (rs.Count == 0)
             {
                 yield return SpecChecks.Fail(id, "Tiada jadual ruang (room schedule)",
-                        actual: "tiada schedule kategori Rooms", required: "room schedule / schedule of accommodation", key: "none")
+                        actual: "tiada schedule kategori Rooms", required: "room schedule / schedule of accommodation", actualEn: "no Rooms schedule", requiredEn: "room schedule / schedule of accommodation", key: "none")
                     .En("No room schedule");
                 yield break;
             }
@@ -783,7 +786,8 @@ namespace RevitWebAppSync.Services.JkrSpec
             {
                 yield return SpecChecks.Fail(id, "Room " + RoomLabel(r) + (r.LevelName.Length > 0 ? " (" + r.LevelName + ")" : "") + " tiada dalam jadual ruang",
                         r.Id, "Rooms · " + RoomLabel(r), actual: rs.Count == 0 ? "tiada jadual ruang" : "tiada dalam jadual",
-                        required: "hadir dalam jadual ruang")
+                        required: "hadir dalam jadual ruang",
+                        actualEn: rs.Count == 0 ? "no room schedule" : "not in the schedule", requiredEn: "present in the room schedule")
                     .En("Room " + RoomLabel(r) + (r.LevelName.Length > 0 ? " (" + r.LevelName + ")" : "") + " is not in the room schedule");
             }
             if (missing.Count == 0)
@@ -823,7 +827,7 @@ namespace RevitWebAppSync.Services.JkrSpec
             if (rs.Count == 0)
             {
                 yield return SpecChecks.Fail(id, "Tiada jadual ruang — kolum tidak dapat diisi", actual: "tiada jadual ruang",
-                        required: "jadual ruang lengkap", key: "none")
+                        required: "jadual ruang lengkap", actualEn: "no room schedule", requiredEn: "a complete room schedule", key: "none")
                     .En("No room schedule — its columns cannot be filled");
                 yield break;
             }
@@ -841,7 +845,7 @@ namespace RevitWebAppSync.Services.JkrSpec
                 if (absent.Count == 0) continue;
                 fails++;
                 yield return SpecChecks.Fail(id, "Jadual '" + s.Name + "' tiada kolum wajib LOi " + loi + " (PB p.37): " + string.Join(", ", absent),
-                        s.Id, "Schedule · " + s.Name, actual: absent.Count + " kolum tiada", required: "kolum PB p.37", key: "schedule|" + s.Id + "|" + s.Name,
+                        s.Id, "Schedule · " + s.Name, actual: absent.Count + " kolum tiada", required: "kolum PB p.37", actualEn: absent.Count + " columns missing", requiredEn: "columns per PB p.37", key: "schedule|" + s.Id + "|" + s.Name,
                         coverage: cov)
                     .En("Schedule '" + s.Name + "' lacks the columns mandatory at LOi " + loi + " (PB p.37): " + string.Join(", ", absent));
             }
@@ -865,7 +869,7 @@ namespace RevitWebAppSync.Services.JkrSpec
                 if (empty.Count == 0) continue;
                 fails++;
                 yield return SpecChecks.Fail(id, RoomLabel(r) + " | " + string.Join(", ", empty), r.Id, "Rooms · " + RoomLabel(r),
-                        actual: empty.Count + " kolum kosong", required: "setiap kolum berisi", coverage: cov)
+                        actual: empty.Count + " kolum kosong", required: "setiap kolum berisi", actualEn: empty.Count + " columns empty", requiredEn: "every column filled", coverage: cov)
                     .En(RoomLabel(r) + " | " + string.Join(", ", empty));
             }
             if (fails == 0)
@@ -887,7 +891,7 @@ namespace RevitWebAppSync.Services.JkrSpec
             var legends = m.Views.Where(v => IsKind(v, "Legend")).ToList();
             if (legends.Count == 0)
             {
-                yield return SpecChecks.Fail(id, "Tiada legend dalam model", actual: "0 legend", required: "sekurang-kurangnya satu legend", key: "none")
+                yield return SpecChecks.Fail(id, "Tiada legend dalam model", actual: "0 legend", required: "sekurang-kurangnya satu legend", actualEn: "0 legends", requiredEn: "at least one legend", key: "none")
                     .En("No legend in the model");
                 yield break;
             }
@@ -965,7 +969,7 @@ namespace RevitWebAppSync.Services.JkrSpec
                 }
                 fails++;
                 yield return SpecChecks.Fail(id, c.Name + ": " + n + " elemen, tiada schedule", elementName: c.Name + " (PB p." + c.Page + ")",
-                        actual: n + " elemen, tiada schedule", required: "schedule kategori " + c.RevitCategories[0], key: c.Name)
+                        actual: n + " elemen, tiada schedule", required: "schedule kategori " + c.RevitCategories[0], actualEn: n + " elements, no schedule", requiredEn: c.RevitCategories[0] + " schedule", key: c.Name)
                     .En(c.Name + ": " + n + " elements, no schedule");
             }
             var via = viaBm.Count == 0 ? "" : " (" + string.Join("; ", viaBm) + ")";
@@ -1081,7 +1085,8 @@ namespace RevitWebAppSync.Services.JkrSpec
             foreach (var x in items.Where(x => !x.Ok))
             {
                 yield return SpecChecks.Fail(id, "Tiada " + x.Bm + " dalam mana-mana sheet (" + list + ")", actual: "tiada " + x.Bm,
-                        required: "floor plan, ceiling plan, elevation, section, detail pintu, detail tingkap", key: x.En)
+                        required: "floor plan, ceiling plan, elevation, section, detail pintu, detail tingkap",
+                        actualEn: "no " + x.En, requiredEn: "floor plan, ceiling plan, elevation, section, door detail, window detail", key: x.En)
                     .En("No " + x.En + " on any sheet (" + listEn + ")");
             }
             if (items.All(x => x.Ok))
@@ -1097,7 +1102,7 @@ namespace RevitWebAppSync.Services.JkrSpec
             var empty = m.Sheets.Where(IsEmptySheet).ToList();
             foreach (var s in empty)
                 yield return SpecChecks.Fail(id, "Sheet " + SheetLabel(s) + " tiada view", s.Id, "Sheet " + SheetLabel(s),
-                        actual: "0 view", required: "sekurang-kurangnya satu view", key: s.Id > 0 ? null : s.Number + "|" + s.Name)
+                        actual: "0 view", required: "sekurang-kurangnya satu view", actualEn: "0 views", requiredEn: "at least one view", key: s.Id > 0 ? null : s.Number + "|" + s.Name)
                     .En("Sheet " + SheetLabel(s) + " has no view");
             if (empty.Count == 0)
                 yield return SpecChecks.Pass(id, m.Sheets.Count + "/" + m.Sheets.Count + " sheet ada view", m.Sheets.Count)
@@ -1119,6 +1124,7 @@ namespace RevitWebAppSync.Services.JkrSpec
                 yield return SpecChecks.Fail(id,
                         "Sheet " + SheetLabel(s) + (none ? ": tiada title block" : ": title block '" + s.TitleBlock + "' bukan JKR"),
                         s.Id, "Sheet " + SheetLabel(s), actual: none ? "tiada title block" : s.TitleBlock, required: "title block JKR",
+                        actualEn: none ? "no title block" : s.TitleBlock, requiredEn: "JKR title block",
                         key: s.Id > 0 ? null : s.Number + "|" + s.Name)
                     .En("Sheet " + SheetLabel(s) + (none ? ": no title block" : ": title block '" + s.TitleBlock + "' is not a JKR one"));
             }
@@ -1193,7 +1199,7 @@ namespace RevitWebAppSync.Services.JkrSpec
                     if (st.Length == 0) continue;
                     fails++;
                     yield return SpecChecks.Fail(id, "Sheet " + SheetLabel(s) + ": " + f.Bm + (found ? " (" + param + ")" : "") + " " + st,
-                            s.Id, "Sheet " + SheetLabel(s), actual: Show(value), required: f.Bm + " diisi",
+                            s.Id, "Sheet " + SheetLabel(s), actual: Show(value), required: f.Bm + " diisi", requiredEn: f.En + " filled",
                             key: (s.Id > 0 ? s.Id.ToString(CultureInfo.InvariantCulture) : s.Number + "|" + s.Name) + "|" + f.En)
                         .En("Sheet " + SheetLabel(s) + ": " + f.En + (found ? " (" + param + ")" : "") + " " + stEn);
                 }
@@ -1269,7 +1275,7 @@ namespace RevitWebAppSync.Services.JkrSpec
                 {
                     fails++;
                     yield return SpecChecks.Fail(id, "KRITIKAL: tiada link " + d, elementName: "Link " + d, actual: "tiada link",
-                            required: "link " + d + " berstatus Loaded", key: d)
+                            required: "link " + d + " berstatus Loaded", actualEn: "no link", requiredEn: "link " + d + " with status Loaded", key: d)
                         .En("CRITICAL: no " + d + " link");
                     continue;
                 }

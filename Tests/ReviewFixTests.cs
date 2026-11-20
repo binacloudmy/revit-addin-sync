@@ -12,6 +12,7 @@ namespace RevitWebAppSync.Tests
 {
     /// <summary>Fixes from the branch review: per-model audit files, full snapshots
     /// of fixed items, one AI %, keys while the detail is open, person items' status.</summary>
+    [Xunit.Collection("PaneLanguage")]
     public class ReviewFixTests : IDisposable
     {
         private readonly string _dir = Path.Combine(Path.GetTempPath(), "bina-review-" + Guid.NewGuid().ToString("N"));

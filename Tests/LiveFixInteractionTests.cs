@@ -9,6 +9,7 @@ namespace RevitWebAppSync.Tests
     /// appear (F12, its toast) and the Excel / CSV export confirms what it wrote (F14).
     /// Every check passes the language explicitly.
     /// </summary>
+    [Xunit.Collection("PaneLanguage")]
     public class LiveFixInteractionTests
     {
         private const string Ms = PanelStrings.Ms;

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using BinaVibe.Mcp.Tools.Audit;
+using RevitWebAppSync.UI.Jkr.Panel.Core;
 using RevitWebAppSync.UI.Jkr.ViewModels;
 
 namespace RevitWebAppSync.UI.Jkr.Export
@@ -218,12 +219,12 @@ namespace RevitWebAppSync.UI.Jkr.Export
 
             var fails = onRow.Where(i => !i.NeedsPerson).Select(FailText).Where(t => t.Length > 0).Distinct().ToList();
             parts.AddRange(Cap(fails));
-            var reasons = onRow.Where(i => i.NeedsPerson).Select(i => Clean(i.Description)).Where(t => t.Length > 0).Distinct().ToList();
+            var reasons = onRow.Where(i => i.NeedsPerson).Select(DescriptionEn).Where(t => t.Length > 0).Distinct().ToList();
             if (reasons.Count > 0) parts.Add("SEMAK MANUAL — " + string.Join(" ", Cap(reasons)));
 
             if (parts.Count == 0 && summary != null && summary.Rows.TryGetValue(key, out var rm) && rm.Notes.Count > 0 && mark != "y")
             {
-                var notes = Cap(rm.Notes.Select(Clean).Where(n => n.Length > 0).Distinct().ToList());
+                var notes = Cap(rm.Notes.Select(CleanEn).Where(n => n.Length > 0).Distinct().ToList());
                 parts.Add(mark == "m" ? "SEMAK MANUAL — " + string.Join(" ", notes) : string.Join("; ", notes));
             }
 
@@ -262,9 +263,9 @@ namespace RevitWebAppSync.UI.Jkr.Export
             }
             if (fails.Count > 0) parts.Add(string.Join("; ", Cap(fails)));
 
-            var reasons = manualIssues.Select(i => Clean(i.Description).Length > 0 ? Clean(i.Description) : FailText(i))
+            var reasons = manualIssues.Select(i => DescriptionEn(i).Length > 0 ? DescriptionEn(i) : FailText(i))
                                       .Where(t => t.Length > 0).Distinct().ToList();
-            if (reasons.Count == 0) reasons = (rm.ManualNotes ?? new List<string>()).Select(Clean).Where(n => n.Length > 0).Distinct().ToList();
+            if (reasons.Count == 0) reasons = (rm.ManualNotes ?? new List<string>()).Select(CleanEn).Where(n => n.Length > 0).Distinct().ToList();
             reasons = Cap(reasons);
             if (!string.IsNullOrEmpty(rm.NotCheckedNote)) reasons.Add(rm.NotCheckedNote);
             if (reasons.Count > 0) parts.Add("SEMAK MANUAL — " + string.Join("; ", reasons));
@@ -277,7 +278,7 @@ namespace RevitWebAppSync.UI.Jkr.Export
             // The local BIM010 rows' titles repeat the form row ("D5 · Stairs"): their
             // remark is what was found.
             var local = (i.CheckId ?? "").StartsWith("BIM010-", StringComparison.Ordinal);
-            var text = Clean(local && !string.IsNullOrWhiteSpace(i.Description) ? i.Description : i.Title);
+            var text = local && !string.IsNullOrWhiteSpace(i.Description) ? DescriptionEn(i) : TitleEn(i);
             if (text.Length == 0) return "";
             if (i.Status == IssueStatus.Fixed) return text + " (fixed, not yet re-scanned)";
             if (i.Status == IssueStatus.ManualFixNeeded) return text + " (handled manually)";
@@ -292,6 +293,23 @@ namespace RevitWebAppSync.UI.Jkr.Export
             var shown = items.Take(MaxRemarkItems).ToList();
             shown.Add("+" + (items.Count - MaxRemarkItems) + " more");
             return shown;
+        }
+
+        /// <summary>The Borang is English only: a checker remark written in BM is put in
+        /// English where the pane knows its wording (PaneText.AuditRemarkEn); any other
+        /// text stays as written.</summary>
+        /// <summary>An issue's description in English: the spec result's own English, else the
+        /// checker's remark where the pane knows its wording.</summary>
+        private static string DescriptionEn(IssueVm i) =>
+            !string.IsNullOrWhiteSpace(i.DescriptionEn) ? Clean(i.DescriptionEn) : CleanEn(i.Description);
+
+        private static string TitleEn(IssueVm i) =>
+            !string.IsNullOrWhiteSpace(i.TitleEn) ? Clean(i.TitleEn) : CleanEn(i.Title);
+
+        private static string CleanEn(string s)
+        {
+            var c = Clean(s);
+            return c.Length == 0 ? c : Clean(PaneText.AuditRemarkEn(c) ?? c);
         }
 
         private static string Clean(string s) =>

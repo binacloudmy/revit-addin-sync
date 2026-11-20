@@ -243,7 +243,135 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 var noteEn = ContextEn(note);
                 return noteEn == null ? null : NoCheckEn + ". " + noteEn + tail;
             }
+            return SectionHeadingEn(s) ?? GridRemarkEn(s) ?? DepartmentRemarkEn(s) ?? EmptyCategoryRemarkEn(s);
+        }
+
+        // The rules the BIM010 checker states (AuditCheckers: RulePattern, "Peraturan: …"), BM → EN.
+        private static readonly (string Ms, string En)[] CheckerRules =
+        {
+            ("setiap bilik (Room) ada nilai parameter 'Department'", "every room (Room) has a value in the 'Department' parameter"),
+            ("setiap bilik (Room) yang diletakkan ada Number dan Name", "every placed room (Room) has a Number and a Name"),
+            ("setiap elemen Walls/Floors/Ceilings/Roofs ada sekurang-kurangnya satu material", "every Walls/Floors/Ceilings/Roofs element has at least one material"),
+            ("setiap view grafik ada View Template", "every graphical view has a View Template"),
+            ("sekurang-kurangnya satu Area Plan untuk analisis ruang/zon", "at least one Area Plan for space/zone analysis"),
+            ("sekurang-kurangnya satu view Legend untuk komponen dan nota am", "at least one Legend view for components and general notes"),
+            ("setiap Sheet mengandungi sekurang-kurangnya satu view", "every Sheet contains at least one view"),
+            ("nama family/type title block mengandungi 'JKR'", "the title block family/type name contains 'JKR'"),
+            ("setiap Revit link berstatus 'Loaded'", "every Revit link has the status 'Loaded'"),
+            (">=3 segmen dipisah '-' atau '_'", ">=3 segments separated by '-' or '_'"),
+            (GridRuleBm, GridRuleStatementEn),
+            ("grid > 0 dan aras > 0; setiap grid dan aras ada nama yang unik (tiada nama kosong/berganda); setiap pelan lantai terikat pada satu aras",
+             "grids > 0 and levels > 0; every grid and level has a unique name (no empty or duplicate names); every floor plan is tied to one level"),
+            ("Project Name/Number/Address/Client Name/Status/Issue Date terisi dan bukan nilai lalai Revit",
+             "Project Name/Number/Address/Client Name/Status/Issue Date are filled and not the Revit default"),
+            ("nama jenis (ElementType) yang digunakan ikut format JKR — kod JKR '(XXnnn)' / awalan 'jkrAR' / nama bahan",
+             "the used type names (ElementType) follow the JKR format — JKR code '(XXnnn)' / prefix 'jkrAR' / material name"),
+        };
+
+        /// <summary>A rule the BIM010 checker states, in English; the text itself when it is not one it knows.</summary>
+        public static string AuditRuleEn(string rule)
+        {
+            var s = (rule ?? "").Trim();
+            foreach (var (ms, en) in CheckerRules) if (s == ms) return en;
+            return rule ?? "";
+        }
+
+        private static readonly Regex EmptyExpected = R(@"^(\d+) elemen (.+?) dijumpai dalam model walaupun kategori ini biasanya wajib bagi model seni bina — sahkan sama ada memang tiada dalam skop projek\. \(Kualiti/maklumat/geometri: semak manual\.\)$");
+        private static readonly Regex EmptyOptional = R(@"^(\d+) elemen (.+?) dijumpai dalam model dan kategori ini tidak wajib — baris ini tidak berkenaan, atau semak manual jika sepatutnya ada\.$");
+
+        /// <summary>D rows (AuditCheckers.EvaluateCategory): a category with no elements, "0 elemen Columns dijumpai …".
+        /// The category is a Revit label and stays as written.</summary>
+        private static string EmptyCategoryRemarkEn(string s)
+        {
+            var m = EmptyExpected.Match(s);
+            if (m.Success)
+                return $"{m.Groups[1].Value} {m.Groups[2].Value} elements found in the model although this category is normally required in an architectural model — confirm whether it is really outside the project scope. (Quality/information/geometry: semak manual.)";
+            m = EmptyOptional.Match(s);
+            if (m.Success)
+                return $"{m.Groups[1].Value} {m.Groups[2].Value} elements found in the model and this category is not required — this row does not apply, or semak manual if there should be some.";
             return null;
+        }
+
+        /// <summary>A6 (rooms have a Department): "Peraturan: … Isi parameter Department …" in English.</summary>
+        private static string DepartmentRemarkEn(string s)
+        {
+            const string rule = "setiap bilik (Room) ada nilai parameter 'Department'";
+            var head = "Peraturan: " + rule + ". ";
+            if (!s.StartsWith(head, StringComparison.Ordinal)) return null;
+            var ruleEn = "Rule: " + AuditRuleEn(rule) + ". ";
+            var rest = s.Substring(head.Length);
+            var all = Regex.Match(rest, @"^Semua (\d+) bilik ada nilai Department — patuh\.$");
+            if (all.Success) return ruleEn + "All " + all.Groups[1].Value + " rooms have a Department value — complies.";
+            if (rest == "Dijumpai 0 bilik yang diletakkan (placed Room) dalam model — letak Room dahulu sebelum kategori jabatan boleh disemak.")
+                return ruleEn + "Found 0 placed rooms in the model — place Rooms first before the department can be checked.";
+            var miss = Regex.Match(rest, @"^(\d+)/(\d+) bilik tiada nilai \(cth: (.*)\)\. Isi parameter Department untuk bilik tersebut\.(.*)$", RegexOptions.Singleline);
+            if (miss.Success && (string.IsNullOrWhiteSpace(miss.Groups[4].Value) || FullListNoteEn(miss.Groups[4].Value).Length > 0))
+                return ruleEn + miss.Groups[1].Value + "/" + miss.Groups[2].Value + " rooms have no value (e.g. " + miss.Groups[3].Value
+                       + "). Fill in the Department parameter for those rooms." + FullListNoteEn(miss.Groups[4].Value);
+            return null;
+        }
+
+        // AuditCheckers.FullListNote: "" or " Senarai penuh N item ada dalam draft_export (element_ids)."
+        private static string FullListNoteEn(string note)
+        {
+            var m = Regex.Match(note ?? "", @"^\s*Senarai penuh (\d+) item ada dalam draft_export \(element_ids\)\.\s*$");
+            return m.Success ? " The full list of " + m.Groups[1].Value + " items is in draft_export (element_ids)." : "";
+        }
+
+        private const string HeadingBm = "Tajuk seksyen — tiada kriteria untuk diskor. ";
+        private const string HeadingEn = "Section heading — no criteria to score. ";
+        private const string HeadingTailBm = "Lihat baris di bawah.";
+        private const string HeadingTailEn = "See the rows below.";
+
+        /// <summary>A section-heading row ("x.0"): "Tajuk seksyen — … [Konteks model: …] Lihat baris di bawah."</summary>
+        private static string SectionHeadingEn(string s)
+        {
+            if (!s.StartsWith(HeadingBm, StringComparison.Ordinal) || !s.EndsWith(HeadingTailBm, StringComparison.Ordinal)) return null;
+            var note = s.Substring(HeadingBm.Length, s.Length - HeadingBm.Length - HeadingTailBm.Length).Trim();
+            if (note.Length == 0) return HeadingEn + HeadingTailEn;
+            var noteEn = ContextEn(note);
+            return noteEn == null ? null : HeadingEn + noteEn + " " + HeadingTailEn;
+        }
+
+        // The base-point (grid) checker's remarks (AuditCheckers.BasePoint).
+        private const string GridRuleBm = "Project Base Point berada <=10 mm dari persilangan grid 'A' dan '1'";
+        private const string GridRuleEn = "the Project Base Point to be within 10 mm of the intersection of grids 'A' and '1'";
+        private const string GridRuleStatementEn = "the Project Base Point is within 10 mm of the intersection of grids 'A' and '1'";
+        private static readonly Regex GridModelHas = R(@"^Model ada (\d+) grid( \([^)]*\))? tetapi tiada yang bernama (.+?) \(atau berawalan projek, cth 'PT-A' / 'PT1'\)\. ");
+        private static readonly Regex GridCurved = R(@"^Grid (.+?) bukan garisan lurus, jadi persilangan tidak boleh dihitung\. ");
+        private static readonly Regex GridParallel = R(@"^Grid '(.*)' dan grid '(.*)' selari pada pelan, jadi tiada persilangan untuk diukur — semak manual\.$");
+
+        /// <summary>The grid checker's "not verifiable" remarks in English; null when the
+        /// text is not one of them (better all BM than half translated).</summary>
+        private static string GridRemarkEn(string s)
+        {
+            var par = GridParallel.Match(s);
+            if (par.Success)
+                return $"Grid '{par.Groups[1].Value}' and grid '{par.Groups[2].Value}' are parallel in plan, so there is no intersection to measure — semak manual.";
+
+            const string head = "Semakan perlukan ";
+            const string tail = "Semak manual.";
+            if (!s.StartsWith(head + GridRuleBm + ". ", StringComparison.Ordinal) || !s.EndsWith(tail, StringComparison.Ordinal)) return null;
+            var rest = s.Substring(head.Length + GridRuleBm.Length + 2);
+            var en = new System.Text.StringBuilder("The check needs " + GridRuleEn + ". ");
+            const string noPbp = "Project Base Point tidak dijumpai. ";
+            if (rest.StartsWith(noPbp, StringComparison.Ordinal)) { en.Append("The Project Base Point was not found. "); rest = rest.Substring(noPbp.Length); }
+            var m = GridModelHas.Match(rest);
+            if (m.Success)
+            {
+                var n = m.Groups[1].Value;
+                en.Append("The model has " + n + (n == "1" ? " grid" : " grids") + m.Groups[2].Value
+                          + " but none is named " + m.Groups[3].Value.Replace(" atau ", " or ")
+                          + " (or prefixed with the project, e.g. 'PT-A' / 'PT1'). ");
+                rest = rest.Substring(m.Length);
+            }
+            var c = GridCurved.Match(rest);
+            if (c.Success)
+            {
+                en.Append("Grid " + c.Groups[1].Value.Replace(" dan ", " and ") + " is not a straight line, so the intersection cannot be calculated. ");
+                rest = rest.Substring(c.Length);
+            }
+            return rest == tail ? en + tail : null;
         }
 
         /// <summary>"Konteks model: 0 workset; 3 aras (Aras 01, …)." in English; null when a
