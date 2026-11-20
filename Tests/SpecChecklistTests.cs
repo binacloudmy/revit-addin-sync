@@ -343,7 +343,7 @@ namespace RevitWebAppSync.Tests
             r.OpenRequested += id => opened = id;
 
             r.FixCheck("Db.1");
-            Assert.Equal(new[] { "pm1", "pm2" }, fixIds);                // pm1 ready-made; pm2 goes to the AI fixer
+            Assert.Equal(new[] { "pm1" }, fixIds);                         // AI-435: ready-made only; pm2 (AI fixer) is written on its row
 
             r.OpenElement("mt1");                                        // needs a person → the Manual tab backs the detail
             Assert.Equal("mt1", opened);
@@ -676,7 +676,7 @@ namespace RevitWebAppSync.Tests
             List<string> fixIds = null;
             r.FixCheckRequested += ids => fixIds = ids;
             r.FixCheck("Db.1");
-            Assert.Equal(new[] { "pm1", "pm2" }, fixIds);
+            Assert.Equal(new[] { "pm1" }, fixIds);
 
             // "9 need a person" shows those 9 checks, not the Manual tab's issues.
             r.SelectTab(PanelTab.Open);
