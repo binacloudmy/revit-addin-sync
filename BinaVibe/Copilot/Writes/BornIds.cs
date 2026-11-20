@@ -39,6 +39,15 @@ namespace BinaVibe.Copilot.Writes
             return floor;
         }
 
+        /// <summary>The preview's born ids: those of <paramref name="missing"/> (gone after its rollback) above every id it touched that still
+        /// exists (<paramref name="existing"/>: the targets and the deleted or modified elements that came back). A missing id below one of
+        /// those is not trusted to be new, so it is not born and sets no floor (it stays a deletion, compared by id as before).</summary>
+        public static HashSet<long> Proven(IEnumerable<long>? missing, IEnumerable<long>? existing)
+        {
+            var max = (existing ?? Enumerable.Empty<long>()).DefaultIfEmpty(0).Max();
+            return new HashSet<long>((missing ?? Enumerable.Empty<long>()).Where(id => id > max));
+        }
+
         /// <summary>The ids at or above <paramref name="floor"/>; none without a floor.</summary>
         public static HashSet<long> AtOrAbove(IEnumerable<long>? ids, long? floor) =>
             floor == null ? new HashSet<long>() : new HashSet<long>((ids ?? Enumerable.Empty<long>()).Where(id => id >= floor.Value));

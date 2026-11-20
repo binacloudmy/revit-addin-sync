@@ -231,7 +231,10 @@ namespace BinaVibe.Copilot.Writes
             // does not was created inside the preview by Revit itself (reported deleted, never added): it is not an existing element.
             if (!outcome.HasFailures && outcome.Shape != null)
             {
-                var born = Missing(doc, outcome.Shape.Deleted.Concat(outcome.Shape.Modified));
+                var touchedIds = outcome.Shape.Deleted.Concat(outcome.Shape.Modified).ToList();
+                var missing = Missing(doc, touchedIds);
+                var born = BornIds.Proven(missing, touchedIds.Where(id => !missing.Contains(id))
+                    .Concat(writePlans.SelectMany(p => p.TargetIds ?? Array.Empty<long>())));
                 outcome.Shape.BornFloor = BornIds.Floor(null, born, builder.AddedIds);
                 outcome.Shape.BornCount = born.Count;
                 if (born.Count > 0)

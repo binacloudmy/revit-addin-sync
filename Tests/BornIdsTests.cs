@@ -32,7 +32,8 @@ namespace RevitAddinSync.Tests
         /// <summary>The preview as the engine leaves it after its rollback: ids that no longer exist are born.</summary>
         private static BatchShape AfterPreviewRollback(BatchShape preview, ISet<long> missingAfterRollback, IEnumerable<long>? added = null)
         {
-            var born = new HashSet<long>(preview.Deleted.Concat(preview.Modified).Where(missingAfterRollback.Contains));
+            var touched = preview.Deleted.Concat(preview.Modified).ToList();
+            var born = BornIds.Proven(touched.Where(missingAfterRollback.Contains), touched.Where(id => !missingAfterRollback.Contains(id)).Append(Duct));
             preview.BornFloor = BornIds.Floor(null, born, added);
             preview.BornCount = born.Count;
             BornIds.Drop(preview, born);
@@ -73,9 +74,11 @@ namespace RevitAddinSync.Tests
             Assert.Equal(0, commit.Facts().DeletedExisting);
         }
 
+        // c1bd5c9a and e09b72b3 sent no data.drift: only the commit half is on record (a consecutive pair of new ids the preview did not
+        // delete). The preview pair below is assumed, shaped like 4e70cf53's.
         [Theory]
-        [InlineData(1550728, 1550729, 1550745, 1550746)]   // c1bd5c9a (PC)
-        [InlineData(1543386, 1543387, 1543403, 1543404)]   // e09b72b3 (laptop)
+        [InlineData(1550711, 1550712, 1550728, 1550729)]   // c1bd5c9a (PC): the commit deleted 1550728, 1550729
+        [InlineData(1543369, 1543370, 1543386, 1543387)]   // e09b72b3 (laptop): the commit deleted 1543386, 1543387
         public void EarlierFailures_SameShape_Match(long p1, long p2, long c1, long c2)
         {
             var preview = AfterPreviewRollback(Shape(modified: new[] { Duct }, deleted: new[] { p1, p2 }), new HashSet<long> { p1, p2 });
@@ -126,6 +129,17 @@ namespace RevitAddinSync.Tests
             Assert.Equal(new[] { Elbow }, preview.Deleted.ToArray());
             var commit = AtCommit(Shape(modified: new[] { Duct }, deleted: new long[] { Elbow, 1550640 }), preview.BornFloor);
             Assert.True(ShapeComparer.Compare(Array.Empty<WritePlan>(), preview, commit).IsMatch);
+        }
+
+        [Fact]
+        public void AMissingIdBelowAnExistingTouchedId_IsNotBorn_AndSetsNoFloor()
+        {
+            // Should an existing element ever read back as missing, it must not pull the floor down to an old id.
+            var preview = AfterPreviewRollback(Shape(modified: new[] { Duct, Elbow }, deleted: new long[] { 345678 }), new HashSet<long> { 345678 });
+            Assert.Null(preview.BornFloor);
+            Assert.Equal(new long[] { 345678 }, preview.Deleted.ToArray());
+            Assert.Empty(BornIds.Proven(new long[] { 345678 }, new long[] { Duct }));
+            Assert.Equal(new long[] { 1550618 }, BornIds.Proven(new long[] { 1550618 }, new long[] { Duct, Elbow }).ToArray());
         }
 
         [Fact]
