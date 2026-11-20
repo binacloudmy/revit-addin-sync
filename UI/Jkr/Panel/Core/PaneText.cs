@@ -179,6 +179,10 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public static string ExportInclude(string lang = null) => L(lang, "Sertakan", "Include");
         public static string ExportWillWrite(int n, string lang = null) =>
             L(lang, $"{n} isu akan ditulis", $"{n} issue{S(n)} will be written");
+        /// <summary>The export dialog's boxes. Open = the pane's Open tab; Manual = its Manual tab.</summary>
+        public static string ExportOpenBox(int n, string lang = null) => L(lang, $"Terbuka ({n})", $"Open ({n})");
+        public static string ExportManualBox(int n, string lang = null) => L(lang, $"Semakan manual ({n})", $"Manual ({n})");
+        public static string ExportResolvedBox(int n, string lang = null) => L(lang, $"Diabaikan atau selesai ({n})", $"Ignored or resolved ({n})");
         public static string ExportAction(string lang = null) => L(lang, "Eksport", "Export");
         public static string Cancel(string lang = null) => L(lang, "Batal", "Cancel");
         public static string PdfSaved(string path, string lang = null) =>

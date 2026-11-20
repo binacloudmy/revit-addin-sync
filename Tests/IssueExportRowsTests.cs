@@ -30,19 +30,19 @@ namespace RevitWebAppSync.Tests
         public void Options_pick_open_and_or_resolved()
         {
             var s = Sample();
-            Assert.Equal(new[] { "1", "2" }, IssueExportRows.Select(s, true, false).Select(i => i.Id).ToArray());
-            Assert.Equal(new[] { "3", "4" }, IssueExportRows.Select(s, false, true).Select(i => i.Id).ToArray());
-            Assert.Empty(IssueExportRows.Select(s, false, false));
+            Assert.Equal(new[] { "1", "2" }, IssueExportRows.Select(s, true, false, false).Select(i => i.Id).ToArray());
+            Assert.Equal(new[] { "3", "4" }, IssueExportRows.Select(s, false, false, true).Select(i => i.Id).ToArray());
+            Assert.Empty(IssueExportRows.Select(s, false, false, false));
         }
 
         [Fact]
         public void Marked_manual_issue_is_written_under_Open_and_counts_match_rows()
         {
             var s = Sample().Concat(new[] { I("5", IssueStatus.ManualFixNeeded) }).ToArray();
-            Assert.Equal(new[] { "1", "2", "5" }, IssueExportRows.Select(s, true, false).Select(i => i.Id).ToArray());
-            Assert.Equal(new[] { "3", "4" }, IssueExportRows.Select(s, false, true).Select(i => i.Id).ToArray());
-            Assert.Equal(s.Length, IssueExportRows.Select(s, true, true).Length);
-            Assert.Empty(IssueExportRows.Select(s, false, false));
+            Assert.Equal(new[] { "1", "2", "5" }, IssueExportRows.Select(s, true, false, false).Select(i => i.Id).ToArray());
+            Assert.Equal(new[] { "3", "4" }, IssueExportRows.Select(s, false, false, true).Select(i => i.Id).ToArray());
+            Assert.Equal(s.Length, IssueExportRows.Select(s, true, true, true).Length);
+            Assert.Empty(IssueExportRows.Select(s, false, false, false));
         }
 
         /// <summary>Runs the body in the language ("ms" / "en"), then puts the static state back.</summary>
@@ -170,7 +170,7 @@ namespace RevitWebAppSync.Tests
             var spec = new IssueVm { Id = "s1", CheckId = "SPEC-A1.1", BorangKey = "A1", Status = IssueStatus.Open };
             var other = new IssueVm { Id = "l1", CheckId = "BIM010-A1", BorangKey = "A1", Status = IssueStatus.Open };
             var all = new[] { spec, other };
-            Assert.Equal(new[] { "s1", "l1" }, IssueExportRows.Select(all, true, true).Select(x => x.Id).ToArray());
+            Assert.Equal(new[] { "s1", "l1" }, IssueExportRows.Select(all, true, true, true).Select(x => x.Id).ToArray());
             Assert.Equal(2, IssueExportRows.DefaultCount(all));
         }
 

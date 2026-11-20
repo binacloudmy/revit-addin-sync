@@ -92,6 +92,7 @@
 
                     <TextBlock x:Name="IncludeLabel" Style="{StaticResource Ex.Label}"/>
                     <CheckBox x:Name="CbOpen" Style="{StaticResource Ex.Check}" IsChecked="True" Margin="0,0,0,8" Click="Options_Changed"/>
+                    <CheckBox x:Name="CbManual" Style="{StaticResource Ex.Check}" IsChecked="True" Margin="0,0,0,8" Click="Options_Changed"/>
                     <CheckBox x:Name="CbResolved" Style="{StaticResource Ex.Check}" IsChecked="True" Click="Options_Changed"/>
 
                     <TextBlock x:Name="CountText" FontFamily="{StaticResource Bz.Font.Mono}" FontSize="11.5" Foreground="{StaticResource Bz.Text2}"
