@@ -37,6 +37,41 @@ namespace Tests
         }
 
         [Fact]
+        public void Answered_lists_only_the_dialogs_the_scope_answered()
+        {
+            using (ImportDialogGuard guard = ImportDialogGuard.Begin())
+            {
+                ImportDialogGuard.OnDialog("id", "Save changes to the project?", r => true);
+                ImportDialogGuard.OnDialog("id", Extents, r => true);
+                Assert.Equal(2, guard.Seen.Count);
+                Assert.Equal(new[] { Extents }, guard.Answered);
+            }
+
+            // An answer Revit refused is not reported as answered.
+            using (ImportDialogGuard guard = ImportDialogGuard.Begin())
+            {
+                Assert.False(ImportDialogGuard.OnDialog("id", Extents, r => false));
+                Assert.Empty(guard.Answered);
+            }
+        }
+
+        [Fact]
+        public void A_nested_scope_hands_back_to_the_outer_one()
+        {
+            using (ImportDialogGuard outer = ImportDialogGuard.Begin())
+            {
+                using (ImportDialogGuard inner = ImportDialogGuard.Begin())
+                {
+                    ImportDialogGuard.OnDialog("id", Extents, r => true);
+                    Assert.Single(inner.Answered);
+                }
+                Assert.Empty(outer.Answered);
+                ImportDialogGuard.OnDialog("id", Extents, r => true);
+                Assert.Single(outer.Answered);
+            }
+        }
+
+        [Fact]
         public void Any_other_dialog_is_left_alone()
         {
             Assert.Null(ImportDialogGuard.AnswerFor("id", "Imported model is out of range."));

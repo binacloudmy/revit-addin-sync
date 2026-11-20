@@ -321,29 +321,48 @@ namespace BinaVibe.Mcp.Tools
             int before = new FilteredElementCollector(doc)
                 .OfClass(typeof(ImportInstance)).GetElementCount();
 
-            using var tx = new Transaction(doc, $"BinaVibe: link CAD {fileName}");
-            tx.Start();
-            bool linked;
+            // Same guards as the CAD read (DwgScratchCache.LinkInto): a drawing with stray geometry
+            // far away raises the "extents greater than 1E9" dialog (answered OK by the guard) and
+            // posts "Imported model is out of range" (deleted by the swallowing preprocessor).
+            // Unguarded, both sat modal and the tool call timed out with Revit still busy.
+            var warnings = new List<string>();
             ElementId id;
-            try
+            using (var dialogs = ImportDialogGuard.Begin())
             {
-                linked = doc.Link(path, options, view, out id);
+                using var tx = new Transaction(doc, $"BinaVibe: link CAD {fileName}");
+                TxGuard.StartSwallowing(tx);
+                bool linked;
+                try
+                {
+                    linked = doc.Link(path, options, view, out id);
+                }
+                catch (Exception ex)
+                {
+                    tx.RollBack();
+                    return Err($"{fileName}: {ex.Message}");
+                }
+                if (!linked || id == null || id == ElementId.InvalidElementId)
+                {
+                    tx.RollBack();
+                    return Err($"Revit could not link {fileName} (corrupt, password-protected, or an unsupported CAD version)");
+                }
+                try
+                {
+                    TxGuard.CommitOrThrow(tx);
+                }
+                catch (Exception ex)
+                {
+                    return Err($"{fileName}: {ex.Message}");
+                }
+
+                foreach (string message in dialogs.Answered)
+                    warnings.Add($"Revit asked \"{OneLine(message)}\" and link_file answered OK: the drawing has geometry far from its origin, and what lies past 1E9 units was truncated");
+                foreach (string warning in TxGuard.SwallowedWarnings)
+                    warnings.Add($"Revit warned \"{OneLine(warning)}\" (dismissed so the link could finish)");
             }
-            catch (Exception ex)
-            {
-                tx.RollBack();
-                return Err($"{fileName}: {ex.Message}");
-            }
-            if (!linked || id == null || id == ElementId.InvalidElementId)
-            {
-                tx.RollBack();
-                return Err($"Revit could not link {fileName} (corrupt, password-protected, or an unsupported CAD version)");
-            }
-            tx.Commit();
 
             int after = new FilteredElementCollector(doc)
                 .OfClass(typeof(ImportInstance)).GetElementCount();
-            var warnings = new List<string>();
             if (after <= before)
                 warnings.Add("link reported success but no new CAD import instance was found by the verification collector");
 
@@ -356,6 +375,9 @@ namespace BinaVibe.Mcp.Tools
                 ["warnings"] = warnings,
             };
         }
+
+        private static string OneLine(string text)
+            => text.Replace("\r", " ").Replace("\n", " ").Trim();
 
         private static View? PickHostView(UIDocument uidoc)
         {

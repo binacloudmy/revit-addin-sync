@@ -13,6 +13,9 @@
 // failure warning the same link posts ("Imported model is out of range") is a transaction
 // failure, deleted by TxGuard.StartSwallowing on the link's transaction.
 //
+// Used by both CAD link calls: the read (DwgScratchCache.LinkInto) and link_file
+// (BatchLink.LinkCadFile), which reports Answered in its warnings.
+//
 // Revit-free: App passes the dialog's id and text and how to answer it, so the rule is
 // unit-tested. The match is on English text; a localised Revit still shows the dialog.
 
@@ -36,6 +39,7 @@ namespace BinaVibe.Mcp.Tools
 
         private readonly ImportDialogGuard? _outer;
         private readonly List<string> _seen = new List<string>();
+        private readonly List<string> _answered = new List<string>();
         private bool _disposed;
 
         private ImportDialogGuard(ImportDialogGuard? outer)
@@ -55,6 +59,10 @@ namespace BinaVibe.Mcp.Tools
         /// <summary>"id | message" of every dialog raised inside the scope, for the log.</summary>
         public IReadOnlyList<string> Seen => _seen;
 
+        /// <summary>The message of every dialog this scope answered, so a tool can tell its caller
+        /// (a drawing that reaches past 1E9 units is worth knowing about).</summary>
+        public IReadOnlyList<string> Answered => _answered;
+
         /// <summary>
         /// Called for every dialog Revit raises. Outside a scope it does nothing. Inside, it notes
         /// the dialog and answers it when <see cref="AnswerFor"/> knows the answer. True when it
@@ -70,7 +78,9 @@ namespace BinaVibe.Mcp.Tools
             if (!result.HasValue) return false;
             try
             {
-                return answer(result.Value);
+                bool answered = answer(result.Value);
+                if (answered) guard._answered.Add(message ?? "");
+                return answered;
             }
             catch
             {
