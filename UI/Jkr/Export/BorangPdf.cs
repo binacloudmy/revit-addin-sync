@@ -58,7 +58,7 @@ namespace RevitWebAppSync.UI.Jkr.Export
                         t.Cell().Border(Line).PaddingVertical(Px(2)).PaddingHorizontal(Px(5)).Text(k).FontSize(Px(8.5f));
                         t.Cell().Border(Line).PaddingVertical(Px(2)).PaddingHorizontal(Px(5)).Text(x => { x.DefaultTextStyle(s => s.FontSize(Px(8.5f))); v(x); });
                     }
-                    Kv("KOD DOKUMEN", x => x.Span(": BIM 005"));
+                    Kv("KOD DOKUMEN", x => x.Span(": BIM010"));
                     Kv("PINDAAN", x => x.Span(": 00"));
                     Kv("TARIKH", x => x.Span(": 1 DIS 2022"));
                     Kv("MUKA SURAT", x => { x.Span(": "); x.CurrentPageNumber(); x.Span(" / "); x.TotalPages(); });
