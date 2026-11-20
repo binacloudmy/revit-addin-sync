@@ -187,7 +187,7 @@ namespace BinaVibe.Mcp
                 // Retry-safe dedup: a repeated Idempotency-Key returns the job
                 // already in flight/completed — we only await it, never enqueue
                 // a second execution (so a client retry can't double-mutate).
-                var wait = _requestWait;
+                var queueCap = _requestWait;   // longest a job may wait before it starts
                 var canonical = _idempotency.GetOrAdd(idemKey, job);
                 if (ReferenceEquals(canonical, job))
                 {
@@ -206,13 +206,17 @@ namespace BinaVibe.Mcp
                 {
                     job = canonical;               // duplicate: await the original
                     // The original may still be waiting on the card.
-                    if (mutate) wait = confirmWait + _requestWait;
+                    if (mutate) queueCap = confirmWait + _requestWait;
                 }
 
-                if (!job.Completed.Wait(wait))
+                // The run budget starts when the drainer starts this job, not
+                // at enqueue: a write queued behind another write from the same
+                // Allow must not spend its budget waiting for the first.
+                if (!McpJobClock.WaitForRun(job, _requestWait, queueCap))
                 {
                     job.Abandoned = true;
-                    await WriteJson(ctx, 504, new { error = $"tool {toolName} timed out after {wait.TotalSeconds}s" });
+                    var limit = job.TStarted == 0 ? queueCap : _requestWait;
+                    await WriteJson(ctx, 504, new { error = $"tool {toolName} timed out after {limit.TotalSeconds}s" });
                     return;
                 }
 

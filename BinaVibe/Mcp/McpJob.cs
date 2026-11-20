@@ -93,7 +93,13 @@ namespace BinaVibe.Mcp
         // t0: job queued
         public long TEnqueued { get; set; }
         // t1: drainer picked it up — Revit reached idle. (t1-t0) = idle wait.
-        public long TStarted { get; set; }
+        // Set on the UI thread, read by the HTTP wait (McpJobClock): volatile.
+        private long _tStarted;
+        public long TStarted
+        {
+            get => Volatile.Read(ref _tStarted);
+            set => Volatile.Write(ref _tStarted, value);
+        }
         // t2: tool returned — commit+regen done. (t2-t1) = execution/regen.
         public long TFinished { get; set; }
     }

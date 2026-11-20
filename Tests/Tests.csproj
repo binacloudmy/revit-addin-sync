@@ -218,6 +218,10 @@
     <Compile Include="..\Services\ConfirmGate.cs" Link="ConfirmGate.cs" />
     <!-- EngineWriteGate: the engine-mode Ya/Tidak gate (no WPF, no Revit). -->
     <Compile Include="..\Services\EngineWriteGate.cs" Link="EngineWriteGate.cs" />
+    <!-- McpJob + McpJobClock: job timing rules (watchdog verdict, run budget
+         from start). Pure (System.Threading + System.Text.Json). -->
+    <Compile Include="..\BinaVibe\Mcp\McpJob.cs" Link="McpJob.cs" />
+    <Compile Include="..\BinaVibe\Mcp\McpJobClock.cs" Link="McpJobClock.cs" />
     <Compile Include="..\Models\AIResponse.cs" Link="AIResponse.cs" />
     <!-- AttachmentGate: pure file-type/size gate (System + System.IO only).
          a3d74b6 added it WITH AttachmentGateTests.cs but never linked it —
