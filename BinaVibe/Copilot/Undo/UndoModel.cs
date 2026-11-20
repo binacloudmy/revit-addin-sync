@@ -150,15 +150,35 @@ namespace BinaVibe.Copilot.Undo
         public UndoObservation Undone(string docKey, IReadOnlyList<string> names)
         {
             UndoChange? change;
+            List<UndoChange>? more;
             UndoObservation result;
-            lock (_gate) result = UndoneLocked(docKey, names, out change);
+            lock (_gate) result = UndoneLocked(docKey, names, out change, out more);
             Raise(change);
+            foreach (var c in more ?? new List<UndoChange>()) Raise(c);
             return result;
         }
 
-        private UndoObservation UndoneLocked(string docKey, IReadOnlyList<string> names, out UndoChange? change)
+        /// <summary>The live (or, for a redo, undone) entries one of Revit's own Undo/Redo operations moved, given the names it reported
+        /// (<paramref name="ordered"/>: newest live first for an undo, oldest undone first for a redo). One name: the first entry, when it is
+        /// foreign or has that name (as before). Several names (r18, live L15/L16: the drafter undid two QAT entries at once, both named
+        /// "BINA: Revit code"): the first that many entries, when their names are exactly those names (a foreign entry takes any name); before,
+        /// only the first was marked, the other turn's entry stayed live under nothing and its card offered Undo again. Null: no match.</summary>
+        private static List<Entry>? Swept(IReadOnlyList<Entry> ordered, IReadOnlyList<string> names)
+        {
+            var first = ordered.Count > 0 ? ordered[0] : null;
+            if (names.Count >= 2 && ordered.Count >= names.Count)
+            {
+                var take = ordered.Take(names.Count).ToList();
+                var left = names.ToList();
+                if (take.Where(e => !e.Foreign).All(e => left.Remove(e.Name))) return take;
+            }
+            return first != null && (first.Foreign || Matches(names, first.Name)) ? new List<Entry> { first } : null;
+        }
+
+        private UndoObservation UndoneLocked(string docKey, IReadOnlyList<string> names, out UndoChange? change, out List<UndoChange>? more)
         {
             change = null;
+            more = null;
             if (!_docs.TryGetValue(docKey, out var st)) return UndoObservation.Unexpected;
             names ??= Array.Empty<string>();
             if (st.PendingUndo != null)
@@ -180,13 +200,14 @@ namespace BinaVibe.Copilot.Undo
                 return UndoObservation.Mismatch;
             }
 
-            // The drafter's own Undo pops the stack: a foreign entry or the BINA entry it names.
-            // Anything else means we lost track, so nothing is undone from here.
-            var newest = st.Entries.LastOrDefault(e => !e.Undone);
-            if (newest != null && (newest.Foreign || Matches(names, newest.Name)))
+            // The drafter's own Undo pops the stack: a foreign entry or the BINA entry it names; an undo of several entries at once
+            // (Revit's Undo list) pops as many as it named (Swept). Anything else means we lost track, so nothing is undone from here.
+            var swept = Swept(st.Entries.Where(e => !e.Undone).Reverse().ToList(), names);
+            if (swept != null)
             {
-                newest.Undone = true;
-                change = Moved(newest, UndoChangeKind.Undone, byPane: false);
+                foreach (var e in swept) e.Undone = true;
+                change = Moved(swept[0], UndoChangeKind.Undone, byPane: false);
+                more = swept.Skip(1).Select(e => Moved(e, UndoChangeKind.Undone, byPane: false)).ToList();
             }
             else
             {
@@ -199,15 +220,18 @@ namespace BinaVibe.Copilot.Undo
         public UndoObservation Redone(string docKey, IReadOnlyList<string> names)
         {
             UndoChange? change;
+            List<UndoChange>? more;
             UndoObservation result;
-            lock (_gate) result = RedoneLocked(docKey, names, out change);
+            lock (_gate) result = RedoneLocked(docKey, names, out change, out more);
             Raise(change);
+            foreach (var c in more ?? new List<UndoChange>()) Raise(c);
             return result;
         }
 
-        private UndoObservation RedoneLocked(string docKey, IReadOnlyList<string> names, out UndoChange? change)
+        private UndoObservation RedoneLocked(string docKey, IReadOnlyList<string> names, out UndoChange? change, out List<UndoChange>? more)
         {
             change = null;
+            more = null;
             if (!_docs.TryGetValue(docKey, out var st)) return UndoObservation.Unexpected;
             names ??= Array.Empty<string>();
             var next = st.Entries.FirstOrDefault(e => e.Undone);
@@ -232,10 +256,12 @@ namespace BinaVibe.Copilot.Undo
                 change = new UndoChange { Kind = UndoChangeKind.Other };
                 return UndoObservation.Mismatch;
             }
-            if (next != null && (next.Foreign || Matches(names, next.Name)))
+            var swept = Swept(st.Entries.Where(e => e.Undone).ToList(), names);   // Revit redoes the oldest undone first
+            if (swept != null)
             {
-                next.Undone = false;
-                change = Moved(next, UndoChangeKind.Redone, byPane: false);
+                foreach (var e in swept) e.Undone = false;
+                change = Moved(swept[0], UndoChangeKind.Redone, byPane: false);
+                more = swept.Skip(1).Select(e => Moved(e, UndoChangeKind.Redone, byPane: false)).ToList();
             }
             else
             {
