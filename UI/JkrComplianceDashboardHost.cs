@@ -46,6 +46,7 @@ namespace RevitWebAppSync.UI
                 // BM / EN: re-read the issues so fix errors and element words switch too.
                 Jkr.Panel.Core.PaneLanguage.Changed += () => results.Load(_panel.CurrentIssues, _panel.CurrentSummary, _panel.CurrentSpecReport);
                 _panel.BusyChanged += label => results.BusyText = label;
+                _panel.BusyProgress += (done, total) => results.ReportProgress(done, total);
                 _panel.ToastChanged += message => _shell.ShowToast(message);
                 // Issue detail (step 11): the shell opens it from a row; Locate and
                 // the source PDF go to the panel, Fix / Ignore through the results.
@@ -68,7 +69,10 @@ namespace RevitWebAppSync.UI
                 results.IgnoreRequested += ids => _panel.IgnoreIssues(ids);
                 results.MarkManualRequested += id => _panel.SetManual(id, true);
                 results.ReopenRequested += id => _panel.Reopen(id);
-                results.RescanRequested += (lod, disc) => _panel.RunFromStart(lod, disc);
+                results.RescanRequested += (lod, disc) => { if (!_panel.RunFromStart(lod, disc)) results.EndBusy(); };
+                // The re-scan is over (done or failed): the Rescan button was busy until now. A scan
+                // error is shown by the run screen, so it is not toasted again here.
+                _panel.ScanCompleted += (summary, error) => results.EndBusy();
                 results.ResetRequested += () => _panel.ResetToStart();
                 // Export (step 14): the Borang BIM010 preview + PDF; the issue list
                 // (Excel/CSV) is the secondary export from inside the preview.

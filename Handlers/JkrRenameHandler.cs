@@ -35,6 +35,10 @@ namespace RevitWebAppSync.Handlers
 
         public Action<RenameResult> OnCompleted { get; set; }
 
+        /// <summary>AI-443: called after each step with the steps tried so far ("n of N"). Runs on
+        /// Revit's thread inside the batch; a retry pass counts again, so callers cap at N.</summary>
+        public Action<int> OnProgress { get; set; }
+
         /// <summary>Name of the batch's single entry in Revit's undo history
         /// (Edit > Undo). Reset back to <see cref="DefaultUndoName"/> after each batch.</summary>
         public string TransactionGroupName { get; set; } = DefaultUndoName;
@@ -76,7 +80,7 @@ namespace RevitWebAppSync.Handlers
                     // expensive re-renders. Switch to a lightweight view for the batch
                     // and switch back afterwards. Must happen outside any transaction.
                     restoreView = SwitchAwayFrom3D(uidoc);
-                    ApplyBatch(doc, batch, undoName, result);
+                    ApplyBatch(doc, batch, undoName, result, OnProgress);
                 }
             }
             catch (Exception ex)
@@ -138,15 +142,17 @@ namespace RevitWebAppSync.Handlers
         /// anything, the group is rolled back, so no empty undo entry is left.
         /// </summary>
         private static void ApplyBatch(Document doc, JkrFixBatch<JkrFixAction> batch, string undoName,
-                                       RenameResult result)
+                                       RenameResult result, Action<int> onProgress)
         {
             var applicator = new JkrFixApplicator(doc);
+            var tried = 0;
+            Action step1 = onProgress == null ? (Action)null : () => { try { onProgress(++tried); } catch { } };
             using (var group = new TransactionGroup(doc, undoName))
             {
                 group.Start();
                 var steps = batch.Steps.ToList();
                 JkrBatchRetry.Apply(steps, s => s.ElementId,
-                    ss => RunSteps(doc, applicator, ss, undoName),
+                    ss => RunSteps(doc, applicator, ss, undoName, step1),
                     r => result.Absorb(r),
                     (step, reason) => result.RecordFailure(KeyOf(step), step.ElementId, WhatOf(step), reason,
                                                            newName: step.IsRename ? step.NewName : null));
@@ -161,7 +167,7 @@ namespace RevitWebAppSync.Handlers
         /// <summary>Apply steps in one transaction. Error-level failures at commit are
         /// collected (no Revit dialog) and the transaction rolls back.</summary>
         private static JkrBatchRetry.Attempt<RenameResult> RunSteps(Document doc, JkrFixApplicator applicator,
-                                         List<JkrFixBatch<JkrFixAction>.Step> steps, string name)
+                                         List<JkrFixBatch<JkrFixAction>.Step> steps, string name, Action stepDone)
         {
             var run = new JkrBatchRetry.Attempt<RenameResult> { Result = new RenameResult() };
             var collector = new CommitFailureCollector();
@@ -173,7 +179,10 @@ namespace RevitWebAppSync.Handlers
                 tx.SetFailureHandlingOptions(options);
                 tx.Start();
                 foreach (var step in steps)
+                {
                     ApplyOne(doc, applicator, step, run.Result);
+                    stepDone?.Invoke();
+                }
                 var status = TransactionStatus.Uninitialized;
                 // A commit that throws is a refused commit, not a reason to drop the batch.
                 run.Committed = JkrBatchRetry.TryCommit(
@@ -335,6 +344,7 @@ namespace RevitWebAppSync.Handlers
                 $"failed={result.Failed} skipped={result.Skipped} addsUp={JkrFixTally.Of(batch.ChangeCount, result).AddsUp} error={result.Error ?? ""}");
 
             var completed = OnCompleted;
+            OnProgress = null;
             TransactionGroupName = DefaultUndoName;
             ExpectedDocPath = "";
             try { completed?.Invoke(result); }

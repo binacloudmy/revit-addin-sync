@@ -364,7 +364,18 @@
         <!-- busy: a fix batch is being written -->
         <Border Grid.Row="1" Background="{StaticResource Bz.BrandTint}" BorderBrush="{StaticResource Bz.BrandTintLine}" BorderThickness="0,0,0,1" Padding="16,8,16,8"
                 Visibility="{Binding IsBusy, Converter={StaticResource B2V}}">
-            <TextBlock Text="{Binding BusyText}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource Bz.BrandTintText}" TextWrapping="Wrap"/>
+            <StackPanel>
+                <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <TextBlock Text="{Binding BusyText}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource Bz.BrandTintText}" TextWrapping="Wrap"/>
+                    <!-- AI-443: n of N -->
+                    <TextBlock Grid.Column="1" Text="{Binding BusyProgressText}" FontSize="12" FontWeight="SemiBold" Margin="12,0,0,0" Foreground="{StaticResource Bz.BrandTintText}"
+                               Visibility="{Binding HasBusyProgress, Converter={StaticResource B2V}}"/>
+                </Grid>
+                <!-- No total (re-scan, Ask AI): an indeterminate bar; a batch with a total: a determinate one -->
+                <ProgressBar Height="3" Margin="0,6,0,0" Minimum="0" Maximum="1" Value="{Binding BusyFraction, Mode=OneWay}" IsIndeterminate="{Binding BusyIndeterminate, Mode=OneWay}"
+                             Foreground="{StaticResource Bz.BrandTintText}" Background="Transparent" BorderThickness="0"/>
+            </StackPanel>
         </Border>
 
         <!-- Headline card (AI-444): verdict + "x% compliant · n fail", pinned above the scroll so it never moves between tabs or after a fix / rescan / undo; opens the full result -->
@@ -1001,6 +1012,8 @@
                                                 <!-- semak manual: why a person decides -->
                                                 <TextBlock Text="{Binding Reason}" FontSize="12" LineHeight="17" Foreground="{StaticResource Bz.Manual}" TextWrapping="Wrap" Margin="0,3,0,0"
                                                            Visibility="{Binding IsManual, Converter={StaticResource B2V}}"/>
+                                                <TextBlock Text="…" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource Bz.BrandTintText}" Margin="0,3,0,0"
+                                                           Visibility="{Binding IsBusy, Converter={StaticResource B2V}}"/>
                                                 <TextBlock Text="{Binding FixError}" FontSize="11" LineHeight="15" Foreground="{StaticResource Bz.HighText}" TextWrapping="Wrap" Margin="0,3,0,0"
                                                            Visibility="{Binding HasFixError, Converter={StaticResource B2V}}"/>
                                                 <!-- Mark as Manual (option b): stays open, "Manual · you'll fix it in Revit" -->

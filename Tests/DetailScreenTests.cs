@@ -573,5 +573,20 @@ namespace RevitWebAppSync.Tests
             Assert.Equal("jkrAR_x", i.FixValue);
             Assert.False(i.AutoFixable);                        // and still not auto-fixable once loaded for one write
         }
+
+        [Fact]
+        public void The_detail_shows_the_busy_text_and_progress_of_the_results_screen()
+        {
+            var (d, r, _) = New(Issue("1", "A4", fixable: true));
+            d.Open("1");
+            Assert.False(d.IsBusy);
+            r.BeginBusy("AI looking for a suggestion…", 0, "1");
+            Assert.True(d.IsBusy);
+            Assert.Equal("AI looking for a suggestion…", d.BusyText);
+            Assert.False(d.CanAct);
+            r.EndBusy();
+            Assert.False(d.IsBusy);
+            Assert.True(d.CanAct);
+        }
     }
 }

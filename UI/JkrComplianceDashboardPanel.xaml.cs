@@ -95,6 +95,8 @@ namespace RevitWebAppSync.UI
 
         /// <summary>"Applying n changes…" while a batch is written; null when done.</summary>
         public event Action<string> BusyChanged;
+        /// <summary>AI-443: n of N while a fix batch is written (changes written so far, changes in the batch).</summary>
+        public event Action<int, int> BusyProgress;
 
         /// <summary>A toast appeared (message) or went (null).</summary>
         public event Action<string> ToastChanged;
@@ -336,9 +338,9 @@ namespace RevitWebAppSync.UI
         /// <summary>Run audit from the Start screen (step 8): use the LOD and discipline
         /// chosen there, then scan. The discipline counts as the user's choice, so the
         /// scan does not switch it to the model's detected one.</summary>
-        public void RunFromStart(int lod, string discipline)
+        public bool RunFromStart(int lod, string discipline)
         {
-            if (_vm.Scanning) return;
+            if (_vm.Scanning) return false;
             if (_vm.LodLevels.Contains(lod))
             {
                 _vm.SelectedLodLevel = lod;
@@ -351,6 +353,7 @@ namespace RevitWebAppSync.UI
             _vm.SelectedDiscipline = d.Code;
             _disciplineUserSet = true;
             _ = RunScanAsync();
+            return true;
         }
 
         /// <summary>TEST ONLY: BINA_DEV_UNLOCK / BINA_JKR_FIXTURE (Services\JkrDevMode.cs).
@@ -737,9 +740,10 @@ namespace RevitWebAppSync.UI
         public async Task AskAiAsync(string id)
         {
             var issue = FindIssue(id);
-            if (issue == null || !issue.AiFixCandidate || _fixInFlight) return;
+            if (issue == null || !issue.AiFixCandidate || _fixInFlight) { BusyChanged?.Invoke(null); return; }   // the pane already showed "asking": clear it
             if (_lastScanRequest == null || DevMode.UsesFixture || _jkrService == null)
             {
+                BusyChanged?.Invoke(null);
                 _vm.ShowToast(Jkr.Panel.Core.PaneText.AiUnavailable());
                 return;
             }
@@ -852,6 +856,25 @@ namespace RevitWebAppSync.UI
             SetWriteButtonsEnabled(false);
         }
 
+        private DateTime _lastProgressPaint = DateTime.MinValue;
+
+        /// <summary>"n of N" for a running batch. The batch runs on this thread, so a render pass is
+        /// pumped (at most every 100 ms) for the number to show before the batch ends.</summary>
+        private void ReportWriteProgress(int done, int total, bool force = false)
+        {
+            if (total <= 0) return;
+            done = Math.Min(done, total);
+            BusyProgress?.Invoke(done, total);
+            FixProgressCount.Text = done + "/" + total;
+            if (FixProgressBar.Parent is FrameworkElement barParent && barParent.ActualWidth > 0)
+                FixProgressBar.Width = barParent.ActualWidth * ((double)done / total);
+            var now = DateTime.UtcNow;
+            if (!force && done < total && (now - _lastProgressPaint).TotalMilliseconds < 100) return;
+            _lastProgressPaint = now;
+            try { Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.Render); }
+            catch { /* the count is also kept in the model; a missed repaint is only cosmetic */ }
+        }
+
         private void HideApplying()
         {
             BusyChanged?.Invoke(null);
@@ -938,6 +961,8 @@ namespace RevitWebAppSync.UI
                 f => f.ElementId, f => f.Priority, f => f.ParameterName).ChangeCount;
             totalToFix = changeCount;
             ShowApplying(JkrFixBatch.BusyLabel(changeCount));
+            ReportWriteProgress(0, changeCount, force: true);
+            handler.OnProgress = done => ReportWriteProgress(done, changeCount);
 
             handler.OnCompleted = (result) =>
             {

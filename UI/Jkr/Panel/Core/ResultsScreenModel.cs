@@ -43,6 +43,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
     {
         public string Id { get; set; } = "";
         public string Row { get; set; } = "";
+        /// <summary>AI-443: this row's action (Ask AI) is running.</summary>
+        public bool IsBusy { get; set; }
         public string Title { get; set; } = "";
         /// <summary>A ready-made fix: the value in the model and the one it writes (old → new).</summary>
         public bool HasChange { get; set; }
@@ -191,10 +193,57 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public string BusyText
         {
             get => _busy;
-            set { if (_busy == value) return; _busy = value; RaiseAll(); }
+            set
+            {
+                if (_busy == value) return;
+                _busy = value;
+                if (string.IsNullOrEmpty(value)) { _busyDone = 0; _busyTotal = 0; _busyRowId = null; }
+                RaiseAll();
+            }
         }
         public bool IsBusy => !string.IsNullOrEmpty(_busy);
         public bool CanAct => !IsBusy;
+
+        // AI-443: what is running, how far it is, and (for Ask AI / one fix) which row.
+        private int _busyDone, _busyTotal;
+        private string _busyRowId;
+        /// <summary>The row a single action runs on (Ask AI); null when the action is the whole list.</summary>
+        public string BusyRowId => _busyRowId;
+        /// <summary>"n of N" while a batch with a known size runs; "" otherwise.</summary>
+        public string BusyProgressText => IsBusy && _busyTotal > 0 ? _busyDone + " " + T("of") + " " + _busyTotal : "";
+        /// <summary>0..1 for the progress bar.</summary>
+        public double BusyFraction => IsBusy && _busyTotal > 0 ? Math.Min(1.0, (double)_busyDone / _busyTotal) : 0;
+        /// <summary>Busy with no known total (re-scan, Ask AI): the bar just moves.</summary>
+        public bool BusyIndeterminate => IsBusy && _busyTotal == 0;
+        public bool HasBusyProgress => IsBusy && _busyTotal > 0;
+
+        /// <summary>Show a loading state at once: the text, optionally "0 of total" and the busy row.
+        /// Every write action is off until <see cref="EndBusy"/>.</summary>
+        public void BeginBusy(string text, int total = 0, string rowId = null)
+        {
+            _busyTotal = Math.Max(0, total);
+            _busyDone = 0;
+            _busyRowId = rowId;
+            _busy = string.IsNullOrEmpty(text) ? null : text;
+            if (_busy == null) { _busyTotal = 0; _busyRowId = null; }
+            RaiseAll();
+        }
+
+        /// <summary>n of N: never past N (a retry pass re-runs steps).</summary>
+        public void ReportProgress(int done, int total)
+        {
+            if (!IsBusy) return;
+            if (total > 0) _busyTotal = total;
+            _busyDone = Math.Max(0, _busyTotal > 0 ? Math.Min(done, _busyTotal) : 0);
+            RaiseAll();
+        }
+
+        /// <summary>Clear the loading state. A failure's message shows as the pane's toast.</summary>
+        public void EndBusy(string error = null)
+        {
+            BusyText = null;
+            if (!string.IsNullOrEmpty(error)) _core.ShowToast(error);
+        }
 
         // ── tools bar ──
         // Same option objects as the Start screen (relabelled on BM / EN), created once:
@@ -366,6 +415,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 SvKind = kind,
                 Meta = (man && x.Status == ItemStatus.Reviewed ? T("reviewed") + " · " : "") + string.Join(" · ", meta),
                 IsSel = isSel,
+                IsBusy = IsBusy && _busyRowId == x.Id,
                 IsDone = x.Status != ItemStatus.Open && !man,
                 ShowFix = !man && x.Fix != FixKind.None && x.Status == ItemStatus.Open && !x.MarkedManual,
                 ManualTag = x.MarkedManual ? T("manualTag") : "",
@@ -796,6 +846,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             if (!CanAct) return;
             var x = _core.Issues.FirstOrDefault(i => i.Id == id);
             if (x == null || x.IsHuman || !x.AiFix || x.Status != ItemStatus.Open || x.MarkedManual) return;
+            BeginBusy(PaneText.AiAsking(_core.Lang), 0, id);   // the row shows it at once; the host ends it
             AskAiRequested?.Invoke(id);
         }
 
@@ -855,6 +906,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public void Rescan()
         {
             if (!CanAct || !int.TryParse(_core.Lod, out var lod)) return;
+            BeginBusy(PaneText.Rescanning(_core.Lang));   // drawn before the 15-50 s scan starts; the host ends it
             RescanRequested?.Invoke(lod, _core.Disc);
         }
 

@@ -460,5 +460,99 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(1, r.FixableN);
             Assert.Equal("Fix all 1 change", r.FixAllLabel);
         }
+
+        // ── AI-443: loading state ──
+
+        [Fact]
+        public void Rescan_is_busy_at_once_and_a_second_click_does_nothing()
+        {
+            var (r, _) = New();
+            r.Load(new[] { Issue("1", "A4", fixable: true) }, Summary());
+            var asked = 0;
+            r.RescanRequested += (_, __) => asked++;
+            r.Rescan();
+            Assert.True(r.IsBusy);
+            Assert.Equal(PaneText.Rescanning(r.Core.Lang), r.BusyText);
+            Assert.False(r.CanAct);
+            r.Rescan();
+            Assert.Equal(1, asked);
+        }
+
+        [Fact]
+        public void Ending_the_busy_state_re_enables_the_buttons()
+        {
+            var (r, _) = New();
+            r.Load(new[] { Issue("1", "A4", fixable: true) }, Summary());
+            r.Rescan();
+            r.EndBusy();
+            Assert.False(r.IsBusy);
+            Assert.True(r.CanAct);
+            Assert.Equal("", r.BusyProgressText);
+        }
+
+        [Fact]
+        public void A_failure_clears_the_busy_state_and_shows_the_error_as_a_toast()
+        {
+            var (r, core) = New();
+            r.Load(new[] { Issue("1", "A4", fixable: true) }, Summary());
+            r.BeginBusy("Applying 1 change…", 1);
+            r.EndBusy("Revit refused the change");
+            Assert.False(r.IsBusy);
+            Assert.True(r.CanFixAll);
+            Assert.Equal("Revit refused the change", core.Toast);
+        }
+
+        [Fact]
+        public void Fix_all_progress_counts_the_same_changes_the_button_shows()
+        {
+            var (r, _) = New();
+            r.Load(new[] { Issue("1", "A4", fixable: true), Issue("2", "A4", fixable: true) }, Summary());
+            var n = r.FixableN;
+            r.BeginBusy(PaneText.Applying(n, r.Core.Lang), n);
+            Assert.Equal($"0 {r.Core.T("of")} {n}", r.BusyProgressText);
+            Assert.Equal(0.0, r.BusyFraction);
+            r.ReportProgress(1, n);
+            Assert.Equal($"1 {r.Core.T("of")} {n}", r.BusyProgressText);
+            Assert.Equal(1.0 / n, r.BusyFraction, 6);
+            r.ReportProgress(n + 5, n);                         // a retry pass never runs past N
+            Assert.Equal($"{n} {r.Core.T("of")} {n}", r.BusyProgressText);
+            Assert.Equal(1.0, r.BusyFraction);
+        }
+
+        [Fact]
+        public void A_busy_state_without_a_total_shows_no_progress()
+        {
+            var (r, _) = New();
+            r.BeginBusy("AI looking for a suggestion…");
+            Assert.Equal("", r.BusyProgressText);
+            Assert.Equal(0.0, r.BusyFraction);
+            r.ReportProgress(3, 0);
+            Assert.Equal("", r.BusyProgressText);
+        }
+
+        [Fact]
+        public void The_busy_row_is_marked_and_cleared_with_the_busy_state()
+        {
+            var (r, _) = New();
+            r.Load(new[] { Issue("1", "A4", fixable: true), Issue("2", "A4", fixable: true) }, Summary());
+            r.BeginBusy("AI looking for a suggestion…", 0, "2");
+            Assert.Equal("2", r.BusyRowId);
+            Assert.True(r.Rows.Single(x => x.Id == "2").IsBusy);
+            Assert.False(r.Rows.Single(x => x.Id == "1").IsBusy);
+            r.EndBusy();
+            Assert.Null(r.BusyRowId);
+            Assert.DoesNotContain(r.Rows, x => x.IsBusy);
+        }
+
+        [Fact]
+        public void The_old_BusyText_setter_still_drives_the_state()
+        {
+            var (r, _) = New();
+            r.BusyText = "Applying 1 change…";
+            Assert.True(r.IsBusy);
+            r.BusyText = null;
+            Assert.False(r.IsBusy);
+            Assert.Null(r.BusyRowId);
+        }
     }
 }
