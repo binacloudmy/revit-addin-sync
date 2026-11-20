@@ -24,6 +24,16 @@ namespace BinaVibe.Copilot.Writes
         [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hWnd);
         [DllImport("user32.dll")] private static extern bool FlashWindowEx(ref FlashInfo info);
         [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
+        private delegate bool EnumChildProc(IntPtr hWnd, IntPtr lParam);
+        [DllImport("user32.dll")] private static extern bool EnumChildWindows(IntPtr parent, EnumChildProc callback, IntPtr lParam);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, IntPtr wParam, StringBuilder lParam, uint flags, uint timeoutMs, out IntPtr result);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "SendMessageTimeoutW")]
+        private static extern IntPtr SendMessageTimeoutLength(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam, uint flags, uint timeoutMs, out IntPtr result);
+
+        private const string StatusBarClass = "msctls_statusbar32";
+        private const uint SbGetTextW = 0x0400 + 13, SbGetTextLengthW = 0x0400 + 12;
+        private const uint SmtoBlock = 0x1, SmtoAbortIfHung = 0x2;
 
         [StructLayout(LayoutKind.Sequential)]
         private struct FlashInfo
@@ -70,6 +80,39 @@ namespace BinaVibe.Copilot.Writes
                     return found.Count < 200;
                 }, IntPtr.Zero);
                 return found;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>r18: the first pane of Revit's status bar (the prompt of the command it is in, "Click to enter wall start point"), read only
+        /// when the watchdog already knows the UI thread pumps and shows no modal window. A standard status bar child of the main window answers
+        /// SB_GETTEXT; the message is sent with a 300 ms timeout and SMTO_ABORTIFHUNG, so a busy thread is never waited on. Null when there is no
+        /// such window or nothing could be read (the busy reply then names the mode without its prompt). Never throws.</summary>
+        public static string? StatusText(long mainWindow)
+        {
+            if (mainWindow == 0) return null;
+            try
+            {
+                IntPtr bar = IntPtr.Zero;
+                EnumChildWindows(new IntPtr(mainWindow), (h, _) =>
+                {
+                    var cls = new StringBuilder(64);
+                    GetClassName(h, cls, cls.Capacity);
+                    if (!string.Equals(cls.ToString(), StatusBarClass, StringComparison.OrdinalIgnoreCase) || !IsWindowVisible(h)) return true;
+                    bar = h;
+                    return false;
+                }, IntPtr.Zero);
+                if (bar == IntPtr.Zero) return null;
+                if (SendMessageTimeoutLength(bar, SbGetTextLengthW, IntPtr.Zero, IntPtr.Zero, SmtoBlock | SmtoAbortIfHung, 300, out var lenResult) == IntPtr.Zero) return null;
+                var len = (int)(lenResult.ToInt64() & 0xFFFF);
+                if (len <= 0 || len > 1000) return null;
+                var text = new StringBuilder(len + 2);
+                if (SendMessageTimeout(bar, SbGetTextW, IntPtr.Zero, text, SmtoBlock | SmtoAbortIfHung, 300, out _) == IntPtr.Zero) return null;
+                var t = text.ToString().Trim();
+                return t.Length == 0 ? null : t;
             }
             catch (Exception)
             {

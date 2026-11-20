@@ -22,7 +22,11 @@ using System.Linq;
 
 namespace BinaVibe.Copilot.Writes
 {
-    public enum WatchdogVerdict { Wait, FailDialog, FailBusy }
+    /// <summary>FailInCommand (r18, live L9 a7cde0c1 / a3280dec): Revit's UI thread pumps messages and no modal window is open, yet neither
+    /// Idling nor the ExternalEvent kick ran until the ceiling. Revit raises Idling only "when Revit is not in an active tool or transaction"
+    /// and processes external events "only when no other commands or edit modes are currently active" (RevitAPIUI.xml 2027): it is in the
+    /// middle of a command or edit mode (a tool waiting for a click, a sketch, a pick), which Esc ends. Before r18 this said "stayed busy".</summary>
+    public enum WatchdogVerdict { Wait, FailDialog, FailBusy, FailInCommand }
 
     public static class WatchdogPolicy
     {
@@ -44,7 +48,7 @@ namespace BinaVibe.Copilot.Writes
         {
             if (idleSinceArm || sinceArmed < IdleGrace) return WatchdogVerdict.Wait;
             if (uiPumpedSinceProbe && modalOpen == false)
-                return sinceArmed >= BusyCeiling ? WatchdogVerdict.FailBusy : WatchdogVerdict.Wait;
+                return sinceArmed >= BusyCeiling ? WatchdogVerdict.FailInCommand : WatchdogVerdict.Wait;
             if (uiPumpedSinceProbe) return sinceProbeRan >= DialogConfirm ? WatchdogVerdict.FailDialog : WatchdogVerdict.Wait;
             if (sinceArmed >= BusyCeiling) return sinceDialog <= DialogRecent ? WatchdogVerdict.FailDialog : WatchdogVerdict.FailBusy;
             return WatchdogVerdict.Wait;
@@ -61,7 +65,36 @@ namespace BinaVibe.Copilot.Writes
         /// <summary>The failure text; nothing ran, so nothing was changed.</summary>
         public static string Message(WatchdogVerdict verdict) => verdict == WatchdogVerdict.FailDialog
             ? "Revit was busy or showing a dialog and did not run the change, so nothing was changed. If a dialog is open, ask the drafter to close it, then try again."
+            : verdict == WatchdogVerdict.FailInCommand ? InCommandMessage(null)
             : "Revit stayed busy and did not run the change, so nothing was changed. Try again in a moment.";
+
+        /// <summary>The <c>dialogs</c> id of a FailInCommand result: not a dialog but the mode Revit is in (the backend words it; see the r18 report).</summary>
+        public const string InCommandId = "revit:command";
+        public const int PromptMaxChars = 60;
+
+        /// <summary>The failure text when Revit is in a command or edit mode; <paramref name="prompt"/> is its status-bar prompt when it could be read.</summary>
+        public static string InCommandMessage(string? prompt)
+        {
+            var p = Prompt(prompt);
+            return "Revit is in a command or edit mode" + (p.Length > 0 ? " (status bar: " + p + ")" : "")
+                   + " and runs no add-in work until it ends, so nothing was changed. Ask the drafter to press Esc in Revit (twice if needed), then try again.";
+        }
+
+        /// <summary>The words the revit_busy envelope's <c>dialogs</c> entry carries for the mode: what the backend's reply quotes today
+        /// ('Revit looks blocked by a dialog ("…")'). No brackets or quotes (the backend strips them); at most 120 characters.</summary>
+        public static string InCommandText(string? prompt)
+        {
+            var p = Prompt(prompt);
+            return "a Revit command or edit mode is still active" + (p.Length > 0 ? ": " + p : "") + ", press Esc in Revit";
+        }
+
+        private static string Prompt(string? prompt)
+        {
+            var p = string.Join(" ", (prompt ?? "").Split(new[] { ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries));
+            p = new string(p.Where(c => !char.IsControl(c) && "[]()<>*`~|#\\!\"".IndexOf(c) < 0).ToArray()).Trim();
+            if (p.Equals("Ready", StringComparison.OrdinalIgnoreCase)) return "";   // Revit's idle status says nothing about a mode
+            return p.Length <= PromptMaxChars ? p : p.Substring(0, PromptMaxChars - 1).TrimEnd() + "…";
+        }
     }
 
     /// <summary>One top-level window of Revit's UI thread, as ModalWindows read it (Revit-free).</summary>

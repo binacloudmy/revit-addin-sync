@@ -309,11 +309,28 @@ namespace BinaVibe.Copilot.Writes
             }
 
             var message = WatchdogPolicy.Message(verdict);
+            string? commandId = null, commandText = null;
+            if (verdict == WatchdogVerdict.FailInCommand)
+            {
+                // r18 (live L9 a7cde0c1, a3280dec: four ~62 s revit_busy, no dialog, Revit responding, cleared by a canvas click + Esc): the
+                // thread pumps, no modal window, yet neither Idling nor the kick ran. Revit is in a command or edit mode: say so, with its prompt.
+                var prompt = ModalWindows.StatusText(Volatile.Read(ref _mainWindow));
+                message = WatchdogPolicy.InCommandMessage(prompt);
+                commandId = WatchdogPolicy.InCommandId;
+                commandText = WatchdogPolicy.InCommandText(prompt);
+                try
+                {
+                    BinaVibe.Copilot.Guard.StageTimer.Sink("watchdog: no Idling or kick for " + (int)sinceArmed.TotalSeconds + " s, UI pumped (probe ran "
+                        + (int)Since(probeRan).TotalSeconds + " s ago), no modal window (" + (ModalWindows.Of(_uiThread)?.Count ?? -1)
+                        + " thread windows): Revit is in a command or edit mode; status bar '" + (prompt ?? "(not read)") + "'");
+                }
+                catch (Exception) { /* a log line only */ }
+            }
             // Name the dialog only when Revit showed it just now (WatchdogPolicy.NameDialog): the UI-pumped verdict can come long after, and the
             // last dialog seen may be hours old and closed. Otherwise the backend says it cannot tell which dialog blocks Revit.
             var dialog = verdict == WatchdogVerdict.FailDialog && WatchdogPolicy.NameDialog(Since(Volatile.Read(ref _lastDialogTicks)));
-            var dialogId = dialog ? Volatile.Read(ref _lastDialogId) : null;
-            var dialogText = dialog ? Volatile.Read(ref _lastDialogText) : null;
+            var dialogId = dialog ? Volatile.Read(ref _lastDialogId) : commandId;
+            var dialogText = dialog ? Volatile.Read(ref _lastDialogText) : commandText;
             if (verdict == WatchdogVerdict.FailDialog && blocking != null)
             {
                 // The window itself, read now: its title names it, and it is brought to the front so the drafter sees it.

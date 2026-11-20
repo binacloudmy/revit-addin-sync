@@ -85,7 +85,8 @@ namespace RevitAddinSync.Tests
         public void PumpingWithNoModalWindow_WaitsUpToTheCeiling_InsteadOfFailingAsADialog()
         {
             Assert.Equal(WatchdogVerdict.Wait, WatchdogPolicy.Decide(S(12), idleSinceArm: false, uiPumpedSinceProbe: true, S(5), LongAgo, modalOpen: false));
-            Assert.Equal(WatchdogVerdict.FailBusy, WatchdogPolicy.Decide(S(61), idleSinceArm: false, uiPumpedSinceProbe: true, S(50), LongAgo, modalOpen: false));
+            // r18: at the ceiling this is Revit in a command or edit mode (was FailBusy, "stayed busy"; live L9 a7cde0c1): see WatchdogBusyModeR18Tests.
+            Assert.Equal(WatchdogVerdict.FailInCommand, WatchdogPolicy.Decide(S(61), idleSinceArm: false, uiPumpedSinceProbe: true, S(50), LongAgo, modalOpen: false));
             Assert.Equal(WatchdogVerdict.FailDialog, WatchdogPolicy.Decide(S(12), idleSinceArm: false, uiPumpedSinceProbe: true, S(5), LongAgo, modalOpen: true));
             Assert.Equal(WatchdogVerdict.FailDialog, WatchdogPolicy.Decide(S(12), idleSinceArm: false, uiPumpedSinceProbe: true, S(5), LongAgo));   // unknown: the old rule
         }
