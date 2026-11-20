@@ -46,6 +46,10 @@ namespace RevitWebAppSync.Services.JkrSpec
         public Dictionary<string, string> ProjectInfo = new Dictionary<string, string>();
         /// <summary>Revit category name → number of placed model elements (e.g. "Doors" → 24).</summary>
         public Dictionary<string, int> CategoryCounts = new Dictionary<string, int>();
+        /// <summary>Placed elements the reader left out of the built model, by reason
+        /// (<see cref="SpecExtractionRules.ExcludedDesignOption"/>, <see cref="SpecExtractionRules.ExcludedDemolished"/>): name → count.
+        /// Empty = nothing left out, or an old snapshot.</summary>
+        public Dictionary<string, int> Excluded = new Dictionary<string, int>();
         /// <summary>Things the reader could not read ("Sheets: …exception…"): shown, never a silent pass.</summary>
         public List<string> ReadErrors = new List<string>();
 
@@ -70,6 +74,7 @@ namespace RevitWebAppSync.Services.JkrSpec
             ProjectInfo = ProjectInfo ?? new Dictionary<string, string>();
             CategoryCounts = CategoryCounts ?? new Dictionary<string, int>();
             ReadErrors = ReadErrors ?? new List<string>();
+            Excluded = Excluded ?? new Dictionary<string, int>();
             Levels.RemoveAll(x => x == null); Grids.RemoveAll(x => x == null); Rooms.RemoveAll(x => x == null);
             Floors.RemoveAll(x => x == null); Ceilings.RemoveAll(x => x == null); Roofs.RemoveAll(x => x == null);
             Types.RemoveAll(x => x == null); Materials.RemoveAll(x => x == null); Views.RemoveAll(x => x == null);
@@ -81,7 +86,7 @@ namespace RevitWebAppSync.Services.JkrSpec
             foreach (var x in Floors) { x.TypeName = x.TypeName ?? ""; x.LevelName = x.LevelName ?? ""; x.Loops = CleanLoops(x.Loops); }
             foreach (var x in Ceilings) { x.TypeName = x.TypeName ?? ""; x.LevelName = x.LevelName ?? ""; x.Loops = CleanLoops(x.Loops); }
             foreach (var x in Roofs) { x.TypeName = x.TypeName ?? ""; x.LevelName = x.LevelName ?? ""; x.Materials = x.Materials ?? new List<string>(); x.LayerFunctions = x.LayerFunctions ?? new List<string>(); }
-            foreach (var x in Types) { x.Category = x.Category ?? ""; x.FamilyName = x.FamilyName ?? ""; x.TypeName = x.TypeName ?? ""; x.InstanceIds = x.InstanceIds ?? new List<long>(); x.Numbers = x.Numbers ?? new Dictionary<string, double>(); x.Texts = x.Texts ?? new Dictionary<string, string>(); x.Materials = x.Materials ?? new List<string>(); }
+            foreach (var x in Types) { x.Category = x.Category ?? ""; x.FamilyName = x.FamilyName ?? ""; x.TypeName = x.TypeName ?? ""; x.InstanceIds = x.InstanceIds ?? new List<long>(); x.Numbers = x.Numbers ?? new Dictionary<string, double>(); x.Texts = x.Texts ?? new Dictionary<string, string>(); x.Materials = x.Materials ?? new List<string>(); x.ParamNames = x.ParamNames ?? new List<string>(); }
             foreach (var x in Materials) { x.Name = x.Name ?? ""; x.Class = x.Class ?? ""; }
             foreach (var x in Views) { x.Name = x.Name ?? ""; x.Kind = x.Kind ?? ""; x.LevelName = x.LevelName ?? ""; x.TemplateName = x.TemplateName ?? ""; x.SheetNumber = x.SheetNumber ?? ""; }
             foreach (var x in Schedules) { x.Name = x.Name ?? ""; x.Category = x.Category ?? ""; x.Fields = x.Fields ?? new List<string>(); x.RowElementIds = x.RowElementIds ?? new List<long>(); }
@@ -218,6 +223,13 @@ namespace RevitWebAppSync.Services.JkrSpec
         public Dictionary<string, double> Numbers = new Dictionary<string, double>();
         /// <summary>Text parameters (JKR shared parameters included): name → value.</summary>
         public Dictionary<string, string> Texts = new Dictionary<string, string>();
+        /// <summary>Names of every parameter the type or its first placed instance carries, any
+        /// storage type. With <see cref="ParamNamesRead"/>, a parameter name in neither this list nor
+        /// <see cref="Texts"/> is MISSING from the type; one in Texts with "" is empty.</summary>
+        public List<string> ParamNames = new List<string>();
+        /// <summary>The reader filled <see cref="ParamNames"/>. False for old snapshots and hand-made fixtures,
+        /// where "not in Texts" only means "not read".</summary>
+        public bool ParamNamesRead;
         /// <summary>Material names on the type (layers or material parameters); empty = no material.</summary>
         public List<string> Materials = new List<string>();
     }
