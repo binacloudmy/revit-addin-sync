@@ -7,6 +7,11 @@ namespace RevitWebAppSync.Handlers
     /// <summary>Non-generic constants and labels for <see cref="JkrFixBatch{TFix}"/>.</summary>
     public static class JkrFixBatch
     {
+        /// <summary>The identity of one change: issues with the same key are one step. The
+        /// Fix all button counts distinct keys, so it shows the number the batch will have.</summary>
+        public static string StepKey(bool isRename, long elementId, string parameter) =>
+            isRename ? "r:" + elementId : "p:" + elementId + ":" + (parameter ?? "");
+
         /// <summary>From this many distinct elements, the confirm dialog warns that
         /// Revit may pause: the batch runs in one synchronous call (one undo step),
         /// so Revit does not redraw until it finishes.</summary>
@@ -109,14 +114,14 @@ namespace RevitWebAppSync.Handlers
             var seen = parameterOf == null ? null : new HashSet<string>(StringComparer.Ordinal);
             foreach (var (elementId, newName) in renames ?? Enumerable.Empty<(long, string)>())
             {
-                if (seen != null && !seen.Add("r:" + elementId)) continue;
+                if (seen != null && !seen.Add(JkrFixBatch.StepKey(true, elementId, null))) continue;
                 steps.Add(new Step { IsRename = true, ElementId = elementId, NewName = newName });
             }
 
             foreach (var fix in (parameterFixes ?? Enumerable.Empty<TFix>()).OrderBy(priorityOf))
             {
                 var elementId = elementOf(fix);
-                if (seen != null && !seen.Add("p:" + elementId + ":" + (parameterOf(fix) ?? ""))) continue;
+                if (seen != null && !seen.Add(JkrFixBatch.StepKey(false, elementId, parameterOf(fix)))) continue;
                 steps.Add(new Step { IsRename = false, ElementId = elementId, Fix = fix });
             }
 

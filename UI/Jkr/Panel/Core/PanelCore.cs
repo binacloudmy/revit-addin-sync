@@ -271,6 +271,11 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public List<PanelItem> FixableOpen() =>
             InCat.Where(x => !x.IsHuman && x.Status == ItemStatus.Open && !x.MarkedManual && x.Fix == FixKind.Fix).ToList();
 
+        /// <summary>AI-442: Fix all (n) in changes, the unit of the batch, progress, toast and result
+        /// window: rows that ask for the same write are one change, a rename with no name is none.</summary>
+        public int FixableChanges() =>
+            FixableOpen().Where(x => x.FixKey != "").Select(x => x.FixKey ?? "row:" + x.Id).Distinct().Count();
+
         /// <summary>Tab counts over the current section.</summary>
         public Dictionary<PanelTab, int> TabCounts()
         {

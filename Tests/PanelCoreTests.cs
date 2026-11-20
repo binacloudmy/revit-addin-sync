@@ -252,6 +252,23 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
+        public void Fix_all_counts_changes_not_rows_AI442()
+        {
+            PanelItem Row(string id, string key) => new PanelItem { Id = id, Sec = "A", Fix = FixKind.Fix, FixKey = key };
+            var core = new PanelCore(new List<PanelItem>
+            {
+                Row("1", RevitWebAppSync.Handlers.JkrFixBatch.StepKey(false, 7, "Kod")),
+                Row("2", RevitWebAppSync.Handlers.JkrFixBatch.StepKey(false, 7, "Kod")),   // same write: one change
+                Row("3", RevitWebAppSync.Handlers.JkrFixBatch.StepKey(false, 8, "Kod")),
+                Row("4", RevitWebAppSync.Handlers.JkrFixBatch.StepKey(true, 7, null)),     // a rename of 7 is its own change
+                Row("5", ""),                                                              // rename with no name: no step
+                Row("6", null),                                                            // key not set: its own change
+            }, null, new ManualClock());
+            Assert.Equal(6, core.FixableOpen().Count);
+            Assert.Equal(4, core.FixableChanges());
+        }
+
+        [Fact]
         public void Asking_to_fix_items_without_a_fix_does_nothing()
         {
             var (core, _) = AtResults();
