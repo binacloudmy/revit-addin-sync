@@ -227,6 +227,25 @@ namespace BinaVibe.Copilot.Writes
                     if (note != null && outcome.Envelopes[kv.Key] != null) AddWarning(outcome.Envelopes[kv.Key], note);
                 }
 
+            // r18 (BornIds, live 4e70cf53): every element that existed before the write exists again now. A deleted or modified id that
+            // does not was created inside the preview by Revit itself (reported deleted, never added): it is not an existing element.
+            if (!outcome.HasFailures && outcome.Shape != null)
+            {
+                var born = Missing(doc, outcome.Shape.Deleted.Concat(outcome.Shape.Modified));
+                outcome.Shape.BornFloor = BornIds.Floor(null, born, builder.AddedIds);
+                if (born.Count > 0)
+                {
+                    BornIds.Drop(outcome.Shape, born);
+                    foreach (var kv in runs)
+                    {
+                        BornIds.DropFromEnvelope(outcome.Envelopes[kv.Key], kv.Value.DeletedTouched, kv.Value.DeletedSide, born);
+                        kv.Value.Existing.RemoveAll(born.Contains);
+                        if (existing.TryGetValue(kv.Key, out var ex)) ex.RemoveAll(born.Contains);
+                    }
+                    st.Mark("born ids (" + born.Count + ")");
+                }
+            }
+
             // Deleted elements exist again now: read their categories (at most 500, nothing else),
             // so the card says "Delete 2 Sheets, 5 Views", not "Delete 7 Other" (re-review I-1).
             // The shape keeps them, and the commit reuses them for the same ids.
@@ -359,6 +378,7 @@ namespace BinaVibe.Copilot.Writes
 
             var envelopes = new Envelope[n];
             var changedPerCall = new int[n];
+            var commitRuns = new CallRun?[n];
             var builder = new BatchShapeBuilder();
             var anyChange = false;
             st.Mark("replan+hash+ownership");
@@ -402,6 +422,7 @@ namespace BinaVibe.Copilot.Writes
                             return Failed(batch, i, run.Failure);
                         }
                         envelopes[i] = run.Envelope!;
+                        commitRuns[i] = run;
                         changedPerCall[i] = run.Changed;
                         if (run.Changes != null && run.Changes.Added.Count + run.Changes.Modified.Count + run.Changes.Deleted.Count > 0)
                             anyChange = true;
@@ -409,15 +430,35 @@ namespace BinaVibe.Copilot.Writes
 
                     var shape = builder.Build(id => Describe(doc!, id, builder.AddedIds));
                     st.Mark("shape");
+                    // r18 (BornIds, live 4e70cf53): a deleted or modified id at or above the lowest id this write is known to have created
+                    // (the preview's, or the commit's own additions) never existed before it: Revit's own transient element, not a drift.
+                    var born = BornIds.AtOrAbove(shape.Deleted.Concat(shape.Modified), BornIds.Floor(preview.Shape?.BornFloor, null, builder.AddedIds));
+                    if (born.Count > 0)
+                    {
+                        BornIds.Drop(shape, born);
+                        for (var i = 0; i < n; i++)
+                        {
+                            var r = commitRuns[i];
+                            if (r == null) continue;
+                            BornIds.DropFromEnvelope(envelopes[i], r.DeletedTouched, r.DeletedSide, born);
+                            changedPerCall[i] = Math.Max(0, changedPerCall[i] - r.Existing.Count(born.Contains));
+                        }
+                        st.Mark("born ids (" + born.Count + ")");
+                    }
                     RevitValueFingerprints.Fill(doc!, shape, builder.AddedIds);   // R75, compared with the preview's
                     st.Mark("value fingerprints");
                     var verdict = ShapeComparer.Compare(fresh, preview.Shape, shape);
                     var connectedAfter = batch.ForceConnected || !verdict.IsMatch ? ConnectedSet.Of(doc!, targetIds) : new Dictionary<long, string>();
+                    // r18: existing ids that are view-specific or non-model (tags, analytical elements) never make a drift unconnected.
+                    var nonModel = batch.ForceConnected || !verdict.IsMatch
+                        ? NonModelIds(doc!, shape.Modified.Concat(shape.Deleted)
+                            .Concat(preview.Shape?.Modified ?? Enumerable.Empty<long>()).Concat(preview.Shape?.Deleted ?? Enumerable.Empty<long>()))
+                        : new HashSet<long>();
                     if (batch.ForceConnected)
                     {
                         // Safety audit P1: a forced commit may delete or change only targets and connected elements, matched preview or not.
                         var allowed = new HashSet<long>(targetIds.Concat(connectedBefore.Keys).Concat(connectedAfter.Keys));
-                        var outside = ShapeComparer.ForcedOutside(shape, allowed);
+                        var outside = ShapeComparer.ForcedOutside(shape, allowed, nonModel);
                         if (!measured || outside != null)
                         {
                             RollBackIfOpen(group);
@@ -434,7 +475,7 @@ namespace BinaVibe.Copilot.Writes
                     {
                         // Judged against what is connected to the targets before and after the calls ran: a forced batch keeps a
                         // connected-only drift and reports it; anything else rolls back and says what differed (DriftData).
-                        var connected = ShapeComparer.JudgeConnected(preview.Shape, shape, connectedBefore, connectedAfter, targetIds, measured);
+                        var connected = ShapeComparer.JudgeConnected(preview.Shape, shape, connectedBefore, connectedAfter, targetIds, measured, nonModel);
                         // Safety audit P2: only what the Force card listed (ForceApproval) may be kept.
                         if (batch.ForceConnected && connected.ConnectedOnly && batch.ForceApproval != null && batch.ForceApproval.Covers(connected))
                         {
@@ -1074,7 +1115,53 @@ namespace BinaVibe.Copilot.Writes
                 BboxMm = box,
                 ClassName = className,
                 OwnerViewId = OwnerView(e, batchAdded),
+                NonModel = IsNonModel(e, added: true),
             };
+        }
+
+        /// <summary>r18: an element whose change cannot move model geometry: view-specific (a tag, a dimension), of a non-model category
+        /// (annotation, analytical, internal), or, when the write added it, an element type (a new FamilySymbol or DuctType). An existing
+        /// type is NOT one: editing it changes every instance. Unreadable: false.</summary>
+        private static bool IsNonModel(Element e, bool added)
+        {
+            try
+            {
+                if (added && e is ElementType) return true;
+                if (e.ViewSpecific) return true;
+                var c = e.Category;
+                return c != null && c.CategoryType != CategoryType.Model;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>r18: the ids among <paramref name="ids"/> that exist now and are non-model (IsNonModel, existing elements).</summary>
+        private static HashSet<long> NonModelIds(Document doc, IEnumerable<long> ids)
+        {
+            var found = new HashSet<long>();
+            foreach (var id in ids.Distinct().Take(ConnectedDrift.MaxConnected * 4))
+            {
+                Element? e;
+                try { e = doc.GetElement(ElemIds.From(id)); }
+                catch (Exception) { continue; }
+                if (e != null && IsNonModel(e, added: false)) found.Add(id);
+            }
+            return found;
+        }
+
+        /// <summary>r18 (BornIds): the ids that do not exist now. Called after the preview's rollback, when every element that existed
+        /// before the write exists again.</summary>
+        private static HashSet<long> Missing(Document doc, IEnumerable<long> ids)
+        {
+            var missing = new HashSet<long>();
+            foreach (var id in ids.Distinct())
+            {
+                try { if (doc.GetElement(ElemIds.From(id)) == null) missing.Add(id); }
+                catch (Exception) { /* unreadable: treated as existing (the safe side) */ }
+            }
+            return missing;
         }
 
         /// <summary>The owner view of a view-specific element (tags, dimensions, text, detail

@@ -49,6 +49,9 @@ namespace BinaVibe.Copilot.Writes
         /// to; -1 for model elements. Part of the shape key, so a commit landing in another view
         /// than the preview drifts (final review I-3).</summary>
         public long OwnerViewId = -1;
+        /// <summary>r18: a new element type, a view-specific element or one of a non-model category (annotation, analytical,
+        /// internal). It changes no model geometry, so the force path never calls it unconnected (JudgeConnected).</summary>
+        public bool NonModel;
     }
 
     /// <summary>What one batch changed: additions by shape, existing elements by id.</summary>
@@ -70,6 +73,9 @@ namespace BinaVibe.Copilot.Writes
         public int ValuesTotal;
         /// <summary>Selected ids whose values could not be read (not compared; named in a warning).</summary>
         public HashSet<long> Unreadable = new();
+        /// <summary>r18 (BornIds): the lowest id known to be created inside this write (a preview's), or null. A deleted or modified id at or
+        /// above it never existed before the write.</summary>
+        public long? BornFloor;
 
         public string CategoryOfId(long id) => CategoryOf.TryGetValue(id, out var c) && !string.IsNullOrWhiteSpace(c) ? c : "Other";
 

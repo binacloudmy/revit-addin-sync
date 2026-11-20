@@ -113,12 +113,15 @@ namespace BinaVibe.Copilot.Writes
     {
         /// <summary>Judges a drift against the elements connected to the batch's targets (ConnectedDrift). <paramref name="before"/>:
         /// id -> category of what was connected before the commit ran; <paramref name="after"/>: the same after it ran (new fittings
-        /// included). A null preview (estimate-only card) is never connected-only.</summary>
+        /// included). A null preview (estimate-only card) is never connected-only. <paramref name="nonModel"/> (r18): existing ids that are
+        /// view-specific or of a non-model category (a tag, an analytical element); like an added element type or annotation
+        /// (AddedShape.NonModel) they are listed but never make the drift unconnected.</summary>
         public static ConnectedVerdict JudgeConnected(BatchShape? previewShape, BatchShape commitShape,
                                                       IReadOnlyDictionary<long, string> before, IReadOnlyDictionary<long, string> after,
-                                                      IReadOnlyCollection<long>? targets = null, bool measured = true)
+                                                      IReadOnlyCollection<long>? targets = null, bool measured = true, IReadOnlyCollection<long>? nonModel = null)
         {
             var own = new HashSet<long>(targets ?? Array.Empty<long>());   // the targets themselves may differ too (a resized duct's length and connectors)
+            var internalIds = new HashSet<long>(nonModel ?? Array.Empty<long>());
             if (commitShape == null) throw new ArgumentNullException(nameof(commitShape));
             before ??= new Dictionary<long, string>();
             after ??= new Dictionary<long, string>();
@@ -147,7 +150,7 @@ namespace BinaVibe.Copilot.Writes
                 : after.TryGetValue(id, out var a) && !string.IsNullOrWhiteSpace(a) ? a
                 : commitShape.CategoryOf.TryGetValue(id, out var k) && !string.IsNullOrWhiteSpace(k) ? k
                 : previewShape.CategoryOfId(id);
-            bool Connected(long id) => own.Contains(id) || before.ContainsKey(id) || after.ContainsKey(id);
+            bool Connected(long id) => own.Contains(id) || before.ContainsKey(id) || after.ContainsKey(id) || internalIds.Contains(id);
 
             void Existing(IEnumerable<long> ids, string kind)
             {
@@ -171,13 +174,13 @@ namespace BinaVibe.Copilot.Writes
             foreach (var a in unmatched)
             {
                 verdict.Extras.Add(new DriftExtra { Id = a.Id, Category = a.Category ?? "", Kind = ConnectedDrift.Added });
-                if (!after.ContainsKey(a.Id) && verdict.Outside == null)
+                if (!after.ContainsKey(a.Id) && !a.NonModel && verdict.Outside == null)
                     verdict.Outside = "an added " + Label(a.Category ?? "") + " is not connected to the changed element(s)";
             }
             var connectedCategories = new HashSet<string>(before.Values.Concat(after.Values), StringComparer.Ordinal);
             // A preview addition the commit did not make has no id left to name (the preview was rolled back): it is only checked.
             foreach (var p in leftover)
-                if (!connectedCategories.Contains(p.Category ?? "") && verdict.Outside == null)
+                if (!connectedCategories.Contains(p.Category ?? "") && !p.NonModel && verdict.Outside == null)
                     verdict.Outside = "the preview added " + Label(p.Category ?? "") + " that the commit did not, outside the connected categories";
 
             verdict.ConnectedOnly = verdict.Outside == null && (verdict.Extras.Count > 0 || leftover.Count > 0);
@@ -186,12 +189,14 @@ namespace BinaVibe.Copilot.Writes
 
         /// <summary>A forced commit's own check (safety audit r17, P1): every existing element the commit deleted or changed must be a target or
         /// connected to one, whether or not the shape matched the preview (a default fix Revit applied in both runs would match). Uncategorised
-        /// class:* ids are Revit's bookkeeping, as in Compare. Returns the first id outside, or null.</summary>
-        public static long? ForcedOutside(BatchShape commit, ISet<long> allowed)
+        /// class:* ids are Revit's bookkeeping, as in Compare; r18: <paramref name="nonModel"/> ids (view-specific, non-model categories) are
+        /// allowed as in JudgeConnected. Returns the first id outside, or null.</summary>
+        public static long? ForcedOutside(BatchShape commit, ISet<long> allowed, IReadOnlyCollection<long>? nonModel = null)
         {
             if (commit == null) throw new ArgumentNullException(nameof(commit));
+            var internalIds = new HashSet<long>(nonModel ?? Array.Empty<long>());
             foreach (var id in commit.Deleted.Concat(commit.Modified).OrderBy(i => i))
-                if (!ChangeClassifier.IsClassKey(commit.CategoryOfId(id)) && (allowed == null || !allowed.Contains(id)))
+                if (!ChangeClassifier.IsClassKey(commit.CategoryOfId(id)) && !internalIds.Contains(id) && (allowed == null || !allowed.Contains(id)))
                     return id;
             return null;
         }
