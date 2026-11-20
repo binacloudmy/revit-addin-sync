@@ -1108,13 +1108,13 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     if (m.ChangedBackOpen > 0) what += ms ? " · " + N(m.ChangedBackOpen) + " dipulihkan balik" : " · " + N(m.ChangedBackOpen) + " changed back";
                     m.Counts = what;
                     m.Detail = what + (ms ? " · dibaca balik dari Revit" : " · read back from Revit");
-                    if (m.Mismatches > 0) m.Detail += ms ? " · " + N(m.Mismatches) + " tak sepadan" : " · " + N(m.Mismatches) + " mismatch" + (m.Mismatches == 1 ? "" : "es");
+                    if (m.Mismatches > 0) m.Detail += ms ? " · " + N(m.Mismatches) + " tidak sepadan" : " · " + N(m.Mismatches) + " mismatch" + (m.Mismatches == 1 ? "" : "es");
                     m.Detail += WarningsNote(m, ms);
                     break;
                 }
                 case ResultKind.Created:
                     m.Headline = m.CreatedBy?.Headline(lang) ?? (ms ? N(m.Created.Count) + " dicipta" : N(m.Created.Count) + " created");
-                    m.Detail = (ms ? "Undo membuang semuanya dalam satu langkah" : "Undo removes them in one step") + WarningsNote(m, ms);
+                    m.Detail = (ms ? "Buat asal membuang semuanya dalam satu langkah" : "Undo removes them in one step") + WarningsNote(m, ms);
                     break;
                 case ResultKind.Findings:
                 {

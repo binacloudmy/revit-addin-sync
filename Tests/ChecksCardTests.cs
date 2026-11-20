@@ -71,7 +71,7 @@ namespace RevitAddinSync.Tests
             Assert.Equal("Add these 2: Written. Undo takes it back.", ChecksCardText.AnsweredText("Add these 2", ResultActionKinds.SetParameters, ms: false));
             Assert.Equal("Show them: Sent.", ChecksCardText.AnsweredText("Show them", ResultActionKinds.Prompt, ms: false));
             Assert.Equal("Show them: Dihantar.", ChecksCardText.AnsweredText("Show them", ResultActionKinds.Prompt, ms: true));
-            Assert.Equal("Ditulis. Undo membuangnya.", ChecksCardText.AnsweredText("", ResultActionKinds.SetParameters, ms: true));
+            Assert.Equal("Ditulis. Buat asal membuangnya.", ChecksCardText.AnsweredText("", ResultActionKinds.SetParameters, ms: true));
         }
 
         [Fact]

@@ -68,7 +68,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public static string StatusText(string kind, bool ms) =>
             kind == ResultActionKinds.Prompt
                 ? (ms ? "Dihantar." : "Sent.")
-                : (ms ? "Ditulis. Undo membuangnya." : "Written. Undo takes it back.");
+                : (ms ? "Ditulis. Buat asal membuangnya." : "Written. Undo takes it back.");
 
         /// <summary>The text of an answered row: the answer that was picked, then what it did ("Add these 2: Written. ...").</summary>
         public static string AnsweredText(string label, string kind, bool ms)

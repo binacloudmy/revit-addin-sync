@@ -168,7 +168,7 @@ namespace RevitAddinSync.Tests
             // L19: W3's UndoBlock kinds (UndoModel.WhyNot) -> one pane line. AI-298: by kind, never by sentence.
             Assert.Equal("Undo is off: the model changed after this turn (an edit in Revit).",
                 ReceiptTemplates.UndoOffLine(UndoBlock.ModelChangedAfter, ReceiptLanguage.En));
-            Assert.Equal("Undo dimatikan: model berubah selepas giliran ini (suntingan dalam Revit).",
+            Assert.Equal("Buat asal dimatikan: model berubah selepas giliran ini (suntingan dalam Revit).",
                 ReceiptTemplates.UndoOffLine(UndoBlock.ModelChangedAfter, ReceiptLanguage.Ms));
             Assert.Equal("Undo is off: Revit's own Undo or Redo was used after this turn.",
                 ReceiptTemplates.UndoOffLine(UndoBlock.RevitUndoRedoUsed, ReceiptLanguage.En));

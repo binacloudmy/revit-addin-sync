@@ -212,7 +212,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     why = ms ? "perubahan ini tidak boleh dibuat asal dari sini." : "this change cannot be undone from here.";
                     break;
             }
-            return (ms ? "Undo dimatikan: " : "Undo is off: ") + why;
+            return (ms ? "Buat asal dimatikan: " : "Undo is off: ") + why;
         }
 
         /// <summary>The line under a result card whose Undo is not offered: "Undone" when its changes are gone from

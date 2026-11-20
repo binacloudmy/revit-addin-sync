@@ -408,7 +408,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             badge.SetResourceReference(Border.BackgroundProperty, ok ? "Cp.OkBg" : "Cp.AmberBg");
             var n = card.Mismatches.ToString(CultureInfo.InvariantCulture);
             var text = ok ? (ms ? "✓ Dibaca balik dari Revit" : "✓ Read back from Revit")
-                          : (ms ? n + " tak sepadan dalam bacaan balik" : n + " mismatch" + (card.Mismatches == 1 ? "" : "es") + " in the read-back");
+                          : (ms ? n + " tidak sepadan dalam bacaan balik" : n + " mismatch" + (card.Mismatches == 1 ? "" : "es") + " in the read-back");
             badge.Child = CardKit.Text(text, 11, ok ? "Cp.Ink" : "Cp.AmberFg", FontWeights.Medium);
             row.Children.Add(badge);
             if (!string.IsNullOrEmpty(card.Elapsed)) row.Children.Add(CardKit.Text(card.Elapsed, 11, "Cp.Faint", margin: new Thickness(8, 0, 0, 0)));
