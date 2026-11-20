@@ -13,8 +13,8 @@
 //            X-Bina-Always-Confirm: 1 (ask even in Auto mode),
 //            X-Bina-Confirm-Wait-S (card wait in seconds, default 300)
 //   body:    {"tool_call_id": "...", "args": { ... }}   (legacy bare-args tolerated)
-//   200 + tool JSON, 401 bad/missing secret, 423 while a forced update is
-//   pending, 504 on the request-wait cap.
+//   200 + tool JSON, 401 bad/missing secret, 404 for the internal "__" jobs,
+//   423 while a forced update is pending, 504 on the request-wait cap.
 //
 // Confirmation gate (engine mode): a write marked with X-Bina-Mutate waits
 // for the drafter's Ya/Tidak on the pane's card (EngineWriteGate) BEFORE it
@@ -135,6 +135,14 @@ namespace BinaVibe.Mcp
                 if (string.IsNullOrEmpty(toolName))
                 {
                     await WriteJson(ctx, 400, new { error = "missing tool name" });
+                    return;
+                }
+                // "__receipt_*" and the other "__" names are the pane's own
+                // internal jobs, queued straight on McpJobPump. They are not
+                // tools and are not reachable over HTTP.
+                if (toolName.StartsWith("__", StringComparison.Ordinal))
+                {
+                    await WriteJson(ctx, 404, new { error = "not found", path });
                     return;
                 }
 
