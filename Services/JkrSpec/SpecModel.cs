@@ -230,6 +230,13 @@ namespace RevitWebAppSync.Services.JkrSpec
         /// compound layers, no instance parameter, no geometry material on the first instance). Only then
         /// is the per-instance material gap judged (AI-419).</summary>
         public bool MaterialFromTypeParamOnly;
+        /// <summary>Round 1 (Director decision): the instance-level A7.1 check applies ONLY to these
+        /// categories (Generic Models, the AI-419 case). Every other category keeps the type-level rule.
+        /// Widen here in Round 2.</summary>
+        public static readonly string[] InstanceMaterialCheckCategories = { "Generic Models" };
+        /// <summary>True when the instance-level material check applies to this category.</summary>
+        public static bool InstanceMaterialCheckApplies(string category)
+            => category != null && System.Array.IndexOf(InstanceMaterialCheckCategories, category.Trim()) >= 0;
         /// <summary>True when only the first InstanceIdCap instances were read, so the count is "at least".</summary>
         public bool NoMaterialInstancesSampled;
     }

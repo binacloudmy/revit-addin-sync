@@ -73,5 +73,25 @@ namespace RevitWebAppSync.Tests
             var f = Assert.Single(A71(new SpecModel { Types = { t } }).Where(r => SpecReport.IsFail(r.Status)));
             Assert.Contains("sekurang-kurangnya 3", f.Note);
         }
+
+        [Fact]
+        public void Door_with_the_same_param_only_pattern_keeps_the_type_level_rule()
+        {
+            var t = GenericModelType(3, 1839886, "Some Material");
+            t.Category = "Doors";
+            t.MaterialFromTypeParamOnly = true; t.NoMaterialInstanceIds.AddRange(t.InstanceIds); t.NoMaterialInstanceCount = 3;
+            var rs = A71(new SpecModel { Types = { t } });
+            Assert.Empty(rs.Where(r => SpecReport.IsFail(r.Status)));
+        }
+
+        [Fact]
+        public void Instance_check_applies_only_to_generic_models_in_round_1()
+        {
+            Assert.True(SpecType.InstanceMaterialCheckApplies("Generic Models"));
+            Assert.True(SpecType.InstanceMaterialCheckApplies(" Generic Models "));
+            Assert.False(SpecType.InstanceMaterialCheckApplies("Doors"));
+            Assert.False(SpecType.InstanceMaterialCheckApplies("Windows"));
+            Assert.False(SpecType.InstanceMaterialCheckApplies(null));
+        }
     }
 }

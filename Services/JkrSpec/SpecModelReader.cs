@@ -778,7 +778,7 @@ namespace RevitWebAppSync.Services.JkrSpec
         /// treated as "has a material". UNVERIFIED in live Revit until a re-probe.</summary>
         private static void ReadNoMaterialInstances(Document doc, List<Element> instances, SpecType t, List<string> readErrors)
         {
-            if (!t.MaterialFromTypeParamOnly) return;
+            if (!SpecType.InstanceMaterialCheckApplies(t.Category) || !t.MaterialFromTypeParamOnly) return;
             t.NoMaterialInstancesSampled = instances.Count > InstanceIdCap;
             var errors = 0;
             var geoOpts = new Options { ComputeReferences = false, DetailLevel = ViewDetailLevel.Coarse };
@@ -803,15 +803,17 @@ namespace RevitWebAppSync.Services.JkrSpec
 
         /// <summary>AI-419: true when the element's own geometry — including nested GeometryInstances
         /// (nested non-shared families in doors/windows) — has any face with a valid MaterialElementId.
-        /// The walk is capped (objects and depth); if the cap is hit before a material is found the answer
+        /// The walk is capped (a budget of geometry touches — each object and each face visited — and a nesting depth); if the cap is hit before a material is found the answer
         /// is true (unknown = has a material, the safe direction). Read-only, no transaction. UNVERIFIED live.</summary>
         private static bool GeometryHasMaterial(Element e, Options opts)
         {
-            var geo = e.get_Geometry(opts);
-            if (geo == null) return false;
-            var budget = GeometryWalkCap;
-            var found = WalkForMaterial(geo, 0, ref budget);
-            return found || budget <= 0;
+            using (var geo = e.get_Geometry(opts))
+            {
+                if (geo == null) return false;
+                var budget = GeometryWalkCap;
+                var found = WalkForMaterial(geo, 0, ref budget);
+                return found || budget <= 0;
+            }
         }
 
         private static bool WalkForMaterial(GeometryElement geo, int depth, ref int budget)
@@ -819,7 +821,12 @@ namespace RevitWebAppSync.Services.JkrSpec
             foreach (var obj in geo)
             {
                 if (--budget <= 0) return false;
-                if (obj is Solid solid)
+                if (obj is Mesh mesh)
+                {
+                    var mm = mesh.MaterialElementId;
+                    if (mm != null && mm != ElementId.InvalidElementId) return true;
+                }
+                else if (obj is Solid solid)
                 {
                     if (solid.Faces.Size == 0) continue;
                     foreach (Face f in solid.Faces)
@@ -831,7 +838,10 @@ namespace RevitWebAppSync.Services.JkrSpec
                 }
                 else if (obj is GeometryInstance gi && depth < GeometryWalkDepth)
                 {
-                    if (WalkForMaterial(gi.GetSymbolGeometry(), depth + 1, ref budget)) return true;
+                    using (var sub = gi.GetSymbolGeometry())
+                    {
+                        if (WalkForMaterial(sub, depth + 1, ref budget)) return true;
+                    }
                     if (budget <= 0) return false;
                 }
             }
