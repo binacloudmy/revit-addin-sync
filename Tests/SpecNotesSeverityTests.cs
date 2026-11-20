@@ -274,7 +274,8 @@ namespace RevitWebAppSync.Tests
             var issues = IssueMapper.FromModelResults(Run("C5.1.1", SixUnloadedLinks()), PanelStrings.En);
             var actuals = issues.Select(i => IssueExportRows.Cells(i)[6]).ToList();
             Assert.Equal(6, actuals.Distinct().Count());
-            Assert.Contains(actuals, a => a.Contains("jkrEL22_3b.rvt") && a.Contains("Unloaded"));
+            Assert.Contains(actuals, a => a == "link EL 'jkrEL22_3b.rvt' tidak dimuatkan (Unloaded)" || a == "EL link 'jkrEL22_3b.rvt' not loaded (Unloaded)");
+            Assert.All(actuals, a => Assert.DoesNotMatch(@"^['‘’\s]", a));       // Excel strips a leading apostrophe
             var none = IssueMapper.FromModelResults(Run("C5.1.1", new SpecModel { Discipline = "AR" }), PanelStrings.En)
                 .Select(i => IssueExportRows.Cells(i)[6]).ToList();
             Assert.Equal(3, none.Distinct().Count());                         // ST / ME / EL: no link of each
@@ -295,6 +296,22 @@ namespace RevitWebAppSync.Tests
             var (text, _) = BorangDoc.RemarkFor("C4.2", "n", summary, issues);
             Assert.Contains("C4.2.2 · Title block (fields): Sheet A-1: Drawn By is Author (ignored by user)", text);
             Assert.Contains("C4.2.2 · Title block (fields): Sheet A-2: Drawn By is Author (ignored by user)", text);
+        }
+
+        [Fact]
+        public void AI414_C511_Actual_never_starts_with_a_quote_in_BM_or_EN_and_names_discipline_and_link()
+        {
+            foreach (var r in Run("C5.1.1", SixUnloadedLinks()))
+            {
+                Assert.DoesNotMatch(@"^['‘’]", r.Actual);
+                Assert.DoesNotMatch(@"^['‘’]", r.ActualEn);
+                Assert.Matches(@"^link (ST|ME|EL) '", r.Actual);
+                Assert.Matches(@"^(ST|ME|EL) link '", r.ActualEn);
+                Assert.Contains(".rvt' ", r.Actual);
+            }
+            var st = Run("C5.1.1", SixUnloadedLinks()).First();
+            Assert.Equal("link ST 'jkrST22_4a.rvt' tidak dimuatkan (Unloaded)", st.Actual);
+            Assert.Equal("ST link 'jkrST22_4a.rvt' not loaded (Unloaded)", st.ActualEn);
         }
     }
 }
