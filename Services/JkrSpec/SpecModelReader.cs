@@ -590,13 +590,13 @@ namespace RevitWebAppSync.Services.JkrSpec
                 }
                 foreach (var kv in byType)
                 {
-                    try { m.Types.Add(ReadType(doc, name, kv.Value)); }
+                    try { m.Types.Add(ReadType(doc, name, kv.Value, m.ReadErrors)); }
                     catch (Exception ex) { m.ReadErrors.Add("Types/" + name + " #" + kv.Key + ": " + ex.Message); }
                 }
             }
         }
 
-        private static SpecType ReadType(Document doc, string category, List<Element> instances)
+        private static SpecType ReadType(Document doc, string category, List<Element> instances, List<string> readErrors)
         {
             var first = instances[0];
             var type = doc.GetElement(first.GetTypeId()) as ElementType;
@@ -613,6 +613,7 @@ namespace RevitWebAppSync.Services.JkrSpec
             ReadInstanceTexts(first, t);
             ReadNumbers(doc, category, type, instances, t);
             ReadTypeMaterials(doc, type, first, t);
+            ReadNoMaterialInstances(doc, instances, t, readErrors);
             return t;
         }
 
@@ -770,6 +771,47 @@ namespace RevitWebAppSync.Services.JkrSpec
             try { foreach (var id in e.GetMaterialIds(false)) AddMaterial(doc, id, t); } catch { }
         }
 
+        /// <summary>AI-419: for a type whose material comes ONLY from a Material-typed type parameter,
+        /// one capped pass (first InstanceIdCap instances, no transaction) collecting instances whose own
+        /// GetMaterialIds(false) is empty. Elements whose material lives in sub-elements are never flagged
+        /// (<see cref="MaterialsLiveInSubElements"/>). A failed per-element read goes to ReadErrors and is
+        /// treated as "has a material". UNVERIFIED in live Revit until a re-probe.</summary>
+        private static void ReadNoMaterialInstances(Document doc, List<Element> instances, SpecType t, List<string> readErrors)
+        {
+            if (!t.MaterialFromTypeParamOnly) return;
+            t.NoMaterialInstancesSampled = instances.Count > InstanceIdCap;
+            var errors = 0;
+            foreach (var e in instances.Take(InstanceIdCap))
+            {
+                try
+                {
+                    if (MaterialsLiveInSubElements(e)) continue;
+                    if (e.GetMaterialIds(false).Count > 0) continue;
+                    t.NoMaterialInstanceCount++;
+                    t.NoMaterialInstanceIds.Add(IdOf(e.Id));
+                }
+                catch { errors++; }
+            }
+            if (errors > 0)
+                readErrors.Add("Types/" + t.Category + " #" + t.TypeId + ": " + errors + " instance material read(s) failed; treated as having a material");
+        }
+
+        /// <summary>Elements whose materials sit in sub-elements, so their own GetMaterialIds is not the
+        /// judge: curtain/stacked walls, stairs, railings, groups, assemblies, in-place families, and any
+        /// instance with sub-components (nested-family parents).</summary>
+        private static bool MaterialsLiveInSubElements(Element e)
+        {
+            if (e is Wall w && (w.CurtainGrid != null || w.IsStackedWall || w.IsStackedWallMember)) return true;
+            if (e is Stairs || e is Railing || e is Group || e is AssemblyInstance) return true;
+            if (e is FamilyInstance fi)
+            {
+                if (fi.Symbol?.Family?.IsInPlace == true) return true;
+                var subs = fi.GetSubComponentIds();
+                if (subs != null && subs.Count > 0) return true;
+            }
+            return false;
+        }
+
         private static void ReadTypeMaterials(Document doc, ElementType type, Element first, SpecType t)
         {
             try
@@ -778,7 +820,16 @@ namespace RevitWebAppSync.Services.JkrSpec
                 if (cs != null) foreach (var layer in cs.GetLayers()) AddMaterial(doc, layer.MaterialId, t);
             }
             catch { }
+            var fromLayers = t.Materials.Count;
             AddMaterialParams(doc, type, t);
+            var fromTypeParams = t.Materials.Count;
+            // AI-419: is the type material solely a type parameter's? (nothing from layers, instance
+            // parameters or first-instance geometry)
+            var probe = new SpecType();
+            AddMaterialParams(doc, first, probe);
+            var firstHasGeometry = false;
+            try { firstHasGeometry = first != null && first.GetMaterialIds(false).Count > 0; } catch { firstHasGeometry = true; }
+            t.MaterialFromTypeParamOnly = fromLayers == 0 && fromTypeParams > 0 && probe.Materials.Count == 0 && !firstHasGeometry;
             AddMaterialParams(doc, first, t);
             AddGeometryMaterials(doc, first, t);
             try

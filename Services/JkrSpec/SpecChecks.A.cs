@@ -1171,6 +1171,12 @@ namespace RevitWebAppSync.Services.JkrSpec
         /// non-physical ones in <see cref="SpecA.NoMaterialCategories"/>, plus Planting and
         /// Entourage, whose render content carries no Revit material): an empty material
         /// list fails, as `Kategori | Type | Bil. elemen`.
+        /// AI-419: a type whose material comes ONLY from a Material-typed type parameter
+        /// (<see cref="SpecType.MaterialFromTypeParamOnly"/>) also fails when some placed elements have no
+        /// material of their own (<see cref="SpecType.NoMaterialInstanceIds"/>), listing those element IDs;
+        /// elements whose material lives in sub-elements are never judged this way. The per-instance read
+        /// covers at most the reader's instance cap; when capped (<see cref="SpecType.NoMaterialInstancesSampled"/>)
+        /// the count is stated as "at least N". Older snapshots without the flag are judged per type only.
         /// </summary>
         private static IEnumerable<SpecResult> A71Materials(SpecModel m)
         {
@@ -1185,7 +1191,22 @@ namespace RevitWebAppSync.Services.JkrSpec
             var passed = 0;
             foreach (var t in types)
             {
-                if (t.Materials.Any(x => !string.IsNullOrWhiteSpace(x))) { passed++; continue; }
+                if (t.Materials.Any(x => !string.IsNullOrWhiteSpace(x)))
+                {
+                    // AI-419: the type has a material (e.g. a Material-typed parameter) but the placed
+                    // elements themselves carry none — a per-instance gap the type level hides.
+                    if (t.MaterialFromTypeParamOnly && t.NoMaterialInstanceIds != null && t.NoMaterialInstanceIds.Count > 0)
+                    {
+                        var k = Math.Max(t.NoMaterialInstanceCount, t.NoMaterialInstanceIds.Count);
+                        var bm = t.NoMaterialInstancesSampled ? $"sekurang-kurangnya {k}" : $"{k}";
+                        var en = t.NoMaterialInstancesSampled ? $"at least {k}" : $"{k}";
+                        list.Add(Fail(id, $"{K.Or(t.Category)} | {K.TypeLabel(t)} | {bm} elemen: tiada material pada elemen (material hanya pada jenis)", elementName: K.ElementLabel(t),
+                                      actual: "tiada material pada elemen", required: "material", key: K.TypeKey(t) + "|inst", elementIds: t.NoMaterialInstanceIds)
+                            .En($"{K.Or(t.Category)} | {K.TypeLabel(t)} | {en} elements: no material on the element (material only on the type)"));
+                        continue;
+                    }
+                    passed++; continue;
+                }
                 var n = K.Count(t);
                 list.Add(Fail(id, $"{K.Or(t.Category)} | {K.TypeLabel(t)} | {n} elemen: tiada material", elementName: K.ElementLabel(t),
                               actual: "tiada material", required: "material", key: K.TypeKey(t), elementIds: t.InstanceIds)
