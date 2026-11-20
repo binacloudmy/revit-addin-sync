@@ -695,6 +695,7 @@ namespace RevitWebAppSync.Services.JkrSpec
             var noDok3D = !dok.Any(v => IsKind(v, "ThreeD"));
             var missing = levels.Where(l => !Has3DFor(dok, l)).ToList();
             var have = levels.Count - missing.Count;
+            var firstMissing = true;
             foreach (var lv in missing)
             {
                 var outside = Find3DFor(others, lv);
@@ -717,11 +718,20 @@ namespace RevitWebAppSync.Services.JkrSpec
                     bm += " — tiada 3D view dalam set Dokumen";
                     en += " — no 3D view in the Dokumen set";
                 }
-                yield return SpecChecks.Fail(id, bm, lv.Id, lv.Name,
+                var last = SpecChecks.Fail(id, bm, lv.Id, lv.Name,
                         actual: outside != null ? "3D view di luar set Dokumen: " + outside.Name : "tiada 3D view Dokumen",
                         required: "3D view Dokumen bagi setiap aras",
                         actualEn: outside != null ? "3D view outside the Dokumen set: " + outside.Name : "no Dokumen 3D view", requiredEn: "a Dokumen 3D view for every level", key: lv.Name)
                     .En(en);
+                if (firstMissing)
+                {
+                    // One note naming every missing level: the Borang caps its notes, this one still says it all.
+                    firstMissing = false;
+                    var names = string.Join(", ", missing.Select(x => x.Name));
+                    last.Summary("3D view setiap aras: " + have + "/" + levels.Count + " ✗ (tiada: " + names + ")",
+                                 "3D view for every level: " + have + "/" + levels.Count + " ✗ (missing: " + names + ")");
+                }
+                yield return last;
             }
             if (missing.Count == 0)
                 yield return SpecChecks.Pass(id, "3D view setiap aras: " + have + "/" + levels.Count + " ✓ (set Dokumen)", have)
@@ -1266,32 +1276,43 @@ namespace RevitWebAppSync.Services.JkrSpec
             const string id = "C5.1.1";
             var unread = LinksUnread(m, id);
             if (unread != null) { yield return unread; yield break; }
-            var fails = 0;
+            var failed = new List<SpecResult>();
+            var gone = new List<string>();        // what is missing / not Loaded, for the one summary note
+            var goneEn = new List<string>();
             var ok = new List<string>();
             foreach (var d in RequiredLinkDisciplines(m))
             {
                 var links = m.Links.Where(l => LinkIs(l, d)).ToList();
                 if (links.Count == 0)
                 {
-                    fails++;
-                    yield return SpecChecks.Fail(id, "KRITIKAL: tiada link " + d, elementName: "Link " + d, actual: "tiada link",
+                    gone.Add("tiada link " + d);
+                    goneEn.Add("no " + d + " link");
+                    failed.Add(SpecChecks.Fail(id, "KRITIKAL: tiada link " + d, elementName: "Link " + d, actual: "tiada link",
                             required: "link " + d + " berstatus Loaded", actualEn: "no link", requiredEn: "link " + d + " with status Loaded", key: d)
-                        .En("CRITICAL: no " + d + " link");
+                        .En("CRITICAL: no " + d + " link"));
                     continue;
                 }
                 var notLoaded = links.Where(l => !l.IsLoaded).ToList();
                 foreach (var l in notLoaded)
                 {
-                    fails++;
-                    yield return SpecChecks.Fail(id, "KRITIKAL: link " + d + " '" + l.Name + "' " + Show(l.Status), elementName: "Link " + l.Name,
+                    gone.Add(d + " '" + l.Name + "' " + Show(l.Status));
+                    goneEn.Add(d + " '" + l.Name + "' " + Show(l.Status));
+                    failed.Add(SpecChecks.Fail(id, "KRITIKAL: link " + d + " '" + l.Name + "' " + Show(l.Status), elementName: "Link " + l.Name,
                             actual: Show(l.Status), required: "Loaded", key: d + "|" + l.Name)
-                        .En("CRITICAL: " + d + " link '" + l.Name + "' " + Show(l.Status));
+                        .En("CRITICAL: " + d + " link '" + l.Name + "' " + Show(l.Status)));
                 }
                 if (notLoaded.Count == 0) ok.Add(d + " (" + string.Join(", ", links.Select(l => l.Name)) + ")");
             }
-            if (fails == 0)
+            if (failed.Count == 0)
+            {
                 yield return SpecChecks.Pass(id, "Link Loaded: " + string.Join("; ", ok), ok.Count)
                     .En("Links Loaded: " + string.Join("; ", ok));
+                yield break;
+            }
+            // One note naming every missing / unloaded link: the Borang caps its notes, this one still says it all.
+            failed[0].Summary("KRITIKAL: " + failed.Count + " link tidak sah — " + string.Join("; ", gone),
+                              "CRITICAL: " + failed.Count + " link problem(s) — " + string.Join("; ", goneEn));
+            foreach (var f in failed) yield return f;
         }
 
         /// <summary>C5.1.2 — link file names against the BPEP list: the BPEP is backend data, so unjudged here.</summary>

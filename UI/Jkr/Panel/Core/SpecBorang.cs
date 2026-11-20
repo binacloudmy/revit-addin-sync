@@ -206,8 +206,14 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// <summary>A check's remarks in English, without a leading "SEMAK MANUAL —" (the Borang adds it).</summary>
         private static List<string> NotesOf(SpecCheckResult c)
         {
-            var notes = c.NotesEn != null && c.NotesEn.Count == c.Notes.Count ? c.NotesEn : c.Notes;
-            return (notes ?? new List<string>()).Select(StripManual).Where(n => n.Length > 0).Distinct().ToList();
+            var english = c.NotesEn != null && c.NotesEn.Count == c.Notes.Count;
+            var notes = english ? c.NotesEn : c.Notes;
+            var list = (notes ?? new List<string>()).Select(StripManual).Where(n => n.Length > 0).Distinct().ToList();
+            // A capped list never ends silently: "+N more" (BM: "+N lagi").
+            var hidden = c.NotesHidden > 0 ? c.NotesHidden
+                : c.AllNotes != null && c.AllNotes.Count > c.Notes.Count ? c.AllNotes.Count - c.Notes.Count : 0;
+            if (hidden > 0) list.Add("+" + hidden + (english ? " more" : " lagi"));
+            return list;
         }
 
         private static string StripManual(string note)
