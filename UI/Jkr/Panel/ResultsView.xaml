@@ -336,6 +336,7 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>  <!-- tools bar, or the back bar inside a section -->
             <RowDefinition Height="Auto"/>  <!-- busy -->
+            <RowDefinition Height="Auto"/>  <!-- headline card, pinned (AI-444) -->
             <RowDefinition Height="*"/>     <!-- one scroll: banner, head, tabs, issue toolbar, then the list / section checks / issues -->
             <RowDefinition Height="Auto"/>  <!-- footer -->
         </Grid.RowDefinitions>
@@ -366,11 +367,32 @@
             <TextBlock Text="{Binding BusyText}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource Bz.BrandTintText}" TextWrapping="Wrap"/>
         </Border>
 
+        <!-- Headline card (AI-444): verdict + "x% compliant · n fail", pinned above the scroll so it never moves between tabs or after a fix / rescan / undo; opens the full result -->
+        <Grid Grid.Row="2" Visibility="{Binding ShowHeadlineCard, Converter={StaticResource B2V}}">
+        <Button Style="{StaticResource RowBtn}" Click="Checklist_Click" Padding="16,0,16,0" MinHeight="44"
+                BorderBrush="{StaticResource Bz.Line}" AutomationProperties.Name="{Binding VerdictHead}">
+            <Grid VerticalAlignment="Center">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Viewbox Width="14" Height="14" Margin="0,0,10,0" VerticalAlignment="Center">
+                    <ContentControl Content="{Binding VerdictTone}" ContentTemplate="{StaticResource Mark}" Focusable="False" IsTabStop="False"/>
+                </Viewbox>
+                <TextBlock Grid.Column="1" Text="{Binding VerdictHead}" FontSize="13" FontWeight="SemiBold" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,12,0,12"/>
+                <TextBlock Grid.Column="2" Text="{Binding VerdictShortLine}" FontSize="12" Foreground="{StaticResource Bz.TextBody}" TextWrapping="Wrap"
+                           TextAlignment="Right" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="10,0,0,0"/>
+            </Grid>
+        </Button>
+        <Border Height="1" VerticalAlignment="Bottom" Background="{StaticResource Bz.Line}"/>
+        </Grid>
+
         <!-- One scroll for everything under the tools bar (live F1 / F5): the banner, the head,
              the tabs and the issue toolbar scroll away with the list, so the rows can take the
              pane's height. Opening the Issues tab scrolls the banner and verdict out of view
              (they stay above, a scroll away); the list keys bring the selected row into view. -->
-        <ScrollViewer x:Name="BodyScroll" Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <ScrollViewer x:Name="BodyScroll" Grid.Row="3" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
         <StackPanel x:Name="BodyContent">
         <!-- Tools bar (48 px): LOD, discipline, Re-scan. Hidden inside a section (its back bar instead).
              It scrolls with the rest, so on the Issues view it starts a scroll above (live R5). -->
@@ -443,21 +465,7 @@
              sentence, "n checks wait for semak manual" (opens those checks). The same facts as the
              old progress ring and hero tile (item 11). -->
         <StackPanel Margin="16,16,16,12" Visibility="{Binding ShowOverview, Converter={StaticResource B2V}}">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
-                <Viewbox Width="24" Height="24" VerticalAlignment="Top" Margin="0,2,12,0">
-                    <ContentControl Content="{Binding VerdictTone}" ContentTemplate="{StaticResource Mark}" Focusable="False" IsTabStop="False"/>
-                </Viewbox>
-                <StackPanel Grid.Column="1">
-                    <TextBlock Text="{Binding VerdictHead}" FontSize="22" LineHeight="28" FontWeight="Bold" Foreground="{StaticResource Bz.Text}" TextWrapping="Wrap"/>
-                    <TextBlock Text="{Binding VerdictSub}" FontSize="13" LineHeight="18" Foreground="{StaticResource Bz.TextBody}" TextWrapping="Wrap" Margin="0,2,0,0"
-                               Visibility="{Binding HasVerdictSub, Converter={StaticResource B2V}}"/>
-                </StackPanel>
-            </Grid>
-            <TextBlock FontSize="13" LineHeight="18" Foreground="{StaticResource Bz.TextBody}" TextWrapping="Wrap" Margin="0,12,0,0">
+            <TextBlock FontSize="13" LineHeight="18" Foreground="{StaticResource Bz.TextBody}" TextWrapping="Wrap" Margin="0,0,0,0">
                 <Run Text="{Binding HeadPctStrong, Mode=OneWay}" FontWeight="SemiBold" Foreground="{StaticResource Bz.Text}"/><Run Text="{Binding HeadResultsRest, Mode=OneWay}"/>
             </TextBlock>
             <Button Style="{StaticResource TextBtn}" Click="GoManual_Click" Foreground="{StaticResource Bz.Manual}" Margin="-8,8,0,0" HorizontalAlignment="Left"
@@ -537,27 +545,6 @@
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
         </StackPanel>
-
-        <!-- Issues view: the verdict in one line (Clear Sheet issues); it opens the full result -->
-        <Grid Visibility="{Binding ShowVerdictBar, Converter={StaticResource B2V}}">
-        <Button Style="{StaticResource RowBtn}" Click="Checklist_Click" Padding="16,0,16,0" MinHeight="44"
-                BorderBrush="{StaticResource Bz.Line}" AutomationProperties.Name="{Binding VerdictHead}">
-            <Grid VerticalAlignment="Center">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
-                <Viewbox Width="14" Height="14" Margin="0,0,10,0" VerticalAlignment="Center">
-                    <ContentControl Content="{Binding VerdictTone}" ContentTemplate="{StaticResource Mark}" Focusable="False" IsTabStop="False"/>
-                </Viewbox>
-                <TextBlock Grid.Column="1" Text="{Binding VerdictHead}" FontSize="13" FontWeight="SemiBold" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,12,0,12"/>
-                <TextBlock Grid.Column="2" Text="{Binding VerdictShortLine}" FontSize="12" Foreground="{StaticResource Bz.TextBody}" TextWrapping="Wrap"
-                           TextAlignment="Right" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="10,0,0,0"/>
-            </Grid>
-        </Button>
-        <Border Height="1" VerticalAlignment="Bottom" Background="{StaticResource Bz.Line}"/>
-        </Grid>
 
         <!-- Section head (Clear Sheet section D): letter, name, %, its ticks, then the state chips
              with counts in it (item 12). The other JKR rules: a dashed "+", no chips. -->
@@ -1328,7 +1315,7 @@
         </ScrollViewer>
 
         <!-- Footer (60 px): Reset (text), keyboard shortcuts, Export Borang (secondary) -->
-        <Border Grid.Row="3" Background="{StaticResource Bz.Sunken}" BorderBrush="{StaticResource Bz.Line}" BorderThickness="0,1,0,0" Padding="8,12,16,12">
+        <Border Grid.Row="4" Background="{StaticResource Bz.Sunken}" BorderBrush="{StaticResource Bz.Line}" BorderThickness="0,1,0,0" Padding="8,12,16,12">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>

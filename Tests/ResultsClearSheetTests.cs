@@ -51,6 +51,22 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
+        public void The_headline_card_is_pinned_on_the_overview_a_section_and_the_issue_tabs()
+        {
+            var (r, _) = Failing();
+            Assert.True(r.ShowOverview);
+            Assert.True(r.ShowHeadlineCard);          // checklist overview
+
+            r.OpenGroup("D");
+            Assert.True(r.IsFocused);
+            Assert.True(r.ShowHeadlineCard);          // inside a section
+
+            r.ShowIssues();
+            Assert.True(r.ShowList);
+            Assert.True(r.ShowHeadlineCard);          // issues tab, same card
+        }
+
+        [Fact]
         public void A_run_with_no_failure_says_it_is_not_a_full_pass_while_a_person_still_decides()
         {
             var (r, core) = Compliant();
