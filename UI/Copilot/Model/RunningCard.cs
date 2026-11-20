@@ -50,6 +50,15 @@ namespace RevitWebAppSync.UI.Copilot.Model
             foreach (var s in ProgressTrail.UserVisible(steps))
             {
                 if (ProgressTrail.IsWaitStep(s) || s.Phase == WritePreviewText.Phase) continue;
+                // r18 (live L15): the call's Revit check ("Checking the code in Revit…") is not a row of its own: while it runs it is the line
+                // under the running call row (the pane freezes during it, so the words matter), then it goes.
+                if (s.Phase == "preview" && rows.Count > 0)
+                {
+                    var call = rows[rows.Count - 1];
+                    if (s.State == StepState.Running && call.State == StepState.Running && !string.IsNullOrWhiteSpace(s.Label))
+                        rows[rows.Count - 1] = new RunRow { State = call.State, Text = call.Text, Outcome = call.Outcome, Times = call.Times, Note = s.Label.Trim() };
+                    continue;
+                }
                 var text = StepText.Title(s.Phase, s.Label, s.StepId);
                 if (text.Length == 0) continue;
                 var last = rows.Count > 0 ? rows[rows.Count - 1] : null;

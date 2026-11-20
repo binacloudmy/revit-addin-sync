@@ -341,6 +341,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public TurnEvidence Evidence;
         /// <summary>Drafter's language for pane-rendered text.</summary>
         public ReceiptLanguage Lang;
+        /// <summary>r18: the turn's own language (the drafter's), for its Steps list header; <see cref="Lang"/> is the card's (G8: English).</summary>
+        public ReceiptLanguage ActivityLanguage;
         /// <summary>The result card built from the turn's envelopes (result pattern); null when nothing resulted.</summary>
         public ResultCardModel ResultCard;
         /// <summary>Clarify messages: the assistant's question card.</summary>

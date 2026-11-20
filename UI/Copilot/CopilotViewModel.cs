@@ -1301,6 +1301,7 @@ namespace RevitWebAppSync.UI.Copilot
                 TurnId = rr.TurnId,
                 Evidence = rr.Evidence,
                 Lang = cardLang,
+                ActivityLanguage = rr.Language,   // r18: the Steps list follows the drafter's language, as its rows do
                 Time = System.DateTime.Now.ToString("h:mm tt"),
             };
             // The result card, from the envelopes (never the reply text). Attached BEFORE

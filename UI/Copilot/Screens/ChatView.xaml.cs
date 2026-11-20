@@ -1493,13 +1493,14 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             return _activityView;
         }
 
-        /// <summary>The language of the running turn's card and receipts: English whatever the prompt's language (G8).</summary>
+        /// <summary>The language of the running turn's Working card and Steps list: the drafter's (r18, live L15: "Stop" and "AGENT ACTIVITY" stayed
+        /// English in a Malay chat while the rows were Malay). G8 (English) still holds for the result card and its receipts.</summary>
         private ReceiptLanguage LiveLanguage()
         {
             try
             {
                 var last = Vm?.Thread.LastOrDefault(t => t.Role == "user");
-                return last == null || string.IsNullOrWhiteSpace(last.Text) ? ReceiptLanguage.En : PromptLanguage.Card(PromptLanguage.Detect(last.Text));
+                return last == null || string.IsNullOrWhiteSpace(last.Text) ? ReceiptLanguage.En : PromptLanguage.Activity(last.Text);
             }
             catch (System.Exception) { return ReceiptLanguage.En; }
         }
@@ -1511,7 +1512,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
         private AgentActivityView ActivityBlock(ChatMessage m, bool open = false)
         {
-            var view = new AgentActivityView { Margin = new Thickness(0, 0, 0, 12) };
+            var view = new AgentActivityView { Margin = new Thickness(0, 0, 0, 12), Language = m.ActivityLanguage };   // r18: "AKTIVITI EJEN" in a Malay turn
             view.OnLayoutChanged = RepinIfSticky;
             view.Update(m.ReasoningSteps, m.Steps, streaming: false, answerStarting: false, seedOpen: open);
             return view;

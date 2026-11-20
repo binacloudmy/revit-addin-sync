@@ -51,6 +51,11 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// to the cloud (<see cref="Code"/>) so the model answers in it. The Malay strings stay in the templates.</summary>
         public static ReceiptLanguage Card(ReceiptLanguage turn) => ReceiptLanguage.En;
 
+        /// <summary>r18 (live L15 8f1279fc, a Malay chat): the language of the turn's running chrome, the "Working" card (Step, Stop, its
+        /// helper line) and the Steps list ("AGENT ACTIVITY"), is the drafter's, as the step rows themselves have been since r17 (StepLabels
+        /// follows the turn's language). G8 (<see cref="Card"/>) stays the rule for the result card, its receipts and the question form.</summary>
+        public static ReceiptLanguage Activity(string? prompt) => Detect(prompt);
+
         /// <summary>The wire code of <c>lang</c> in a turn request.</summary>
         public static string Code(ReceiptLanguage lang) => lang == ReceiptLanguage.Ms ? "ms" : "en";
     }

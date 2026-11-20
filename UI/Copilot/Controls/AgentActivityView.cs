@@ -208,7 +208,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
             // Structure fingerprint — ticking values (seconds, counts, prose
             // length) live in handles and are deliberately EXCLUDED.
-            var key = Fingerprint(prose.Length > 0, steps, streaming);
+            // r18: one row per real step: a write call's own sub-rows fold into its call row (the clock and bar above still read every step).
+            var rows = StepCollapse.Shown(steps);
+            var key = Fingerprint(prose.Length > 0, rows, streaming);
             if (key == _renderedKey)
             {
                 if (_proseRun != null) _proseRun.Text = prose.ToString();
@@ -241,7 +243,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 {
                     BorderThickness = new Thickness(2, 0, 0, 0),
                     Padding = new Thickness(14, 0, 0, 0),
-                    Margin = new Thickness(6, 2, 0, steps.Count > 0 ? 12 : 0),
+                    Margin = new Thickness(6, 2, 0, rows.Count > 0 ? 12 : 0),
                     Child = text,
                 };
                 ruled.SetResourceReference(Border.BorderBrushProperty, "Cp.Line");
@@ -254,11 +256,11 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             // big enough to tick counts (operator ask, 2026-08-30).
             int active = -1;
             if (streaming)
-                for (int i = steps.Count - 1; i >= 0; i--)
-                    if (steps[i].State == StepState.Running) { active = i; break; }
+                for (int i = rows.Count - 1; i >= 0; i--)
+                    if (rows[i].State == StepState.Running) { active = i; break; }
 
-            for (int i = 0; i < steps.Count; i++)
-                _body.Children.Add(StepRow(steps[i], i == steps.Count - 1, busy: i == active));
+            for (int i = 0; i < rows.Count; i++)
+                _body.Children.Add(StepRow(rows[i], i == rows.Count - 1, busy: i == active));
 
             OnLayoutChanged?.Invoke();
         }

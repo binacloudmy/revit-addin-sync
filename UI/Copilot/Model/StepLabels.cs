@@ -232,10 +232,35 @@ namespace RevitWebAppSync.UI.Copilot.Model
             for (var i = steps.Count - 1; i >= 0; i--)
             {
                 var s = steps[i];
-                if (s == null || ProgressTrail.IsDevStep(s) || ProgressTrail.IsWaitStep(s)) continue;
+                // r18: a write's own sub-rows ("What I will run", "Checking the code in Revit") belong to its call row, so a repeat of the call
+                // folds into that row (×2) instead of always starting a new one after them.
+                if (s == null || ProgressTrail.IsDevStep(s) || ProgressTrail.IsWaitStep(s) || IsCallPart(s)) continue;
                 return s;
             }
             return null;
+        }
+
+        /// <summary>A write call's own sub-row: its "What I will run / write" values (<see cref="WritePreviewText.Phase"/>) or its Revit check
+        /// ("preview": "Checking the code in Revit…", "Previewing the change…"). They say what the call row above them is doing.</summary>
+        public static bool IsCallPart(ProgressStep? s) =>
+            s != null && (string.Equals(s.Phase, WritePreviewText.Phase, StringComparison.Ordinal) || string.Equals(s.Phase, "preview", StringComparison.Ordinal));
+
+        /// <summary>The rows the Steps list draws (r18, live L15 8f1279fc: ONE schedule call drew three rows, "Buat jadual ..." + "Apa yang akan saya
+        /// jalankan" + "Menyemak kod dalam Revit..."): one row per real step. A write call's sub-rows (<see cref="IsCallPart"/>) after a call row
+        /// are folded into it (that row's time already spans them); a sub-row with no call row before it stays. The turn's own list is unchanged.</summary>
+        public static List<ProgressStep> Shown(IReadOnlyList<ProgressStep>? steps)
+        {
+            var list = new List<ProgressStep>();
+            if (steps == null) return list;
+            var call = false;
+            foreach (var s in steps)
+            {
+                if (s == null) continue;
+                if (IsCallPart(s) && call) continue;
+                if (string.Equals(s.Phase, "tool", StringComparison.Ordinal)) call = true;
+                list.Add(s);
+            }
+            return list;
         }
     }
 }
