@@ -243,7 +243,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 var noteEn = ContextEn(note);
                 return noteEn == null ? null : NoCheckEn + ". " + noteEn + tail;
             }
-            return SectionHeadingEn(s) ?? GridRemarkEn(s) ?? DepartmentRemarkEn(s);
+            return SectionHeadingEn(s) ?? GridRemarkEn(s) ?? DepartmentRemarkEn(s) ?? EmptyCategoryRemarkEn(s);
         }
 
         // The rules the BIM010 checker states (AuditCheckers: RulePattern, "Peraturan: …"), BM → EN.
@@ -274,6 +274,22 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             var s = (rule ?? "").Trim();
             foreach (var (ms, en) in CheckerRules) if (s == ms) return en;
             return rule ?? "";
+        }
+
+        private static readonly Regex EmptyExpected = R(@"^(\d+) elemen (.+?) dijumpai dalam model walaupun kategori ini biasanya wajib bagi model seni bina — sahkan sama ada memang tiada dalam skop projek\. \(Kualiti/maklumat/geometri: semak manual\.\)$");
+        private static readonly Regex EmptyOptional = R(@"^(\d+) elemen (.+?) dijumpai dalam model dan kategori ini tidak wajib — baris ini tidak berkenaan, atau semak manual jika sepatutnya ada\.$");
+
+        /// <summary>D rows (AuditCheckers.EvaluateCategory): a category with no elements, "0 elemen Columns dijumpai …".
+        /// The category is a Revit label and stays as written.</summary>
+        private static string EmptyCategoryRemarkEn(string s)
+        {
+            var m = EmptyExpected.Match(s);
+            if (m.Success)
+                return $"{m.Groups[1].Value} {m.Groups[2].Value} elements found in the model although this category is normally required in an architectural model — confirm whether it is really outside the project scope. (Quality/information/geometry: semak manual.)";
+            m = EmptyOptional.Match(s);
+            if (m.Success)
+                return $"{m.Groups[1].Value} {m.Groups[2].Value} elements found in the model and this category is not required — this row does not apply, or semak manual if there should be some.";
+            return null;
         }
 
         /// <summary>A6 (rooms have a Department): "Peraturan: … Isi parameter Department …" in English.</summary>
