@@ -157,6 +157,14 @@ namespace RevitWebAppSync.Services.JkrSpec
             return r;
         }
 
+        /// <summary>Mark a finding critical (the spec says KRITIKAL): its issue gets High priority,
+        /// the others Medium. Pass / fail is not changed: <c>Fail(…).En("…").Critical()</c>.</summary>
+        public static SpecResult Critical(this SpecResult r)
+        {
+            if (r != null) r.Critical = true;
+            return r;
+        }
+
         /// <summary>Attach ONE summary note that lists everything the check found (all missing
         /// levels / links). Put it on the first fail: when the check's notes are capped the
         /// Borang shows it first, so the cap still shows everything. The pane keeps the per-item notes.</summary>

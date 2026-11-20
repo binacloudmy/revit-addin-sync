@@ -84,6 +84,40 @@ namespace RevitWebAppSync.Tests
             Assert.DoesNotContain("lagi", text);
         }
 
+        // ---------- AI-414: severity ----------
+
+        [Fact]
+        public void AI414_C511_SPEC_issue_priority_is_High_because_the_spec_says_KRITIKAL()
+        {
+            var list = Run("C5.1.1", SixUnloadedLinks());
+            var issues = IssueMapper.FromModelResults(list, PanelStrings.En);
+            Assert.Equal(6, issues.Count);
+            Assert.All(issues, i => Assert.Equal(IssuePriority.High, i.Priority));
+            Assert.All(issues, i => Assert.Equal(JkrTierMap.Label(IssuePriority.High), IssueExportRows.Cells(i)[3]));
+            Assert.Equal(6, SpecReport.Build(list).For("C5.1.1").Failed);      // severity changes no pass / fail
+        }
+
+        [Fact]
+        public void AI414_a_missing_link_discipline_is_critical_too_and_other_spec_fails_stay_Medium()
+        {
+            var noLinks = Run("C5.1.1", new SpecModel { Discipline = "AR" });
+            Assert.Equal(3, noLinks.Count(r => r.Status == "fail" && r.Critical));
+            var other = Run("C4.2.1", new SpecModel { Discipline = "AR", Sheets = { new SpecSheet { Id = 1, Number = "A-1", Name = "x", TitleBlock = "" } } });
+            var issue = Assert.Single(IssueMapper.FromModelResults(other, PanelStrings.En));
+            Assert.False(other.Single(r => r.Status == "fail").Critical);
+            Assert.Equal(IssuePriority.Medium, issue.Priority);
+        }
+
+        [Fact]
+        public void AI414_the_merge_of_two_results_for_one_issue_keeps_the_highest_priority()
+        {
+            var plain = SpecChecks.Fail("C5.1.1", "link ST", key: "ST"); plain.Source = SpecReport.Model;
+            var crit = SpecChecks.Fail("C5.1.1", "KRITIKAL: link ST", key: "ST").Critical(); crit.Source = SpecReport.Model;
+            Assert.Equal(plain.IssueId, crit.IssueId);
+            Assert.Equal(IssuePriority.High, Assert.Single(IssueMapper.FromModelResults(new[] { plain, crit }, PanelStrings.En)).Priority);
+            Assert.Equal(IssuePriority.High, Assert.Single(IssueMapper.FromModelResults(new[] { crit, plain }, PanelStrings.En)).Priority);
+        }
+
         // ---------- AI-418 ----------
 
         [Fact]

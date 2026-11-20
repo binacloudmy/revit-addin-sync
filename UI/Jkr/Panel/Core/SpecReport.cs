@@ -54,6 +54,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public string ElementName = "";
         /// <summary>Model: Revit element ids behind the result (first one is located).</summary>
         public List<long> ElementIds = new List<long>();
+        /// <summary>Model: the spec calls this finding critical (KRITIKAL): its issue has High priority.
+        /// No effect on pass / fail.</summary>
+        public bool Critical;
         /// <summary>Model: ONE note that lists everything the check found (all missing levels / links).
         /// Used only when the check's notes are capped: it comes first in the Borang's
         /// <see cref="SpecCheckResult.Notes"/>, so the cap still shows everything. The pane

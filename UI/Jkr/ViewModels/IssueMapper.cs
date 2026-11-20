@@ -271,6 +271,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     if (descriptionEn.Length > 0 && (same.DescriptionEn ?? "").IndexOf(descriptionEn, StringComparison.Ordinal) < 0)
                         same.DescriptionEn = string.IsNullOrEmpty(same.DescriptionEn) ? descriptionEn : same.DescriptionEn + "\n" + descriptionEn;
                     if (ai) same.Verification = IssueVerification.Ai;
+                    if (r.Critical) same.Priority = IssuePriority.High;      // the merge keeps the highest
                     continue;
                 }
 
@@ -299,7 +300,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     Required = r.Required ?? "",
                     AutoFixable = false,
                     Verification = ai ? IssueVerification.Ai : IssueVerification.Human,
-                    Priority = IssuePriority.Medium,
+                    Priority = r.Critical ? IssuePriority.High : IssuePriority.Medium,
                     Status = IssueStatus.Open,
                     RevitElementId = firstId,
                     RevitElementIds = new List<long>(ids),
