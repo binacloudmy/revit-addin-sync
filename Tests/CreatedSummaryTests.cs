@@ -132,7 +132,7 @@ namespace RevitAddinSync.Tests
             string Src(string rel) => System.IO.File.ReadAllText(System.IO.Path.Combine(dir!.FullName, rel));
             Assert.Contains("CreatedCard.TryBuild(root, card, lang, actions)", Src("UI/Copilot/Controls/ResultCardView.cs"));
             // Result marks design, rule 8: Undo sits on the headline row, next to the sentence it undoes.
-            Assert.Contains("CardKit.Secondary(\"Undo\", actions.Undo, CardKit.Icons.Undo, compact: true)", Src("UI/Copilot/Controls/ResultCardView.cs"));
+            Assert.Contains("CardKit.Secondary(ms ? \"Buat asal\" : \"Undo\", actions.Undo, CardKit.Icons.Undo, compact: true)", Src("UI/Copilot/Controls/ResultCardView.cs"));
             var body = Src("UI/Copilot/Controls/CreatedCard.cs");
             Assert.DoesNotContain("\"Show them\"", body);   // step 2: each category row shows its elements, its arrow selects them
             Assert.Contains("\"Copy list\"", body);

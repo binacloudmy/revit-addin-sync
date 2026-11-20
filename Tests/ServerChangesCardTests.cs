@@ -46,9 +46,9 @@ namespace RevitAddinSync.Tests
         }))!;
 
         [Fact]
-        public void A_malay_turns_card_says_its_own_headline_in_English()
+        public void A_malay_turns_card_says_its_own_headline_in_Malay()
         {
-            // Gabung, G8: the card's fixed labels are English whatever the drafter typed; the model's sentence stays as written.
+            // r21 (owner, 21 Nov, replacing G8): the card's fixed labels follow the chat's language; the model's sentence stays as written.
             var (ev, _) = ChangeTypeRun();
             var silent = CopilotJson.Deserialize<TurnResultDto>(JsonSerializer.Serialize(new
             {
@@ -56,7 +56,7 @@ namespace RevitAddinSync.Tests
                 counts = new { elements = 20 },
                 items = new[] { new { kind = "element", title = "Door Alpha 750", count = 20, ids = Doors } },
             }))!;
-            Assert.Equal("20 elements changed", ResultCardModel.From(ev, ReceiptLanguage.En).WithServerResult(silent).Headline);
+            Assert.Equal("20 elemen diubah", ResultCardModel.From(ev, ReceiptLanguage.En).WithServerResult(silent).Headline);
             var said = CopilotJson.Deserialize<TurnResultDto>(JsonSerializer.Serialize(new
             {
                 kind = "changes", lang = "ms", reply = "20 pintu ditukar kepada Door Beta 900.",

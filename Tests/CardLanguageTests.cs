@@ -1,7 +1,7 @@
 #nullable enable
-// The "Gabung" result view, G8: the result card's fixed labels are English whatever language the drafter typed (the
-// owner ruled it first for the question form). The turn still tells the cloud the drafter's language, so the model
-// answers in it, and the model's own sentences stay as written. The Malay strings are kept, nothing asks for them.
+// r21 (owner, 21 Nov: "follow the best practice", which replaces G8): the cards' fixed labels follow the drafter's language. A
+// Malay turn gets the Malay labels, an English turn the English ones it always had; the turn tells the cloud the same language,
+// and the model's own sentences and every Revit name stay as written. (Under G8, 14 Nov, these tests pinned English for a Malay turn.)
 using System.IO;
 using RevitWebAppSync.UI.Copilot.Model;
 using Xunit;
@@ -13,28 +13,30 @@ namespace RevitAddinSync.Tests
         private const string MalayPrompt = "Tukar semua lampu jenis Demo_dl_13W kepada 10W";
 
         [Fact]
-        public void AMalayPrompt_IsStillSentAsMalay_ButItsCardIsEnglish()
+        public void AMalayPrompt_IsSentAsMalay_AndItsCardIsMalay()
         {
             var turn = PromptLanguage.Detect(MalayPrompt);
             Assert.Equal(ReceiptLanguage.Ms, turn);
             Assert.Equal("ms", PromptLanguage.Code(turn));                            // the model answers in Malay
-            Assert.Equal(ReceiptLanguage.En, PromptLanguage.Card(turn));               // the card's labels are English
-            Assert.Equal(ReceiptLanguage.En, PromptLanguage.Card(ReceiptLanguage.En));
+            Assert.Equal(ReceiptLanguage.Ms, PromptLanguage.Card(turn));               // r21: the card's labels follow it
+            Assert.Equal(ReceiptLanguage.En, PromptLanguage.Card(ReceiptLanguage.En)); // an English turn: English, as always
         }
 
         [Fact]
-        public void TheCardsLabels_ForAMalayTurn_AreTheEnglishOnes()
+        public void TheCardsLabels_ForAMalayTurn_AreTheMalayOnes_AndAnEnglishTurnKeepsTheEnglish()
         {
             var lang = PromptLanguage.Card(PromptLanguage.Detect(MalayPrompt));
-            Assert.Equal("Written as asked · 5", ChangesBodyText.WrittenAsAsked(5, lang));
-            Assert.Equal("For Demo_dl_13W: Normal", ChangesBodyText.WrittenFor("Demo_dl_13W: Normal", lang));
-            Assert.Equal("Types written", ChangesBodyText.TilesHeader(true, lang));
-            Assert.Equal("38 elements", ChangesBodyText.CountLabel(38, lang));
-            Assert.Equal("Selected", ChangesBodyText.SelectLabel(true, lang));
-            Assert.Equal("was 13 W", ChangesBodyText.Was("13 W", lang));
-            Assert.Equal("Change", ChangesBodyText.Change(lang));
-            // The Malay strings are still there (not deleted in this job).
-            Assert.Equal("Ditulis seperti diminta · 5", ChangesBodyText.WrittenAsAsked(5, ReceiptLanguage.Ms));
+            Assert.Equal("Ditulis seperti diminta · 5", ChangesBodyText.WrittenAsAsked(5, lang));
+            Assert.Contains("Demo_dl_13W: Normal", ChangesBodyText.WrittenFor("Demo_dl_13W: Normal", lang));   // the Revit type name as Revit prints it
+            Assert.Equal(ChangesBodyText.CountLabel(38, ReceiptLanguage.Ms), ChangesBodyText.CountLabel(38, lang));
+            var en = PromptLanguage.Card(PromptLanguage.Detect("Change all Demo_dl_13W lights to 10W"));
+            Assert.Equal("Written as asked · 5", ChangesBodyText.WrittenAsAsked(5, en));
+            Assert.Equal("For Demo_dl_13W: Normal", ChangesBodyText.WrittenFor("Demo_dl_13W: Normal", en));
+            Assert.Equal("Types written", ChangesBodyText.TilesHeader(true, en));
+            Assert.Equal("38 elements", ChangesBodyText.CountLabel(38, en));
+            Assert.Equal("Selected", ChangesBodyText.SelectLabel(true, en));
+            Assert.Equal("was 13 W", ChangesBodyText.Was("13 W", en));
+            Assert.Equal("Change", ChangesBodyText.Change(en));
         }
 
         [Fact]
@@ -44,7 +46,7 @@ namespace RevitAddinSync.Tests
             Assert.Contains("var cardLang = PromptLanguage.Card(rr.Language);", vm);
             Assert.Contains("ResultCardModel.From(rr.Evidence, cardLang, AttachmentName(routeText))", vm);
             Assert.DoesNotContain("Lang = rr.Language", vm);
-            Assert.Contains("Lang = PromptLanguage.Card(m.Lang)", vm);                // a card saved in Malay before reads in English
+            Assert.Contains("Lang = PromptLanguage.Card(m.Lang)", vm);                // a saved card reads in the language it was made in
             // The wire keeps the drafter's language.
             var router = File.ReadAllText(Path.Combine(ResultMarksFocusTests.Root(), "UI", "Copilot", "CopilotTurnRouter.cs"));
             Assert.Contains("Lang = PromptLanguage.Code(turn.Language),", router);

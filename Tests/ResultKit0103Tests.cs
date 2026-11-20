@@ -100,10 +100,10 @@ namespace RevitAddinSync.Tests
             // The Changes body moved to ChangesBody.cs. The Partial board draws "Write these values" and "Show in Revit"
             // as the 32px button (Secondary), and only "Leave as is" and "Keep all as written" as ghosts.
             var s = Src("UI/Copilot/Controls/ChangesBody.cs");
-            Assert.Contains("CardKit.Ghost(\"Leave as is\"", s);
-            Assert.Contains("CardKit.Ghost(\"Keep all as written\"", s);
-            Assert.Contains("CardKit.Secondary(\"Show in Revit\"", s);
-            Assert.Contains("CardKit.Secondary(\"Write these values\"", s);
+            Assert.Contains("CardKit.Ghost(ms ? \"Biarkan\" : \"Leave as is\"", s);
+            Assert.Contains("CardKit.Ghost(ms ? \"Kekalkan semua\" : \"Keep all as written\"", s);
+            Assert.Contains("CardKit.Secondary(ms ? \"Tunjuk dalam Revit\" : \"Show in Revit\"", s);
+            Assert.Contains("CardKit.Secondary(ms ? \"Tulis nilai ini\" : \"Write these values\"", s);
         }
 
         // ---- headline outside the card, chips, one action row ----

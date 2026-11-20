@@ -33,8 +33,8 @@ namespace RevitAddinSync.Tests
         public void TheCard_CarriesWhatTheKeyOffered()
         {
             var card = Src("UI/Copilot/Controls/ResultCardView.cs");
-            Assert.Contains("CardKit.Ghost(\"Select all\", actions.SelectAll, compact: true)", card);
-            Assert.Contains("CardKit.Ghost(\"Zoom to all\", actions.ZoomAll, compact: true)", card);
+            Assert.Contains("CardKit.Ghost(ms ? \"Pilih semua\" : \"Select all\", actions.SelectAll, compact: true)", card);
+            Assert.Contains("CardKit.Ghost(ms ? \"Zum ke semua\" : \"Zoom to all\", actions.ZoomAll, compact: true)", card);
             Assert.Contains("Undo last part", card);                       // the action row's undo stays
             Assert.Contains("MarksButton.Build(actions, ghost: true)", card);   // Hide marks / Show in model stays
             Assert.Contains("ZoomAll = () => Vm?.ZoomAllInModel(m),", Src("UI/Copilot/Screens/ChatView.xaml.cs"));
@@ -56,7 +56,7 @@ namespace RevitAddinSync.Tests
             var chat = Src("UI/Copilot/Screens/ChatView.xaml.cs");
             Assert.Contains("Undo = () => Vm?.UndoTurn(m),", chat);                                     // the card's
             Assert.Contains("CanUndo = () => Vm != null && Vm.CanUndoTurn(m),", chat);
-            Assert.Contains("undo = CardKit.Secondary(\"Undo\", actions.Undo, CardKit.Icons.Undo, compact: true);", card);   // headline row Undo
+            Assert.Contains("undo = CardKit.Secondary(ms ? \"Buat asal\" : \"Undo\", actions.Undo, CardKit.Icons.Undo, compact: true);", card);   // headline row Undo
         }
     }
 }

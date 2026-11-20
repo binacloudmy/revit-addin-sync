@@ -3,7 +3,7 @@
 // rows, "Buat jadual tiang struktur ikut jenis 5.0s" + "Apa yang akan saya jalankan 5.0s" + "Menyemak kod dalam Revit... 3.x s", and a
 // repeated write could never fold into "×2" because those sub-rows sat between the two calls. Also "Stop" and "AGENT ACTIVITY" stayed
 // English while the rows were Malay. Now: one row per real step (the sub-rows fold into the call row), a repeat folds, and the running
-// chrome follows the drafter's language as the rows do (G8 still makes the result card English).
+// chrome follows the drafter's language as the rows do (since r21 the result card does too).
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -110,11 +110,11 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void TheRunningChrome_FollowsTheDraftersLanguage_TheCardStaysEnglish()
+        public void TheRunningChrome_FollowsTheDraftersLanguage_AndSoDoesTheCard()
         {
             Assert.Equal(ReceiptLanguage.Ms, PromptLanguage.Activity(Intent));
             Assert.Equal(ReceiptLanguage.En, PromptLanguage.Activity("Create a door schedule"));
-            Assert.Equal(ReceiptLanguage.En, PromptLanguage.Card(PromptLanguage.Detect(Intent)));   // G8 unchanged
+            Assert.Equal(ReceiptLanguage.Ms, PromptLanguage.Card(PromptLanguage.Detect(Intent)));   // r21: G8 replaced (owner, 21 Nov)
             Assert.Equal("Langkah 3", RunningText.StepLabel(new[] { new ProgressStep { StepId = "s", ModelStep = 3, State = StepState.Running } }, PromptLanguage.Activity(Intent)));
         }
 
