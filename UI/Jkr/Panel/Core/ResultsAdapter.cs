@@ -40,7 +40,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 Title = (spec ? SpecTitle(i.CheckId) : null) ?? Text.Same(i.Title ?? ""),
                 Desc = desc,
                 El = ElementLabel(i, lang),
-                Req = i.Required ?? "",
+                Req = (lang ?? PaneLanguage.Current) == PanelStrings.En ? (!string.IsNullOrEmpty(i.RequiredEn) ? i.RequiredEn : PaneText.AuditRuleEn(i.Required)) : i.Required ?? "",
                 Act = string.IsNullOrEmpty(actual) ? Text.Same("—")
                     : new Text(actual, !string.IsNullOrEmpty(i.ActualEn) && actual == i.Actual ? i.ActualEn : actual),
                 Prop = !human && i.AutoFixable && !string.IsNullOrEmpty(i.FixValue) ? i.FixValue : null,

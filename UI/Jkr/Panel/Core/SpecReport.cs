@@ -48,6 +48,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public string ActualEn = "";
         /// <summary>Model: what the spec requires ("≥ 900 mm").</summary>
         public string Required = "";
+        /// <summary>Model: <see cref="Required"/> in English ("" = same as BM).</summary>
+        public string RequiredEn = "";
         /// <summary>Model: element label ("Doors · PT1p_850x2100").</summary>
         public string ElementName = "";
         /// <summary>Model: Revit element ids behind the result (first one is located).</summary>
@@ -860,6 +862,14 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
 
         /// <summary>What the model has (<see cref="SpecResult.Actual"/>) in the pane's language:
         /// the evaluator's English when it gave one, else <see cref="ActualToEnglish"/>.</summary>
+        /// <summary>What the spec requires in the language: the evaluator's English when it gave one.</summary>
+        public static string RequiredIn(SpecResult r, string lang)
+        {
+            if (r == null) return "";
+            if (!string.Equals(lang, PanelStrings.En, StringComparison.OrdinalIgnoreCase)) return r.Required ?? "";
+            return !string.IsNullOrEmpty(r.RequiredEn) ? r.RequiredEn : r.Required ?? "";
+        }
+
         public static string ActualIn(SpecResult r, string lang)
         {
             if (r == null) return "";
@@ -920,7 +930,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             {
                 var pair = new List<string>();
                 if (actual.Length > 0) pair.Add("Model: " + actual);
-                if (required.Length > 0) pair.Add((en ? "Required: " : "Keperluan: ") + required);
+                if (required.Length > 0) pair.Add((en ? "Required: " : "Keperluan: ") + (en ? SpecReport.Clean(RequiredIn(r, lang)) : required));
                 parts.Add(string.Join(" · ", pair));
             }
             var ids = ElementIdsOf(r);

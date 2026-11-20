@@ -219,7 +219,7 @@ namespace RevitWebAppSync.UI.Jkr.Export
 
             var fails = onRow.Where(i => !i.NeedsPerson).Select(FailText).Where(t => t.Length > 0).Distinct().ToList();
             parts.AddRange(Cap(fails));
-            var reasons = onRow.Where(i => i.NeedsPerson).Select(i => CleanEn(i.Description)).Where(t => t.Length > 0).Distinct().ToList();
+            var reasons = onRow.Where(i => i.NeedsPerson).Select(DescriptionEn).Where(t => t.Length > 0).Distinct().ToList();
             if (reasons.Count > 0) parts.Add("SEMAK MANUAL — " + string.Join(" ", Cap(reasons)));
 
             if (parts.Count == 0 && summary != null && summary.Rows.TryGetValue(key, out var rm) && rm.Notes.Count > 0 && mark != "y")
@@ -263,7 +263,7 @@ namespace RevitWebAppSync.UI.Jkr.Export
             }
             if (fails.Count > 0) parts.Add(string.Join("; ", Cap(fails)));
 
-            var reasons = manualIssues.Select(i => CleanEn(i.Description).Length > 0 ? CleanEn(i.Description) : FailText(i))
+            var reasons = manualIssues.Select(i => DescriptionEn(i).Length > 0 ? DescriptionEn(i) : FailText(i))
                                       .Where(t => t.Length > 0).Distinct().ToList();
             if (reasons.Count == 0) reasons = (rm.ManualNotes ?? new List<string>()).Select(CleanEn).Where(n => n.Length > 0).Distinct().ToList();
             reasons = Cap(reasons);
@@ -278,7 +278,7 @@ namespace RevitWebAppSync.UI.Jkr.Export
             // The local BIM010 rows' titles repeat the form row ("D5 · Stairs"): their
             // remark is what was found.
             var local = (i.CheckId ?? "").StartsWith("BIM010-", StringComparison.Ordinal);
-            var text = CleanEn(local && !string.IsNullOrWhiteSpace(i.Description) ? i.Description : i.Title);
+            var text = local && !string.IsNullOrWhiteSpace(i.Description) ? DescriptionEn(i) : TitleEn(i);
             if (text.Length == 0) return "";
             if (i.Status == IssueStatus.Fixed) return text + " (fixed, not yet re-scanned)";
             if (i.Status == IssueStatus.ManualFixNeeded) return text + " (handled manually)";
@@ -298,6 +298,14 @@ namespace RevitWebAppSync.UI.Jkr.Export
         /// <summary>The Borang is English only: a checker remark written in BM is put in
         /// English where the pane knows its wording (PaneText.AuditRemarkEn); any other
         /// text stays as written.</summary>
+        /// <summary>An issue's description in English: the spec result's own English, else the
+        /// checker's remark where the pane knows its wording.</summary>
+        private static string DescriptionEn(IssueVm i) =>
+            !string.IsNullOrWhiteSpace(i.DescriptionEn) ? Clean(i.DescriptionEn) : CleanEn(i.Description);
+
+        private static string TitleEn(IssueVm i) =>
+            !string.IsNullOrWhiteSpace(i.TitleEn) ? Clean(i.TitleEn) : CleanEn(i.Title);
+
         private static string CleanEn(string s)
         {
             var c = Clean(s);

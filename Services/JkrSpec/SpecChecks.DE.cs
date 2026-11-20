@@ -80,12 +80,13 @@ namespace RevitWebAppSync.Services.JkrSpec
         /// <summary>One failure for a placed type: located at its instances, keyed by the
         /// type id so Ignore / Reviewed survive a re-scan.</summary>
         private static SpecResult FailType(string id, SpecType t, string bm, string en, SpecCoverage coverage,
-                                           string actual = "", string required = "", string keySuffix = "")
+                                           string actual = "", string required = "", string keySuffix = "",
+                                           string actualEn = null, string requiredEn = null)
         {
             var first = t.InstanceIds.FirstOrDefault(x => x > 0);
             return Fail(id, bm, first > 0 ? first : t.TypeId, Label(t), actual, required,
                         key: "type:" + t.TypeId + keySuffix, coverage: coverage,
-                        elementIds: t.InstanceIds.Count > 0 ? t.InstanceIds : null).En(en).InCat(t.Category);
+                        elementIds: t.InstanceIds.Count > 0 ? t.InstanceIds : null, actualEn: actualEn, requiredEn: requiredEn).En(en).InCat(t.Category);
         }
 
         private static SpecResult UnjudgedType(string id, SpecType t, string bm, string en, string keySuffix = "")
@@ -187,7 +188,8 @@ namespace RevitWebAppSync.Services.JkrSpec
                 yield return FailType(id, t,
                     $"{t.Category}: type '{t.TypeName}' — {empty.Count}/{present.Count} parameter wajib LOi {m.Lod} kosong: {list}",
                     $"{t.Category}: type '{t.TypeName}' — {empty.Count}/{present.Count} mandatory LOi {m.Lod} parameters empty: {list}",
-                    SpecCoverage.FailOnly, actual: "kosong: " + list, required: "terisi (PB, LOi " + m.Lod + ")");
+                    SpecCoverage.FailOnly, actual: "kosong: " + list, required: "terisi (PB, LOi " + m.Lod + ")",
+                    actualEn: "empty: " + list, requiredEn: "filled (PB, LOi " + m.Lod + ")");
             }
             foreach (var kv in ok)
                 yield return Pass(id, $"{kv.Key}: {kv.Value} type: parameter wajib semua kategori AR (LOi {PbCommonLoi}+) terisi — senarai penuh per kategori belum disemak", kv.Value, SpecCoverage.FailOnly)
@@ -222,7 +224,8 @@ namespace RevitWebAppSync.Services.JkrSpec
                     yield return FailType(id, t,
                         $"{t.Category}: type '{t.TypeName}' tiada material",
                         $"{t.Category}: type '{t.TypeName}' has no material",
-                        SpecCoverage.FailOnly, actual: "tiada material", required: "material jkrAR_…", keySuffix: ":none");
+                        SpecCoverage.FailOnly, actual: "tiada material", required: "material jkrAR_…", keySuffix: ":none",
+                        actualEn: "no material", requiredEn: "material jkrAR_…");
                     continue;
                 }
                 var bad = mats.Where(x => !IsJkrMaterial(x)).ToList();
@@ -606,7 +609,7 @@ namespace RevitWebAppSync.Services.JkrSpec
                 if (tpl.Length == 0)
                 {
                     yield return Fail(id, $"{set} | view '{name}' tiada view template (dijangka: {expected})", v.Id, name,
-                                      actual: "tiada", required: expected).En($"{set} | view '{name}' has no view template (expected: {expected})").InCat(set);
+                                      actual: "tiada", required: expected, actualEn: "none").En($"{set} | view '{name}' has no view template (expected: {expected})").InCat(set);
                     continue;
                 }
                 var tplSets = SpecViewSets.SetsIn(tpl);

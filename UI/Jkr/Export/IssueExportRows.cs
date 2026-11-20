@@ -29,11 +29,20 @@ namespace RevitWebAppSync.UI.Jkr.Export
         /// <summary>How many issues the export writes with the dialog's default options (Open and Resolved both on).</summary>
         public static int DefaultCount(IEnumerable<IssueVm> issues) => Select(issues, true, true).Length;
 
-        public static string[] Cells(IssueVm i) => new[]
+        public static string[] Cells(IssueVm i)
         {
-            // An item a person marked as reviewed exports as "Reviewed" (the pane's Manual tab).
-            i.Id, i.Title, i.Category, i.PriorityLabel, i.NeedsPerson && i.Reviewed ? "Reviewed" : i.StatusLabel, i.Required, i.Actual
-        };
+            // The add-in's own spec results carry their English; the cells follow the pane's language.
+            var en = RevitWebAppSync.UI.Jkr.Panel.Core.PaneLanguage.IsEn;
+            string Pick(string ms, string e) => en && !string.IsNullOrEmpty(e) ? e : ms;
+            return new[]
+            {
+                // An item a person marked as reviewed exports as "Reviewed" (the pane's Manual tab).
+                i.Id, Pick(i.Title, i.TitleEn), i.Category, i.PriorityLabel,
+                i.NeedsPerson && i.Reviewed ? "Reviewed" : i.StatusLabel,
+                Pick(i.Required, !string.IsNullOrEmpty(i.RequiredEn) ? i.RequiredEn : RevitWebAppSync.UI.Jkr.Panel.Core.PaneText.AuditRuleEn(i.Required)),
+                Pick(i.Actual, i.ActualEn)
+            };
+        }
 
         public static string CsvCell(string s)
         {

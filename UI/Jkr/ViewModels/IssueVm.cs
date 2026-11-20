@@ -59,6 +59,12 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public string BorangSection => string.IsNullOrEmpty(BorangKey) ? "" : BorangKey.Substring(0, 1);
         public string Title { get; set; } = "";
         public string Description { get; set; } = "";
+        /// <summary>English of <see cref="Title"/> / <see cref="Description"/> / <see cref="Required"/> for the
+        /// add-in's own spec results ("" = none; the BM or backend text is the only one). The issue is
+        /// built in the pane's language at scan time; the Borang (English only) and the export read these.</summary>
+        public string TitleEn { get; set; } = "";
+        public string DescriptionEn { get; set; } = "";
+        public string RequiredEn { get; set; } = "";
 
         public ElementRef Element { get; set; } = new ElementRef();
         public long RevitElementId { get; set; }

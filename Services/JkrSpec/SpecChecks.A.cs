@@ -183,7 +183,7 @@ namespace RevitWebAppSync.Services.JkrSpec
                 var min = low[0].Height;
                 var (spaces, spacesEn) = A11Spaces(low);
                 list.Add(Fail(id, $"{Aras(name)}{tag}: siling {K.Mm(min)} mm < {K.Mm(req)} mm{spaces}", elementName: Aras(name),
-                              actual: K.Mm(min) + " mm", required: "≥ " + K.Mm(req) + " mm", key: "level:" + g.Key,
+                              actual: K.Mm(min) + " mm", required: "≥ " + K.Mm(req) + " mm", requiredEn: "≥ " + K.Mm(req) + " mm", key: "level:" + g.Key,
                               elementIds: low.Select(x => x.Ceiling.Id))
                     .En($"Level {name}{tag}: ceiling {K.Mm(min)} mm < {K.Mm(req)} mm{spacesEn}"));
             }
@@ -283,7 +283,7 @@ namespace RevitWebAppSync.Services.JkrSpec
                 if (h < 2100 - 0.5) { ms.Add("tinggi < 2100 mm"); en.Add("height < 2100 mm"); }
                 if (ms.Count == 0) { passed++; continue; }
                 list.Add(Fail(id, $"{label} | {K.Mm(w)} | {K.Mm(h)} mm: {string.Join(", ", ms)}", elementName: K.ElementLabel(t),
-                              actual: $"{K.Mm(w)} × {K.Mm(h)} mm", required: $"≥ {K.Mm(reqW)} × 2100 mm", key: K.TypeKey(t),
+                              actual: $"{K.Mm(w)} × {K.Mm(h)} mm", required: $"≥ {K.Mm(reqW)} × 2100 mm", requiredEn: $"≥ {K.Mm(reqW)} × 2100 mm", key: K.TypeKey(t),
                               coverage: SpecCoverage.FailOnly, elementIds: t.InstanceIds)
                     .En($"{label} | {K.Mm(w)} | {K.Mm(h)} mm: {string.Join(", ", en)}"));
             }
@@ -408,7 +408,7 @@ namespace RevitWebAppSync.Services.JkrSpec
                     continue;
                 }
                 list.Add(Fail(id, $"RC flat roof {label} (cerun {K.Deg(r.SlopeDegrees)}°) tanpa waterproofing / double roofing", r.Id, "Roofs · " + label,
-                              actual: "tiada waterproofing", required: "waterproofing / double roofing")
+                              actual: "tiada waterproofing", required: "waterproofing / double roofing", actualEn: "no waterproofing", requiredEn: "waterproofing / double roofing")
                     .En($"RC flat roof {label} (slope {K.Deg(r.SlopeDegrees)}°) with no waterproofing / double roofing"));
             }
             if (rcOk > 0)
@@ -504,7 +504,7 @@ namespace RevitWebAppSync.Services.JkrSpec
                 return new[]
                 {
                     Fail(id, $"Nama fail \"{name}\": tidak bermula dengan blok disiplin JKR (cth \"jkrAR24\") — segmen pertama \"{segs[0]}\"",
-                         actual: segs[0], required: "jkr + disiplin + versi (cth jkrAR24)", key: "file")
+                         actual: segs[0], required: "jkr + disiplin + versi (cth jkrAR24)", requiredEn: "jkr + discipline + version (e.g. jkrAR24)", key: "file")
                         .En($"File name \"{name}\": does not start with the JKR discipline block (e.g. \"jkrAR24\") — first segment \"{segs[0]}\""),
                 };
             if (segs.Count >= 3)
@@ -512,7 +512,7 @@ namespace RevitWebAppSync.Services.JkrSpec
             return new[]
             {
                 Fail(id, $"Nama fail \"{name}\": {segs.Count} segmen ({shown}) — perlu ≥ 3 segmen ikut garis panduan",
-                     actual: segs.Count + " segmen", required: "≥ 3 segmen", key: "file")
+                     actual: segs.Count + " segmen", required: "≥ 3 segmen", actualEn: segs.Count + " segments", requiredEn: "≥ 3 segments", key: "file")
                     .En($"File name \"{name}\": {segs.Count} segments ({shown}) — needs ≥ 3 segments per the guideline"),
             };
         }
@@ -625,7 +625,7 @@ namespace RevitWebAppSync.Services.JkrSpec
             var max = Math.Max(s.Code.Number, present.Count > 0 ? present.Max() : 0);
             var missing = Enumerable.Range(1, Math.Max(0, max)).Where(n => n != s.Code.Number && !present.Contains(n)).ToList();
             foreach (var n in missing)
-                list.Add(Fail(id, $"Pecahan {SpecA.SplitCode(n)} tiada sebagai link dalam model", actual: "tiada link", required: "link " + SpecA.SplitCode(n), key: "missing:" + n)
+                list.Add(Fail(id, $"Pecahan {SpecA.SplitCode(n)} tiada sebagai link dalam model", actual: "tiada link", required: "link " + SpecA.SplitCode(n), actualEn: "no link", requiredEn: "link " + SpecA.SplitCode(n), key: "missing:" + n)
                     .En($"Part {SpecA.SplitCode(n)} is not linked in the model"));
             if (list.Count > 0) return list;
             if (m.Links.Count == 0)
@@ -843,7 +843,7 @@ namespace RevitWebAppSync.Services.JkrSpec
                 {
                     var run = SpecA.RunBefore(nums.Select(p => p.L.Main), gap.From, NumName);
                     list.Add(Fail(id, $"Grid {run} → {NumName(gap.To)}: urutan melompat ({SpecA.MissingNumbers(gap.From, gap.To)} tiada)",
-                                  actual: $"{NumName(gap.From)} → {NumName(gap.To)}", required: "tanpa lompat", key: "num:" + key + gap.From + "-" + gap.To)
+                                  actual: $"{NumName(gap.From)} → {NumName(gap.To)}", required: "tanpa lompat", requiredEn: "no gaps", key: "num:" + key + gap.From + "-" + gap.To)
                         .En($"Grids {run} → {NumName(gap.To)}: sequence jumps ({SpecA.MissingNumbers(gap.From, gap.To)} missing)"));
                 }
                 foreach (var gap in SpecA.LetterGaps(lets.Select(p => p.L.Main)))
@@ -851,7 +851,7 @@ namespace RevitWebAppSync.Services.JkrSpec
                     var run = SpecA.RunBefore(lets.Select(p => p.L.Main), gap.From, LetName);
                     var miss = string.Join(",", gap.Missing.Take(6)) + (gap.Missing.Count > 6 ? "…" : "");
                     list.Add(Fail(id, $"Grid {run} → {LetName(gap.To)}: urutan melompat ({miss} tiada)",
-                                  actual: $"{LetName(gap.From)} → {LetName(gap.To)}", required: "tanpa lompat",
+                                  actual: $"{LetName(gap.From)} → {LetName(gap.To)}", required: "tanpa lompat", requiredEn: "no gaps",
                                   key: "let:" + key + gap.From + "-" + gap.To)
                         .En($"Grids {run} → {LetName(gap.To)}: sequence jumps ({miss} missing)"));
                 }
@@ -860,7 +860,7 @@ namespace RevitWebAppSync.Services.JkrSpec
                     var order = SpecA.PlanOrderBroken(seq.Select(p => (p.L.Main, p.Grid.Offset, p.Grid.IsVertical)).ToList());
                     if (order == null) continue;
                     var shown = string.Join(",", order.Select(i => seq.First(p => p.L.Main == i).L.Display));
-                    list.Add(Fail(id, $"Grid tidak tersusun ikut kedudukan pada pelan: {shown}", actual: shown, required: "tersusun",
+                    list.Add(Fail(id, $"Grid tidak tersusun ikut kedudukan pada pelan: {shown}", actual: shown, required: "tersusun", requiredEn: "in order",
                                   key: "order:" + shown, elementIds: seq.Select(p => p.Grid.Id))
                         .En($"Grids not in order on plan: {shown}"));
                 }
@@ -1105,6 +1105,7 @@ namespace RevitWebAppSync.Services.JkrSpec
                 list.Add(Fail(id, $"{Aras(lvName)}{at}{k}: lantai {f.Id} ({label}) " + (partial ? $"hanya {pct}% di bawah room" : "tiada room"),
                               f.Id, "Floors · " + label,
                               actual: partial ? $"{pct}% di bawah room" : "tiada room", required: "room ditempatkan",
+                              actualEn: partial ? $"{pct}% under a room" : "no room", requiredEn: "a room placed",
                               coverage: geo ? SpecCoverage.Full : SpecCoverage.FailOnly)
                     .En($"Level {lvName}{at}{k}: floor {f.Id} ({label}) " + (partial ? $"only {pct}% under a room" : "has no room")));
             }
@@ -1201,7 +1202,7 @@ namespace RevitWebAppSync.Services.JkrSpec
                         var bm = t.NoMaterialInstancesSampled ? $"sekurang-kurangnya {k}" : $"{k}";
                         var en = t.NoMaterialInstancesSampled ? $"at least {k}" : $"{k}";
                         list.Add(Fail(id, $"{K.Or(t.Category)} | {K.TypeLabel(t)} | {bm} elemen: tiada material pada elemen (material hanya pada jenis)", elementName: K.ElementLabel(t),
-                                      actual: "tiada material pada elemen", required: "material", key: K.TypeKey(t) + "|inst", elementIds: t.NoMaterialInstanceIds)
+                                      actual: "tiada material pada elemen", required: "material", actualEn: "no material on the element", requiredEn: "material", key: K.TypeKey(t) + "|inst", elementIds: t.NoMaterialInstanceIds)
                             .En($"{K.Or(t.Category)} | {K.TypeLabel(t)} | {en} elements: no material on the element (material only on the type)"));
                         continue;
                     }
@@ -1209,7 +1210,7 @@ namespace RevitWebAppSync.Services.JkrSpec
                 }
                 var n = K.Count(t);
                 list.Add(Fail(id, $"{K.Or(t.Category)} | {K.TypeLabel(t)} | {n} elemen: tiada material", elementName: K.ElementLabel(t),
-                              actual: "tiada material", required: "material", key: K.TypeKey(t), elementIds: t.InstanceIds)
+                              actual: "tiada material", required: "material", actualEn: "no material", requiredEn: "material", key: K.TypeKey(t), elementIds: t.InstanceIds)
                     .En($"{K.Or(t.Category)} | {K.TypeLabel(t)} | {n} elements: no material"));
             }
             if (passed > 0)
@@ -1253,6 +1254,7 @@ namespace RevitWebAppSync.Services.JkrSpec
                     .En($"WARNING: Material \"{u.Name}\"{cats}, {u.Count} elements: {whyEn}");
                 r.Actual = u.Name;
                 r.Required = "jkrXX_…_(kod) nama";
+                r.RequiredEn = "jkrXX_…_(code) name";
                 list.Add(r);
             }
             if (list.Count == 0)
