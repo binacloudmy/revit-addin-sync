@@ -91,24 +91,58 @@ namespace RevitWebAppSync.Handlers
 
         /// <summary>Renames first, then parameter fixes by ascending priority (stable,
         /// so equal priorities keep their queue order). The inputs are copied, so
-        /// clearing the handler's queues afterwards does not change the batch.</summary>
+        /// clearing the handler's queues afterwards does not change the batch.
+        /// With <paramref name="parameterOf"/>, issues that ask for the same write (same
+        /// element and action, same parameter) are one step, the first one kept: the
+        /// batch counts changes, not issues, so written + failed adds up to it.</summary>
         public static JkrFixBatch<TFix> Build(
             IEnumerable<(long ElementId, string NewName)> renames,
             IEnumerable<TFix> parameterFixes,
             Func<TFix, long> elementOf,
-            Func<TFix, int> priorityOf)
+            Func<TFix, int> priorityOf,
+            Func<TFix, string> parameterOf = null)
         {
             if (elementOf == null) throw new ArgumentNullException(nameof(elementOf));
             if (priorityOf == null) throw new ArgumentNullException(nameof(priorityOf));
 
             var steps = new List<Step>();
+            var seen = parameterOf == null ? null : new HashSet<string>(StringComparer.Ordinal);
             foreach (var (elementId, newName) in renames ?? Enumerable.Empty<(long, string)>())
+            {
+                if (seen != null && !seen.Add("r:" + elementId)) continue;
                 steps.Add(new Step { IsRename = true, ElementId = elementId, NewName = newName });
+            }
 
             foreach (var fix in (parameterFixes ?? Enumerable.Empty<TFix>()).OrderBy(priorityOf))
-                steps.Add(new Step { IsRename = false, ElementId = elementOf(fix), Fix = fix });
+            {
+                var elementId = elementOf(fix);
+                if (seen != null && !seen.Add("p:" + elementId + ":" + (parameterOf(fix) ?? ""))) continue;
+                steps.Add(new Step { IsRename = false, ElementId = elementId, Fix = fix });
+            }
 
             return new JkrFixBatch<TFix>(steps);
         }
+    }
+
+    /// <summary>
+    /// The one set of numbers every Fix all surface shows (confirm, progress, toast,
+    /// result window): changes = the batch's steps, written = steps Revit applied,
+    /// failed = steps not written. Root cause of AI-429: the surfaces mixed units
+    /// (issues, steps, elements) and duplicate issues inflated the step count.
+    /// </summary>
+    public sealed class JkrFixTally
+    {
+        public int Changes { get; private set; }
+        public int Written { get; private set; }
+        public int Failed { get; private set; }
+        public int Unaccounted => Changes - Written - Failed;
+        public bool AddsUp => Unaccounted == 0;
+
+        public static JkrFixTally Of(int changes, RenameResult result) => new JkrFixTally
+        {
+            Changes = changes,
+            Written = result == null ? 0 : result.Renamed + result.ParamFixed,
+            Failed = result == null ? 0 : result.Failed + result.Skipped,
+        };
     }
 }
