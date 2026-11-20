@@ -62,10 +62,11 @@ namespace RevitWebAppSync.UI.Jkr.Panel
         {
             if (JkrDevMode.Current.UsesFixture) return;   // test fixture: no backend
             foreach (var rule in new[] { 1, 21, 22, 23, 24 })
-                await RecheckAsync(rule);
+                await RecheckAsync(rule, notify: false);   // five failures would be five toasts: the rows show each
         }
 
-        public async Task RecheckAsync(int rule)
+        /// <param name="notify">A user-started check toasts its failure; the row shows it either way.</param>
+        public async Task RecheckAsync(int rule, bool notify = true)
         {
             if (ProjectChecklistModel.EndpointKey(rule) == null) return;
             _model.Begin(rule);
@@ -87,6 +88,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel
                 answer = new JkrProjectRecheckResponse { RuleNumber = rule, Error = ex.Message };
             }
             _model.ApplyRecheck(rule, answer);
+            var shown = _model.Item(rule);
+            if (notify && shown.ShowError) _toast?.Invoke(ProjectChecklistText.RecheckFailedToast(rule, shown.Error, _model.Lang));
         }
 
         // ── buttons ──
@@ -108,15 +111,21 @@ namespace RevitWebAppSync.UI.Jkr.Panel
                         break;
                     case ProjectCheckAction.ConfirmBpep:
                         var error = await Revit.InvokeAsync(app => WriteBpepConfirmed(app));
-                        if (error != null) { _toast?.Invoke(error); return; }
+                        if (error != null) { ShowActionError(rule, error); return; }
                         await RecheckAsync(rule);   // never trust the write: the item flips on this
                         break;
                 }
             }
             catch (Exception ex)
             {
-                _toast?.Invoke(ex.Message);
+                ShowActionError(rule, ex.Message);
             }
+        }
+
+        private void ShowActionError(int rule, string message)
+        {
+            _model.ApplyActionError(rule, message);
+            _toast?.Invoke(message);
         }
 
         private async Task PostAsync(PostableCommand cmd)

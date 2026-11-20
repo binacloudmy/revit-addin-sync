@@ -518,6 +518,8 @@
                                                  Visibility="{Binding HasProgress, Converter={StaticResource B2V}}"/>
                                     <TextBlock Text="{Binding Detail}" FontSize="12" LineHeight="17" TextWrapping="Wrap" Foreground="{StaticResource Bz.TextBody}" Margin="0,4,0,0"
                                                Visibility="{Binding ShowDetail, Converter={StaticResource B2V}}"/>
+                                    <TextBlock Text="{Binding Error}" FontSize="12" LineHeight="17" TextWrapping="Wrap" Foreground="{StaticResource Bz.Tone.Fail}" Margin="0,4,0,0"
+                                               Visibility="{Binding ShowError, Converter={StaticResource B2V}}"/>
                                     <TextBlock Text="{Binding Guidance}" FontSize="12" LineHeight="17" TextWrapping="Wrap" Foreground="{StaticResource Bz.Text3}" Margin="0,4,0,0"
                                                Visibility="{Binding ShowGuidance, Converter={StaticResource B2V}}"/>
                                     <WrapPanel Margin="-8,4,0,0">
