@@ -10,9 +10,11 @@
 // Which calls are writes is the backend's call, per request (X-Bina-Mutate /
 // X-Bina-Always-Confirm headers); the add-in keeps no write list of its own.
 //
-// One card per write batch: at most one ticket is open. A write that arrives
-// while it is open joins it (its label is appended and it gets the same
-// verdict); a write after the decision opens a new ticket.
+// One card per write batch: at most one ticket is open. A write from the same
+// model leg (same X-Bina-Leg-Id, or neither has one) joins it: its label is
+// appended and it gets the same verdict. A write from another leg waits for
+// that card to be decided, then gets its own. A write after the decision
+// opens a new ticket.
 //
 // Threading: AskAsync runs on the HTTP request's thread-pool task and only
 // awaits a TaskCompletionSource. It never blocks the Revit UI thread and
@@ -46,6 +48,10 @@ namespace RevitWebAppSync.Services
         public bool AlwaysConfirm { get; internal set; }
         public bool Resolved { get; internal set; }
         public WriteVerdict? Verdict { get; internal set; }
+        /// <summary>X-Bina-Leg-Id of the writes on this card; null = none.</summary>
+        public string? LegId { get; internal set; }
+        /// <summary>When the card expires (UTC), set by the write that opened it.</summary>
+        public DateTime Deadline { get; internal set; }
 
         internal readonly TaskCompletionSource<WriteVerdict> Decision =
             new TaskCompletionSource<WriteVerdict>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -71,6 +77,7 @@ namespace RevitWebAppSync.Services
         public const string MutateHeader = "X-Bina-Mutate";
         public const string AlwaysConfirmHeader = "X-Bina-Always-Confirm";
         public const string ConfirmWaitHeader = "X-Bina-Confirm-Wait-S";
+        public const string LegIdHeader = "X-Bina-Leg-Id";
 
         /// <summary>Card wait when the engine sends none.</summary>
         public static readonly TimeSpan DefaultWait = TimeSpan.FromSeconds(300);
@@ -159,53 +166,108 @@ namespace RevitWebAppSync.Services
 
         // ─── The gate ────────────────────────────────────────────────────
 
+        /// <summary>True when a write from <paramref name="leg"/> belongs on the
+        /// card opened for <paramref name="openLeg"/>: the same X-Bina-Leg-Id
+        /// (one model leg, sent together), or neither has one (an MCP facade
+        /// client or an engine without leg ids: "a card is open" is all we
+        /// know). One with an id and one without do not match.</summary>
+        public static bool SameBatch(string? openLeg, string? leg)
+        {
+            var a = NormalizeLeg(openLeg);
+            var b = NormalizeLeg(leg);
+            return a == null ? b == null : string.Equals(a, b, StringComparison.Ordinal);
+        }
+
+        private static string? NormalizeLeg(string? leg)
+        {
+            var v = (leg ?? "").Trim();
+            return v.Length == 0 ? null : v;
+        }
+
         /// <summary>Ask the drafter about one write and wait for the answer, at
-        /// most <paramref name="wait"/>. Joins the open card when there is one.</summary>
-        public static async Task<WriteVerdict> AskAsync(string tool, JsonElement args, bool alwaysConfirm, TimeSpan wait)
+        /// most <paramref name="wait"/> in all. Joins the open card when it is
+        /// the same batch (SameBatch); a write from another leg first waits for
+        /// that card to be decided, then gets its own.</summary>
+        public static async Task<WriteVerdict> AskAsync(string tool, JsonElement args, bool alwaysConfirm, TimeSpan wait, string? legId = null)
         {
             string label;
             try { label = ToolLabels.Label(tool, args); }
             catch { label = tool ?? ""; }
+            var leg = NormalizeLeg(legId);
+            var deadline = DateTime.UtcNow + wait;
 
             WriteTicket ticket;
-            lock (Gate)
+            while (true)
             {
-                var ui = Ui;
-                if (ui == null) return WriteVerdict.Unavailable;
+                WriteTicket? other = null;
+                lock (Gate)
+                {
+                    var ui = Ui;
+                    if (ui == null) return WriteVerdict.Unavailable;
 
-                if (_open != null && !_open.Resolved)
-                {
-                    ticket = _open;
-                    ticket.Labels = Append(ticket.Labels, label);
-                    if (alwaysConfirm) ticket.AlwaysConfirm = true;
-                    try { ui.Update(ticket); } catch { /* the card keeps its old list */ }
-                }
-                else
-                {
-                    ticket = new WriteTicket { Labels = new[] { label }, AlwaysConfirm = alwaysConfirm };
-                    bool shown;
-                    try { shown = ui.TryShow(ticket); } catch { shown = false; }
-                    if (!shown)
+                    if (_open != null && !_open.Resolved)
                     {
-                        // Never opened: nothing to close, nobody else can join.
-                        ticket.Resolved = true;
-                        ticket.Verdict = WriteVerdict.Unavailable;
-                        return WriteVerdict.Unavailable;
+                        if (SameBatch(_open.LegId, leg))
+                        {
+                            ticket = _open;
+                            ticket.Labels = Append(ticket.Labels, label);
+                            if (alwaysConfirm) ticket.AlwaysConfirm = true;
+                            try { ui.Update(ticket); } catch { /* the card keeps its old list */ }
+                            break;
+                        }
+                        other = _open;   // another leg's card: wait for it below
                     }
-                    _open = ticket;
+                    else
+                    {
+                        var left = deadline - DateTime.UtcNow;
+                        if (left <= TimeSpan.Zero) return WriteVerdict.TimedOut;
+                        ticket = new WriteTicket
+                        {
+                            Labels = new[] { label }, AlwaysConfirm = alwaysConfirm,
+                            LegId = leg, Deadline = deadline,
+                        };
+                        bool shown;
+                        try { shown = ui.TryShow(ticket); } catch { shown = false; }
+                        if (!shown)
+                        {
+                            // Never opened: nothing to close, nobody else can join.
+                            ticket.Resolved = true;
+                            ticket.Verdict = WriteVerdict.Unavailable;
+                            return WriteVerdict.Unavailable;
+                        }
+                        _open = ticket;
+                        break;
+                    }
                 }
+
+                // Another leg's card is open. Wait for its decision (bounded by
+                // our own deadline), then try again for a card of our own.
+                var remaining = deadline - DateTime.UtcNow;
+                if (remaining <= TimeSpan.Zero || !await WithinAsync(other!.Decision.Task, remaining).ConfigureAwait(false))
+                    return WriteVerdict.TimedOut;
             }
 
+            // The ticket owns the clock: everyone on one card shares its deadline.
+            var untilDeadline = ticket.Deadline - DateTime.UtcNow;
+            if (untilDeadline < TimeSpan.Zero) untilDeadline = TimeSpan.Zero;
+            if (!await WithinAsync(ticket.Decision.Task, untilDeadline).ConfigureAwait(false))
+                Finish(ticket, WriteVerdict.TimedOut);   // no-op if a click won the race
+            return await ticket.Decision.Task.ConfigureAwait(false);
+        }
+
+        /// <summary>True when <paramref name="task"/> finishes within
+        /// <paramref name="limit"/>. The timer is cancelled either way.</summary>
+        private static async Task<bool> WithinAsync(Task task, TimeSpan limit)
+        {
+            if (task.IsCompleted) return true;
             using (var timer = new CancellationTokenSource())
             {
-                var delay = Task.Delay(wait, timer.Token);
-                var winner = await Task.WhenAny(ticket.Decision.Task, delay).ConfigureAwait(false);
+                var delay = Task.Delay(limit, timer.Token);
+                var winner = await Task.WhenAny(task, delay).ConfigureAwait(false);
                 timer.Cancel();
                 try { await delay.ConfigureAwait(false); } catch { /* cancelled timer */ }
-                if (winner != ticket.Decision.Task)
-                    Finish(ticket, WriteVerdict.TimedOut);   // no-op if a click won the race
+                return winner == task;
             }
-            return await ticket.Decision.Task.ConfigureAwait(false);
         }
 
         /// <summary>The drafter answered the card. A stale or repeated answer

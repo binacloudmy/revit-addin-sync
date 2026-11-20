@@ -11,7 +11,8 @@
 //            Idempotency-Key (optional, dedupes retries),
 //            X-Bina-Mutate: 1 (the call writes to the model),
 //            X-Bina-Always-Confirm: 1 (ask even in Auto mode),
-//            X-Bina-Confirm-Wait-S (card wait in seconds, default 300)
+//            X-Bina-Confirm-Wait-S (card wait in seconds, may be fractional,
+//              default 300), X-Bina-Leg-Id (writes of one model leg share a card)
 //   body:    {"tool_call_id": "...", "args": { ... }}   (legacy bare-args tolerated)
 //   200 + tool JSON, 401 bad/missing secret, 404 for the internal "__" jobs,
 //   423 while a forced update is pending, 504 on the request-wait cap.
@@ -179,6 +180,7 @@ namespace BinaVibe.Mcp
                 bool mutate = EngineWriteGate.HeaderFlag(mutateHeader);
                 bool alwaysConfirm = EngineWriteGate.HeaderFlag(ctx.Request.Headers[EngineWriteGate.AlwaysConfirmHeader]);
                 var confirmWait = EngineWriteGate.ConfirmWait(ctx.Request.Headers[EngineWriteGate.ConfirmWaitHeader]);
+                var legId = ctx.Request.Headers[EngineWriteGate.LegIdHeader];   // one model leg = one card
                 if (mutateHeader == null) NoteUngated(toolName);
                 var job = new McpJob { Tool = toolName, Args = args, IdempotencyKey = idemKey ?? "", Mutate = mutate };
 
@@ -194,7 +196,7 @@ namespace BinaVibe.Mcp
                     // and the cap below both start after Ya.
                     var verdict = WriteVerdict.Run;
                     if (EngineWriteGate.NeedsCard(mutate, alwaysConfirm, EngineWriteGate.IsAutoMode()))
-                        verdict = await EngineWriteGate.AskAsync(toolName, args, alwaysConfirm, confirmWait).ConfigureAwait(false);
+                        verdict = await EngineWriteGate.AskAsync(toolName, args, alwaysConfirm, confirmWait, legId).ConfigureAwait(false);
                     if (verdict == WriteVerdict.Run)
                         McpJobPump.Enqueue(job);   // run it (shared pump + watchdog)
                     else
