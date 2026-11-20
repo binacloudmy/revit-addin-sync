@@ -68,8 +68,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// only (needs a person, Low priority, no fix) - never a fail or High. Director
         /// ruling 2026-11-20 (reversible): "Level Naming Convention L##".
         /// </summary>
-        public static bool IsInfoOnlyLegacyRule(string rule) =>
-            RevitWebAppSync.UI.Jkr.Panel.Core.SpecReport.IsInfoOnlyLegacyRule(rule);
+        public static bool IsInfoOnlyLegacyRule(string category, string rule) =>
+            RevitWebAppSync.UI.Jkr.Panel.Core.SpecReport.IsInfoOnlyLegacyRule(category, rule);
 
         public static IssueVm FromDto(ComplianceIssueDto dto)
         {
@@ -89,7 +89,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 autoFixable = false;
 
             // Legacy-only rules the spec has no check for stay listed, as information only.
-            if (IsInfoOnlyLegacyRule(dto.Rule))
+            if (IsInfoOnlyLegacyRule(dto.Category, dto.Rule))
             {
                 verification = IssueVerification.Human;
                 autoFixable = false;

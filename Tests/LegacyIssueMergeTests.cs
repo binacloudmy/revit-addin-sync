@@ -216,5 +216,15 @@ namespace RevitWebAppSync.Tests
             Assert.Single(specIssues);
             Assert.Empty(IssueMapper.FromAuditRecordsNotInSpec(records, specIssues, spec));
         }
+
+        [Fact]
+        public void The_info_only_rule_match_is_explicit_not_a_prefix()
+        {
+            Assert.True(SpecReport.IsInfoOnlyLegacyRule("Levels", "Level Naming Convention L##"));
+            Assert.True(SpecReport.IsInfoOnlyLegacyRule("Levels", "Level naming convention"));
+            Assert.False(SpecReport.IsInfoOnlyLegacyRule("Levels", "Level Naming Convention is missing a prefix"));
+            Assert.False(SpecReport.IsInfoOnlyLegacyRule("Doors", "Level Naming Convention L##"));
+            Assert.False(SpecReport.IsInfoOnlyLegacyRule(null, null));
+        }
     }
 }
