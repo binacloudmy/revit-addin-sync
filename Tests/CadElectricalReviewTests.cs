@@ -272,21 +272,103 @@ namespace Tests
             return census;
         }
 
-        [Fact]
-        public void Slim_census_stays_under_40kb_for_150_classes()
+        /// <summary>A census whose classes carry no attributes and one short near text.</summary>
+        private static ElectricalCensusResult SmallCensus(int classes, int layers)
         {
-            ElectricalCensusResult census = BigCensus(150, 150);
+            ElectricalCensusResult census = BigCensus(classes, layers);
+            foreach (CensusBlockClass block in census.Blocks)
+            {
+                block.Attributes.Clear();
+                block.NearTexts.RemoveRange(1, block.NearTexts.Count - 1);
+                block.Layers.RemoveAt(1);
+            }
+            return census;
+        }
+
+        [Fact]
+        public void Slim_census_keeps_150_classes_when_small()
+        {
+            // 200 classes and a typical drawing's 40 layers.
+            ElectricalCensusResult census = SmallCensus(200, 40);
 
             Dictionary<string, object?> slim = CadElectricalReview.SlimCensus(census);
-            int bytes = Encoding.UTF8.GetByteCount(Json(slim));
 
-            Assert.True(bytes < 40 * 1024, "slim census is " + bytes + " bytes");
-            var blocks = ((List<object?>)slim["blocks"]!).Select(Row).ToList();
-            Assert.Equal(80, blocks.Count);
+            Assert.True(Json(slim).Length <= CadElectricalReview.DefaultCensusBudgetChars, "slim census is " + Json(slim).Length + " chars");
+            Assert.Equal(150, ((List<object?>)slim["blocks"]!).Count);
             Assert.Equal(true, slim["blocks_truncated"]);
-            Assert.Equal(60, ((List<object?>)slim["layers"]!).Count);
-            Assert.Equal(true, slim["layers_truncated"]);
+            Assert.Equal(40, ((List<object?>)slim["layers"]!).Count);
+            Assert.Equal(false, slim["layers_truncated"]);
+            Assert.Equal(0, slim["budget_trimmed"]);
             Assert.False(slim.ContainsKey("timings_s"));
+
+            // Layers stop at 150, with the flag.
+            Dictionary<string, object?> layered = CadElectricalReview.SlimCensus(SmallCensus(5, 200));
+            Assert.Equal(150, ((List<object?>)layered["layers"]!).Count);
+            Assert.Equal(true, layered["layers_truncated"]);
+            Assert.Equal(0, layered["budget_trimmed"]);
+        }
+
+        [Fact]
+        public void Slim_census_stays_under_budget_with_150_large_classes()
+        {
+            ElectricalCensusResult census = BigCensus(150, 150);
+            foreach (CensusBlockClass block in census.Blocks)
+            {
+                for (int i = 0; i < 6; i++) block.NearTexts.Add(new CensusCount { Name = "SWITCHED SOCKET OUTLET NOTE " + i, Count = 2 });
+                block.Attributes.Add(new CensusAttribute { Tag = "DESCRIPTION", Samples = { "SINGLE SOCKET OUTLET", "TWIN SOCKET OUTLET" } });
+            }
+            Assert.True(Json(CadElectricalReview.SlimCensus(census, budgetChars: int.MaxValue)).Length > CadElectricalReview.DefaultCensusBudgetChars);
+
+            Dictionary<string, object?> slim = CadElectricalReview.SlimCensus(census);
+
+            int length = Json(slim).Length;
+            Assert.True(length <= CadElectricalReview.DefaultCensusBudgetChars, "slim census is " + length + " chars");
+            Assert.True((int)slim["budget_trimmed"]! > 0);
+            var blocks = ((List<object?>)slim["blocks"]!).Select(Row).ToList();
+            Assert.True(blocks.Count == 150 || (bool)slim["blocks_truncated"]!);
+            Assert.All(blocks, b => Assert.True(!b.ContainsKey("near_texts") ||
+                                                ((List<object?>)b["near_texts"]!).Count <= CadElectricalReview.TrimmedNearTexts));
+
+            // Just over the budget: only the lowest-ranked classes shrink, the top one keeps everything.
+            int full = Json(CadElectricalReview.SlimCensus(census, budgetChars: int.MaxValue)).Length;
+            Dictionary<string, object?> near = CadElectricalReview.SlimCensus(census, budgetChars: full - 2000);
+            Assert.True(Json(near).Length <= full - 2000);
+            var nearBlocks = ((List<object?>)near["blocks"]!).Select(Row).ToList();
+            Assert.Equal(150, nearBlocks.Count);
+            Assert.Equal(9, ((List<object?>)nearBlocks[0]["near_texts"]!).Count);
+            Assert.True(nearBlocks[0].ContainsKey("attributes"));
+            Assert.Equal(CadElectricalReview.TrimmedNearTexts, ((List<object?>)nearBlocks[149]["near_texts"]!).Count);
+            Assert.Equal(false, near["blocks_truncated"]);
+
+            // A tighter budget drops whole classes, lowest-ranked first, and says so.
+            Dictionary<string, object?> tight = CadElectricalReview.SlimCensus(census, budgetChars: 25000);
+            Assert.True(Json(tight).Length <= 25000);
+            var kept = ((List<object?>)tight["blocks"]!).Select(Row).Select(b => (string)b["key"]!).ToList();
+            Assert.True(kept.Count < 150);
+            Assert.Equal(true, tight["blocks_truncated"]);
+            List<string> ranked = ((List<object?>)CadElectricalReview.SlimCensus(census, budgetChars: int.MaxValue)["blocks"]!)
+                .Select(Row).Select(b => (string)b["key"]!).ToList();
+            Assert.Equal(ranked.Take(kept.Count), kept);
+        }
+
+        [Fact]
+        public void Legend_capped_at_40_with_truncated_flag()
+        {
+            ElectricalCensusResult census = SmallCensus(10, 5);
+            for (int i = 40; i < 65; i++) census.Legend.Add(new CensusLegendRow { Block = "SYM-" + i.ToString("000"), Text = "LEGEND ROW " + i });
+            census.LegendTruncated = false;
+
+            Dictionary<string, object?> slim = CadElectricalReview.SlimCensus(census);
+
+            var legend = (List<object?>)slim["legend"]!;
+            Assert.Equal(40, legend.Count);
+            Assert.Equal("SYM-000", Row(legend[0])["block"]);
+            Assert.Equal(true, slim["legend_truncated"]);
+
+            ElectricalCensusResult exact = SmallCensus(10, 5);
+            Dictionary<string, object?> whole = CadElectricalReview.SlimCensus(exact);
+            Assert.Equal(40, ((List<object?>)whole["legend"]!).Count);
+            Assert.Equal(false, whole["legend_truncated"]);
         }
 
         [Fact]
@@ -294,11 +376,12 @@ namespace Tests
         {
             ElectricalCensusResult census = BigCensus(150, 5);
 
-            Dictionary<string, object?> slim = CadElectricalReview.SlimCensus(census);
+            Dictionary<string, object?> slim = CadElectricalReview.SlimCensus(census, budgetChars: int.MaxValue);
 
             var keys = ((List<object?>)slim["blocks"]!).Select(Row).Select(b => (string)b["key"]!).ToList();
             List<string> symbols = census.Blocks.Where(b => !b.IsContainer && b.WidthMm <= 2000).Select(b => b.Key).ToList();
-            Assert.Equal(symbols.Take(80), keys);
+            Assert.Equal(150, keys.Count);
+            Assert.Equal(symbols, keys.Take(symbols.Count));
             Dictionary<string, object?> first = Row(((List<object?>)slim["blocks"]!)[0]);
             Assert.False(first.ContainsKey("anonymous"));
             Assert.False(first.ContainsKey("record_names"));

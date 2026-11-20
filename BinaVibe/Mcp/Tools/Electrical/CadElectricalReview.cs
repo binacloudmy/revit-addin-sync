@@ -371,15 +371,45 @@ namespace BinaVibe.Mcp.Tools.Electrical
         private static int ListCount(Dictionary<string, object?> d, string key) =>
             d.TryGetValue(key, out object? v) && v is System.Collections.ICollection c ? c.Count : 0;
 
+        /// <summary>The backend truncates a tool result past 60,000 characters; read_cad_electrical
+        /// keeps its whole serialised result under this.</summary>
+        public const int ResultBudgetChars = 55000;
+
+        /// <summary>The slim census's own budget when the caller does not work one out.</summary>
+        public const int DefaultCensusBudgetChars = 45000;
+
+        /// <summary>The least the census is given, however large the rest of the result.</summary>
+        public const int MinCensusBudgetChars = 20000;
+
+        /// <summary>Near texts a block keeps once it has been shrunk for the budget.</summary>
+        public const int TrimmedNearTexts = 2;
+
+        /// <summary>The slim census's budget inside a result whose other parts serialise to
+        /// <paramref name="restChars"/> characters.</summary>
+        public static int CensusBudget(int restChars) =>
+            Math.Max(MinCensusBudgetChars, ResultBudgetChars - restChars);
+
+        /// <summary>Characters of <paramref name="value"/> as JSON, with the default encoder
+        /// (which escapes more than a relaxed one, so the count errs on the long side).</summary>
+        public static int JsonLength(object? value) => System.Text.Json.JsonSerializer.Serialize(value).Length;
+
         /// <summary>
         /// The census cut to fit one tool result: at most <paramref name="maxBlocks"/> classes,
-        /// symbol-sized non-container ones first (those are what gets mapped), and at most
+        /// symbol-sized non-container ones first (those are what gets mapped), at most
         /// <paramref name="maxLayers"/> layers, each shrunk to its name, inserts, length, long
-        /// open polylines and wall hint. Drawn from the uncapped lists when the census has them.
-        /// A block entry is the census's, less its false flags and empty lists.
+        /// open polylines and wall hint, and at most <paramref name="maxLegendRows"/> legend rows.
+        /// Drawn from the uncapped lists when the census has them. A block entry is the
+        /// census's, less its false flags and empty lists.
+        /// <para>When the JSON is longer than <paramref name="budgetChars"/>, the lowest-ranked
+        /// blocks are shrunk first, step by step: near texts past 2, then attributes, then whole
+        /// blocks, and last of all layers from the end. <c>budget_trimmed</c> counts the entries
+        /// shrunk or dropped; a drop also sets the list's <c>truncated</c> flag.</para>
         /// </summary>
-        public static Dictionary<string, object?> SlimCensus(ElectricalCensusResult census, int maxBlocks = 80, int maxLayers = 60)
+        public static Dictionary<string, object?> SlimCensus(ElectricalCensusResult census, int maxBlocks = 150,
+                                                             int maxLayers = 150, int maxLegendRows = 40,
+                                                             int budgetChars = DefaultCensusBudgetChars)
         {
+            List<CensusLegendRow> allLegend = census.AllLegend ?? census.Legend;
             double symbolMax = new CensusOptions().SymbolMaxExtentMm;
             List<CensusBlockClass> allBlocks = census.AllBlocks ?? census.Blocks;
             List<CensusBlockClass> blocks = allBlocks
@@ -395,10 +425,10 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 Drawing = census.Drawing,
                 Blocks = blocks,
                 Plans = census.Plans,
-                Legend = census.Legend,
+                Legend = allLegend.Take(maxLegendRows).ToList(),
                 Totals = census.Totals,
                 PlansTruncated = census.PlansTruncated,
-                LegendTruncated = census.LegendTruncated,
+                LegendTruncated = census.LegendTruncated || allLegend.Count > maxLegendRows,
                 SymbolsAreExploded = census.SymbolsAreExploded,
                 TimingsSeconds = census.TimingsSeconds,
             };
@@ -430,7 +460,65 @@ namespace BinaVibe.Mcp.Tools.Electrical
             }).ToList();
             wire["layers_truncated"] = census.LayersTruncated || allLayers.Count > maxLayers;
             wire.Remove("timings_s");
+            wire["budget_trimmed"] = 0;
+            wire["budget_trimmed"] = FitBudget(wire, budgetChars);
             return wire;
+        }
+
+        /// <summary>Shrinks the slim census until its JSON fits <paramref name="budget"/>
+        /// characters, lowest-ranked entries first; returns how many entries it shrank or
+        /// dropped. Each step's change is measured on the entry alone, and the whole is
+        /// measured again at the end.</summary>
+        private static int FitBudget(Dictionary<string, object?> wire, int budget)
+        {
+            int total = JsonLength(wire);
+            if (total <= budget) return 0;
+            budget -= 4;   // budget_trimmed is measured as 0; its count takes up to 4 more digits
+
+            var blocks = (List<object?>)wire["blocks"]!;
+            var layers = (List<object?>)wire["layers"]!;
+            var shrunk = new HashSet<int>();
+
+            void Shrink(Func<Dictionary<string, object?>, bool> step)
+            {
+                for (int i = blocks.Count - 1; i >= 0 && total > budget; i--)
+                {
+                    var block = (Dictionary<string, object?>)blocks[i]!;
+                    int before = JsonLength(block);
+                    if (!step(block)) continue;
+                    total += JsonLength(block) - before;
+                    shrunk.Add(i);
+                }
+            }
+
+            // 1. Near texts past the first two.
+            Shrink(block =>
+            {
+                if (!(block.TryGetValue("near_texts", out object? v) && v is List<object?> texts && texts.Count > TrimmedNearTexts))
+                    return false;
+                block["near_texts"] = texts.Take(TrimmedNearTexts).ToList();
+                return true;
+            });
+            // 2. Attributes.
+            Shrink(block => block.Remove("attributes"));
+
+            // 3. Whole blocks, then 4. layers, from the end; re-measured exactly until it fits.
+            int droppedBlocks = 0, droppedLayers = 0;
+            while (total > budget && (blocks.Count > 0 || layers.Count > 0))
+            {
+                List<object?> list = blocks.Count > 0 ? blocks : layers;
+                total -= JsonLength(list[list.Count - 1]) + 1;
+                list.RemoveAt(list.Count - 1);
+                if (list == blocks) droppedBlocks++;
+                else droppedLayers++;
+                if (total <= budget) total = JsonLength(wire);
+            }
+            if (droppedBlocks > 0) wire["blocks_truncated"] = true;
+            if (droppedLayers > 0) wire["layers_truncated"] = true;
+
+            int trimmed = shrunk.Count(i => i < blocks.Count) + droppedBlocks + droppedLayers;
+            wire["budget_trimmed"] = trimmed;
+            return trimmed;
         }
 
         private static Dictionary<string, object?>? Alignment(PlanAlignment? a) =>

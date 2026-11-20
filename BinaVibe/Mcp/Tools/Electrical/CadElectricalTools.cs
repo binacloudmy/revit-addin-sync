@@ -65,18 +65,22 @@ namespace BinaVibe.Mcp.Tools.Electrical
             if (!string.IsNullOrEmpty(census.Drawing.AecWarning))
                 notes.Add("aec_warning: " + census.Drawing.AecWarning);
 
-            return new Dictionary<string, object?>
+            var result = new Dictionary<string, object?>
             {
                 ["ok"] = true,
                 ["dwg_ref"] = dwgRef,
                 ["schema"] = Schema,
-                ["census"] = CadElectricalReview.SlimCensus(census),
+                ["census"] = null,
                 ["roles"] = CadElectricalMapping.Roles.Cast<object?>().ToList(),
                 ["hosts"] = CadElectricalMapping.Hosts.Cast<object?>().ToList(),
                 ["layer_roles"] = CadElectricalMapping.LayerRoles.Cast<object?>().ToList(),
                 ["model"] = ModelFacts(doc),
                 ["notes"] = notes,
             };
+            // The census gets what the rest of the result leaves of the budget.
+            int rest = CadElectricalReview.JsonLength(result) - "null".Length;
+            result["census"] = CadElectricalReview.SlimCensus(census, budgetChars: CadElectricalReview.CensusBudget(rest));
+            return result;
         }
 
         // ─── plan_cad_electrical ───────────────────────────────────────

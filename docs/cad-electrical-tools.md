@@ -64,7 +64,15 @@ Units are millimetres in project-internal coordinates unless a field says otherw
 }
 ```
 
-**Slim census limits:** at most 80 block classes and 60 layers. Each layer has name, inserts, length, long open polylines and the wall hint (`pairs_like_walls`).
+**Slim census limits:** at most 150 block classes, 150 layers and 40 legend rows. A cap that cuts sets `blocks_truncated`, `layers_truncated` or `legend_truncated`. Each layer has name, inserts, length, long open polylines and the wall hint (`pairs_like_walls`).
+
+**Size budget:** the backend truncates a tool result past 60,000 characters, so the whole `read_cad_electrical` result is kept under 55,000 characters of JSON. The census gets what the rest of the result leaves (at least 20,000). Block classes are ranked symbol-sized non-container first. When the census is over its budget, it is shrunk from the lowest-ranked class up, one step at a time, until it fits:
+1. near texts past the first 2
+2. attributes
+3. whole classes (sets `blocks_truncated`)
+4. layers, from the end (sets `layers_truncated`)
+
+`budget_trimmed` counts the entries shrunk or dropped; 0 when the census fit.
 
 **`conduit_types` and `cable_tray_types`:** up to 50 each, as `Family : Type`. `with_fittings` says whether bends can be built. `sizes_mm` are the conduit trade sizes (nominal diameters in the model's size lists) of the type's standard. When the standard cannot be read, they are every standard's sizes.
 
