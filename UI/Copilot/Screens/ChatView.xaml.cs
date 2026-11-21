@@ -255,6 +255,8 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         {
             if (e.PropertyName == nameof(CopilotViewModel.IsSending))
             {
+                // r23 (AI-464, live 3c11223a): the running composer reads in the running turn's language, as the Working card does.
+                if (Prompt != null && Vm != null && Vm.IsSending) Prompt.RunLanguage = LiveLanguage();
                 UpdateUsage();
                 UpdateElapsedClock();
                 UpdateSubHeader(Vm == null || Vm.Thread.Count == 0);

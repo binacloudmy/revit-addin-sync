@@ -713,10 +713,28 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             if (LockedHint != null) LockedHint.Visibility = Locked ? Visibility.Visible : Visibility.Collapsed;
             if (QueueHint != null)
             {
-                QueueHint.Text = RunningText.QueueHint;
+                QueueHint.Text = RunningText.QueueHintFor(_runLanguage);
                 QueueHint.Visibility = Visibility.Collapsed;   // the toolbar says "Queues after this run" now
             }
             if (PlaceholderHint != null) PlaceholderHint.Visibility = !Locked && !Busy ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        // r23 (AI-464, live 3c11223a): the running composer's words follow the running turn's language (the chat sets it as it does the
+        // Working card's "Langkah"); English until told otherwise.
+        private Model.ReceiptLanguage _runLanguage = Model.ReceiptLanguage.En;
+
+        /// <summary>The language of the turn that runs now: the queue placeholder and note read in it. Set by the chat.</summary>
+        public Model.ReceiptLanguage RunLanguage
+        {
+            get => _runLanguage;
+            set { if (_runLanguage == value) return; _runLanguage = value; ApplyRunLanguage(); UpdateHints(); }
+        }
+
+        private void ApplyRunLanguage()
+        {
+            // While a turn runs, a prompt typed now queues (board 2): the composer says so, in the turn's language.
+            if (Input != null) Input.PlaceholderText = Busy ? RunningText.QueuePlaceholderFor(_runLanguage) : Placeholder;
+            if (_queueNote != null) _queueNote.Text = RunningText.QueueNoteFor(_runLanguage);
         }
 
         public static readonly DependencyProperty BusyProperty = DependencyProperty.Register(
@@ -735,7 +753,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             if (pb.SendIcon != null) pb.SendIcon.Data = busy ? StopGeom : SendGeom;
             if (pb.SendBtn != null) pb.SendBtn.ToolTip = busy ? "Stop" : "Send";
             // While a turn runs, a prompt typed now queues (board 2): the composer says so.
-            if (pb.Input != null) pb.Input.PlaceholderText = busy ? RunningText.QueuePlaceholder : pb.Placeholder;
+            pb.ApplyRunLanguage();
             pb.UpdateHints();
             pb.UpdateSendVisual();
             pb.UpdateRunningChrome();

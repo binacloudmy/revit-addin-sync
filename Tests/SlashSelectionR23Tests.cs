@@ -1,5 +1,5 @@
 #nullable enable
-// r23 (0.0.166), Linear AI-448 sub-issues:
+// r23 (0.0.166), Linear AI-448 sub-issues (AI-460, AI-456, and AI-464's running composer):
 // AI-460 (Z8): the "/" button on an EMPTY message box put a "/" in it and no tools list opened. PromptBar set Editor.Text = "/" and only
 //   then the caret; the text change ran the "/" detection while the caret was still 0, where no token ends. MentionInput.SeedSlash now
 //   seeds "/", puts the caret after it and detects, as a typed "/". The with-draft path (373b099c OpenSlashOverDraft, live L14 a0fadee2)
@@ -78,6 +78,38 @@ namespace RevitAddinSync.Tests
             Assert.Contains("BuildPicker(query);", detectBody);
             // A pick strips the "/query" from the slash index (0 for a seeded "/") as for a typed one.
             Assert.Contains("Editor.Select(_slashIndex, caret - _slashIndex);", Body(input, "private void OnSlashToolPicked(SlashTool tool)"));
+        }
+
+        // ─── AI-464 (live 3c11223a on 0.0.165): the running composer in a Malay chat ─────────────────────────────────────
+
+        [Fact]
+        public void TheRunningComposer_ReadsMalay_InAMalayChat_AndEnglishIsUnchanged()
+        {
+            Assert.Equal(RunningText.QueuePlaceholder, RunningText.QueuePlaceholderFor(ReceiptLanguage.En));
+            Assert.Equal(RunningText.QueueNote, RunningText.QueueNoteFor(ReceiptLanguage.En));
+            Assert.Equal(RunningText.QueueHint, RunningText.QueueHintFor(ReceiptLanguage.En));
+            Assert.Equal("Taip langkah seterusnya. Ia dijalankan selepas yang ini selesai.", RunningText.QueuePlaceholderFor(ReceiptLanguage.Ms));
+            Assert.Equal("Beratur selepas larian ini", RunningText.QueueNoteFor(ReceiptLanguage.Ms));
+            foreach (var t in new[] { RunningText.QueuePlaceholderFor(ReceiptLanguage.Ms), RunningText.QueueNoteFor(ReceiptLanguage.Ms), RunningText.QueueHintFor(ReceiptLanguage.Ms) })
+            {
+                Assert.DoesNotContain("Type", t);
+                Assert.DoesNotContain("Queues", t);
+            }
+        }
+
+        [Fact]
+        public void TheChat_SetsTheRunLanguage_AsItDoesForTheWorkingCard()
+        {
+            var bar = Src("UI", "Copilot", "Controls", "PromptBar.xaml.cs");
+            var apply = Body(bar, "private void ApplyRunLanguage()");
+            Assert.Contains("Input.PlaceholderText = Busy ? RunningText.QueuePlaceholderFor(_runLanguage) : Placeholder;", apply);
+            Assert.Contains("_queueNote.Text = RunningText.QueueNoteFor(_runLanguage);", apply);
+            Assert.Contains("pb.ApplyRunLanguage();", Body(bar, "private static void OnBusyChanged("));
+            Assert.Contains("QueueHint.Text = RunningText.QueueHintFor(_runLanguage);", bar);
+            Assert.DoesNotContain("busy ? RunningText.QueuePlaceholder :", bar);
+            var chat = Src("UI", "Copilot", "Screens", "ChatView.xaml.cs");
+            Assert.Contains("if (Prompt != null && Vm != null && Vm.IsSending) Prompt.RunLanguage = LiveLanguage();", chat);
+            Assert.Contains("_activityView.Language = LiveLanguage();", chat);   // the same source as the Working card's "Langkah"
         }
 
         // ─── AI-456: the selection a find made survives a read run in the same turn ──────────────────────────────────────

@@ -50,6 +50,19 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>The small note in the composer's toolbar while a turn runs (design Running.dc.html).</summary>
         public const string QueueNote = "Queues after this run";
 
+        /// <summary>r23 (AI-464, live 3c11223a on 0.0.165, laptop): in a Malay chat the running composer kept "Type the next step…" and
+        /// "Queues after this run". It follows the running turn's language as the Working card's "Langkah" does; English unchanged.</summary>
+        public static string QueuePlaceholderFor(ReceiptLanguage lang) =>
+            lang == ReceiptLanguage.Ms ? "Taip langkah seterusnya. Ia dijalankan selepas yang ini selesai." : QueuePlaceholder;
+
+        /// <summary>r23: <see cref="QueueHint"/> in the running turn's language.</summary>
+        public static string QueueHintFor(ReceiptLanguage lang) =>
+            lang == ReceiptLanguage.Ms ? "Beratur selepas larian ini. Henti mengosongkannya." : QueueHint;
+
+        /// <summary>r23: <see cref="QueueNote"/> in the running turn's language.</summary>
+        public static string QueueNoteFor(ReceiptLanguage lang) =>
+            lang == ReceiptLanguage.Ms ? "Beratur selepas larian ini" : QueueNote;
+
         /// <summary>The composer's scope chip: "{3D} · 52 selected" (view name, then the selection count); "" when the
         /// view is unknown. Nothing selected reads just the view.</summary>
         public static string ScopeText(string? viewName, int selected)
