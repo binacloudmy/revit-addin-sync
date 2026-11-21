@@ -177,7 +177,7 @@ namespace RevitAddinSync.Tests
         {
             var bar = Src("UI", "Copilot", "Controls", "PromptBar.xaml.cs");
             var apply = Body(bar, "private void ApplyRunLanguage()");
-            Assert.Contains("Input.PlaceholderText = Busy ? RunningText.QueuePlaceholderFor(_runLanguage) : Placeholder;", apply);
+            Assert.Contains("Input.PlaceholderText = Busy ? RunningText.QueuePlaceholderFor(_runLanguage) : RunningText.IdlePlaceholderFor(_runLanguage, Placeholder);", apply);
             Assert.Contains("_queueNote.Text = RunningText.QueueNoteFor(_runLanguage);", apply);
             Assert.Contains("pb.ApplyRunLanguage();", Body(bar, "private static void OnBusyChanged("));
             Assert.Contains("QueueHint.Text = RunningText.QueueHintFor(_runLanguage);", bar);

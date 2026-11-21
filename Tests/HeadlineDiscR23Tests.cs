@@ -93,7 +93,8 @@ namespace RevitAddinSync.Tests
                 return File.ReadAllText(Path.Combine(dir!.FullName, rel)).Replace("\r\n", "\n");
             }
             var vm = Src("UI/Copilot/CopilotViewModel.cs");
-            Assert.Contains("|| ReplyTone.NothingMade(TurnStatus.ServerResultOf(rr), rr.Evidence?.Calls.Select(c => c.Env));", vm);
+            Assert.Contains("|| ReplyTone.NothingMade(TurnStatus.ServerResultOf(rr), rr.Evidence?.Calls.Select(c => c.Env))", vm);
+            Assert.Contains("|| ReplyTone.RefusedOnly(rr.Evidence?.Calls);", vm);
             Assert.Contains("reply.ResultCard.InfoHeadline = reply.NothingWritten;", vm);   // the card path
             var chat = Src("UI/Copilot/Screens/ChatView.xaml.cs");
             Assert.Contains("bool toolProse = Model.ReplyTone.NeedsHeadline(m.Kind == CpMsgKind.AiReply, cardShown, m.NothingWritten, m.Text);", chat);
