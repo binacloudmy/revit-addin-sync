@@ -212,6 +212,19 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
+        public void Results_rescan_passes_ar_for_a_non_ar_file()
+        {
+            var core = new PanelCore(new List<PanelItem>(), null, new ManualClock());
+            var start = new StartScreenModel(core) { FileLabel = "jkrST22_2b.rvt" };
+            core.SetLod("300"); core.BeginExternalRun(); core.FinishExternalRun();
+            var r = new ResultsScreenModel(core, start);
+            (int, string)? rescan = null;
+            r.RescanRequested += (l, d) => rescan = (l, d);
+            r.Rescan();
+            Assert.Equal((300, "AR"), rescan);
+        }
+
+        [Fact]
         public void Actions_become_requests_for_the_host()
         {
             var (r, _) = New();

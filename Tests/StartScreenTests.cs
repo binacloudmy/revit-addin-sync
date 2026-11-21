@@ -56,7 +56,20 @@ namespace RevitWebAppSync.Tests
             s.FileLabel = file;
             Assert.Equal("AR", s.DiscValue);
             Assert.Equal("AR", s.DetectedDisc);
-            Assert.Equal("Preset from the file name (AR).", Lang(s, "en").DiscHint);
+        }
+
+        [Fact]
+        public void Hint_says_only_ar_is_supported_for_a_non_ar_file_and_names_the_file_for_ar()
+        {
+            var (s, core) = New();
+            core.SetLang("en");
+            Assert.Equal("Preset from the file name (AR).", s.DiscHint);
+            s.FileLabel = "jkrST22_2b.rvt";
+            Assert.Equal("Only AR is supported for now.", s.DiscHint);
+            core.SetLang("ms");
+            Assert.Equal("Hanya AR disokong buat masa ini.", s.DiscHint);
+            s.FileLabel = "jkrAR24.rvt";
+            Assert.Equal("Pratetap daripada nama fail (AR).", s.DiscHint);
         }
 
         private static StartScreenModel Lang(StartScreenModel s, string l) { s.Core.SetLang(l); return s; }
@@ -89,7 +102,6 @@ namespace RevitWebAppSync.Tests
         {
             var (s, core) = New();
             s.DiscValue = "ME";
-            Assert.False(s.DiscChosen);
             Assert.Equal("AR", s.DiscValue);
             core.SetLang("en");
             core.Reset();
@@ -103,7 +115,6 @@ namespace RevitWebAppSync.Tests
         {
             var (s, _) = New();
             s.DiscValue = "AR";                             // same as detected
-            Assert.False(s.DiscChosen);
             s.DiscValue = null;
             s.DiscValue = "";
             Assert.Equal("AR", s.DiscValue);
@@ -228,7 +239,7 @@ namespace RevitWebAppSync.Tests
             var (s, core) = New();
             core.SetLang("en");
             s.FileLabel = "jkrST22_2b.rvt";
-            Assert.Equal("Preset from the file name (AR).", s.DiscHint);
+            Assert.Equal("Only AR is supported for now.", s.DiscHint);
             Assert.True(s.ReadyHintVisible);
             s.LodValue = "200";
             Assert.False(s.ReadyHintVisible);

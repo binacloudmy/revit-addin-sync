@@ -107,15 +107,12 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             set { if (_selectedDiscipline != value) { _selectedDiscipline = value; Raise(); } }
         }
 
-        /// <summary>Disciplines the user can scope a scan to (code + display label).
-        /// Landscape (LD) is intentionally not offered.</summary>
+        /// <summary>Disciplines a scan can be scoped to. AR only for now (the scan can
+        /// only read the architectural model); every fallback in the pane lands on the
+        /// first entry. Rule data for the others stays, add them back here later.</summary>
         public DisciplineOption[] Disciplines { get; } =
         {
             new DisciplineOption("AR", "Architecture"),
-            new DisciplineOption("CD", "Civil"),
-            new DisciplineOption("EL", "Electrical"),
-            new DisciplineOption("ME", "Mechanical"),
-            new DisciplineOption("ST", "Structure"),
         };
 
         private bool _scanning;
