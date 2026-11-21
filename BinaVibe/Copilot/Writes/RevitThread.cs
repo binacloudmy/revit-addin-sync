@@ -302,9 +302,9 @@ namespace BinaVibe.Copilot.Writes
         }
 
         /// <summary>r24 (slow schedule 616d168b, 255.8 s): the job at the head of the queue has waited past RevitTiming.SlowWait. One line in
-        /// the add-in log (copilot-clicks.log) per job, naming what Revit is busy with when that can be read from outside its thread: an open
-        /// modal window, a job of ours still running, the status bar (an active command's prompt, a calculation's progress), a dialog shown
-        /// since the job was queued. The request's envelopes carry the same words under revit_timing.busy. Never throws.</summary>
+        /// the local add-in log (copilot-clicks.log) per job, naming what Revit is busy with when that can be read from outside its thread: an
+        /// open modal window, a job of ours still running, the status bar text, a dialog shown since the job was queued. Those words can hold
+        /// paths and user names, so they stay in the local log; the request's envelope gets only a category (revit_timing.busy). Never throws.</summary>
         private static void NoteSlowWait()
         {
             try
@@ -323,7 +323,7 @@ namespace BinaVibe.Copilot.Writes
                     dialog = "id '" + (Volatile.Read(ref _lastDialogId) ?? "") + "'" + (string.IsNullOrEmpty(text) ? "" : ", " + (text!.Length > 80 ? text.Substring(0, 80) : text));
                 }
                 var idle = Volatile.Read(ref _lastIdleTicks) >= head.QueuedAt;
-                head.NoteBusy(RevitTiming.BusyWith(idle, modal, status, dialog, running));
+                head.NoteBusy(RevitTiming.BusyCategory(modal, status, dialog, running));   // the envelope: a category only (privacy)
                 BinaVibe.Copilot.Guard.StageTimer.Sink(RevitTiming.SlowWaitLine(head.Name, head.Waited.TotalSeconds, idle, modal, status, dialog, running));
             }
             catch (Exception) { /* a log line only */ }

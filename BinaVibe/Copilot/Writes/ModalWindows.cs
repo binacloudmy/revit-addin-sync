@@ -87,8 +87,9 @@ namespace BinaVibe.Copilot.Writes
             }
         }
 
-        /// <summary>r18: the first pane of Revit's status bar (the prompt of the command it is in, "Click to enter wall start point"), read only
-        /// when the watchdog already knows the UI thread pumps and shows no modal window. A standard status bar child of the main window answers
+        /// <summary>r18: the first pane of Revit's status bar (the prompt of the command it is in, "Click to enter wall start point"), read by
+        /// the watchdog when the UI thread pumps and shows no modal window, and (r24) for the slow-wait line once a job has waited 30 s with no
+        /// modal window and no job of ours running. The text can name files and paths: it goes to the local log only, never to an envelope. A standard status bar child of the main window answers
         /// SB_GETTEXT; the message is sent with a 300 ms timeout and SMTO_ABORTIFHUNG, so a busy thread is never waited on. Null when there is no
         /// such window or nothing could be read (the busy reply then names the mode without its prompt). Never throws.</summary>
         public static string? StatusText(long mainWindow)

@@ -126,20 +126,95 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void NotRunJobsAndTheBusyCause_AreReported()
+        public void NotRunJobsAndTheBusyCategory_AreReported()
         {
             var t = new RevitTiming();
             t.NotRun(61000);
-            t.NoteBusy("modal dialog open 'Network Calculation'");
-            t.NoteBusy("a later cause is not kept");
+            t.NoteBusy(RevitTiming.ModalDialog);
+            t.NoteBusy(RevitTiming.NoIdle);   // the first category is kept
             var o = t.ToJson();
             Assert.Equal(61.0, (double)o["queued_s"]!);
             Assert.Equal(0, (int)o["jobs"]!);
             Assert.Equal(1, (int)o["not_run"]!);
-            Assert.Equal("modal dialog open 'Network Calculation'", (string)o["busy"]!);
+            Assert.Equal("modal_dialog", (string)o["busy"]!);
             var env = Env(EnvelopePhase.Read);
             t.Stamp(new[] { env });
             Assert.True(env.Data!.Value.TryGetProperty(RevitTiming.Key, out _));
+        }
+
+        // Privacy (audit of 13ff5913): dialog messages, window titles and status-bar text can hold paths and user names. None reaches the envelope.
+        private const string Path_ = @"C:\Users\aminah.binti\Documents\MRSM3-run.rvt";
+
+        [Theory]
+        [InlineData(Path_, null, null, null, "modal_dialog")]
+        [InlineData(null, null, null, "Envelope[]", "copilot_job:Envelope[]")]
+        [InlineData(null, null, "id 'TaskDialog_Save', Save changes to " + Path_ + "?", null, "task_dialog")]
+        [InlineData(null, "Opening " + Path_, null, null, "status_bar_busy")]
+        [InlineData(null, null, null, null, "no_idle")]
+        public void TheEnvelopeGetsOnlyACategory_NeverTheWords(string? modal, string? status, string? dialog, string? running, string expected)
+        {
+            var category = RevitTiming.BusyCategory(modal, status, dialog, running);
+            Assert.Equal(expected, category);
+            Assert.Equal("copilot_job:CUsersxscript", RevitTiming.BusyCategory(null, null, null, @"C:\Users\x <script>"));   // only letters, digits, _ and []
+            Assert.True(RevitTiming.IsCategory(category));
+            var t = new RevitTiming();
+            t.Ran(31000, 10);
+            t.NoteBusy(category);
+            var env = Env(EnvelopePhase.Read);
+            t.Stamp(new[] { env });
+            var json = CopilotJson.Serialize(env);
+            Assert.DoesNotContain("aminah", json);
+            Assert.DoesNotContain("Users", json);
+            Assert.DoesNotContain(".rvt", json);
+            Assert.DoesNotContain("\\", json);
+        }
+
+        [Theory]
+        [InlineData(Path_)]
+        [InlineData("modal dialog open 'Save " + Path_ + "'")]
+        [InlineData("copilot_job:" + Path_)]
+        [InlineData("copilot_job:")]
+        [InlineData("")]
+        public void FreeTextIsDropped_ByNoteBusy(string text)
+        {
+            var t = new RevitTiming();
+            t.Ran(31000, 10);
+            t.NoteBusy(text);
+            Assert.Null(t.Busy);
+            Assert.False(t.ToJson().ContainsKey("busy"));
+        }
+
+        [Fact]
+        public void TheBusyWords_AreBuiltInTheLocalLogLineOnly_AndTheThreadNotesACategory()
+        {
+            var s = Src("BinaVibe/Copilot/Writes/RevitThread.cs");
+            Assert.Contains("head.NoteBusy(RevitTiming.BusyCategory(modal, status, dialog, running));", s);
+            Assert.DoesNotContain("NoteBusy(RevitTiming.BusyWith(", s);
+            Assert.DoesNotContain("NoteBusy(RevitTiming.SlowWaitLine(", s);
+        }
+
+        [Fact]
+        public async Task AMultiCallRequest_CarriesTheTotalsOnItsFirstEnvelopeOnly()
+        {
+            var host = new CopilotToolHost { ReadExecutor = new TimedReads { Queued = 4000, Run = 2000, Data = new { rows = 1 } } };
+            var envs = await host.RunReadsAsync("t", new[] { Call("find_elements"), Call("inspect"), Call("look") }, new SnapshotModel(), CancellationToken.None);
+            Assert.True(envs[0].Data!.Value.TryGetProperty(RevitTiming.Key, out _));
+            Assert.False(envs[1].Data!.Value.TryGetProperty(RevitTiming.Key, out _));
+            Assert.False(envs[2].Data!.Value.TryGetProperty(RevitTiming.Key, out _));
+        }
+
+        [Fact]
+        public void AnArrayFirstEnvelope_PassesTheTotalsToTheNextObjectOne()
+        {
+            var t = new RevitTiming();
+            t.Ran(100, 100);
+            var a = Env(EnvelopePhase.Read, new[] { 1 });
+            var b = Env(EnvelopePhase.Read, new { x = 1 });
+            var c = Env(EnvelopePhase.Read, new { x = 2 });
+            t.Stamp(new[] { a, b, c });
+            Assert.Equal("[1]", a.Data!.Value.GetRawText());
+            Assert.True(b.Data!.Value.TryGetProperty(RevitTiming.Key, out _));
+            Assert.False(c.Data!.Value.TryGetProperty(RevitTiming.Key, out _));
         }
 
         [Fact]
