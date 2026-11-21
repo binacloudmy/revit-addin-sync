@@ -80,14 +80,17 @@ namespace BinaVibe.Copilot.Writes
                     catch (Exception) { answered = false; }
                     if (answered)
                     {
-                        collector.Add(new DialogDto { Id = e.DialogId ?? "", Text = decision.Text, AnsweredWith = decision.AnsweredWith });
+                        collector.Add(new DialogDto { Id = DialogRedaction.Redact(e.DialogId ?? ""), Text = DialogRedaction.Redact(decision.Text), AnsweredWith = decision.AnsweredWith });   // r24 privacy
                         return;
                     }
                     decision = DialogPolicy.Decide(null, message ?? decision.Text, inOurCallback: true);
                 }
 
-                collector.Add(new DialogDto { Id = e.DialogId ?? "", Text = decision.Text, AnsweredWith = null });
-                BusyDialogShown?.Invoke(decision.Text);
+                // r24 privacy: no dialog text leaves the add-in unredacted (the envelope, and the pane's progress row the turn may carry).
+                try { BinaVibe.Copilot.Guard.StageTimer.Sink("write dialog (local only): id '" + (e.DialogId ?? "") + "', text '" + decision.Text + "'"); }
+                catch (Exception) { /* a log line only */ }
+                collector.Add(new DialogDto { Id = DialogRedaction.Redact(e.DialogId ?? ""), Text = DialogRedaction.Redact(decision.Text), AnsweredWith = null });
+                BusyDialogShown?.Invoke(DialogRedaction.Redact(decision.Text));
             }
             catch (Exception)
             {

@@ -48,7 +48,7 @@ namespace BinaVibe.Copilot.Guard
         public void Add(string text, string severity, string? definitionId, IEnumerable<long> ids)
         {
             if (_inert) return;
-            var cleanText = (text ?? "").Trim();
+            var cleanText = BinaVibe.Copilot.Writes.DialogRedaction.RedactPaths((text ?? "").Trim());   // r24 privacy: a link or file failure can name a path
             if (cleanText.Length == 0) cleanText = "Revit reported a failure with no description.";
             var cleanSeverity = string.Equals(severity?.Trim(), WarningSeverity.Warning, StringComparison.OrdinalIgnoreCase)
                 ? WarningSeverity.Warning

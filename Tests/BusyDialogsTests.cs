@@ -112,5 +112,42 @@ namespace RevitAddinSync.Tests
             Assert.DoesNotContain("InCommandMessage(prompt)", s);
             Assert.DoesNotContain("NamedMessage(name)", s);
         }
+
+        [Fact]
+        public void RevitWarnings_LosePathsButKeepTheirLengthAndSingleSlashes()
+        {
+            var w = "Cannot find the linked file " + @"C:\Users\aminah\Desktop\STR_v3.rvt" + ". Highlighted floor/roof elements overlap and the join cannot be kept for element 123456 in this view.";
+            var r = DialogRedaction.RedactPaths(w, "nobody-here", null);
+            Assert.DoesNotContain("aminah", r);
+            Assert.Contains("<path>", r);
+            Assert.Contains("floor/roof", r);
+            Assert.Contains("123456", r);
+            Assert.True(r.Length > DialogRedaction.MaxChars);   // no cap for warnings
+        }
+
+        [Fact]
+        public void FailureLog_StoresTheRedactedText()
+        {
+            using (BinaVibe.Copilot.Guard.FailureLog.Begin())
+            {
+                BinaVibe.Copilot.Guard.FailureLog.Current.Add(@"Unable to open C:\Users\aminah\Desktop\MRSM3-run.rvt", WarningSeverity.Warning, null, new long[] { 7 });
+                var w = Assert.Single(BinaVibe.Copilot.Guard.FailureLog.Current.Snapshot());
+                Assert.Equal("Unable to open <path>", w.Text);
+            }
+        }
+
+        [Fact]
+        public void EveryPathThatPutsRevitUiTextIntoAnEnvelope_Redacts()
+        {
+            var dir = new System.IO.DirectoryInfo(System.IO.Directory.GetCurrentDirectory());
+            while (dir != null && !System.IO.File.Exists(System.IO.Path.Combine(dir.FullName, "RevitWebAppSync.csproj"))) dir = dir.Parent;
+            string Src(string rel) => System.IO.File.ReadAllText(System.IO.Path.Combine(dir!.FullName, rel));
+            var watch = Src("BinaVibe/Copilot/Writes/DialogWatch.cs");
+            Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(watch, @"Text = DialogRedaction\.Redact\(decision\.Text\)").Count);
+            Assert.DoesNotContain("Text = decision.Text", watch);
+            Assert.Contains("BusyDialogShown?.Invoke(DialogRedaction.Redact(decision.Text));", watch);
+            Assert.Contains("DialogRedaction.RedactPaths((text ?? \"\").Trim())", Src("BinaVibe/Copilot/Guard/FailureLog.cs"));
+            Assert.Contains("DialogRedaction.RedactPaths(ex.Message)", Src("BinaVibe/Copilot/Code/RevitCodeHost.cs"));
+        }
     }
 }

@@ -234,13 +234,24 @@ namespace BinaVibe.Copilot.Writes
         private static readonly System.Text.RegularExpressions.Regex Email = new(@"[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(\.[A-Za-z0-9\-]+)+", Opt);
         private static readonly System.Text.RegularExpressions.Regex Unc = new(@"\\\\[^\s""'<>|]+", Opt);
         private static readonly System.Text.RegularExpressions.Regex Drive = new(@"\b[A-Za-z]:[\\/][^\s""'<>|]*", Opt);
-        private static readonly System.Text.RegularExpressions.Regex Segments = new(@"[^\s""'<>|]*[\\/][^\s""'<>|]*", Opt);
+        // A backslash anywhere, or two or more slashes (Documents/BINA/out.ifc): a path. One slash ("and/or", "floor/roof" in a Revit warning) is not.
+        private static readonly System.Text.RegularExpressions.Regex Segments = new(@"[^\s""'<>|]*\\[^\s""'<>|]*|[^\s""'<>|]*/[^\s""'<>|]*/[^\s""'<>|]*", Opt);
         private static readonly System.Text.RegularExpressions.Regex File = new(@"[^\s""'<>|\\/]+\.(rvt|rfa|rte|rft|txt|xlsx|csv|ifc|dwg)\b", Opt);
 
         public static string Redact(string? text) => Redact(text, SafeUser(), SafeProfile());
 
+        /// <summary>Paths, files, emails and the user redacted, with no length cap: for Revit's failure messages and API exception
+        /// messages that reach an envelope's warnings (their own length limits apply).</summary>
+        public static string RedactPaths(string? text) => RedactPaths(text, SafeUser(), SafeProfile());
+
         /// <param name="userName">The Windows user name (Environment.UserName); <paramref name="profile"/> its profile folder.</param>
         public static string Redact(string? text, string? userName, string? profile)
+        {
+            var t = RedactPaths(text, userName, profile);
+            return t.Length <= MaxChars ? t : t.Substring(0, MaxChars - 1) + "…";
+        }
+
+        public static string RedactPaths(string? text, string? userName, string? profile)
         {
             if (string.IsNullOrEmpty(text)) return "";
             try
@@ -255,7 +266,7 @@ namespace BinaVibe.Copilot.Writes
                 t = File.Replace(t, "<file>");
                 if (!string.IsNullOrWhiteSpace(userName) && userName!.Trim().Length >= 2)
                     t = System.Text.RegularExpressions.Regex.Replace(t, @"(?<![A-Za-z0-9])" + System.Text.RegularExpressions.Regex.Escape(userName.Trim()) + @"(?![A-Za-z0-9])", "<user>", Opt);
-                return t.Length <= MaxChars ? t : t.Substring(0, MaxChars - 1) + "…";
+                return t;
             }
             catch (Exception) { return "<redacted>"; }
         }

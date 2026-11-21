@@ -509,7 +509,7 @@ namespace BinaVibe.Copilot.Code
             }
             catch (Exception ex)
             {
-                outcome.Warnings.Add(new WarningDto { Text = "Could not " + what + ": " + ex.Message, Severity = WarningSeverity.Warning });
+                outcome.Warnings.Add(new WarningDto { Text = "Could not " + what + ": " + BinaVibe.Copilot.Writes.DialogRedaction.RedactPaths(ex.Message), Severity = WarningSeverity.Warning });
             }
         }
 
