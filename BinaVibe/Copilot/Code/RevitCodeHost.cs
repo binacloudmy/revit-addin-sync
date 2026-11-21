@@ -65,13 +65,16 @@ namespace BinaVibe.Copilot.Code
         public static void UseTurnSelection(Document doc, UIDocument? uidoc, SnapshotModel? turn, PreparedCode prepared)
         {
             if (uidoc == null || prepared?.Analysis.Mode?.UsesSelection != true) return;   // code that never reads the selection keeps an earlier call's swap
-            _swap = null;
             try
             {
                 var live = uidoc.Selection.GetElementIds().Select(id => (long)id.Value).ToList();
                 var decision = TurnSelection.Decide(turn, live, id => doc.GetElement(ElemIds.From(id)) != null);
+                // r23 audit: a linked pick (a find's SetReferences) is kept as its stable reference; host ids alone are the link instance.
+                var linked = decision.Restore ? LinkedPickRefs(doc, uidoc) : null;
                 if (decision.Restore) uidoc.Selection.SetElementIds(decision.Ids.Select(ElemIds.From).ToList());
-                if (decision.Restore) _swap = new SelectionSwap(live, decision.Ids);   // r23 AI-456: GiveBackSelection puts `live` back after a read
+                // r23 (AI-456): only a swap that set the selection is recorded, with what Revit kept (it can keep fewer than asked);
+                // a later call that found the turn's selection in place leaves the first swap open for the give-back.
+                if (decision.Restore) Swaps.Record(live, linked, uidoc.Selection.GetElementIds().Select(id => (long)id.Value).ToList());
             }
             catch (Exception ex)
             {
@@ -80,42 +83,52 @@ namespace BinaVibe.Copilot.Code
             }
         }
 
-        // r23 (AI-456): the last UseTurnSelection swap, on Revit's one API thread. Each call for code that uses the selection resets it;
-        // GiveBackSelection consumes it; the write engine forgets it when a preview or a commit ends, so none outlives its request.
-        [ThreadStatic] private static SelectionSwap? _swap;
+        // r23 (AI-456): the open swap, on Revit's one API thread. Closed by GiveBackSelection, by ForgetSelectionSwap (the write engine,
+        // when each preview or commit request ends) and by the code's own select request (ApplyUi).
+        [ThreadStatic] private static SelectionSwapLedger? _swaps;
+        private static SelectionSwapLedger Swaps => _swaps ??= new SelectionSwapLedger();
 
-        private sealed class SelectionSwap
+        /// <summary>Every pick's stable reference when Revit's selection holds a linked pick; null otherwise.</summary>
+        private static IReadOnlyList<string>? LinkedPickRefs(Document doc, UIDocument uidoc)
         {
-            public SelectionSwap(IReadOnlyList<long> before, IReadOnlyList<long> swappedIn) { Before = before; SwappedIn = swappedIn; }
-            public IReadOnlyList<long> Before { get; }
-            public IReadOnlyList<long> SwappedIn { get; }
+            var picks = uidoc.Selection.GetReferences();
+            if (picks == null || !picks.Any(p => p != null && p.LinkedElementId != ElementId.InvalidElementId)) return null;
+            return picks.Where(p => p != null).Select(p => p.ConvertToStableRepresentation(doc)).ToList();
         }
 
         /// <summary>r23 (AI-456, live c7601a4a then e7898999): after a read run or a plan that UseTurnSelection swapped the turn's
         /// selection in for, give Revit back what it held before the swap (a find of this turn selected the FD1 doors; the
-        /// set-parameter script's read pass emptied it, and the "selected 2" card was then untrue). TurnSelection.GiveBack decides:
-        /// nothing when the code or the drafter changed the selection since. The write engine calls it when a preview has rolled back
-        /// (nothing was written: a Cancel at the card must find the find's selection) and after a commit with the ids it changed or
-        /// made as <paramref name="written"/> (a write that touched them ends on the turn's selection, as in r13). Never throws.</summary>
-        public static void GiveBackSelection(Document doc, UIDocument? uidoc, IEnumerable<long>? written = null)
+        /// set-parameter script's read pass emptied it, and the "selected 2" card was then untrue). SelectionSwapLedger decides:
+        /// nothing when the code or the drafter changed the selection since. The write engine calls it when a preview has rolled back,
+        /// when a commit did not commit (nothing was changed), and after a commit with the ids it changed or made as
+        /// <paramref name="written"/> (a write that touched them ends on the turn's selection, as in r13). Never throws.</summary>
+        public static void GiveBackSelection(Document? doc, UIDocument? uidoc, IEnumerable<long>? written = null)
         {
-            var swap = _swap;
-            _swap = null;
-            if (swap == null || uidoc == null) return;
+            if (uidoc == null || doc == null) { Swaps.Forget(); return; }
             try
             {
                 var live = uidoc.Selection.GetElementIds().Select(id => (long)id.Value).ToList();
-                var back = TurnSelection.GiveBack(swap.Before, swap.SwappedIn, live, id => doc.GetElement(ElemIds.From(id)) != null, written);
-                if (back != null) uidoc.Selection.SetElementIds(back.Select(ElemIds.From).ToList());
+                var back = Swaps.Take(live, id => doc.GetElement(ElemIds.From(id)) != null, written);
+                if (back == null) return;
+                if (back.References != null)
+                {
+                    var refs = new List<Reference>();
+                    foreach (var stable in back.References)
+                        try { refs.Add(Reference.ParseFromStableRepresentation(doc, stable)); }
+                        catch (Exception) { /* gone since: the rest still come back */ }
+                    if (refs.Count > 0) uidoc.Selection.SetReferences(refs);
+                }
+                else uidoc.Selection.SetElementIds(back.Ids.Select(ElemIds.From).ToList());
             }
             catch (Exception ex)
             {
+                Swaps.Forget();
                 System.Diagnostics.Debug.WriteLine("[BINA] turn selection give-back: " + ex.Message);
             }
         }
 
-        /// <summary>r23: drop a swap nobody gave back (a preview or commit that ended early); the write engine calls it when each request ends.</summary>
-        public static void ForgetSelectionSwap() => _swap = null;
+        /// <summary>r23: drop a swap nobody gave back; the write engine calls it when each request ends.</summary>
+        public static void ForgetSelectionSwap() => Swaps.Forget();
 
         private static IEnumerable<string> SelectionKeys(Document doc, UIDocument? uidoc)
         {
@@ -418,7 +431,7 @@ namespace BinaVibe.Copilot.Code
             Try(outcome, "select elements", () =>
             {
                 if (!plan.HasSelection) return;
-                _swap = null;   // r23: the code chose the selection itself; nothing is given back over it
+                Swaps.Forget();   // r23: the code chose the selection itself; nothing is given back over it
                 var want = plan.Select.Select(ElemIds.From).ToList();
                 uidoc.Selection.SetElementIds(want);
                 // Hand test 17 Nov (turn c61a1d44, right after a cancelled Revit dialog): three runs reported "selected 2" here and the next read
@@ -434,7 +447,7 @@ namespace BinaVibe.Copilot.Code
             Try(outcome, "select references", () =>
             {
                 if (!plan.HasReferences) return;
-                _swap = null;   // r23: as above, for linked picks
+                Swaps.Forget();   // r23: as above, for linked picks
                 var refs = new List<Reference>();
                 foreach (var (_, stable) in plan.References)
                     try { refs.Add(Reference.ParseFromStableRepresentation(doc, stable)); }

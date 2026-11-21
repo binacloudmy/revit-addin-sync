@@ -62,7 +62,18 @@ namespace BinaVibe.Copilot.Writes
             RevitThread.RunAsync(app => { try { return PreviewBatch(app, batch); } finally { Code.RevitCodeHost.ForgetSelectionSwap(); } }, ct);
 
         public Task<CommitOutcome> CommitAsync(WriteBatch batch, PreviewOutcome preview, string planHash, CancellationToken ct) =>
-            RevitThread.RunAsync(app => { try { return CommitBatch(app, batch, preview, planHash); } finally { Code.RevitCodeHost.ForgetSelectionSwap(); } }, ct);
+            RevitThread.RunAsync(app =>
+            {
+                CommitOutcome? outcome = null;
+                try { return outcome = CommitBatch(app, batch, preview, planHash); }
+                finally
+                {
+                    // r23 audit: a commit that did not commit (refused, drift, a failed call, Revit not keeping the group) changed
+                    // nothing: the find's selection comes back as after a preview. A committed batch gave back (or not) already.
+                    if (outcome?.Kind != CommitKind.Committed) Code.RevitCodeHost.GiveBackSelection(app.ActiveUIDocument?.Document, app.ActiveUIDocument);
+                    Code.RevitCodeHost.ForgetSelectionSwap();
+                }
+            }, ct);
 
         // ------------------------------------------------------------------
         // Preview

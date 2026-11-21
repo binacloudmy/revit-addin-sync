@@ -96,4 +96,60 @@ namespace BinaVibe.Copilot.Code
             return decision.Restore ? decision.Ids : null;
         }
     }
+
+    /// <summary>What to put back (r23, AI-456): host ids, or, when the earlier selection held linked picks, every pick as its stable
+    /// reference (set with Selection.SetReferences: the host ids alone would select the whole RevitLinkInstance).</summary>
+    public sealed class SelectionGiveBack
+    {
+        public SelectionGiveBack(IReadOnlyList<long> ids, IReadOnlyList<string>? references) { Ids = ids; References = references; }
+        public IReadOnlyList<long> Ids { get; }
+        /// <summary>Non-null: restore these stable references (host and linked picks) instead of <see cref="Ids"/>.</summary>
+        public IReadOnlyList<string>? References { get; }
+    }
+
+    /// <summary>r23 (AI-456): the one open selection swap of run_revit_code, Revit-free so its order is tested. UseTurnSelection
+    /// records a swap only when it actually set the turn's selection; a later call of the same batch that found the turn's
+    /// selection already in place records nothing and leaves the first swap open (audit: resetting on every call lost it, so a
+    /// Cancel after a two-run preview lost the doors again). A give-back, a forget (the end of a write request) or the code's own
+    /// select request closes it.</summary>
+    public sealed class SelectionSwapLedger
+    {
+        private IReadOnlyList<long>? _before;
+        private IReadOnlyList<string>? _beforeRefs;
+        private IReadOnlyList<long>? _held;
+
+        public bool Open => _held != null;
+
+        /// <param name="before">Host ids Revit held before the swap.</param>
+        /// <param name="beforeLinkedRefs">Every pick's stable reference when the earlier selection held a linked pick, else null.</param>
+        /// <param name="held">What Revit holds right after the swap's set, read back (Revit can keep fewer than asked).</param>
+        public void Record(IReadOnlyList<long> before, IReadOnlyList<string>? beforeLinkedRefs, IReadOnlyList<long> held)
+        {
+            _before = before ?? Array.Empty<long>();
+            _beforeRefs = beforeLinkedRefs != null && beforeLinkedRefs.Count > 0 ? beforeLinkedRefs : null;
+            _held = held ?? Array.Empty<long>();
+        }
+
+        public void Forget() { _before = null; _beforeRefs = null; _held = null; }
+
+        /// <summary>Close the swap and say what to put back; null: nothing (no swap, the selection changed since, nothing left,
+        /// or a commit wrote those elements, see <see cref="TurnSelection.GiveBack"/>).</summary>
+        public SelectionGiveBack? Take(IEnumerable<long>? live, Func<long, bool> exists, IEnumerable<long>? written = null)
+        {
+            if (exists == null) throw new ArgumentNullException(nameof(exists));
+            var before = _before; var refs = _beforeRefs; var held = _held;
+            Forget();
+            if (held == null) return null;
+            if (refs != null)
+            {
+                // Linked picks: the same guards on the host side (unchanged since the swap, not written), then every pick back.
+                var now = new HashSet<long>(live ?? Enumerable.Empty<long>());
+                if (!now.SetEquals(held)) return null;
+                if (written != null && (before ?? Array.Empty<long>()).Any(new HashSet<long>(written).Contains)) return null;
+                return new SelectionGiveBack(Array.Empty<long>(), refs);
+            }
+            var ids = TurnSelection.GiveBack(before, held, live, exists, written);
+            return ids == null ? null : new SelectionGiveBack(ids, null);
+        }
+    }
 }
