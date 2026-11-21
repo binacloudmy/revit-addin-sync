@@ -81,7 +81,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
     /// <summary>
     /// AI-479 (one number): what a Fix all moved, on the board and on the score. The board
     /// counts rows, the score counts checks (cells), and the families with no spec id
-    /// (Kod_Jenis, Sistem, Sub_Sistem, Bidang, JKR code, Grid, Level) are "extra": fixable
+    /// (Grid, Level, JKR code, element-less rows; Kod_Jenis, Sistem, Sub_Sistem and Bidang map to Db.1 and are in the %) are "extra": fixable
     /// rows on the board outside the %. A fix there moves the board and never the score;
     /// this says so, instead of three numbers that disagree. WPF-free.
     /// </summary>

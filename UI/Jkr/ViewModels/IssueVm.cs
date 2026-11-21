@@ -56,7 +56,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public string SpecCheckId { get; set; } = "";
 
         /// <summary>AI-479: a fixable row (a ready fix, a picker or an AI-fixer candidate) with no spec id —
-        /// Kod_Jenis, Sistem, Sub_Sistem, Bidang, JKR code, Grid, Level. It stays on the board, labelled
+        /// Grid, Level, JKR code and element-less rows (a "missing parameter" rule on an element maps to Db.1, so Kod_Jenis, Sistem, Sub_Sistem and Bidang are in the %). It stays on the board, labelled
         /// "extra", and is outside the %: fixing it never moves the score. The add-in's own spec rows and the
         /// BIM010 rows are never extra.</summary>
         public bool IsExtra =>
