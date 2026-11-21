@@ -51,6 +51,20 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// Distinct from Id (addin-computed audit hash).</summary>
         public string CheckId { get; set; } = "";
 
+        /// <summary>AI-479: the spec check (of the 61) this row answers ("A2.1"), whichever source made it
+        /// (backend rule, BIM010 checker, spec evaluator); "" = a family with no spec id.</summary>
+        public string SpecCheckId { get; set; } = "";
+
+        /// <summary>AI-479: a fixable row (a ready fix, a picker or an AI-fixer candidate) with no spec id —
+        /// Grid, Level, JKR code and element-less rows (a "missing parameter" rule on an element maps to Db.1, so Kod_Jenis, Sistem, Sub_Sistem and Bidang are in the %). It stays on the board, labelled
+        /// "extra", and is outside the %: fixing it never moves the score. The add-in's own spec rows and the
+        /// BIM010 rows are never extra.</summary>
+        public bool IsExtra =>
+            string.IsNullOrEmpty(SpecCheckId) && !NeedsPerson
+            && !CheckId.StartsWith("SPEC-", System.StringComparison.Ordinal)
+            && !CheckId.StartsWith("BIM010-", System.StringComparison.Ordinal)
+            && (AutoFixable || IsPick || !string.IsNullOrEmpty(FixAction));
+
         /// <summary>Backend V2 domain (element, project_setup, ...). Sent back
         /// with AI auto-fix requests.</summary>
         public string Domain { get; set; } = "";

@@ -132,6 +132,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             };
             // AI-434: several valid codes → a picker row (never auto-fixable, never in Fix all).
             vm.SetPick(dto.ValidOptions, dto.AiSuggestedCode, dto.AiSuggestionReason, dto.RequiresUserChoice);
+            // AI-479: the spec check this rule answers (null = a family with no spec id: "extra").
+            vm.SpecCheckId = RevitWebAppSync.UI.Jkr.Panel.Core.SpecReport.MapBackend(dto.Category, dto.Rule, dto.ElementId, dto.Reason)?.Id ?? "";
             return vm;
         }
 
@@ -299,6 +301,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     },
                     Spec = new SpecRef { Doc = "", Clause = RevitWebAppSync.UI.Jkr.Panel.Core.SpecCatalog.ShownReference(check?.Reference) },
                 };
+                vm.SpecCheckId = check?.Id ?? "";   // AI-479
                 byId[id] = vm;
                 list.Add(vm);
             }
@@ -344,6 +347,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     Locatable = firstId > 0,
                     LocateCount = Math.Max(1, r.ElementIds?.Count ?? 0),
                     BorangKey = key,
+                    SpecCheckId = RevitWebAppSync.UI.Jkr.Panel.Core.SpecReport.MapAudit(r.CheckerId, key, r.Row.Description, false)?.Id ?? "",   // AI-479
                     Element = new ElementRef
                     {
                         Id = firstId > 0 ? firstId.ToString() : "—",

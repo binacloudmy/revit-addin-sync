@@ -394,6 +394,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             if (!string.IsNullOrEmpty(x.Cite) && x.Cite != "—")
                 meta.AddRange(x.Cite.Split(new[] { " · " }, StringSplitOptions.RemoveEmptyEntries).Where(c => c != "Borang " + x.Row));
             if (ai) meta.Add(aiMark);
+            if (x.Extra && !man) meta.Add(PaneText.ExtraTag(_core.Lang));   // AI-479
             var change = !man && x.Prop != null;
             return new ResultRow
             {
