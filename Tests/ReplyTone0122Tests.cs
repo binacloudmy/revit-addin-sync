@@ -84,5 +84,30 @@ namespace RevitAddinSync.Tests
             Assert.Equal("Undone: Set parameter Width (+1 more)", BinaVibe.Copilot.Undo.UndoWords.Line(false, new[] { "Set parameter Width (+1 more)" }, false));
             Assert.Equal("Dibuat asal: Set parameter Width (+1 lagi)", BinaVibe.Copilot.Undo.UndoWords.ForPane("Undone: Set parameter Width (+1 more)", true));
         }
+
+        // ---- r22, P7 T2 (9a2a937e): Langkau on the tag-type FORM card came back as {"tag type": "Skip"} and the reply kept the green check -------
+
+        private static AskCardModel TagForm() => AskCardModel.From(new AskDto
+        {
+            RequestId = "r", Question = "Jenis tag yang mana? (1 lagi tidak disenaraikan)",
+            Fields = new List<AskFieldDto>
+            {
+                new AskFieldDto { Id = "tag type", Label = "Jenis tag yang mana? (1 lagi tidak disenaraikan)", Type = AskFieldTypes.Choice, Group = "Jenis tag", Choices = new List<AskOptionDto>
+                {
+                    new AskOptionDto { Id = "jkrAR18t_dor_(t190) M_Door Tag Mark_: (t190a) M_Door Tag", Label = "jkrAR18t_dor_(t190) M_Door Tag Mark_: (t190a) M_Door Tag" },
+                    new AskOptionDto { Id = "(t192a) sc1-100 tx3mm r2mm KKP", Label = "(t192a) sc1-100 tx3mm r2mm KKP" },
+                    new AskOptionDto { Id = "Skip", Label = "Langkau", Kind = AskOptionKinds.Skip },
+                } },
+            },
+        }, ReceiptLanguage.Ms);
+
+        [Fact]
+        public void ASkipPickedOnAFormField_IsADecline_AndATagTypeIsNot()
+        {
+            Assert.True(ReplyTone.Declines(TagForm(), Answer("tag type", "Skip")));                          // the P7 turn's own answer
+            Assert.False(ReplyTone.Declines(TagForm(), Answer("tag type", "(t192a) sc1-100 tx3mm r2mm KKP")));
+            Assert.False(ReplyTone.Declines(TagForm(), Answer("text", "guna t190")));                        // typed: an answer
+            Assert.True(ReplyTone.TypedRefusal(ReplyTone.Declines(TagForm(), Answer("tag type", "Skip")), new List<Envelope?> { Env(EnvelopePhase.Read), Env(EnvelopePhase.Preview) }));
+        }
     }
 }

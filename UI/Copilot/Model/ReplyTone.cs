@@ -22,12 +22,30 @@ namespace RevitWebAppSync.UI.Copilot.Model
         {
             if (ask == null || answer == null) return false;
             var values = answer.Values ?? new Dictionary<string, System.Text.Json.JsonElement>();
-            var picked = values.Where(kv => kv.Value.ValueKind == System.Text.Json.JsonValueKind.True).Select(kv => kv.Key).ToList();
-            var typed = values.Where(kv => kv.Value.ValueKind == System.Text.Json.JsonValueKind.String && !string.IsNullOrWhiteSpace(kv.Value.GetString())).ToList();
-            if (typed.Count > 0) return false;
-            if (picked.Count == 0) return values.Count == 0 || values.All(kv => kv.Value.ValueKind == System.Text.Json.JsonValueKind.String || kv.Value.ValueKind == System.Text.Json.JsonValueKind.False);   // "Don't answer"
-            return picked.All(id => id == WideWriteModel.WriteCancelId || id == "force_cancel"
-                                    || ask.Options.Any(o => o.Id == id && (o.IsSkip || AskCardModel.IsDeclineLike(o.Label))));
+            var any = false;
+            foreach (var kv in values)
+            {
+                var v = kv.Value;
+                if (v.ValueKind == System.Text.Json.JsonValueKind.False) continue;
+                if (v.ValueKind == System.Text.Json.JsonValueKind.True)
+                {
+                    // an option card's pick: a way out only when its option is Skip/Cancel
+                    if (!(kv.Key == WideWriteModel.WriteCancelId || kv.Key == "force_cancel"
+                          || ask.Options.Any(o => o.Id == kv.Key && (o.IsSkip || AskCardModel.IsDeclineLike(o.Label))))) return false;
+                    any = true;
+                    continue;
+                }
+                if (v.ValueKind != System.Text.Json.JsonValueKind.String) return false;   // a number typed into a field
+                var text = (v.GetString() ?? "").Trim();
+                if (text.Length == 0) continue;                                          // "Don't answer", an empty field
+                // P7 9a2a937e: a form field's pick comes back as its choice id ({"tag type": "Skip"}); a multi field joins its ticks with " | "
+                var field = ask.Fields.FirstOrDefault(f => f.Id == kv.Key);
+                if (field == null) return false;                                         // typed text ("text"): an answer, not a way out
+                var ids = field.Multi ? text.Split(new[] { " | " }, System.StringSplitOptions.RemoveEmptyEntries) : new[] { text };
+                if (!ids.All(id => field.Choices.Any(c => c.Id == id && (c.IsSkip || AskCardModel.IsDeclineLike(c.Label))))) return false;
+                any = true;
+            }
+            return any || values.Count == 0 || values.Values.All(v => v.ValueKind == System.Text.Json.JsonValueKind.String || v.ValueKind == System.Text.Json.JsonValueKind.False);
         }
 
         /// <summary>The reply wrote nothing because typed text at a write card was refused: the turn's write card was answered by typing
