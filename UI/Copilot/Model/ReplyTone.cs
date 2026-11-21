@@ -16,6 +16,20 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public const string InfoGlyph = "M11,10 V15.5 M11,6.6 V6.7";
         public const string InfoGlyphStroke = "Cp.Muted";
 
+        /// <summary>r22 (laptop L8 R1 959b3001): the card was answered with only a way out: Skip / Langkau (an option of kind skip), Cancel
+        /// (write_cancel, force_cancel or a decline label), or "Don't answer" (an empty answer). Its reply, if nothing then committed, is no success.</summary>
+        public static bool Declines(AskCardModel? ask, AnswerDto? answer)
+        {
+            if (ask == null || answer == null) return false;
+            var values = answer.Values ?? new Dictionary<string, System.Text.Json.JsonElement>();
+            var picked = values.Where(kv => kv.Value.ValueKind == System.Text.Json.JsonValueKind.True).Select(kv => kv.Key).ToList();
+            var typed = values.Where(kv => kv.Value.ValueKind == System.Text.Json.JsonValueKind.String && !string.IsNullOrWhiteSpace(kv.Value.GetString())).ToList();
+            if (typed.Count > 0) return false;
+            if (picked.Count == 0) return values.Count == 0 || values.All(kv => kv.Value.ValueKind == System.Text.Json.JsonValueKind.String || kv.Value.ValueKind == System.Text.Json.JsonValueKind.False);   // "Don't answer"
+            return picked.All(id => id == WideWriteModel.WriteCancelId || id == "force_cancel"
+                                    || ask.Options.Any(o => o.Id == id && (o.IsSkip || AskCardModel.IsDeclineLike(o.Label))));
+        }
+
         /// <summary>The reply wrote nothing because typed text at a write card was refused: the turn's write card was answered by typing
         /// and no write of the turn committed.</summary>
         public static bool TypedRefusal(bool typedAtWriteCard, IEnumerable<Envelope?>? envelopes) =>

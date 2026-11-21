@@ -41,7 +41,7 @@ namespace BinaVibe.Copilot.Undo
         {
             var head = ms ? (redo ? RedoneMs : UndoneMs) : (redo ? Redone : Undone);
             var and = ms ? " dan " : " and ";
-            var list = (names ?? Array.Empty<string>()).Where(n => !string.IsNullOrWhiteSpace(n)).ToList();
+            var list = (names ?? Array.Empty<string>()).Where(n => !string.IsNullOrWhiteSpace(n)).Select(n => ms ? MoreMs(n) : n).ToList();
             if (list.Count == 0) return head + (ms ? UnnamedMs : Unnamed);
             if (list.Count == 1) return head + list[0];
             if (list.Count <= MaxNamesShown) return head + string.Join(", ", list.Take(list.Count - 1)) + and + list[list.Count - 1];
@@ -58,8 +58,14 @@ namespace BinaVibe.Copilot.Undo
             else if (text.StartsWith(Redone, StringComparison.Ordinal)) text = RedoneMs + text.Substring(Redone.Length);
             else return text;
             var m = System.Text.RegularExpressions.Regex.Match(text, @" and (\d+) more$");
-            return m.Success ? text.Substring(0, m.Index) + " dan " + m.Groups[1].Value + " lagi" : text;
+            return MoreMs(m.Success ? text.Substring(0, m.Index) + " dan " + m.Groups[1].Value + " lagi" : text);
         }
+
+        private static readonly System.Text.RegularExpressions.Regex BatchMore = new System.Text.RegularExpressions.Regex(@"\(\+(\d+) more\)");
+
+        /// <summary>r22 (PC P6 fba25214): the add-in's own batch mark in an entry name ("Set parameter Width (+1 more)", WriteLabels) reads
+        /// "(+1 lagi)" on a Malay line; the rest of the name stays exactly as Revit lists it.</summary>
+        public static string MoreMs(string name) => BatchMore.Replace(name ?? "", "(+$1 lagi)");
 
         /// <summary>The line for entries as Revit names them ("BINA: Revit code"): each stripped, repeats said once.</summary>
         public static string LineOfEntries(bool redo, IEnumerable<string>? entries) =>

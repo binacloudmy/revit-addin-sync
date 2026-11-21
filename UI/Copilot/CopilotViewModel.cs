@@ -186,7 +186,7 @@ namespace RevitWebAppSync.UI.Copilot
 
         // ─── Model-mirror indexing (Copilot open → seed → then prompt) ────────
         private bool _isIndexing;
-        /// <summary>r22 (P5 6bf0f4ec): this turn's write card was answered by typing (refused as an approval): its reply gets the info disc.</summary>
+        /// <summary>r22: this turn's last card was answered by typing at a write card (P5 6bf0f4ec) or with only Skip/Langkau/Cancel (L8 959b3001): a reply that then wrote nothing gets the info disc.</summary>
         private bool _typedAtWriteCard;
         public bool IsIndexing { get => _isIndexing; private set { if (_isIndexing == value) return; _isIndexing = value; Raise(); } }
 
@@ -1368,6 +1368,7 @@ namespace RevitWebAppSync.UI.Copilot
             var router = TurnRouter;
             if (m?.Ask == null || router == null || m.Ask.AnsweredSummary != null || answer == null) return;
             m.Ask.AnsweredSummary = string.IsNullOrWhiteSpace(summary) ? "✓" : summary;
+            _typedAtWriteCard = ReplyTone.Declines(m.Ask, answer);   // r22 L8 R1: a Skip/Langkau/Cancel that leaves nothing made: the info disc
             int i = Thread.IndexOf(m);
             if (i >= 0) Thread[i] = Thread[i];
 

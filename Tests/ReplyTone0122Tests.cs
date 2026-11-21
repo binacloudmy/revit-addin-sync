@@ -47,5 +47,42 @@ namespace RevitAddinSync.Tests
             Assert.Contains("ReplyTone.TypedRefusal(_typedAtWriteCard, rr.Evidence?.Calls.Select(c => c.Env))", vm);
             Assert.Contains("_typedAtWriteCard = _typedAtWriteCard || msg.Ask.Wide != null;", vm);
         }
+
+        // ---- r22, L8 R1 (959b3001): Langkau on the Malay box card left nothing made, and the reply showed the green check -------------
+
+        private static AskCardModel Box() => AskCardModel.From(new AskDto
+        {
+            RequestId = "r", Question = "Ketinggian itu akan menggerakkan bahagian atas ke arah bertentangan. Yang mana satu maksud anda?",
+            Options = new List<AskOptionDto>
+            {
+                new AskOptionDto { Id = "up|by|4 m", Label = "Naikkan bahagian atas sebanyak 4 m, ke +8804 mm dari PTBR_Aras Bumbung" },
+                new AskOptionDto { Id = "Skip", Label = "Langkau", Kind = AskOptionKinds.Skip },
+            },
+        }, ReceiptLanguage.Ms);
+
+        private static AnswerDto Answer(string key, object value) =>
+            new AnswerDto { Values = new Dictionary<string, System.Text.Json.JsonElement> { [key] = System.Text.Json.JsonSerializer.SerializeToElement(value) } };
+
+        [Fact]
+        public void ASkipOrCancel_IsADecline_AndARealPickIsNot()
+        {
+            Assert.True(ReplyTone.Declines(Box(), Answer("Skip", true)));                    // Langkau (959b3001), and Skip in English alike
+            Assert.False(ReplyTone.Declines(Box(), Answer("up|by|4 m", true)));
+            Assert.True(ReplyTone.Declines(Box(), Answer("text", "")));                      // "Don't answer"
+            Assert.False(ReplyTone.Declines(Box(), Answer("text", "naikkan 4 m")));          // a typed answer is not a decline
+            Assert.True(ReplyTone.Declines(Box(), Answer("write_cancel", true)));
+            Assert.True(ReplyTone.TypedRefusal(ReplyTone.Declines(Box(), Answer("Skip", true)), new List<Envelope?> { Env(EnvelopePhase.Preview) }));   // nothing made: info
+            Assert.False(ReplyTone.TypedRefusal(ReplyTone.Declines(Box(), Answer("Skip", true)), new List<Envelope?> { Env(EnvelopePhase.Commit) }));
+        }
+
+        // ---- r22, P6 S2 (fba25214): the Malay undo line kept "(+1 more)" -----------------------------------------------------
+
+        [Fact]
+        public void TheMalayUndoLine_SaysLagi_AndKeepsTheEntryName()
+        {
+            Assert.Equal("Dibuat asal: Set parameter Width (+1 lagi)", BinaVibe.Copilot.Undo.UndoWords.Line(false, new[] { "Set parameter Width (+1 more)" }, true));
+            Assert.Equal("Undone: Set parameter Width (+1 more)", BinaVibe.Copilot.Undo.UndoWords.Line(false, new[] { "Set parameter Width (+1 more)" }, false));
+            Assert.Equal("Dibuat asal: Set parameter Width (+1 lagi)", BinaVibe.Copilot.Undo.UndoWords.ForPane("Undone: Set parameter Width (+1 more)", true));
+        }
     }
 }
