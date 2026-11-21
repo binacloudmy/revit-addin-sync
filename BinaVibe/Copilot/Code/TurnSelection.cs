@@ -70,17 +70,21 @@ namespace BinaVibe.Copilot.Code
         /// Null (leave it) when nothing was swapped, when the selection changed since the swap (the code's own select request,
         /// or the drafter clicked), or when the earlier selection was empty or none of its ids still exist (a rollback that
         /// emptied Revit's selection never takes the drafter's own selection away). Only the read and plan runs give back: a
-        /// committed write ends on the turn's selection as before (r13, 2acc6aaf: a write turn leaves no extra selection).</summary>
+        /// committed write that changed or made any of those elements ends on the turn's selection as before (r13, 2acc6aaf,
+        /// live fb713fc2: a write turn never leaves its own targets selected); one that touched none of them gives them back too.</summary>
         /// <param name="before">The host ids Revit held just before the swap.</param>
         /// <param name="swappedIn">The ids the swap selected (the turn's).</param>
         /// <param name="live">The host ids Revit holds now, after the run.</param>
-        public static IReadOnlyList<long>? GiveBack(IEnumerable<long>? before, IEnumerable<long>? swappedIn, IEnumerable<long>? live, Func<long, bool> exists)
+        /// <param name="written">After a commit: the ids it changed or made; any of them among the ids to give back: leave it.</param>
+        public static IReadOnlyList<long>? GiveBack(IEnumerable<long>? before, IEnumerable<long>? swappedIn, IEnumerable<long>? live, Func<long, bool> exists,
+            IEnumerable<long>? written = null)
         {
             if (exists == null) throw new ArgumentNullException(nameof(exists));
             var now = new HashSet<long>(live ?? Enumerable.Empty<long>());
             if (!now.SetEquals(swappedIn ?? Enumerable.Empty<long>())) return null;
             var back = (before ?? Enumerable.Empty<long>()).Distinct().Where(exists).ToList();
             if (back.Count == 0 || now.SetEquals(back)) return null;
+            if (written != null && back.Any(new HashSet<long>(written).Contains)) return null;
             return back;
         }
 

@@ -64,8 +64,8 @@ namespace BinaVibe.Copilot.Code
         /// so the preview and the commit see, and hash, the same selection. Never throws.</summary>
         public static void UseTurnSelection(Document doc, UIDocument? uidoc, SnapshotModel? turn, PreparedCode prepared)
         {
+            if (uidoc == null || prepared?.Analysis.Mode?.UsesSelection != true) return;   // code that never reads the selection keeps an earlier call's swap
             _swap = null;
-            if (uidoc == null || prepared?.Analysis.Mode?.UsesSelection != true) return;
             try
             {
                 var live = uidoc.Selection.GetElementIds().Select(id => (long)id.Value).ToList();
@@ -80,7 +80,8 @@ namespace BinaVibe.Copilot.Code
             }
         }
 
-        // r23 (AI-456): the last UseTurnSelection swap, on Revit's one API thread; every UseTurnSelection call resets it first.
+        // r23 (AI-456): the last UseTurnSelection swap, on Revit's one API thread. Each call for code that uses the selection resets it;
+        // GiveBackSelection consumes it; the write engine forgets it when a preview or a commit ends, so none outlives its request.
         [ThreadStatic] private static SelectionSwap? _swap;
 
         private sealed class SelectionSwap
@@ -93,9 +94,10 @@ namespace BinaVibe.Copilot.Code
         /// <summary>r23 (AI-456, live c7601a4a then e7898999): after a read run or a plan that UseTurnSelection swapped the turn's
         /// selection in for, give Revit back what it held before the swap (a find of this turn selected the FD1 doors; the
         /// set-parameter script's read pass emptied it, and the "selected 2" card was then untrue). TurnSelection.GiveBack decides:
-        /// nothing when the code or the drafter changed the selection since. Not called after a write run: a committed write ends on
-        /// the turn's selection, as before (r13). Never throws.</summary>
-        public static void GiveBackSelection(Document doc, UIDocument? uidoc)
+        /// nothing when the code or the drafter changed the selection since. The write engine calls it when a preview has rolled back
+        /// (nothing was written: a Cancel at the card must find the find's selection) and after a commit with the ids it changed or
+        /// made as <paramref name="written"/> (a write that touched them ends on the turn's selection, as in r13). Never throws.</summary>
+        public static void GiveBackSelection(Document doc, UIDocument? uidoc, IEnumerable<long>? written = null)
         {
             var swap = _swap;
             _swap = null;
@@ -103,7 +105,7 @@ namespace BinaVibe.Copilot.Code
             try
             {
                 var live = uidoc.Selection.GetElementIds().Select(id => (long)id.Value).ToList();
-                var back = TurnSelection.GiveBack(swap.Before, swap.SwappedIn, live, id => doc.GetElement(ElemIds.From(id)) != null);
+                var back = TurnSelection.GiveBack(swap.Before, swap.SwappedIn, live, id => doc.GetElement(ElemIds.From(id)) != null, written);
                 if (back != null) uidoc.Selection.SetElementIds(back.Select(ElemIds.From).ToList());
             }
             catch (Exception ex)
@@ -111,6 +113,9 @@ namespace BinaVibe.Copilot.Code
                 System.Diagnostics.Debug.WriteLine("[BINA] turn selection give-back: " + ex.Message);
             }
         }
+
+        /// <summary>r23: drop a swap nobody gave back (a preview or commit that ended early); the write engine calls it when each request ends.</summary>
+        public static void ForgetSelectionSwap() => _swap = null;
 
         private static IEnumerable<string> SelectionKeys(Document doc, UIDocument? uidoc)
         {

@@ -57,11 +57,12 @@ namespace BinaVibe.Copilot.Writes
             _toolFor = toolFor ?? (name => CopilotToolCatalog.Find(name) as IWriteTool);
         }
 
+        // r23 (AI-456): a selection swap of run_revit_code never outlives the request it was made in.
         public Task<PreviewOutcome> PreviewAsync(WriteBatch batch, CancellationToken ct) =>
-            RevitThread.RunAsync(app => PreviewBatch(app, batch), ct);
+            RevitThread.RunAsync(app => { try { return PreviewBatch(app, batch); } finally { Code.RevitCodeHost.ForgetSelectionSwap(); } }, ct);
 
         public Task<CommitOutcome> CommitAsync(WriteBatch batch, PreviewOutcome preview, string planHash, CancellationToken ct) =>
-            RevitThread.RunAsync(app => CommitBatch(app, batch, preview, planHash), ct);
+            RevitThread.RunAsync(app => { try { return CommitBatch(app, batch, preview, planHash); } finally { Code.RevitCodeHost.ForgetSelectionSwap(); } }, ct);
 
         // ------------------------------------------------------------------
         // Preview
@@ -198,6 +199,9 @@ namespace BinaVibe.Copilot.Writes
                     RollBackIfOpen(group);
                     group.Dispose();
                     st.Mark("rollback");
+                    // r23 (AI-456, live c7601a4a): nothing was written; what a find of this turn selected is selected again, so a
+                    // Cancel at the card leaves the "selected" card true. Only after a run_revit_code swap (no-op otherwise).
+                    Code.RevitCodeHost.GiveBackSelection(doc, uidoc);
                 }
             }
 
@@ -579,6 +583,9 @@ namespace BinaVibe.Copilot.Writes
                 if (queued && AfterCommitRunner.ShouldRun(CommitKind.Committed, undoEntry: !noop))
                     foreach (var f in AfterCommitRunner.Run(contexts.Select(c => (IReadOnlyList<Action>)c.AfterCommit).ToList()))
                         AddWarning(envelopes[f.Call], AfterCommitRunner.WarningText(f));
+                // r23 (AI-456): a find's selection that a run_revit_code swap set aside comes back, unless this commit changed or made
+                // any of those elements (r13 below: a write turn never ends with its own targets selected). After the queued UI work.
+                Code.RevitCodeHost.GiveBackSelection(doc!, uidoc, envelopes.Where(e => e != null).SelectMany(TouchedIds).Concat(builder.AddedIds).ToList());
                 // r13 (0.0.148), live fb713fc2: the commit no longer selects what it touched (it left 10 elements selected after a section box);
                 // the highlight is only measured. A run's own select request (queued UI work) still sets the selection before this.
                 if (!noop) Highlight(uidoc!, doc!, envelopes, builder.AddedIds, select: false);

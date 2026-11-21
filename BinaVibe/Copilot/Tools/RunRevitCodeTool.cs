@@ -107,8 +107,8 @@ namespace BinaVibe.Copilot.Tools
                     finally { RevitCodeHost.GiveBackSelection(ctx.Doc, ctx.UiDoc); }
                 }, EnvelopePhase.Read);
 
-            // Planned as a write (the stricter of the two always wins). Nothing is given back here: the preview's rollback and the
-            // commit end on the turn's selection, as before (r13, 2acc6aaf: a write turn leaves no extra selection).
+            // Planned as a write (the stricter of the two always wins). Nothing is given back inside the transaction: the write
+            // engine does it after the preview's rollback, and after a commit unless the commit changed those elements (r23, AI-456).
             var phaseName = EnvelopePhase.Of(phase);
             return Guarded(() => RevitCodeHost.Write(ctx.Doc, ctx.UiDoc, ctx.Handles, ctx.AfterCommit, parsed, prepared, phase), phaseName);
         }

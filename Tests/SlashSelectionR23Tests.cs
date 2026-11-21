@@ -8,7 +8,8 @@
 //   doors (snapshot after seq 21: 977255, 977284), then the set-parameter script's read pass ran with the turn's own (empty) selection
 //   swapped in and nothing gave the doors back (snapshot after seq 29: none). The write was cancelled, the card said "selected 2", and
 //   "on the selected doors" found none. The swap stays (code sees the drafter's selection, live 14 Nov); a read run and a plan now give
-//   back what Revit held before it. A write run does not (r13 2acc6aaf, live fb713fc2: a write turn leaves no extra selection).
+//   back what Revit held before it, and so does the write engine after a preview's rollback (a Cancel at the card) and after a commit
+//   that changed or made none of those elements; a commit that wrote them ends on the turn's selection (r13 2acc6aaf, live fb713fc2).
 using System.IO;
 using System.Linq;
 using BinaVibe.Copilot.Code;
@@ -105,7 +106,32 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void TheReadAndThePlan_GiveBack_TheWriteDoesNot()
+        public void AfterACommit_TheSelectionComesBack_OnlyWhenTheWriteLeftThoseElementsAlone()
+        {
+            // r13 (fb713fc2): a write turn never ends with its own targets selected. A commit that changed the FD1 doors: leave it.
+            Assert.Null(TurnSelection.GiveBack(new long[] { 977255, 977284 }, new long[0], new long[0], All, written: new long[] { 977284 }));
+            // A commit that changed or made other elements (a schedule, the walls): the find's doors are selected again.
+            Assert.Equal(new long[] { 977255, 977284 }, TurnSelection.GiveBack(new long[] { 977255, 977284 }, new long[0], new long[0], All, written: new long[] { 3431003 }));
+            Assert.Equal(new long[] { 977255, 977284 }, TurnSelection.GiveBack(new long[] { 977255, 977284 }, new long[0], new long[0], All, written: new long[0]));
+        }
+
+        [Fact]
+        public void TheWriteEngine_GivesBack_AfterThePreviewsRollback_AndAfterTheCommit_AndForgetsTheSwapAtTheEnd()
+        {
+            var engine = Src("BinaVibe", "Copilot", "Writes", "RevitWriteEngine.cs");
+            var rollback = engine.IndexOf("RollBackIfOpen(group);\n                    group.Dispose();\n                    st.Mark(\"rollback\");", System.StringComparison.Ordinal);
+            Assert.True(rollback >= 0);
+            Assert.True(engine.IndexOf("Code.RevitCodeHost.GiveBackSelection(doc, uidoc);", rollback, System.StringComparison.Ordinal) > rollback);
+            const string commit = "Code.RevitCodeHost.GiveBackSelection(doc!, uidoc, envelopes.Where(e => e != null).SelectMany(TouchedIds).Concat(builder.AddedIds).ToList());";
+            var at = engine.IndexOf(commit, System.StringComparison.Ordinal);
+            Assert.True(at > engine.IndexOf("AfterCommitRunner.Run(", System.StringComparison.Ordinal));               // after the code's own UI work
+            Assert.True(at < engine.IndexOf("if (!noop) Highlight(uidoc!, doc!, envelopes, builder.AddedIds, select: false);", System.StringComparison.Ordinal));   // measured after
+            Assert.Contains("try { return PreviewBatch(app, batch); } finally { Code.RevitCodeHost.ForgetSelectionSwap(); }", engine);
+            Assert.Contains("try { return CommitBatch(app, batch, preview, planHash); } finally { Code.RevitCodeHost.ForgetSelectionSwap(); }", engine);
+        }
+
+        [Fact]
+        public void TheTool_GivesBackAfterReadsAndPlans_NeverInsideAWriteRun()
         {
             var tool = Src("BinaVibe", "Copilot", "Tools", "RunRevitCodeTool.cs");
             const string giveBack = "finally { RevitCodeHost.GiveBackSelection(ctx.Doc, ctx.UiDoc); }";
@@ -119,7 +145,8 @@ namespace RevitAddinSync.Tests
 
             var host = Src("BinaVibe", "Copilot", "Code", "RevitCodeHost.cs");
             var use = Body(host, "public static void UseTurnSelection(");
-            Assert.True(use.IndexOf("_swap = null;", System.StringComparison.Ordinal) < use.IndexOf("UsesSelection != true) return;", System.StringComparison.Ordinal));
+            // Code that never reads the selection keeps an earlier call's swap (a batch of two runs); code that reads it starts afresh.
+            Assert.True(use.IndexOf("UsesSelection != true) return;", System.StringComparison.Ordinal) < use.IndexOf("_swap = null;", System.StringComparison.Ordinal));
             Assert.Contains("if (decision.Restore) _swap = new SelectionSwap(live, decision.Ids);", use);
             var give = Body(host, "public static void GiveBackSelection(");
             Assert.Contains("TurnSelection.GiveBack(swap.Before, swap.SwappedIn, live,", give);
