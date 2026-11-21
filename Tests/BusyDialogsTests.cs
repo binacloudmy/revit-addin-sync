@@ -149,5 +149,40 @@ namespace RevitAddinSync.Tests
             Assert.Contains("DialogRedaction.RedactPaths((text ?? \"\").Trim())", Src("BinaVibe/Copilot/Guard/FailureLog.cs"));
             Assert.Contains("DialogRedaction.RedactPaths(ex.Message)", Src("BinaVibe/Copilot/Code/RevitCodeHost.cs"));
         }
+
+        [Theory]
+        [InlineData("Highlighted Wall/Floor/Roof elements overlap.", "Highlighted Wall/Floor/Roof elements overlap.")]
+        [InlineData("Saved to Documents/BINA/out.ifc", "Saved to <path>")]
+        [InlineData("See http://intranet.example/files/a for help", "See <path> for help")]
+        [InlineData("Temp at ~/Library/x", "Temp at <path>")]
+        public void SlashesMakeAPathOnlyWithAFileOrDriveLikeSegment(string raw, string expected)
+        {
+            Assert.Equal(expected, DialogRedaction.RedactPaths(raw, "nobody-here", null));
+        }
+
+        [Theory]
+        [InlineData("Can't edit the element until 'aminah.binti' saves changes to central and relinquishes it and you Reload Latest.",
+                    "Can't edit the element until '<user>' saves changes to central and relinquishes it and you Reload Latest.")]
+        [InlineData("The element is owned by aminah.binti.", "The element is owned by <user>.")]
+        [InlineData("Element 123456 is borrowed by 'Siti Hajar', request it first", "Element 123456 is borrowed by <user>, request it first")]
+        [InlineData("Workset is checked out by JKR-PC01\\ahmad and cannot be edited", "Workset is checked out by <user> and cannot be edited")]
+        public void WorksharingUserNamesAreRedacted(string raw, string expected)
+        {
+            Assert.Equal(expected, DialogRedaction.RedactPaths(raw, "nobody-here", null));
+        }
+
+        [Fact]
+        public void TheRawExceptionMessagesListedByTheAudit_AreRedacted()
+        {
+            var dir = new System.IO.DirectoryInfo(System.IO.Directory.GetCurrentDirectory());
+            while (dir != null && !System.IO.File.Exists(System.IO.Path.Combine(dir.FullName, "RevitWebAppSync.csproj"))) dir = dir.Parent;
+            string Src(string rel) => System.IO.File.ReadAllText(System.IO.Path.Combine(dir!.FullName, rel));
+            const string r = "DialogRedaction.RedactPaths(ex.Message)";
+            Assert.Contains("\"Revit could not export an image: \" + BinaVibe.Copilot.Writes." + r, Src("BinaVibe/Copilot/Read/LookCapture.cs"));
+            Assert.Contains("ex.GetType().Name + \": \" + BinaVibe.Copilot.Writes." + r, Src("BinaVibe/Copilot/Read/ReadExecutor.cs"));
+            Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(Src("BinaVibe/Copilot/Tools/RunRevitCodeTool.cs"), System.Text.RegularExpressions.Regex.Escape(r)).Count);
+            Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(Src("BinaVibe/Copilot/CopilotToolHost.cs"), System.Text.RegularExpressions.Regex.Escape(r)).Count);
+            Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(Src("BinaVibe/Copilot/Read/FindExecutor.cs"), System.Text.RegularExpressions.Regex.Escape(r)).Count);
+        }
     }
 }

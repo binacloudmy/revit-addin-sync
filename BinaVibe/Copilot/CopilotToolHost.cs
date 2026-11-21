@@ -118,8 +118,8 @@ namespace BinaVibe.Copilot
                     // runner that threw (even NotImplementedException) may already
                     // have committed part of the batch, so never call it clean.
                     var message = write
-                        ? "The write runner failed (" + ex.GetType().Name + ": " + ex.Message + "). Changes may or may not have been applied; inspect before retrying."
-                        : "The read failed in the add-in (" + ex.GetType().Name + ": " + ex.Message + ").";
+                        ? "The write runner failed (" + ex.GetType().Name + ": " + BinaVibe.Copilot.Writes.DialogRedaction.RedactPaths(ex.Message) + "). Changes may or may not have been applied; inspect before retrying."
+                        : "The read failed in the add-in (" + ex.GetType().Name + ": " + BinaVibe.Copilot.Writes.DialogRedaction.RedactPaths(ex.Message) + ").";
                     // A write that may have applied lands as a partial commit (W3 final round, M-7),
                     // so the client's late-post rule (phase commit, ok or partial) fires.
                     ran = allowed.Select(_ => write ? MayHaveApplied(message) : EnvelopeFactory.Failed(ErrorCodes.RuntimeError, message)).ToArray();

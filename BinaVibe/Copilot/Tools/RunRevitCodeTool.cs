@@ -125,8 +125,8 @@ namespace BinaVibe.Copilot.Tools
                 var failure = new CodeFailure
                 {
                     Code = ErrorCodes.RuntimeError,
-                    Summary = "run_revit_code failed in the add-in: " + ex.GetType().Name + ": " + ex.Message,
-                    Message = "run_revit_code failed in the add-in (" + ex.GetType().Name + ": " + ex.Message + ")."
+                    Summary = "run_revit_code failed in the add-in: " + ex.GetType().Name + ": " + BinaVibe.Copilot.Writes.DialogRedaction.RedactPaths(ex.Message),
+                    Message = "run_revit_code failed in the add-in (" + ex.GetType().Name + ": " + BinaVibe.Copilot.Writes.DialogRedaction.RedactPaths(ex.Message) + ")."
                               + (phase == EnvelopePhase.Commit ? " Changes may or may not have been applied; inspect before retrying." : ""),
                     Next = "Inspect the model before retrying.",
                 };

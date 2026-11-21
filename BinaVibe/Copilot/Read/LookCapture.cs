@@ -70,7 +70,7 @@ namespace BinaVibe.Copilot.Read
                 };
                 if (!visibleRegion && view != null) opts.SetViewsAndSheets(new List<ElementId> { view.Id });
                 try { doc.ExportImage(opts); }
-                catch (Exception ex) { throw new NoImageException("Revit could not export an image: " + ex.Message, ex); }
+                catch (Exception ex) { throw new NoImageException("Revit could not export an image: " + BinaVibe.Copilot.Writes.DialogRedaction.RedactPaths(ex.Message), ex); }
                 // Revit decorates the file name with the view name: take what it wrote.
                 var file = Directory.GetFiles(dir, "*.png").OrderByDescending(f => new FileInfo(f).Length).FirstOrDefault();
                 if (file == null) throw new NoImageException("Revit reported no error but wrote no image.");

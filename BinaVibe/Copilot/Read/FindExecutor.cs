@@ -408,7 +408,7 @@ namespace BinaVibe.Copilot.Read
             }
             catch (Exception ex)
             {
-                outcome?.Notes.Add("in_view could not be applied to the active view (" + ex.Message + ").");
+                outcome?.Notes.Add("in_view could not be applied to the active view (" + BinaVibe.Copilot.Writes.DialogRedaction.RedactPaths(ex.Message) + ").");
                 return result;
             }
 
@@ -870,7 +870,7 @@ namespace BinaVibe.Copilot.Read
             }
             catch (Exception ex)
             {
-                outcome.Notes.Add("Zoom failed: " + ex.Message);
+                outcome.Notes.Add("Zoom failed: " + BinaVibe.Copilot.Writes.DialogRedaction.RedactPaths(ex.Message));
             }
         }
     }

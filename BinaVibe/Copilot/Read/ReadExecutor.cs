@@ -148,7 +148,7 @@ namespace BinaVibe.Copilot.Read
             catch (Exception ex)
             {
                 return ReadEnvelope.Fail(ErrorCodes.RuntimeError,
-                    tool.Name + " failed in the add-in (" + ex.GetType().Name + ": " + ex.Message + "). Nothing was changed.");
+                    tool.Name + " failed in the add-in (" + ex.GetType().Name + ": " + BinaVibe.Copilot.Writes.DialogRedaction.RedactPaths(ex.Message) + "). Nothing was changed.");
             }
         }
 
