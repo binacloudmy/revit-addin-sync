@@ -82,6 +82,17 @@ namespace RevitWebAppSync.UI.Copilot.Model
             string.Equals(lang, "ms", StringComparison.OrdinalIgnoreCase) ? ReceiptLanguage.Ms
             : string.Equals(lang, "en", StringComparison.OrdinalIgnoreCase) ? ReceiptLanguage.En : fallback;
 
+        /// <summary>r22 (live M7 ab677831, "tinggikan kotak keratan ke 4 meter": the prompt read English here, the server read it Malay and sent
+        /// the box card in Malay, while "Don't answer" and "Or type your own answer…" stayed English): the language of a question card's own
+        /// chrome. The turn's, unless the server already wrote the card's words in Malay (two or more Malay function words in its title and
+        /// question); an English card in a Malay chat keeps the chat's Malay, as before.</summary>
+        public static ReceiptLanguage ForCard(ReceiptLanguage turn, string? title, string? question)
+        {
+            if (turn == ReceiptLanguage.Ms) return turn;
+            var words = Words.Matches((title ?? "") + " " + (question ?? "")).Cast<Match>().Select(m => m.Value);
+            return words.Count(w => Function.Contains(w)) >= 2 ? ReceiptLanguage.Ms : turn;
+        }
+
         /// <summary>The wire code of <c>lang</c> in a turn request.</summary>
         public static string Code(ReceiptLanguage lang) => lang == ReceiptLanguage.Ms ? "ms" : "en";
     }

@@ -462,7 +462,7 @@ namespace RevitWebAppSync.UI.Copilot
             {
                 case TurnOutcomeKind.Ask:
                 {
-                    var card = AskCardModel.From(outcome.Ask!, turn.Language);
+                    var card = AskCardModel.From(outcome.Ask!, PromptLanguage.ForCard(turn.Language, outcome.Ask!.Title, outcome.Ask!.Question));   // r22: M7 ab677831
                     card.TurnId = turn.Id;
                     card.ArrivedLive = true;   // a live question: it may take the focus from an empty message box
                     // M2: park the question only for a turn of the current chat. A chat

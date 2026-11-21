@@ -75,7 +75,14 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 var q = CardKit.Text(Clip(m.Question, 240), 12, "Cp.Muted", margin: new Thickness(0, 0, 0, 4));
                 if (m.Question.Length > 240) q.ToolTip = m.Question;
                 sp.Children.Add(q);
-                sp.Children.Add(AnsweredRow("", m.AnsweredSummary ?? m.Say(AskCardModel.AnsweredText)));
+                if (m.TypedRecordNote is string note)
+                {
+                    // r22 (live 83e423eb): "ya" typed at a write card wrote nothing; a tick there read as an approval
+                    sp.Children.Add(CardKit.Text("\u201C" + Clip(m.AnsweredSummary ?? "", 120) + "\u201D", 12.5, "Cp.Ink", margin: new Thickness(0, 2, 0, 2)));
+                    sp.Children.Add(CardKit.Text(note, 12, "Cp.Muted", margin: new Thickness(0, 2, 0, 0)));
+                }
+                else
+                    sp.Children.Add(AnsweredRow("", m.AnsweredSummary ?? m.Say(AskCardModel.AnsweredText)));
             }
             outer.Child = sp;
             return outer;

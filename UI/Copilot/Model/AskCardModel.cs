@@ -121,6 +121,17 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>Set once the drafter answered (for the collapsed record).</summary>
         public string? AnsweredSummary;
 
+        /// <summary>r22 (live 83e423eb): the answer was typed in the message box, not a button. At a write card (<see cref="Wide"/>) typed text
+        /// never approves, so its record shows no tick and says so (<see cref="TypedRecordNote"/>).</summary>
+        public bool AnsweredByTyping;
+
+        /// <summary>"Typing is not an approval: click Write to write." (Malay: "Taip bukan kelulusan: klik Tulis untuk menulis.").</summary>
+        public static string TypedNotApprovalText(ReceiptLanguage lang) =>
+            lang == ReceiptLanguage.Ms ? "Taip bukan kelulusan: klik Tulis untuk menulis." : "Typing is not an approval: click Write to write.";
+
+        /// <summary>The collapsed record's note for a write card answered by typing, else null: nothing was written.</summary>
+        public string? TypedRecordNote => Wide != null && AnsweredByTyping ? TypedNotApprovalText(Language) : null;
+
         /// <summary>The frame's heading, or null (the question itself is then the heading).</summary>
         public string? Title;
         /// <summary>What one made thing is called, singular ("sheet"), or null.</summary>
