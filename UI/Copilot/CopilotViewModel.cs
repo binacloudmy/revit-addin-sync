@@ -1801,7 +1801,7 @@ namespace RevitWebAppSync.UI.Copilot
                 var summary = redo
                     ? await Revit.RedoTurnAsync(m.TurnId)
                     : await Revit.UndoTurnAsync(m.TurnId, lastBatchOnly);
-                text = BinaVibe.Copilot.Undo.UndoWords.ForPane(summary ?? BinaVibe.Copilot.Undo.UndoWords.Line(redo, null), ms);   // r18: one undo wording; r22: Malay in a Malay chat
+                text = BinaVibe.Copilot.Undo.UndoWords.ForPane(summary ?? BinaVibe.Copilot.Undo.UndoWords.Line(redo, null, ms), ms);   // r18: one undo wording; r22: Malay in a Malay chat
                 moved = true;
             }
             catch (Exception ex)
