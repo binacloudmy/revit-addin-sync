@@ -110,7 +110,8 @@ namespace RevitAddinSync.Tests
             Assert.Equal("Beratur", RunningText.QueueTip(ReceiptLanguage.Ms));
             Assert.Equal("Queue", RunningText.QueueTip(ReceiptLanguage.En));
             var vm = Src("UI", "Copilot", "CopilotViewModel.cs");
-            Assert.Contains("RunningText.ScopeText(snap?.View?.Name, snap?.Selection?.Count ?? 0, router.ChatLanguage);", vm);
+            Assert.Contains("RunScope = RunningText.ScopeText(view, count, PromptLanguage.OfThread(Thread))", vm);
+            Assert.DoesNotContain("router.ChatLanguage", vm);
             var bar = Body(Src("UI", "Copilot", "Controls", "PromptBar.xaml.cs"), "private void ApplyRunLanguage()");
             Assert.Contains("_queueBtn.ToolTip = RunningText.QueueTip(_runLanguage);", bar);
             Assert.Contains("SendBtn.ToolTip = RunningText.StopTip(_runLanguage);", bar);
@@ -126,6 +127,49 @@ namespace RevitAddinSync.Tests
             Assert.Same(ToolCatalog.Curated, ToolCatalog.CuratedFrom(new List<RevitWebAppSync.Models.CatalogCommandDto>()));
             Assert.Contains(ToolCatalog.All, t => t.Name == "Count / List");
             Assert.True(ToolCatalog.All.Count >= 9);
+        }
+
+        private static ChatMessage Msg(string role, string text, ReceiptLanguage lang = ReceiptLanguage.En) =>
+            new ChatMessage { Role = role, Text = text, Lang = lang };
+
+        [Fact]
+        public void AReopenedMalayChat_KeepsMalay_ForANeutralFollowUp_InTheChipAndThePlaceholder()
+        {
+            // Re-audit: the chip read the router's language, which a reopened chat no longer has; the placeholder read the thread.
+            // Both read PromptLanguage.OfThread now: a reopened Malay chat (its reply saved Malay) and a neutral "ok" stay Malay.
+            var reopened = new List<ChatMessage>
+            {
+                Msg("user", "Pilih semua pintu bertanda FD1 dalam view ini."),
+                Msg("ai", "2 pintu dipilih.", ReceiptLanguage.Ms),
+                Msg("user", "ok"),
+            };
+            var lang = PromptLanguage.OfThread(reopened);
+            Assert.Equal(ReceiptLanguage.Ms, lang);
+            Assert.Equal("{PTBR_PELAN LANTAI ARAS 01} · 2 dipilih", RunningText.ScopeText("PTBR_PELAN LANTAI ARAS 01", 2, lang));
+            Assert.Equal("Taip langkah seterusnya. Ia dijalankan selepas yang ini selesai.", RunningText.QueuePlaceholderFor(lang));
+            Assert.Equal(ReceiptLanguage.Ms, PromptLanguage.OfThread(new List<ChatMessage> { Msg("ai", "Siap.", ReceiptLanguage.Ms), Msg("user", "ya") }));
+            // English chats unchanged; an empty or new chat is English.
+            Assert.Equal(ReceiptLanguage.En, PromptLanguage.OfThread(new List<ChatMessage> { Msg("user", "Select all doors with Mark FD1 in this view."), Msg("ai", "2 selected."), Msg("user", "ok") }));
+            Assert.Equal(ReceiptLanguage.En, PromptLanguage.OfThread(new List<ChatMessage>()));
+            Assert.Equal(ReceiptLanguage.En, PromptLanguage.OfThread(null));
+            // The Working card reads the same rule.
+            Assert.Contains("try { return PromptLanguage.OfThread(Vm?.Thread); }", Src("UI", "Copilot", "Screens", "ChatView.xaml.cs"));
+        }
+
+        [Fact]
+        public void ACommitsFallbackGiveBack_UsesTheBatchsDocument_AndNeverFollowsAKeptGroup()
+        {
+            Assert.True(TurnSelection.GiveBackAtCommitEnd(documentChecked: true, groupKept: false));    // drift, a failed call, Revit kept nothing
+            Assert.False(TurnSelection.GiveBackAtCommitEnd(documentChecked: true, groupKept: true));    // a throw after Assimilate: written doors stay unselected
+            Assert.False(TurnSelection.GiveBackAtCommitEnd(documentChecked: false, groupKept: false));  // refused before the document was the batch's
+            var engine = Src("BinaVibe", "Copilot", "Writes", "RevitWriteEngine.cs");
+            Assert.Contains("if (Code.TurnSelection.GiveBackAtCommitEnd(track.Doc != null, track.GroupKept)) Code.RevitCodeHost.GiveBackSelection(track.Doc, track.UiDoc);", engine);
+            Assert.DoesNotContain("GiveBackSelection(app.ActiveUIDocument", engine);
+            var check = engine.IndexOf("var refusal = CheckDocument(doc, batch, EnvelopePhase.Commit);", System.StringComparison.Ordinal);
+            Assert.True(engine.IndexOf("track.Doc = doc; track.UiDoc = uidoc;", System.StringComparison.Ordinal) > check);
+            var kept = engine.IndexOf("track.GroupKept = status == TransactionStatus.Committed;", System.StringComparison.Ordinal);
+            Assert.True(kept > engine.IndexOf("var status = group.Assimilate();", System.StringComparison.Ordinal));
+            Assert.True(kept < engine.IndexOf("Undo.UndoService.NoteBatchCommitted(", System.StringComparison.Ordinal));
         }
 
         [Fact]
@@ -193,7 +237,7 @@ namespace RevitAddinSync.Tests
             // A commit that did not commit changed nothing: it gives back as a preview does, then forgets.
             var commitAsync = engine.Substring(engine.IndexOf("public Task<CommitOutcome> CommitAsync(", System.StringComparison.Ordinal));
             commitAsync = commitAsync.Substring(0, commitAsync.IndexOf("}, ct);", System.StringComparison.Ordinal));
-            Assert.Contains("if (outcome?.Kind != CommitKind.Committed) Code.RevitCodeHost.GiveBackSelection(app.ActiveUIDocument?.Document, app.ActiveUIDocument);", commitAsync);
+            Assert.Contains("if (Code.TurnSelection.GiveBackAtCommitEnd(track.Doc != null, track.GroupKept)) Code.RevitCodeHost.GiveBackSelection(track.Doc, track.UiDoc);", commitAsync);
             Assert.True(commitAsync.IndexOf("GiveBackSelection", System.StringComparison.Ordinal) < commitAsync.IndexOf("ForgetSelectionSwap", System.StringComparison.Ordinal));
         }
 
