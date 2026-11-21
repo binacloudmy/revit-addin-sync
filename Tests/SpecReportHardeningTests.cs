@@ -297,7 +297,8 @@ namespace RevitWebAppSync.Tests
             var r = SpecReport.Build(allPass);
             Assert.Equal(SpecState.Pass, r.For("A2.1").State);
             Assert.Equal(1, r.For("A2.1").Passed);
-            Assert.Equal((1, 1), SpecChecklist.Score(r, "A"));
+            // AI-474: the % counts checks; A2.1 is one passed AI check, however many rules answered it.
+            Assert.Equal((1, 0), (SpecChecklist.TallyOf(r, "A").AiPass, SpecChecklist.TallyOf(r, "A").Fail));
 
             var oneFails = rules.Select((x, i) => Backend("Project Naming", x, i == 1 ? "fail" : "pass", issueId: i == 1 ? "jkr" : "")).ToList();
             oneFails[1].Note = "Nama fail tiada awalan jkr";
@@ -307,7 +308,7 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(SpecState.Fail, c.State);
             Assert.Equal(1, c.Failed);
             Assert.Equal(0, c.Passed);
-            Assert.Equal((0, 1), SpecChecklist.Score(r, "A"));
+            Assert.Equal((0, 1), (SpecChecklist.TallyOf(r, "A").AiPass, SpecChecklist.TallyOf(r, "A").Fail));
             Assert.Equal(new[] { "jkr", "conv" }, c.IssueIds);
             Assert.Contains("Nama fail tiada awalan jkr", c.Notes);
             Assert.Contains("Konvensyen salah", c.Notes);
@@ -349,8 +350,8 @@ namespace RevitWebAppSync.Tests
             var c = r.For("A7.2");
             Assert.Equal(SpecState.NeedsPerson, c.State);
             Assert.Equal(0, c.Passed + c.Failed);
-            // Only A7.1 (the materials_assigned fail) counts in section A's %; A7.2 never does.
-            Assert.Equal((0, 1), SpecChecklist.Score(r, "A"));
+            // Only A7.1 (the materials_assigned fail) is a failed AI check in section A; A7.2 is Human (counted as pass, never a verdict).
+            Assert.Equal((0, 1), (SpecChecklist.TallyOf(r, "A").AiPass, SpecChecklist.TallyOf(r, "A").Fail));
             Assert.Equal(new[] { "A7.1" }, r.Checks.Where(x => x.State == SpecState.Fail).Select(x => x.Check.Id));
             // No backend rule or checker maps to A7.2.
             Assert.DoesNotContain(new[] { "Material naming", "Material code in name is valid", "Glass material code valid" },
@@ -686,7 +687,7 @@ namespace RevitWebAppSync.Tests
             Assert.DoesNotContain(c.Notes, n => n.StartsWith("Peraturan"));
             Assert.DoesNotContain(c.Rules, x => x.StartsWith("C4.1:"));
             Assert.Empty(c.NotCounted);                        // dropped, not kept as context
-            Assert.Equal((0, 4), SpecChecklist.Score(r, "C"));
+            Assert.Equal((0, 1), (SpecChecklist.TallyOf(r, "C").AiPass, SpecChecklist.TallyOf(r, "C").Fail));   // one failing check, not 4 results
 
             var bm = Row(r, "C4.1.3", PanelStrings.Ms);
             var en = Row(r, "C4.1.3", PanelStrings.En);
@@ -774,7 +775,7 @@ namespace RevitWebAppSync.Tests
             Assert.DoesNotContain("adopt", c.IssueIds);
             Assert.DoesNotContain("BIM010-D10", c.IssueIds);
             Assert.Equal(new[] { "backend: Element naming adoption" }, c.NotCounted);
-            Assert.Equal((1, 6), SpecChecklist.Score(r, "D"));
+            Assert.Equal((0, 1), (SpecChecklist.TallyOf(r, "D").AiPass, SpecChecklist.TallyOf(r, "D").Fail));   // one check: Da.1
             var en = Row(r, "Da.1", PanelStrings.En).Tested;
             var bm = Row(r, "Da.1", PanelStrings.Ms).Tested;
             Assert.Contains("Also reported by backend: Element naming adoption — not counted", en);
@@ -933,7 +934,7 @@ namespace RevitWebAppSync.Tests
         // ── headline ──
 
         [Fact]
-        public void The_headline_says_it_counts_results_not_checks_in_both_languages()
+        public void The_headline_says_it_counts_checks_with_List_and_Human_as_pass_in_both_languages()
         {
             var r = SpecReport.Build(new[]
             {
@@ -943,11 +944,12 @@ namespace RevitWebAppSync.Tests
             });
             var bm = SpecChecklist.ResultsLabel(r, PanelStrings.Ms);
             var en = SpecChecklist.ResultsLabel(r, PanelStrings.En);
-            Assert.Equal("1 / 3 keputusan lulus\n(bukan bilangan semakan)", bm);
-            Assert.Equal("1 / 3 results pass\n(not a count of checks)", en);
+            // 22 List/Human + A2.1 passed; A1.2 fails (two results, one check).
+            Assert.Equal("23 / 61 semakan lulus\n(Senarai/manusia dikira lulus)", bm);
+            Assert.Equal("23 / 61 checks pass\n(List and Human count as pass)", en);
             // Each line fits the pane's summary line (about 30 characters before "…").
             Assert.All(bm.Split('\n').Concat(en.Split('\n')), line => Assert.True(line.Length <= 30, line));
-            Assert.Equal("1 / 1 result passes\n(not a count of checks)", SpecChecklist.Plural("hResults", PanelStrings.En, 1, 1, 1));
+            Assert.Equal("1 / 1 check passes\n(List and Human count as pass)", SpecChecklist.Plural("hResults", PanelStrings.En, 1, 1, 1));
         }
 
         // ── "Show all" lists everything, or says plainly that it does not ──

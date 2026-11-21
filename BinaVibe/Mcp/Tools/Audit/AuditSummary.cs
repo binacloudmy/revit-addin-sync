@@ -51,12 +51,16 @@ namespace BinaVibe.Mcp.Tools.Audit
     public sealed class Bim010SectionScore
     {
         public string Section = "";
+        /// <summary>BIM010 cells: AI-verified comply. Spec-based (AI-474): checks passed (AI pass + List + Human).</summary>
         public int Pass;
+        /// <summary>BIM010 cells: AI-verified not comply. Spec-based: checks NOT passed (fail + partial + unjudged).</summary>
         public int Fail;
         /// <summary>Cells that need a person — shown separately, not in the %.</summary>
         public int Pending;
+        /// <summary>Spec-based summary: checks that apply (Fail = not passed: fail + partial + unjudged);
+        /// BIM010 cells otherwise.</summary>
         public int AiTotal => Pass + Fail;
-        /// <summary>Pass / (Pass + Fail), rounded; null when the section has no AI cells.</summary>
+        /// <summary>Pass / (Pass + Fail), rounded; null when the section has nothing counted.</summary>
         public int? Pct => AiTotal == 0 ? (int?)null : (int)Math.Round(Pass * 100.0 / AiTotal, MidpointRounding.AwayFromZero);
     }
 
@@ -85,6 +89,10 @@ namespace BinaVibe.Mcp.Tools.Audit
     public sealed class Bim010Summary
     {
         public List<Bim010SectionScore> Sections = new List<Bim010SectionScore>();
+        /// <summary>Spec-based only (AI-474): AI checks the run could not judge (not passed), the reason
+        /// (backend | mixed | nothing | rule), and AI checks only partly covered (not passed).</summary>
+        public int Unjudged, Partial;
+        public string UnjudgedReason = "";
         public Dictionary<string, Bim010RowMark> Rows = new Dictionary<string, Bim010RowMark>(StringComparer.OrdinalIgnoreCase);
         /// <summary>Backend checks with no Borang row ("category · rule"), listed so
         /// they are never silently dropped.</summary>
@@ -94,11 +102,13 @@ namespace BinaVibe.Mcp.Tools.Audit
         /// the issue ids behind their marks.</summary>
         public bool SpecBased;
 
+        /// <summary>See <see cref="Bim010SectionScore.Pass"/>: cells, or (spec-based) checks passed.</summary>
         public int Pass => Sections.Sum(s => s.Pass);
+        /// <summary>Cells that fail, or (spec-based) checks not passed.</summary>
         public int Fail => Sections.Sum(s => s.Fail);
         public int Pending => Sections.Sum(s => s.Pending);
         public int AiTotal => Pass + Fail;
-        /// <summary>Headline: AI-verified passing cells / AI-verified cells.</summary>
+        /// <summary>Headline: AI-verified passing cells / AI-verified cells; spec-based: checks passed / checks that apply.</summary>
         public int? Pct => AiTotal == 0 ? (int?)null : (int)Math.Round(Pass * 100.0 / AiTotal, MidpointRounding.AwayFromZero);
 
         public Bim010SectionScore Section(string s) => Sections.FirstOrDefault(x => x.Section == s);

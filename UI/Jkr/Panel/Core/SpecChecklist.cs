@@ -257,11 +257,19 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             ["vOthers1"] = ("", " 1 other JKR rule also fails."),
             ["others"] = ("{0} peraturan JKR lain (bukan dalam spec) juga gagal — lihat di bawah.", "{0} other JKR rules (not in the spec) also fail — see below."),
             ["others1"] = ("", "1 other JKR rule (not in the spec) also fails — see below."),
-            // The % counts results (one per element, sheet, level …), not spec checks: said
-            // plainly. Two short lines: the summary line beside "n checks need a person"
-            // holds about 30 characters before it is cut with "…".
-            ["hResults"] = ("{0} / {1} keputusan lulus\n(bukan bilangan semakan)", "{0} / {1} results pass\n(not a count of checks)"),
-            ["hResults1"] = ("", "{0} / {1} result passes\n(not a count of checks)"),
+            // The % counts spec checks (AI-474): AI pass + List + Human over all checks. Two
+            // short lines: the summary line beside "n checks need a person" holds about 30
+            // characters before it is cut with "…".
+            ["hResults"] = ("{0} / {1} semakan lulus\n(Senarai/manusia dikira lulus)", "{0} / {1} checks pass\n(List and Human count as pass)"),
+            ["hResults1"] = ("", "{0} / {1} check passes\n(List and Human count as pass)"),
+            // Under the %: the AI checks the run could not judge (not passed), with the reason,
+            // and the partly checked ones as their own state.
+            ["hUnjudged"] = ("{0} tak dapat disemak — {1}", "{0} could not be checked — {1}"),
+            ["hPartial"] = ("{0} separa", "{0} partly checked"),
+            ["hWhy_backend"] = ("backend tidak tersedia", "backend unavailable"),
+            ["hWhy_mixed"] = ("sebahagian: backend tidak tersedia, selebihnya belum ada peraturan atau tidak dapat disahkan", "some: backend unavailable, the rest no rule yet or could not verify"),
+            ["hWhy_nothing"] = ("tiada yang dinilai", "nothing was judged"),
+            ["hWhy_rule"] = ("belum ada peraturan atau tidak dapat disahkan", "no rule yet, or could not verify"),
             ["notCounted"] = ("Juga dilapor oleh {0} — tidak dikira: semakan add-in sendiri sudah menilai semakan ini.",
                               "Also reported by {0} — not counted: the add-in's own check already judged this one."),
             ["hPerson"] = ("semakan perlu manusia", "checks need a person"),
@@ -289,10 +297,10 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             ["vSubPerson"] = ("Belum lulus penuh: sesetengah semakan perlu diputuskan oleh manusia.",
                               "Not a full pass yet: some checks are for a person to decide."),
             ["hPct"] = ("{0} patuh", "{0} compliant"),
-            ["hRest"] = (", {0} daripada {1} keputusan lulus. Peratus mengira keputusan, bukan semakan.",
-                         ", {0} of {1} results pass. The % counts results, not checks."),
-            ["hRest1"] = ("", ", {0} of {1} result passes. The % counts results, not checks."),
-            ["hRestNone"] = (", belum ada keputusan yang dapat dikira.", ", no result could be scored yet."),
+            ["hRest"] = (", {0} daripada {1} semakan lulus. Semakan Senarai dan manusia dikira lulus; semakan AI yang belum dinilai tidak.",
+                         ", {0} of {1} checks pass. List and Human checks count as pass; unjudged AI checks do not."),
+            ["hRest1"] = ("", ", {0} of {1} check passes. List and Human checks count as pass; unjudged AI checks do not."),
+            ["hRestNone"] = (", tiada semakan untuk dikira.", ", no check to score."),
             // The issue view's one-line verdict: "18% compliant · 22 fail".
             ["vShort"] = ("{0} patuh · {1} gagal", "{0} compliant · {1} fail"),
             ["tabIssues"] = ("Isu", "Issues"),
@@ -411,15 +419,69 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             return list;
         }
 
-        // ─── headline: two numbers (DESIGN-BRIEF R2, spec "Kiraan %") ───
+        // ─── headline: two numbers (DESIGN-BRIEF R2, spec "Kiraan %"; AI-474) ───
 
         /// <summary>
-        /// AI-verifiable spec results that passed, and those that passed or failed,
-        /// counted per result (per cell, not per check or Borang row), in one section
-        /// or all (null), of the checks whose state is Pass or Fail only.
-        /// Human-decides and list-only checks are never in it; nor are
-        /// results the scan could not judge, partial-rule passes (they prove no pass)
-        /// or not-applicable results.
+        /// The headline tally over a set of spec checks, counted per CHECK (a Borang row):
+        /// List and Human checks count as passed (Ashraf, overrides spec Q2); an AI check
+        /// passes only in state Pass; Fail, Partial and unjudged AI checks do not pass but
+        /// stay in the denominator. Not-applicable checks are in neither. So the % is
+        /// <c>(AI pass + List + Human) / checks</c>, never "—" for a run that exists.
+        /// </summary>
+        public sealed class Tally
+        {
+            /// <summary>AI checks that passed (state Pass).</summary>
+            public int AiPass;
+            /// <summary>List-only and Human-decides checks, counted as passed.</summary>
+            public int ListHuman;
+            /// <summary>AI checks with a failing result.</summary>
+            public int Fail;
+            /// <summary>AI checks only partly covered (FailOnly rule passed): their own state, not passed.</summary>
+            public int Partial;
+            /// <summary>AI checks the scan did not judge (no rule yet, backend down, could not verify): not passed.</summary>
+            public int Unjudged;
+            /// <summary>Checks in the % (not-applicable ones left out).</summary>
+            public int Total;
+            /// <summary>Why the unjudged ones are unjudged: backend (all of them) | mixed (some) | nothing | rule | "" (none unjudged).</summary>
+            public string UnjudgedReason = "";
+            public int Passed => AiPass + ListHuman;
+            /// <summary>AI checks that got a verdict (pass or fail) or a partial one.</summary>
+            public int Judged => AiPass + Fail + Partial;
+        }
+
+        public const string ReasonBackend = "backend", ReasonMixed = "mixed", ReasonNothing = "nothing", ReasonRule = "rule";
+
+        public static Tally TallyOf(SpecReport r, string section = null) => TallyOf(r, InSection(section));
+
+        public static Tally TallyOf(SpecReport r, Func<SpecCheck, bool> member)
+        {
+            var t = new Tally();
+            if (r == null) return t;
+            int backendBlocked = 0;
+            foreach (var c in r.Checks)
+            {
+                if (!member(c.Check) || c.State == SpecState.NotApplicable) continue;
+                t.Total++;
+                if (c.Check.Class != SpecCellClass.Ai) { t.ListHuman++; continue; }
+                switch (c.State)
+                {
+                    case SpecState.Pass: t.AiPass++; break;
+                    case SpecState.Fail: t.Fail++; break;
+                    case SpecState.Partial: t.Partial++; break;
+                    default:
+                        t.Unjudged++;
+                        if (r.BackendUnavailable && SpecReport.BackendMappedChecks.Contains(c.Check.Id)) backendBlocked++;
+                        break;
+                }
+            }
+            if (t.Unjudged > 0)
+                t.UnjudgedReason = backendBlocked == t.Unjudged ? ReasonBackend : backendBlocked > 0 ? ReasonMixed : t.Judged == 0 ? ReasonNothing : ReasonRule;
+            return t;
+        }
+
+        /// <summary>
+        /// Checks that passed and checks in the %, in one section or all (null): AI checks in
+        /// state Pass, plus every List and Human check; the total is all checks that apply.
         /// </summary>
         public static (int Passed, int Total) Score(SpecReport r, string section = null) =>
             Score(r, InSection(section));
@@ -427,25 +489,32 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// <summary>Score over the checks <paramref name="member"/> picks (a section, an aspect).</summary>
         public static (int Passed, int Total) Score(SpecReport r, Func<SpecCheck, bool> member)
         {
-            if (r == null) return (0, 0);
-            // Only checks that passed or failed count: a partly checked one (backend
-            // per-element passes beside a partial rule), one waiting for a person, or one
-            // not checked adds nothing, so passes cannot inflate the % of an unproven check.
-            var ai = r.Checks.Where(c => c.Check.Class == SpecCellClass.Ai
-                                         && (c.State == SpecState.Pass || c.State == SpecState.Fail)
-                                         && member(c.Check));
-            int pass = 0, total = 0;
-            foreach (var c in ai) { pass += c.Passed; total += c.Passed + c.Failed; }
-            return (pass, total);
+            var t = TallyOf(r, member);
+            return (t.Passed, t.Total);
         }
 
-        /// <summary>Score as a whole %, or null when nothing AI-verifiable was judged.</summary>
+        /// <summary>Score as a whole %; null only without a report (or a set with no applicable check).</summary>
         public static int? Pct(SpecReport r, string section = null) => Pct(r, InSection(section));
 
         public static int? Pct(SpecReport r, Func<SpecCheck, bool> member)
         {
             var (p, t) = Score(r, member);
             return t == 0 ? (int?)null : (int)Math.Round(100.0 * p / t, MidpointRounding.AwayFromZero);
+        }
+
+        /// <summary>"4 tak dapat disemak — tiada peraturan lagi" under the %, or "" when every AI check was judged.</summary>
+        public static string UnjudgedLine(SpecReport r, string lang, string section = null)
+        {
+            var t = TallyOf(r, section);
+            if (t.Unjudged == 0) return "";
+            return F("hUnjudged", lang, t.Unjudged, Str("hWhy_" + t.UnjudgedReason, lang));
+        }
+
+        /// <summary>"12 separa" — AI checks partly covered, their own state (not passed); "" when none.</summary>
+        public static string PartialLine(SpecReport r, string lang, string section = null)
+        {
+            var t = TallyOf(r, section);
+            return t.Partial == 0 ? "" : F("hPartial", lang, t.Partial);
         }
 
         /// <summary>One section, or every check (null / PanelCore.AllSections).</summary>

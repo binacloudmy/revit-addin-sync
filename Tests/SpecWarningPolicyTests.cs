@@ -98,10 +98,10 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(0, r.For("A7.2").Passed + r.For("A7.2").Failed);
         }
 
-        // ── AC4: the % denominator is the Ai-class cells ──
+        // ── AC4: the % denominator is the spec's checks (AI-474) ──
 
         [Fact]
-        public void Pct_denominator_is_the_Ai_cell_count_without_Human_List_and_Others()
+        public void Pct_counts_the_61_checks_and_never_the_Others()
         {
             var rows = JArray.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "data", "spec_rows.json")));
             var ai = rows.Where(j => (string)j["class"] == "Ai").Select(j => (string)j["id"]).ToList();
@@ -116,9 +116,11 @@ namespace RevitWebAppSync.Tests
             results.Add(B("Doors", "JKR code prefix", "fail", 2));
             var r = SpecReport.Build(results);
 
+            // AI-474: the % counts checks, not cells; List and Human checks are PASS, so a run
+            // where every check passes is 61 / 61. Others entries still never enter it.
             var (passed, total) = SpecChecklist.Score(r);
-            Assert.Equal(ai.Count, total);
-            Assert.Equal(ai.Count, passed);
+            Assert.Equal(61, total);
+            Assert.Equal(61, passed);
             Assert.Equal(100, SpecChecklist.Pct(r));
             Assert.Equal(1, r.OtherFailing);
         }

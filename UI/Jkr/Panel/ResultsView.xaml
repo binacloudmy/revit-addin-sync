@@ -479,6 +479,13 @@
             <TextBlock FontSize="13" LineHeight="18" Foreground="{StaticResource Bz.TextBody}" TextWrapping="Wrap" Margin="0,0,0,0">
                 <Run Text="{Binding HeadPctStrong, Mode=OneWay}" FontWeight="SemiBold" Foreground="{StaticResource Bz.Text}"/><Run Text="{Binding HeadResultsRest, Mode=OneWay}"/>
             </TextBlock>
+            <!-- AI-474: what the % does not prove — AI checks not judged (with the reason) and partly checked ones. -->
+            <TextBlock FontSize="12" LineHeight="17" Foreground="{StaticResource Bz.Tone.Partial}" TextWrapping="Wrap" Margin="0,4,0,0"
+                       Text="{Binding UnjudgedLine, Mode=OneWay}"
+                       Visibility="{Binding HasUnjudgedLine, Converter={StaticResource B2V}}"/>
+            <TextBlock FontSize="12" LineHeight="17" Foreground="{StaticResource Bz.Tone.Partial}" TextWrapping="Wrap" Margin="0,2,0,0"
+                       Text="{Binding PartialLine, Mode=OneWay}"
+                       Visibility="{Binding HasPartialLine, Converter={StaticResource B2V}}"/>
             <Button Style="{StaticResource TextBtn}" Click="GoManual_Click" Foreground="{StaticResource Bz.Manual}" Margin="-8,8,0,0" HorizontalAlignment="Left"
                     Visibility="{Binding HasManualLink, Converter={StaticResource B2V}}" AutomationProperties.Name="{Binding ManualLinkLabel}">
                 <Grid>

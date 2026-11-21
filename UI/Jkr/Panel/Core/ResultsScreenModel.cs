@@ -261,8 +261,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         // ── headline ──
         // Two numbers (DESIGN-BRIEF R2). With a spec report they are the spec's, the
         // same numbers the verdict and the Checklist show: % = AI-verifiable spec
-        // results passed / (passed + failed), per result ("Kiraan %": human-decides
-        // cells never in it), and the checks a person decides. Without one (tests,
+        // checks passed / checks (AI-474: List and Human checks count as passed, unjudged
+        // and partly checked AI checks do not), and the checks a person decides. Without one (tests,
         // runs from before the spec), the run's BIM010 cells, the same as the Running
         // screen and the Borang; without a summary either, the items stand in for
         // cells, as in the prototype.
@@ -499,7 +499,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public bool HasVerdictSub => VerdictSub.Length > 0;
         /// <summary>The bold start of the score sentence: "18% compliant".</summary>
         public string HeadPctStrong => string.Format(S("hPct"), HeadPctLabel);
-        /// <summary>", 19 of 104 results pass. The % counts results, not checks."</summary>
+        /// <summary>", 30 of 61 checks pass. List and Human checks count as pass; unjudged AI checks do not."</summary>
         public string HeadResultsRest
         {
             get
@@ -511,6 +511,12 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         }
         /// <summary>"13 checks wait for semak manual" (opens those checks).</summary>
         public string ManualLinkLabel => SpecChecklist.Plural("gManualAria", L, PendTotal);
+        /// <summary>Under the %: "4 tak dapat disemak — backend tidak tersedia" (AI checks not judged, not passed); "" when none.</summary>
+        public string UnjudgedLine => _spec == null ? "" : SpecChecklist.UnjudgedLine(_spec, L);
+        public bool HasUnjudgedLine => UnjudgedLine.Length > 0;
+        /// <summary>Under the %: "12 separa" (AI checks only partly checked — own state, not passed); "" when none.</summary>
+        public string PartialLine => _spec == null ? "" : SpecChecklist.PartialLine(_spec, L);
+        public bool HasPartialLine => PartialLine.Length > 0;
         public bool HasManualLink => _spec != null && PendTotal > 0;
         /// <summary>The issue view's one-line verdict: "18% compliant · 22 fail".</summary>
         public string VerdictShortLine =>

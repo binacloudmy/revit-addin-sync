@@ -1671,8 +1671,10 @@ namespace RevitWebAppSync.UI
                     model = _vm.Filename,
                     scanned = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
                     source = summary.SpecBased ? "spec" : "bim010_cells",
+                    // spec source: Fail = not passed (fail + partial + unjudged), not "failed".
                     audit_error = snapshot.AuditError,
-                    headline = new { pct = summary.Pct, ai_pass = summary.Pass, ai_total = summary.AiTotal, manual = summary.Pending },
+                    // spec source: pass = checks passed (AI pass + List + Human), total = checks that apply (not-passed = total - pass); bim010_cells source: AI cells.
+                    headline = new { pct = summary.Pct, ai_pass = summary.Pass, ai_total = summary.AiTotal, manual = summary.Pending, unjudged = summary.Unjudged, partial = summary.Partial, unjudged_reason = summary.UnjudgedReason },
                     sections = summary.Sections.Select(s => new { s.Section, s.Pass, s.Fail, s.Pending, s.Pct }),
                     rows = summary.Rows.Values.Select(r => new { r.Key, r.Mark, columns = r.Columns.Count > 0 ? r.Columns : null, r.Notes }),
                     unmapped = summary.Unmapped,
