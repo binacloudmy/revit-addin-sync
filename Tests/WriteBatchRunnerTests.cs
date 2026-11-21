@@ -486,6 +486,72 @@ namespace RevitAddinSync.Tests
             AssertValid(results);
         }
 
+        // r23 (audit of 60a367a6, MUST-FIX): the MEP resize guard's before values must reach the commit. The runner built the commit's
+        // PreviewOutcome without MepBefore, so the commit saw none and refused every own-code edit of a duct. The fake engine's commit
+        // runs the engine's own rule (MepResizeGuard.Changed against the preview's MepBefore it receives) on the duct's values after the
+        // commit's code ran.
+        private static Rig MepRig(double widthAfterCommit)
+        {
+            const double before = 355.6 / 304.8;
+            var rig = new Rig();
+            rig.Engine.OnPreview = b =>
+            {
+                var p = Preview(b);
+                p.MepBefore.Add(new MepResizeGuard.SizeValue { Id = 1382112, Category = "Ducts", Param = "RBS_CURVE_WIDTH_PARAM", Value = before, Display = "356 mm" });
+                return p;
+            };
+            rig.Engine.OnCommit = (b, p) =>
+            {
+                var after = new[] { new MepResizeGuard.SizeValue { Id = 1382112, Category = "Ducts", Param = "RBS_CURVE_WIDTH_PARAM", Value = widthAfterCommit, Display = "x" } };
+                var rows = MepResizeGuard.Changed(after, p.MepBefore);
+                if (rows.Count > 0)
+                {
+                    var refusal = MepResizeGuard.Refusal(rows);
+                    refusal.Phase = EnvelopePhase.Commit;
+                    return new CommitOutcome { Kind = CommitKind.Failed, Reason = refusal.Error!.Message, Envelopes = new[] { refusal } };
+                }
+                return new CommitOutcome { Kind = CommitKind.Committed, Envelopes = b.Calls.Select(c => CommitEnvelope(c)).ToArray(), UndoEntry = true };
+            };
+            return rig;
+        }
+
+        private static ToolCallDto OwnCode(string key) =>
+            Call(key, ToolNames.RunRevitCode, "{\"code\":\"duct.Location.Move(new XYZ(1,0,0));\",\"intent\":\"Move the duct\",\"expected\":{\"modifies\":1}}");
+
+        [Fact]
+        public async Task Runner_OwnCodeEditOfADuct_ThatKeepsItsSize_Commits_BecauseThePreviewsBeforeValuesReachTheCommit()
+        {
+            var rig = MepRig(widthAfterCommit: 355.6 / 304.8);   // moved, same width
+            var results = await rig.Runner().RunAsync(Request(OwnCode("k1")), CancellationToken.None);
+            Assert.True(results[0].Ok);
+            Assert.Equal(EnvelopePhase.Commit, results[0].Phase);
+            Assert.Single(rig.Engine.Committed);
+            AssertValid(results);
+        }
+
+        [Fact]
+        public async Task Runner_OwnCodeThatResizesADuctAtCommit_IsRefused()
+        {
+            var rig = MepRig(widthAfterCommit: 300 / 304.8);
+            var results = await rig.Runner().RunAsync(Request(OwnCode("k1")), CancellationToken.None);
+            Assert.False(results[0].Ok);
+            Assert.Equal(ErrorCodes.PolicyRejected, results[0].Error!.Code);
+            Assert.Equal(MepResizeGuard.OwnResize, results[0].Error!.Message);
+            Assert.Equal("356 mm", results[0].Data!.Value.GetProperty("mep_resize")[0].GetProperty("before").GetString());
+            AssertValid(results);
+        }
+
+        [Fact]
+        public void TheRunner_CarriesMepBefore_IntoTheCommitsPreview()
+        {
+            var dir = new System.IO.DirectoryInfo(System.IO.Directory.GetCurrentDirectory());
+            while (dir != null && !System.IO.File.Exists(System.IO.Path.Combine(dir.FullName, "RevitWebAppSync.csproj"))) dir = dir.Parent;
+            var runner = System.IO.File.ReadAllText(System.IO.Path.Combine(dir!.FullName, "BinaVibe", "Copilot", "Writes", "WriteBatchRunner.cs"));
+            var at = runner.IndexOf("var writePreview = new PreviewOutcome", StringComparison.Ordinal);
+            Assert.True(at > 0);
+            Assert.Contains("MepBefore = preview.MepBefore,", runner.Substring(at, runner.IndexOf("};", at, StringComparison.Ordinal) - at));
+        }
+
         [Fact]
         public async Task Runner_CommitFailed_ReturnsTheEnginesFailureAndFreesTheKey()
         {
