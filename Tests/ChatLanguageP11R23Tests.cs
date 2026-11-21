@@ -52,7 +52,14 @@ namespace RevitAddinSync.Tests
             Assert.Equal(ReceiptLanguage.En, TurnStatusText.ChipLanguage(new List<ChatMessage>()));        // 83058dfb: a new chat
             Assert.Equal(ReceiptLanguage.En, TurnStatusText.ChipLanguage(null));
             Assert.Equal(ReceiptLanguage.En, TurnStatusText.ChipLanguage(new List<ChatMessage> { Msg("user", "Select all doors"), Msg("ai", "2 selected.") }));
-            Assert.Equal(ReceiptLanguage.En, TurnStatusText.ChipLanguage(new List<ChatMessage> { Msg("user", "Pilih semua pintu") }));   // no reply yet
+            // Audit of a6759dcf: one rule with the composer. A Malay prompt with no reply yet, and an older saved Malay chat whose reply
+            // carries no stored language (it loads as English), both read Malay, as "Tanya Copilot" beside them does.
+            Assert.Equal(ReceiptLanguage.Ms, TurnStatusText.ChipLanguage(new List<ChatMessage> { Msg("user", "Pilih semua pintu bertanda FD1 dalam view ini.") }));
+            var oldSaved = new List<ChatMessage> { Msg("user", "Pilih semua pintu bertanda FD1 dalam view ini."), Msg("ai", "2 pintu dipilih.") };
+            Assert.Equal(ReceiptLanguage.Ms, TurnStatusText.ChipLanguage(oldSaved));
+            Assert.Equal("Tanya Copilot", RunningText.IdlePlaceholderFor(PromptLanguage.OfThread(oldSaved), RunningText.IdlePlaceholder));
+            foreach (var thread in new[] { malay, oldSaved, new List<ChatMessage>(), new List<ChatMessage> { Msg("user", "Select all doors"), Msg("ai", "2 selected.") } })
+                Assert.Equal(PromptLanguage.OfThread(thread), TurnStatusText.ChipLanguage(thread));
             Assert.Equal(TurnStatusText.Of("Done", false, ReceiptLanguage.En), TurnStatusText.Of("Done", false, TurnStatusText.ChipLanguage(new List<ChatMessage>())));
 
             var vm = Src("UI/Copilot/CopilotViewModel.cs");
