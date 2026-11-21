@@ -64,17 +64,51 @@ namespace BinaVibe.Copilot.Code
         /// so the preview and the commit see, and hash, the same selection. Never throws.</summary>
         public static void UseTurnSelection(Document doc, UIDocument? uidoc, SnapshotModel? turn, PreparedCode prepared)
         {
+            _swap = null;
             if (uidoc == null || prepared?.Analysis.Mode?.UsesSelection != true) return;
             try
             {
                 var live = uidoc.Selection.GetElementIds().Select(id => (long)id.Value).ToList();
                 var decision = TurnSelection.Decide(turn, live, id => doc.GetElement(ElemIds.From(id)) != null);
                 if (decision.Restore) uidoc.Selection.SetElementIds(decision.Ids.Select(ElemIds.From).ToList());
+                if (decision.Restore) _swap = new SelectionSwap(live, decision.Ids);   // r23 AI-456: GiveBackSelection puts `live` back after a read
             }
             catch (Exception ex)
             {
                 // The code then sees Revit's selection as it is; the run itself goes on.
                 System.Diagnostics.Debug.WriteLine("[BINA] turn selection: " + ex.Message);
+            }
+        }
+
+        // r23 (AI-456): the last UseTurnSelection swap, on Revit's one API thread; every UseTurnSelection call resets it first.
+        [ThreadStatic] private static SelectionSwap? _swap;
+
+        private sealed class SelectionSwap
+        {
+            public SelectionSwap(IReadOnlyList<long> before, IReadOnlyList<long> swappedIn) { Before = before; SwappedIn = swappedIn; }
+            public IReadOnlyList<long> Before { get; }
+            public IReadOnlyList<long> SwappedIn { get; }
+        }
+
+        /// <summary>r23 (AI-456, live c7601a4a then e7898999): after a read run or a plan that UseTurnSelection swapped the turn's
+        /// selection in for, give Revit back what it held before the swap (a find of this turn selected the FD1 doors; the
+        /// set-parameter script's read pass emptied it, and the "selected 2" card was then untrue). TurnSelection.GiveBack decides:
+        /// nothing when the code or the drafter changed the selection since. Not called after a write run: a committed write ends on
+        /// the turn's selection, as before (r13). Never throws.</summary>
+        public static void GiveBackSelection(Document doc, UIDocument? uidoc)
+        {
+            var swap = _swap;
+            _swap = null;
+            if (swap == null || uidoc == null) return;
+            try
+            {
+                var live = uidoc.Selection.GetElementIds().Select(id => (long)id.Value).ToList();
+                var back = TurnSelection.GiveBack(swap.Before, swap.SwappedIn, live, id => doc.GetElement(ElemIds.From(id)) != null);
+                if (back != null) uidoc.Selection.SetElementIds(back.Select(ElemIds.From).ToList());
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[BINA] turn selection give-back: " + ex.Message);
             }
         }
 
@@ -379,6 +413,7 @@ namespace BinaVibe.Copilot.Code
             Try(outcome, "select elements", () =>
             {
                 if (!plan.HasSelection) return;
+                _swap = null;   // r23: the code chose the selection itself; nothing is given back over it
                 var want = plan.Select.Select(ElemIds.From).ToList();
                 uidoc.Selection.SetElementIds(want);
                 // Hand test 17 Nov (turn c61a1d44, right after a cancelled Revit dialog): three runs reported "selected 2" here and the next read
@@ -394,6 +429,7 @@ namespace BinaVibe.Copilot.Code
             Try(outcome, "select references", () =>
             {
                 if (!plan.HasReferences) return;
+                _swap = null;   // r23: as above, for linked picks
                 var refs = new List<Reference>();
                 foreach (var (_, stable) in plan.References)
                     try { refs.Add(Reference.ParseFromStableRepresentation(doc, stable)); }

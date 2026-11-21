@@ -62,6 +62,28 @@ namespace BinaVibe.Copilot.Code
             return new SelectionRestore(true, wanted);
         }
 
+        /// <summary>r23 (AI-456, live c7601a4a then e7898999): after a run that saw the turn's selection, what to give back. In
+        /// c7601a4a a find selected the 2 FD1 doors, the set-parameter script's read pass then swapped in the turn's (empty)
+        /// selection and nothing put the doors back; the write was cancelled, the card said "selected 2" and the next "on the
+        /// selected doors" turn saw none. The swap stays (the code must see the drafter's selection, live 14 Nov); afterwards
+        /// Revit gets back what it held before the swap, i.e. what a find of this turn (or the drafter, mid-turn) selected.
+        /// Null (leave it) when nothing was swapped, when the selection changed since the swap (the code's own select request,
+        /// or the drafter clicked), or when the earlier selection was empty or none of its ids still exist (a rollback that
+        /// emptied Revit's selection never takes the drafter's own selection away). Only the read and plan runs give back: a
+        /// committed write ends on the turn's selection as before (r13, 2acc6aaf: a write turn leaves no extra selection).</summary>
+        /// <param name="before">The host ids Revit held just before the swap.</param>
+        /// <param name="swappedIn">The ids the swap selected (the turn's).</param>
+        /// <param name="live">The host ids Revit holds now, after the run.</param>
+        public static IReadOnlyList<long>? GiveBack(IEnumerable<long>? before, IEnumerable<long>? swappedIn, IEnumerable<long>? live, Func<long, bool> exists)
+        {
+            if (exists == null) throw new ArgumentNullException(nameof(exists));
+            var now = new HashSet<long>(live ?? Enumerable.Empty<long>());
+            if (!now.SetEquals(swappedIn ?? Enumerable.Empty<long>())) return null;
+            var back = (before ?? Enumerable.Empty<long>()).Distinct().Where(exists).ToList();
+            if (back.Count == 0 || now.SetEquals(back)) return null;
+            return back;
+        }
+
         /// <summary>What a read tool takes as the selection: the turn's ids when Revit's selection is another
         /// one by now, null when Revit's own selection is the one to read (linked picks included).</summary>
         public static IReadOnlyList<long>? Ids(SnapshotModel? turn, IEnumerable<long>? live, Func<long, bool> exists)

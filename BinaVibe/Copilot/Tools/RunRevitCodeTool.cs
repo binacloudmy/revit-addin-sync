@@ -48,7 +48,9 @@ namespace BinaVibe.Copilot.Tools
             return Guarded(() =>
             {
                 RevitCodeHost.UseTurnSelection(ctx.Doc, ctx.UiDoc, ctx.TurnSnapshot, prepared);
-                return RevitCodeHost.Read(ctx.Doc, ctx.UiDoc, parsed, prepared);
+                // r23 (AI-456): the read saw the turn's selection; Revit then gets back what a find of this turn selected.
+                try { return RevitCodeHost.Read(ctx.Doc, ctx.UiDoc, parsed, prepared); }
+                finally { RevitCodeHost.GiveBackSelection(ctx.Doc, ctx.UiDoc); }
             }, EnvelopePhase.Read);
         }
 
@@ -68,7 +70,9 @@ namespace BinaVibe.Copilot.Tools
             // so the preview's plan and the commit's re-plan hash the same selection.
             var prepared = RevitCodeHost.Prepare(parsed!.Code);
             RevitCodeHost.UseTurnSelection(ctx.Doc, ctx.UiDoc, ctx.TurnSnapshot, prepared);
-            return CodePlans.Build(parsed!, prepared, RevitCodeHost.Binding(ctx.Doc, ctx.UiDoc));
+            // Build hashes the selection now (eagerly); afterwards Revit gets back what it held (r23, AI-456): Execute swaps again.
+            try { return CodePlans.Build(parsed!, prepared, RevitCodeHost.Binding(ctx.Doc, ctx.UiDoc)); }
+            finally { RevitCodeHost.GiveBackSelection(ctx.Doc, ctx.UiDoc); }
         }
 
         public Envelope Execute(ToolContext ctx, JsonElement args, WritePlan plan, WritePhase phase)
@@ -95,9 +99,16 @@ namespace BinaVibe.Copilot.Tools
             // not what a call before it, or the preview's rollback, left selected.
             RevitCodeHost.UseTurnSelection(ctx.Doc, ctx.UiDoc, ctx.TurnSnapshot, prepared);
             if (mode == CodeMode.Read && planned != CodePlans.Write)
-                return Guarded(() => RevitCodeHost.Read(ctx.Doc, ctx.UiDoc, parsed, prepared), EnvelopePhase.Read);
+                return Guarded(() =>
+                {
+                    // r23 (AI-456, live c7601a4a): a playbook's read pass (set-parameter asking its scope) no longer leaves the find's
+                    // selection emptied; a cancelled write then ends with the doors still selected, as its card says.
+                    try { return RevitCodeHost.Read(ctx.Doc, ctx.UiDoc, parsed, prepared); }
+                    finally { RevitCodeHost.GiveBackSelection(ctx.Doc, ctx.UiDoc); }
+                }, EnvelopePhase.Read);
 
-            // Planned as a write (the stricter of the two always wins).
+            // Planned as a write (the stricter of the two always wins). Nothing is given back here: the preview's rollback and the
+            // commit end on the turn's selection, as before (r13, 2acc6aaf: a write turn leaves no extra selection).
             var phaseName = EnvelopePhase.Of(phase);
             return Guarded(() => RevitCodeHost.Write(ctx.Doc, ctx.UiDoc, ctx.Handles, ctx.AfterCommit, parsed, prepared, phase), phaseName);
         }
