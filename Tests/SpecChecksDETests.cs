@@ -163,11 +163,11 @@ namespace RevitWebAppSync.Tests
         // ── Db.1 ──
 
         [Fact]
-        public void Db1_below_LOD_400_judges_nothing()
+        public void Db1_below_LOD_100_judges_nothing()
         {
             var t = T("Doors", "(PTc080a) 1800 x 2100");
             t.Texts["Kod_Jenis_jkr_stt"] = "";
-            var m = Model(t); m.Lod = 300;
+            var m = Model(t); m.Lod = 50;
             Assert.Empty(Run("Db.1", m));
         }
 
@@ -190,8 +190,8 @@ namespace RevitWebAppSync.Tests
             Assert.Contains("Kod_Jenis_jkr_stt", f.Note);
             Assert.Contains("Pembekal_jkr_sit", f.Note);
             Assert.DoesNotContain("Kontraktor_jkr_sit,", f.Note);
-            Assert.Equal(1, PassOf(r).ElementCount);
-            Assert.Equal(SpecCoverage.FailOnly, PassOf(r).Coverage);
+            var pass = r.Single(x => x.Status == "pass" && x.Coverage == SpecCoverage.FailOnly);
+            Assert.Equal(1, pass.ElementCount);
         }
 
         // ── Db.2 ──
