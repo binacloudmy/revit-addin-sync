@@ -341,6 +341,7 @@
     <Compile Include="..\BinaVibe\Copilot\Writes\CommitIds.cs" Link="Copilot\Writes\CommitIds.cs" />
     <Compile Include="..\BinaVibe\Copilot\Writes\WatchdogPolicy.cs" Link="Copilot\Writes\WatchdogPolicy.cs" />
     <Compile Include="..\BinaVibe\Copilot\Writes\KickPolicy.cs" Link="Copilot\Writes\KickPolicy.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Writes\RevitTiming.cs" Link="Copilot\Writes\RevitTiming.cs" />
     <Compile Include="..\BinaVibe\Copilot\Writes\CreatedNaming.cs" Link="Copilot\Writes\CreatedNaming.cs" />
     <Compile Include="..\BinaVibe\Copilot\Writes\ValueRows.cs" Link="Copilot\Writes\ValueRows.cs" />
     <Compile Include="..\BinaVibe\Copilot\Writes\FittingChangeNote.cs" Link="Copilot\Writes\FittingChangeNote.cs" />

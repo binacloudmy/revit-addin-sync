@@ -49,6 +49,7 @@ namespace BinaVibe.Copilot.Writes
         private static long _kickRaisedTicks;   // when the last kick was raised and has not run yet; 0 when none is pending (KickPolicy)
         private static uint _uiThread;          // Revit's UI thread id and main window, for ModalWindows (r17)
         private static long _mainWindow;
+        private static string? _runningJob;     // r24: the job of ours on Revit's thread now, for the slow-wait line
 
         private static long Now => Stopwatch.GetTimestamp();
 
@@ -60,6 +61,12 @@ namespace BinaVibe.Copilot.Writes
             bool IsDone { get; }
             void Run(UIApplication app);
             void Fail(Exception ex);
+            string Name { get; }
+            long QueuedAt { get; }
+            TimeSpan Waited { get; }
+            /// <summary>True the first time only: the slow-wait line is written once per job.</summary>
+            bool TakeSlowNote();
+            void NoteBusy(string what);
         }
 
         private sealed class Work<T> : IWork
@@ -69,26 +76,44 @@ namespace BinaVibe.Copilot.Writes
             public readonly TaskCompletionSource<T> Done = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
             private readonly Stopwatch _queued = Stopwatch.StartNew();
+            // r24: the request this job belongs to (captured on the caller's async flow), told how long the job waited and ran.
+            private readonly RevitTiming? _timing = RevitTiming.Current;
+            private readonly long _queuedAt = Now;
+            private int _slowNoted;
 
             public Work(Func<UIApplication, T> body, CancellationToken ct) { _body = body; _ct = ct; }
 
             public bool IsDone => Done.Task.IsCompleted;
+            public string Name => typeof(T).Name;
+            public long QueuedAt => _queuedAt;
+            public TimeSpan Waited => _queued.Elapsed;
+            public bool TakeSlowNote() => Interlocked.Exchange(ref _slowNoted, 1) == 0;
+            public void NoteBusy(string what) => _timing?.NoteBusy(what);
 
             public void Run(UIApplication app)
             {
-                if (_ct.IsCancellationRequested) { Done.TrySetCanceled(_ct); return; }
+                if (_ct.IsCancellationRequested) { _timing?.NotRun(_queued.ElapsedMilliseconds); Done.TrySetCanceled(_ct); return; }
                 var waited = _queued.ElapsedMilliseconds;
                 var ran = Stopwatch.StartNew();
+                Volatile.Write(ref _runningJob, typeof(T).Name);
                 RevitWebAppSync.UI.Copilot.Model.HandleProbe.Mark("revit job " + typeof(T).Name + ": start");
+                T result = default!;
+                Exception? failed = null;
                 try
                 {
                     // The turn's Stop is the running code's too: its loop budget polls this token (CodeCancel).
                     using (BinaVibe.Copilot.Code.CodeCancel.Enter(_ct))
-                        Done.TrySetResult(_body(app));
+                        result = _body(app);
                 }
-                catch (Exception ex) { Done.TrySetException(ex); }
+                catch (Exception ex) { failed = ex; }
                 finally
                 {
+                    Volatile.Write(ref _runningJob, null);
+                    // r24: told before the task completes, so the request's envelopes are stamped with this job in them.
+                    try { _timing?.Ran(waited, ran.ElapsedMilliseconds); }
+                    catch (Exception) { /* timing must never break the work */ }
+                    if (failed != null) Done.TrySetException(failed);
+                    else Done.TrySetResult(result);
                     RevitWebAppSync.UI.Copilot.Model.HandleProbe.Mark("revit job " + typeof(T).Name + ": end");
                     // A job that waited a second for Revit's turn or ran a quarter second says so in the click log (the 4 s queue after a turn).
                     if (waited >= 1000 || ran.ElapsedMilliseconds >= 250)
@@ -97,7 +122,12 @@ namespace BinaVibe.Copilot.Writes
                 }
             }
 
-            public void Fail(Exception ex) => Done.TrySetException(ex);
+            public void Fail(Exception ex)
+            {
+                if (IsDone) return;
+                _timing?.NotRun(_queued.ElapsedMilliseconds);   // before the task completes (r24)
+                Done.TrySetException(ex);
+            }
         }
 
         private sealed class KickHandler : IExternalEventHandler
@@ -271,9 +301,38 @@ namespace BinaVibe.Copilot.Writes
             }
         }
 
+        /// <summary>r24 (slow schedule 616d168b, 255.8 s): the job at the head of the queue has waited past RevitTiming.SlowWait. One line in
+        /// the add-in log (copilot-clicks.log) per job, naming what Revit is busy with when that can be read from outside its thread: an open
+        /// modal window, a job of ours still running, the status bar (an active command's prompt, a calculation's progress), a dialog shown
+        /// since the job was queued. The request's envelopes carry the same words under revit_timing.busy. Never throws.</summary>
+        private static void NoteSlowWait()
+        {
+            try
+            {
+                if (!Queue.TryPeek(out var head) || head.IsDone || head.Waited < RevitTiming.SlowWait || !head.TakeSlowNote()) return;
+                var main = Volatile.Read(ref _mainWindow);
+                string? modal = null;
+                if (ModalPolicy.Open(ModalWindows.Of(_uiThread), main, ModalWindows.IsEnabled(main), out var blocking) == true && blocking != null)
+                    modal = ModalPolicy.Name(blocking);
+                var running = Volatile.Read(ref _runningJob);
+                var status = modal == null && running == null ? ModalWindows.StatusText(main) : null;
+                string? dialog = null;
+                if (Volatile.Read(ref _lastDialogTicks) >= head.QueuedAt)
+                {
+                    var text = Volatile.Read(ref _lastDialogText);
+                    dialog = "id '" + (Volatile.Read(ref _lastDialogId) ?? "") + "'" + (string.IsNullOrEmpty(text) ? "" : ", " + (text!.Length > 80 ? text.Substring(0, 80) : text));
+                }
+                var idle = Volatile.Read(ref _lastIdleTicks) >= head.QueuedAt;
+                head.NoteBusy(RevitTiming.BusyWith(idle, modal, status, dialog, running));
+                BinaVibe.Copilot.Guard.StageTimer.Sink(RevitTiming.SlowWaitLine(head.Name, head.Waited.TotalSeconds, idle, modal, status, dialog, running));
+            }
+            catch (Exception) { /* a log line only */ }
+        }
+
         private static void Watch()
         {
             if (Queue.IsEmpty) { StopWatchdog(); return; }
+            NoteSlowWait();
 
             var armed = Volatile.Read(ref _armedTicks);
             var sinceArmed = Since(armed);

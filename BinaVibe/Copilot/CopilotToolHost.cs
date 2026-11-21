@@ -85,6 +85,8 @@ namespace BinaVibe.Copilot
             bool write,
             Func<IReadOnlyList<ToolCallDto>, Task<Envelope[]>> run)
         {
+            // r24: the request's Revit jobs report their queue wait and run time here; the envelopes carry the totals (data.revit_timing).
+            var timing = BinaVibe.Copilot.Writes.RevitTiming.Begin();
             var results = new Envelope?[calls.Count];
             var allowed = new List<ToolCallDto>();
             var slots = new List<int>();
@@ -129,6 +131,7 @@ namespace BinaVibe.Copilot
                         : EnvelopeFactory.Failed(ErrorCodes.RuntimeError, "The add-in returned no result for this call.");
             }
 
+            timing.Stamp(results);
             return results.Select(r => r!).ToArray();
         }
     }
