@@ -847,7 +847,9 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             bool serverProse = m.Kind == CpMsgKind.AiReply && m.ResultCard != null && m.ResultCard.ProseResult;
             // A turn whose writes all changed nothing, with no server reply: the model's first sentence is the headline.
             bool noopProse = m.Kind == CpMsgKind.AiReply && m.ResultCard != null && m.ResultCard.NoChange && Model.ProseSplit.IsPlainProse(m.Text, 6);
-            bool proseLayout = !cardShown && m.Kind == CpMsgKind.AiReply && (serverProse || noopProse || Model.ProseSplit.Applies(m.Text));
+            // r23 (live f7d1c886): a tool turn's short reply, or one that wrote nothing, still gets the headline and its disc (never no icon).
+            bool toolProse = Model.ReplyTone.NeedsHeadline(m.Kind == CpMsgKind.AiReply, cardShown, m.ToolsUsed?.Count ?? 0, m.NothingWritten, m.Text);
+            bool proseLayout = !cardShown && m.Kind == CpMsgKind.AiReply && (serverProse || noopProse || toolProse || Model.ProseSplit.Applies(m.Text));
             // Without a card the evidence view hosts the quiet "Steps" toggle (what ran, one line for failures, what was read).
             bool stepsInEvidence = showEvidence && !cardShown;
             bool fullWidthColumn = cardShown || askShown || proseLayout;

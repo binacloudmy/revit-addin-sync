@@ -1,7 +1,8 @@
 #nullable enable
 // r22 (PC round P5, turn 6bf0f4ec): a turn whose write card was answered by typing ("write it") wrote nothing: the server refuses typed
 // text as an approval. Its reply ("Typed text isn't an approval, so nothing was written…") is no success, so its headline gets the
-// neutral info disc, not the green check. Every other reply keeps its icon. WPF-free so it is unit-tested.
+// neutral info disc, not the green check. r23: also a turn whose server result made or changed nothing (NothingMade), and a tool turn's short reply always has a disc
+// (NeedsHeadline). WPF-free so it is unit-tested.
 
 using System.Collections.Generic;
 using System.Linq;
@@ -47,6 +48,29 @@ namespace RevitWebAppSync.UI.Copilot.Model
             }
             return any || values.Count == 0 || values.Values.All(v => v.ValueKind == System.Text.Json.JsonValueKind.String || v.ValueKind == System.Text.Json.JsonValueKind.False);
         }
+
+        /// <summary>r23 (live PC f85dd8f6 "Nothing was changed." with {skipped 1, findings 0}; laptop b372f902 "No circuits made." with
+        /// {values 0, written 0, elements 0}; both drew the green check): the server's result says the turn made or changed nothing. True
+        /// when no write of the turn committed a change, the result gives no positive count of something made, changed, selected or found,
+        /// and either something was skipped or failed, or a changes/created result counts all zeros. A read that answered (a find of N,
+        /// a check with findings 0 and nothing skipped) is not this: it keeps the green check.</summary>
+        public static bool NothingMade(TurnResultDto? result, IEnumerable<Envelope?>? envelopes)
+        {
+            if (result == null) return false;
+            if ((envelopes ?? Enumerable.Empty<Envelope?>()).Any(e => e != null && e.Ok && e.Phase == EnvelopePhase.Commit && e.Status != EnvelopeStatus.Noop)) return false;
+            var c = result.Counts;
+            if (c == null) return false;
+            if (new[] { c.Elements, c.Types, c.Values, c.Written, c.Created, c.Reverted, c.Findings }.Any(n => (n ?? 0) > 0)) return false;
+            if ((c.Skipped ?? 0) > 0 || (c.Failed ?? 0) > 0) return true;
+            var writeKind = result.Kind == TurnResultKinds.Changes || result.Kind == TurnResultKinds.Created;
+            return writeKind && TurnEvidence.CountsAllZero(c);
+        }
+
+        /// <summary>r23 (live laptop f7d1c886, wall-by-points Skip: "Skipped, so no wall was made…" drew NO icon): a reply of a turn that
+        /// used a tool, or wrote nothing, always gets the headline row with its disc, even when it is one short sentence and no card is
+        /// shown. A plain chat reply with no tool, and a structured answer (a table, a list, code), keep their markdown.</summary>
+        public static bool NeedsHeadline(bool aiReply, bool cardShown, int toolsUsed, bool nothingWritten, string? text) =>
+            aiReply && !cardShown && (toolsUsed > 0 || nothingWritten) && ProseSplit.IsPlainProse(text, 1);
 
         /// <summary>The reply wrote nothing because typed text at a write card was refused: the turn's write card was answered by typing
         /// and no write of the turn committed.</summary>

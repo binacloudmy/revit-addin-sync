@@ -1300,7 +1300,9 @@ namespace RevitWebAppSync.UI.Copilot
                 return;
             }
 
-            var nothingWritten = ReplyTone.TypedRefusal(_typedAtWriteCard, rr.Evidence?.Calls.Select(c => c.Env));
+            var nothingWritten = ReplyTone.TypedRefusal(_typedAtWriteCard, rr.Evidence?.Calls.Select(c => c.Env))
+                // r23 (live f85dd8f6, b372f902): the server's result says nothing was made or changed: the neutral disc, never the green check
+                || ReplyTone.NothingMade(TurnStatus.ServerResultOf(rr), rr.Evidence?.Calls.Select(c => c.Env));
             _typedAtWriteCard = false;   // one turn's typed answer only
             var reply = new ChatMessage
             {
