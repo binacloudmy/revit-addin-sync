@@ -64,16 +64,25 @@ namespace BinaVibe.Copilot.Writes
         public Task<CommitOutcome> CommitAsync(WriteBatch batch, PreviewOutcome preview, string planHash, CancellationToken ct) =>
             RevitThread.RunAsync(app =>
             {
-                CommitOutcome? outcome = null;
-                try { return outcome = CommitBatch(app, batch, preview, planHash); }
+                var track = new CommitTrack();
+                try { return CommitBatch(app, batch, preview, planHash, track); }
                 finally
                 {
-                    // r23 audit: a commit that did not commit (refused, drift, a failed call, Revit not keeping the group) changed
-                    // nothing: the find's selection comes back as after a preview. A committed batch gave back (or not) already.
-                    if (outcome?.Kind != CommitKind.Committed) Code.RevitCodeHost.GiveBackSelection(app.ActiveUIDocument?.Document, app.ActiveUIDocument);
+                    // r23 audit: a commit that never kept its group (refused, drift, a failed call, Revit not keeping it) changed nothing:
+                    // the find's selection comes back, in the batch's own document, as after a preview. Once the group was kept, never here
+                    // (re-audit: a throw after Assimilate must not reselect written doors); the commit's own give-back decides then.
+                    if (Code.TurnSelection.GiveBackAtCommitEnd(track.Doc != null, track.GroupKept)) Code.RevitCodeHost.GiveBackSelection(track.Doc, track.UiDoc);
                     Code.RevitCodeHost.ForgetSelectionSwap();
                 }
             }, ct);
+
+        /// <summary>r23: what CommitAsync's finally needs: the batch's document once it was checked, and whether the group was kept.</summary>
+        private sealed class CommitTrack
+        {
+            public Document? Doc;
+            public UIDocument? UiDoc;
+            public bool GroupKept;
+        }
 
         // ------------------------------------------------------------------
         // Preview
@@ -356,7 +365,7 @@ namespace BinaVibe.Copilot.Writes
         // Commit
         // ------------------------------------------------------------------
 
-        private CommitOutcome CommitBatch(UIApplication app, WriteBatch batch, PreviewOutcome preview, string planHash)
+        private CommitOutcome CommitBatch(UIApplication app, WriteBatch batch, PreviewOutcome preview, string planHash, CommitTrack track)
         {
             using var st = BinaVibe.Copilot.Guard.StageTimer.Begin("commit batch");
             var n = batch.Calls.Count;
@@ -365,6 +374,7 @@ namespace BinaVibe.Copilot.Writes
             var refusal = CheckDocument(doc, batch, EnvelopePhase.Commit);
             if (refusal != null)
                 return new CommitOutcome { Kind = refusal.Error?.Code == ErrorCodes.DocChanged ? CommitKind.DocChanged : CommitKind.Failed, Reason = refusal.Error?.Message, Envelopes = Fill(n, refusal) };
+            track.Doc = doc; track.UiDoc = uidoc;   // r23: the batch's document (CheckDocument passed), for a give-back at the end
 
             // Someone changed the model after the preview: back to the preview (the runner does it once).
             if (ExternalRevision.Get(doc!) != preview.Revision)
@@ -556,6 +566,7 @@ namespace BinaVibe.Copilot.Writes
 
                         st.Mark("compare");
                         var status = group.Assimilate();
+                        track.GroupKept = status == TransactionStatus.Committed;   // r23: from here on, no fallback give-back
                         st.Mark("assimilate");
                         if (status != TransactionStatus.Committed)
                         {

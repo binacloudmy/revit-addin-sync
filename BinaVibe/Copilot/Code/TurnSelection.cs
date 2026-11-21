@@ -88,6 +88,11 @@ namespace BinaVibe.Copilot.Code
             return back;
         }
 
+        /// <summary>r23 (re-audit): the fallback give-back when a commit request ends: only once the batch's document was checked, and
+        /// never after its group was kept (a throw after Assimilate must not reselect the written elements; the commit's own give-back,
+        /// with the ids it wrote, is the only one after a kept group).</summary>
+        public static bool GiveBackAtCommitEnd(bool documentChecked, bool groupKept) => documentChecked && !groupKept;
+
         /// <summary>What a read tool takes as the selection: the turn's ids when Revit's selection is another
         /// one by now, null when Revit's own selection is the one to read (linked picks included).</summary>
         public static IReadOnlyList<long>? Ids(SnapshotModel? turn, IEnumerable<long>? live, Func<long, bool> exists)
