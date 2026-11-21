@@ -34,7 +34,8 @@ namespace RevitAddinSync.Tests
             Assert.Contains("Text=\"{Binding RunStatusText, Mode=OneWay}\"", xaml);
             Assert.Contains("<DataTrigger Binding=\"{Binding RunStatus}\" Value=\"Needs input\">", xaml);
             var vm = File.ReadAllText(Path.Combine(dir.FullName, "UI/Copilot/CopilotViewModel.cs"));
-            Assert.Contains("rr.Ask.Wide != null ? Model.TurnStatusText.NeedsOk : Model.TurnStatusText.NeedsAnswer", vm);
+            Assert.Contains("_needsOk = rr.Ask.Wide != null;", vm);   // r22: the chip words come from TurnStatusText.Of(status, needsOk, language)
+            Assert.Contains("Model.TurnStatusText.Of(_runStatus, _needsOk, _statusLang)", vm);
         }
     }
 }

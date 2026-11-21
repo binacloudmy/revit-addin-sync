@@ -107,7 +107,7 @@ namespace RevitAddinSync.Tests
         {
             var vm = Src("UI/Copilot/CopilotViewModel.cs");
             Assert.Contains("NoteUndo(change); if (InModel?.GoneWith(change) == true) Revit.ClearMarks(); UndoStateChanged?.Invoke();", vm);
-            Assert.Contains("UndoNotices.Record(change, Thread.Count, DateTime.Now)", vm);
+            Assert.Contains("UndoNotices.Record(change, Thread.Count, DateTime.Now, UndoLanguage(change))", vm);   // r22: the notice follows the chat language
             Assert.Contains("NotifyCollectionChangedAction.Reset) UndoNotices.Clear()", vm);
             Assert.DoesNotContain("Thread.Add(new ChatMessage { Text = note", vm);
             var view = Src("UI/Copilot/Screens/ChatView.xaml.cs");
