@@ -52,6 +52,18 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
+        public void A_High_AI_row_gets_Mark_manual_after_Ask_AI_finds_nothing()
+        {
+            var vm = new IssueVm { Priority = IssuePriority.High, RevitElementId = 5, CheckId = "jkr_x", Verification = IssueVerification.Ai };
+            Assert.True(vm.AiFixCandidate);
+            Assert.False(vm.CanMarkManual);          // AI not asked yet: the AI button is the control
+            vm.AiAsked = true;
+            Assert.True(vm.CanMarkManual);           // asked, no proposal
+            vm.AiProposal = new AiSuggestion { Value = "x" };
+            Assert.False(vm.CanMarkManual);          // a proposal to accept
+        }
+
+        [Fact]
         public void IssueVm_wiring_uses_the_rule()
         {
             var vm = new IssueVm { Priority = IssuePriority.High, Category = "Project Information", LocateTarget = JkrLocateTarget.ProjectInformation, Locatable = true };

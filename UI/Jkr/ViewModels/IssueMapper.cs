@@ -126,7 +126,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 // AND with ElementId>0: backend can report Locatable=true for
                 // element-less issues (e.g. Project Base Point, element_id=0);
                 // without the element the Locate button would render and no-op.
-                Locatable = dto.ElementId > 0 || JkrRowControls.LocateTargetOf(category, dto.CheckId) != JkrLocateTarget.Element,
+                Locatable = (dto.Locatable && dto.ElementId > 0) || JkrRowControls.LocateTargetOf(category, dto.CheckId) != JkrLocateTarget.Element,
                 LocateTarget = dto.ElementId > 0 ? JkrLocateTarget.Element : JkrRowControls.LocateTargetOf(category, dto.CheckId),
                 FixReference = dto.FixReference ?? "",
             };

@@ -21,17 +21,23 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
     /// </summary>
     public static class JkrRowControls
     {
-        /// <summary>Locate target for a row with no element id, from its category / spec check id.</summary>
+        /// <summary>Locate target for a row with no element id, from its category / spec check id.
+        /// Check ids match exactly (B1.1, A4.1, C5.1.1, or with the "SPEC-" prefix), never by suffix: B1.10 is not B1.1.</summary>
         public static JkrLocateTarget LocateTargetOf(string category, string checkId)
         {
             var c = (category ?? "").Trim();
-            if (c.Equals("Project Information", System.StringComparison.OrdinalIgnoreCase)
-                || (checkId ?? "").EndsWith("B1.1", System.StringComparison.Ordinal)) return JkrLocateTarget.ProjectInformation;
-            if (c.Equals("Project Base Point", System.StringComparison.OrdinalIgnoreCase)
-                || (checkId ?? "").EndsWith("A4.1", System.StringComparison.Ordinal)) return JkrLocateTarget.ProjectBasePoint;
-            if ((checkId ?? "").EndsWith("C5.1.1", System.StringComparison.Ordinal)) return JkrLocateTarget.ManageLinks;
+            var id = (checkId ?? "").Trim();
+            if (id.StartsWith("SPEC-", System.StringComparison.Ordinal)) id = id.Substring(5);
+            if (c.Equals("Project Information", System.StringComparison.OrdinalIgnoreCase) || id == "B1.1") return JkrLocateTarget.ProjectInformation;
+            if (c.Equals("Project Base Point", System.StringComparison.OrdinalIgnoreCase) || id == "A4.1") return JkrLocateTarget.ProjectBasePoint;
+            if (id == "C5.1.1") return JkrLocateTarget.ManageLinks;
             return JkrLocateTarget.Element;
         }
+
+        /// <summary>The AI button is still a way forward: the row is an AI candidate and either the AI has not
+        /// been asked yet or it answered with a proposal. Asked and nothing proposed = no control left from it.</summary>
+        public static bool AiStillOffers(bool aiFixCandidate, bool aiAsked, bool hasProposal) =>
+            aiFixCandidate && (!aiAsked || hasProposal);
 
         /// <summary>A row can be fixed or answered by a button other than Locate / Mark manual.</summary>
         public static bool HasFixControl(bool autoFixable, bool aiFixCandidate, bool isPick) =>

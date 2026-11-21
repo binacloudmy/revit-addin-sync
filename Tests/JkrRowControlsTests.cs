@@ -20,6 +20,38 @@ namespace RevitWebAppSync.Tests
         public void Locate_target_for_a_row_without_an_element(string category, string checkId, JkrLocateTarget expected) =>
             Assert.Equal(expected, JkrRowControls.LocateTargetOf(category, checkId));
 
+        [Theory]
+        [InlineData("", "B1.10")]
+        [InlineData("", "SPEC-B1.10")]
+        [InlineData("", "SPEC-A4.12")]
+        [InlineData("", "C5.1.12")]
+        [InlineData("", "XB1.1")]
+        [InlineData("", "BIM010-B1.1x")]
+        public void Locate_target_matches_ids_exactly_not_by_suffix(string category, string checkId) =>
+            Assert.Equal(JkrLocateTarget.Element, JkrRowControls.LocateTargetOf(category, checkId));
+
+        [Theory]
+        [InlineData("B1.1", JkrLocateTarget.ProjectInformation)]
+        [InlineData("A4.1", JkrLocateTarget.ProjectBasePoint)]
+        [InlineData("C5.1.1", JkrLocateTarget.ManageLinks)]
+        public void Bare_and_SPEC_prefixed_ids_both_match(string id, JkrLocateTarget expected)
+        {
+            Assert.Equal(expected, JkrRowControls.LocateTargetOf("", id));
+            Assert.Equal(expected, JkrRowControls.LocateTargetOf("", "SPEC-" + id));
+        }
+
+        [Fact]
+        public void AI_counts_as_a_control_until_it_was_asked_and_proposed_nothing()
+        {
+            Assert.False(JkrRowControls.AiStillOffers(false, false, false));   // not a candidate
+            Assert.True(JkrRowControls.AiStillOffers(true, false, false));     // not asked yet
+            Assert.True(JkrRowControls.AiStillOffers(true, true, true));       // asked, has a proposal
+            Assert.False(JkrRowControls.AiStillOffers(true, true, false));     // asked, nothing: dead end
+            // so a High AI row with an element id gets Mark manual once Ask AI came back empty
+            Assert.False(JkrRowControls.CanMarkManual(false, JkrRowControls.HasFixControl(false, JkrRowControls.AiStillOffers(true, false, false), false)));
+            Assert.True(JkrRowControls.CanMarkManual(false, JkrRowControls.HasFixControl(false, JkrRowControls.AiStillOffers(true, true, false), false)));
+        }
+
         [Fact]
         public void Mark_manual_is_offered_when_the_tier_allows_or_nothing_can_fix_the_row()
         {
