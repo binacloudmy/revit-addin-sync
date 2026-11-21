@@ -464,6 +464,13 @@ namespace RevitWebAppSync.UI.Copilot
                 {
                     var card = AskCardModel.From(outcome.Ask!, PromptLanguage.ForCard(turn.Language, outcome.Ask!.Title, outcome.Ask!.Question));   // r22: M7 ab677831
                     card.TurnId = turn.Id;
+                    if (card.Language == ReceiptLanguage.Ms && turn.Language != ReceiptLanguage.Ms)
+                    {
+                        // r22 (L7 N5 e2f6a6e3): the server wrote its card in Malay, so the chat is Malay: the answer's result card and footer
+                        // ("Langkah", "Simpan sebagai arahan") and a following neutral "ok" follow it, not the prompt's English-looking words.
+                        turn.Language = ReceiptLanguage.Ms;
+                        _chatLanguage = ReceiptLanguage.Ms;
+                    }
                     card.ArrivedLive = true;   // a live question: it may take the focus from an empty message box
                     // M2: park the question only for a turn of the current chat. A chat
                     // switch between the drive's end and here did not cancel (nothing
@@ -713,7 +720,7 @@ namespace RevitWebAppSync.UI.Copilot
             public Turn(string id, ReceiptLanguage language) { Id = id; Language = language; }
 
             public string Id { get; }
-            public ReceiptLanguage Language { get; }
+            public ReceiptLanguage Language { get; set; }   // r22: a Malay server card makes the rest of the turn Malay (N5 e2f6a6e3)
             /// <summary>The chat (session epoch) the turn started under (I1).</summary>
             public long SessionEpoch { get; set; }
             /// <summary>The snapshot the turn started with (C1); never refreshed mid-turn.</summary>

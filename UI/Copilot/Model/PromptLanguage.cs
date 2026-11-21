@@ -23,6 +23,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
             "tolong", "sila", "buat", "buatkan", "letak", "padam", "tambah", "kenapa", "bagaimana", "jika", "kalau",
             "isi", "isikan", "pilih", "kedua-dua", "pasang", "kat", "ni", "tu", "maksud", "hingga", "jarak",
             "projek", "skor", "tengok", "lagi", "sekali", "hai", "ya", "teruskan",
+            "tinggikan", "rendahkan", "besarkan", "kecilkan", "panjangkan", "pendekkan", "alihkan", "padamkan", "sembunyikan",   // r22: L7 N5 e2f6a6e3
         };
 
         // Malay names of Revit things, which English-speaking drafters also type.
@@ -92,6 +93,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
             var words = Words.Matches((title ?? "") + " " + (question ?? "")).Cast<Match>().Select(m => m.Value);
             return words.Count(w => Function.Contains(w)) >= 2 ? ReceiptLanguage.Ms : turn;
         }
+
+        /// <summary>r22 (L7 N5 e2f6a6e3): the language of a turn's result chrome when the server sent no result language: the turn's, unless the
+        /// reply the server wrote reads Malay (two or more Malay function words), as <see cref="ForCard"/> does for a question card.</summary>
+        public static ReceiptLanguage ForReply(ReceiptLanguage turn, string? reply) => ForCard(turn, null, reply);
 
         /// <summary>The wire code of <c>lang</c> in a turn request.</summary>
         public static string Code(ReceiptLanguage lang) => lang == ReceiptLanguage.Ms ? "ms" : "en";

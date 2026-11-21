@@ -171,8 +171,36 @@ namespace RevitAddinSync.Tests
             Assert.Equal(ReceiptLanguage.Ms, PromptLanguage.FromServer("ms", ReceiptLanguage.En));
             Assert.Equal(ReceiptLanguage.En, PromptLanguage.FromServer("en", ReceiptLanguage.Ms));
             Assert.Equal(ReceiptLanguage.Ms, PromptLanguage.FromServer(null, ReceiptLanguage.Ms));
-            Assert.Contains("PromptLanguage.FromServer(TurnStatus.ServerResultOf(rr)?.Lang, cardLang)", Src("UI/Copilot/CopilotViewModel.cs"));
+            Assert.Contains("PromptLanguage.FromServer(TurnStatus.ServerResultOf(rr)?.Lang, PromptLanguage.ForReply(cardLang, rr.Reply))", Src("UI/Copilot/CopilotViewModel.cs"));
             Assert.Contains("PromptLanguage.Follow(message, _chatLanguage)", Src("UI/Copilot/CopilotTurnRouter.cs"));
+        }
+
+        // ---- r22, L7 N5 (e2f6a6e3): a Malay box turn ended after Langkau with an English "Steps" / "Save as command" footer ----------
+
+        [Fact]
+        public void TheBoxPrompt_ReadsMalay()
+        {
+            Assert.Equal(ReceiptLanguage.Ms, PromptLanguage.Detect("tinggikan kotak keratan ke 4 meter"));
+            Assert.Equal(ReceiptLanguage.En, PromptLanguage.Detect("raise the section box to 4 meters"));
+        }
+
+        [Fact]
+        public void AResultWithNoServerLanguage_FollowsTheServersMalayReply_AndAnEnglishReplyStaysEnglish()
+        {
+            const string reply = "Tiada perubahan dibuat: kotak keratan tidak diubah kerana menaikkan atas ke 4 m akan menurunkannya dari +4804 mm (dari PTBR_Aras Bumbung).";
+            Assert.Equal(ReceiptLanguage.Ms, PromptLanguage.ForReply(ReceiptLanguage.En, reply));
+            Assert.Equal(ReceiptLanguage.En, PromptLanguage.ForReply(ReceiptLanguage.En, "No change: the section box top stays at +4804 mm from PTBR_Aras Bumbung."));
+            Assert.Equal(ReceiptLanguage.Ms, PromptLanguage.FromServer(null, PromptLanguage.ForReply(ReceiptLanguage.En, reply)));
+            Assert.Equal(ReceiptLanguage.En, PromptLanguage.FromServer("en", PromptLanguage.ForReply(ReceiptLanguage.En, reply)));   // the server's own language wins
+        }
+
+        [Fact]
+        public void AMalayServerCard_MakesTheRestOfTheTurnMalay()
+        {
+            var router = Src("UI/Copilot/CopilotTurnRouter.cs");
+            Assert.Contains("if (card.Language == ReceiptLanguage.Ms && turn.Language != ReceiptLanguage.Ms)", router);
+            Assert.Contains("turn.Language = ReceiptLanguage.Ms;", router);
+            Assert.Contains("public ReceiptLanguage Language { get; set; }", router);
         }
     }
 }
