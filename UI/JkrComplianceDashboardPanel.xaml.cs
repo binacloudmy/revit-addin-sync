@@ -1841,12 +1841,19 @@ namespace RevitWebAppSync.UI
         ///  - it is hidden in the view Revit picked (element or category hidden).</summary>
         internal async Task LocateInRevitAsync(IssueVm issue)
         {
-            if (issue == null || issue.RevitElementId <= 0)
+            // AI-480: a row about the model, not an element: Project Information and Manage
+            // Links open Revit's own dialog; the base point is found and selected (never moved).
+            var elementId = issue?.RevitElementId ?? 0;
+            if (issue != null && elementId <= 0 && issue.LocateTarget != JkrLocateTarget.Element)
+            {
+                elementId = await LocateModelLevelAsync(issue.LocateTarget);
+                if (elementId <= 0) return;
+            }
+            if (issue == null || elementId <= 0)
             {
                 _vm.ShowToast(new JkrLocateResult(JkrLocateKind.NoElement).Message);
                 return;
             }
-            var elementId = issue.RevitElementId;
             var locateCount = issue.LocateCount;
             var label = Jkr.Panel.Core.ResultsAdapter.ElementLabel(issue);
             try
@@ -1944,6 +1951,49 @@ namespace RevitWebAppSync.UI
                 System.Diagnostics.Debug.WriteLine($"[BINA] locate failed: {ex.Message}");
                 _vm.ShowToast(Jkr.Panel.Core.PaneText.LocateFailed(ex.Message));
             }
+        }
+
+        /// <summary>AI-480: Locate for a row with no element. Project Information / Manage Links post
+        /// Revit's own command (returns 0: nothing left to select). The base point returns its
+        /// element id for the normal select-and-show path, or 0 with a toast when the model has none.</summary>
+        private async Task<long> LocateModelLevelAsync(JkrLocateTarget target)
+        {
+            try
+            {
+                if (target == JkrLocateTarget.ProjectBasePoint)
+                {
+                    var id = await Revit.InvokeAsync(app =>
+                    {
+                        var doc = app.ActiveUIDocument?.Document;
+                        if (doc == null) return -1L;
+                        var bp = new FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_ProjectBasePoint)
+                            .WhereElementIsNotElementType().FirstOrDefault();
+                        if (bp == null) return 0L;
+#if REVIT2023_24
+                        return (long)bp.Id.IntegerValue;
+#else
+                        return bp.Id.Value;
+#endif
+                    });
+                    if (id <= 0) _vm.ShowToast(new JkrLocateResult(id < 0 ? JkrLocateKind.NoDocument : JkrLocateKind.NoElement).Message);
+                    return id;
+                }
+                var cmd = target == JkrLocateTarget.ManageLinks ? PostableCommand.ManageLinks : PostableCommand.ProjectInformation;
+                var posted = await Revit.InvokeAsync(app =>
+                {
+                    var cid = RevitCommandId.LookupPostableCommandId(cmd);
+                    if (cid == null || !app.CanPostCommand(cid)) return false;
+                    app.PostCommand(cid);
+                    return true;
+                });
+                if (!posted) _vm.ShowToast(new JkrLocateResult(JkrLocateKind.NoElement).Message);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[BINA] locate (model level) failed: {ex.Message}");
+                _vm.ShowToast(Jkr.Panel.Core.PaneText.LocateFailed(ex.Message));
+            }
+            return 0;
         }
 
         /// <summary>Whether a view open in Revit shows any of <paramref name="targets"/>

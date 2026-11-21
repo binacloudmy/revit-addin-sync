@@ -411,18 +411,20 @@ namespace RevitWebAppSync.Tests
         public void Mark_manual_needs_an_open_ai_item_that_may_be_marked()
         {
             var (r, _) = New();
-            r.Load(new[] { Issue("1", "A4", IssuePriority.High), Issue("2", "A4"), Issue("3", "A4", st: IssueStatus.Ignored),
+            r.Load(new[] { Issue("1", "A4", IssuePriority.High, fixable: true), Issue("2", "A4"), Issue("3", "A4", st: IssueStatus.Ignored),
                            Issue("4", "C5.1", human: true) }, Summary());
             var marked = new List<string>();
             r.MarkManualRequested += marked.Add;
-            r.MarkManual("1");      // High: not allowed
+            r.MarkManual("1");      // High with a fix: not allowed
             r.MarkManual("3");      // not open
             r.MarkManual("4");      // needs a person
             Assert.Empty(marked);
             r.MarkManual("2");
             Assert.Equal(new[] { "2" }, marked);
             Assert.True(ResultsAdapter.FromIssue(Issue("2", "A4")).CanMarkManual);
-            Assert.False(ResultsAdapter.FromIssue(Issue("1", "A4", IssuePriority.High)).CanMarkManual);
+            Assert.False(ResultsAdapter.FromIssue(Issue("1", "A4", IssuePriority.High, fixable: true)).CanMarkManual);
+            // AI-480: a High row nobody can fix (C5.1.1, Project Information, base point) is not a dead end.
+            Assert.True(ResultsAdapter.FromIssue(Issue("5", "A4", IssuePriority.High)).CanMarkManual);
             Assert.False(ResultsAdapter.FromIssue(Issue("4", "C5.1", human: true)).CanMarkManual);
         }
 

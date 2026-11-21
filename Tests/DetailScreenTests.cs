@@ -332,7 +332,7 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void An_open_issue_that_may_be_marked_offers_mark_as_manual()
         {
-            var (d, r, _) = New(Issue("1", "A4", fixable: true), Issue("2", "A4", IssuePriority.High));
+            var (d, r, _) = New(Issue("1", "A4", fixable: true), Issue("2", "A4", IssuePriority.High, fixable: true));
             d.Open("1");
             var c = d.Card;
             Assert.True(c.CanMarkManual);
@@ -347,7 +347,7 @@ namespace RevitWebAppSync.Tests
             d.MarkManual();
             Assert.Equal("1", marked);
 
-            d.Next();                                            // High: Mark as Manual is not offered
+            d.Next();                                            // High with a fix: Mark as Manual is not offered (AI-480: a High row with nothing to fix gets it)
             Assert.False(d.Card.CanMarkManual);
             marked = null;
             d.MarkManual();
