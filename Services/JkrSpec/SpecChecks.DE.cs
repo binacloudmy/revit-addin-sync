@@ -30,7 +30,7 @@ namespace RevitWebAppSync.Services.JkrSpec
         static partial void BackendDE(Dictionary<string, string> reasons)
         {
             reasons["Da.1"] = "Whether the code in a type name is a real JKR component code needs the JKR code list, which the backend holds; the add-in tests the coding pattern only.";
-            reasons["Db.1"] = "The mandatory parameters per category and LOi (Buku Parameter p.38–102) are the backend's rule set; the add-in checks only the parameters the book makes mandatory for every AR category from LOi 400.";
+            reasons["Db.1"] = "The add-in checks the Buku Parameter AR tables (p.36–102, all 20 categories, per LOi) for what it can read: text parameters empty, any parameter the type lacks. Yes/No, number, currency and material values, the plain Revit built-in parameters, and the starred (*) rows are not judged; the backend judges those.";
             reasons["Db.2"] = "Whether a material code is a real JKR material code needs the JKR code list, which the backend holds; the add-in tests the 'jkrXX' prefix only.";
         }
 
@@ -146,68 +146,160 @@ namespace RevitWebAppSync.Services.JkrSpec
 
         // ─── Db.1 — mandatory parameters per Buku Parameter × LOD ───
 
-        /// <summary>LOi from which every AR element category in the Buku Parameter
-        /// (p.38–102) ticks the parameters in <see cref="PbMandatoryAllArFromLoi400"/>.</summary>
-        internal const int PbCommonLoi = 400;
-
-        /// <summary>The parameters the Buku Parameter marks mandatory (no "*" = "isi jika
-        /// berkaitan") for EVERY AR element category, ticked at LOi 400 and 500 in each
-        /// (PB p.38–102: type Kod_Jenis_jkr_stt; instance purchase / install / supplier /
-        /// contractor data). Text-valued ones only — the snapshot's Texts.</summary>
-        internal static readonly string[] PbMandatoryAllArFromLoi400 =
-        {
-            "Kod_Jenis_jkr_stt",
-            "Tarikh_Perolehan_jkr_sit", "Kod_PTJ_jkr_sit", "Tarikh_Dipasang_jkr_sit",
-            "Tarikh_Waranti_Tamat_jkr_sit", "Tarikh_Tamat_DLP_jkr_sit",
-            "Pembekal_jkr_sit", "Alamat_Pembekal_jkr_sit", "No_Tel_Pembekal_jkr_sit",
-            "Kontraktor_jkr_sit", "Alamat_Kontraktor_jkr_sit", "No_Tel_Kontraktor_jkr_sit",
-        };
-
         /// <summary>
-        /// Db.1 (PB per category, T 22:28): every parameter mandatory at the project's LOi
-        /// must be filled. The full per-category × LOi set is the backend's (BackendDE). The
-        /// add-in tests the part it can prove from the book alone: at project LOD ≥ 400, the
-        /// parameters every AR category makes mandatory (<see cref="PbMandatoryAllArFromLoi400"/>)
-        /// that the type (or its first placed instance) leaves empty → fail ("kosong"), or does
-        /// not carry at all → fail ("tiada pada type": B1.1 treats a missing field the same
-        /// way). Carried but not text-typed → not judged. A snapshot that did not read the
-        /// type's parameter names (SpecType.ParamNamesRead false) judges only what its texts
-        /// hold. FailOnly. Below LOD 400 this part has nothing
-        /// the book makes mandatory for every category, so it returns nothing.
+        /// Db.1 (PB per category, T 22:28): every parameter the Buku Parameter ticks for the category
+        /// at the project's LOi must be filled. The table is DATA (<see cref="SpecPbParameters"/>,
+        /// Services/JkrSpec/data/jkr_pb_ar_parameters.csv, all 20 AR categories, PB p.36–102): LOD → LOi by
+        /// <see cref="SpecPbData.LoiOf"/> (350 → 300), required = ticked at that LOi and not starred.
+        /// <list type="bullet">
+        /// <item>Judged at every LOD from 100: the book requires parameters below LOD 400 too (Wall 27 at
+        /// LOi 300). The old hard-coded "12 common from 400" list is gone: it is a subset of the table
+        /// (the table has 14 common, and Kod_Jenis_jkr_stt from LOi 300 in 13 of 18 categories).</item>
+        /// <item>Starred rows (* / **): LISTED per category, never failed. The book's legend (p.39, 44 … 102):
+        /// "*" = "Parameter yang perlu diisi jika berkaitan" (fill if relevant), so it is not mandatory. "**" (3 AR
+        /// rows) has no AR legend (ST p.135: fill if the data comes from analysis software) and is listed the
+        /// same way. Linear AI-503 D8.</item>
+        /// <item>Type vs instance: the snapshot reads a placed type's parameters from the TYPE and from its
+        /// FIRST placed instance (SpecModelReader.ReadInstanceTexts / ReadParamNames), not from every
+        /// instance. Instance parameters are therefore judged on the first placed instance of each type — a
+        /// documented choice, not "all": one blank on a later instance is not seen. Reading every instance
+        /// is a reader change (Revit side) and a follow-up.</item>
+        /// <item>Judged by value: a text parameter (…_jkr_s?t, …x) empty → "kosong"; any parameter the type
+        /// does not carry at all (reader saw the names) → "tiada pada type". Yes/No, number, currency and
+        /// material values are not in the snapshot, so a carried one is not judged, and the 86 plain Revit
+        /// built-in rows (Name, Base Level, Description …) need a map to Revit's own parameters and are not
+        /// judged either. So the check is FailOnly: a fail is proven, a pass is "partly checked".</item>
+        /// <item>Room and Area (PB p.36–37) have no type: judged per element on the parameters the snapshot
+        /// reads (SpecRoom.Params / SpecArea.Params), blank only.</item>
+        /// </list>
+        /// The remark says what was required at which LOi ("wajib LOi 300 (PB hlm. 51–54)", and "dari LOi
+        /// 300" per parameter).
         /// </summary>
         private static IEnumerable<SpecResult> DbMandatoryParameters(SpecModel m)
         {
             const string id = "Db.1";
-            if (m.Lod < PbCommonLoi) yield break;
-            var loi = SpecPbData.LoiOf(m.Lod);   // LOD 450 sits under the book's LOi 400 column
+            var loi = SpecPbData.LoiOf(m.Lod);   // LOD 450 sits under the book's LOi 400 column; LOD < 100: nothing is ticked
+            if (loi == 0) yield break;
+
+            // Revit types, one book category at a time.
             var ok = new Dictionary<string, int>(StringComparer.Ordinal);
+            var judgedParams = new Dictionary<string, int>(StringComparer.Ordinal);
+            var starCounts = new Dictionary<string, List<PbParam>>(StringComparer.Ordinal);
             foreach (var t in TypesIn(m, PbElementCategories))
             {
+                var book = SpecPbParameters.BookCategoryOf(t.Category);
+                if (book == null) continue;
+                var rows = SpecPbParameters.At(book, loi);
+                var required = rows.Where(p => p.IsShared && !p.Starred).ToList();
                 // Judged = the type's text holds it (empty or filled), or the reader saw the type's
                 // parameters and it is not among them (missing). Unread snapshots judge only the former.
-                var states = PbMandatoryAllArFromLoi400
-                    .Select(p => (Name: p, State: SpecExtractionRules.MandatoryState(t, p)))
+                var states = required
+                    .Select(p => (Param: p, State: SpecExtractionRules.MandatoryState(t, p.Name)))
                     .Where(x => x.State.HasValue).ToList();
                 if (states.Count == 0) continue;
-                var empty = states.Where(x => x.State == SpecParamState.Empty).Select(x => x.Name).ToList();
-                var missing = states.Where(x => x.State == SpecParamState.Missing).Select(x => x.Name).ToList();
-                if (empty.Count + missing.Count == 0) { Bump(ok, t.Category); continue; }
+                if (!starCounts.ContainsKey(t.Category)) starCounts[t.Category] = rows.Where(p => p.IsShared && p.Starred).ToList();   // list stars only where something was judged
+                var empty = states.Where(x => x.State == SpecParamState.Empty).Select(x => x.Param).ToList();
+                var missing = states.Where(x => x.State == SpecParamState.Missing).Select(x => x.Param).ToList();
+                if (empty.Count + missing.Count == 0)
+                {
+                    Bump(ok, t.Category);
+                    judgedParams[t.Category] = Math.Max(judgedParams.TryGetValue(t.Category, out var j) ? j : 0, states.Count);
+                    continue;
+                }
                 var bad = empty.Count + missing.Count;
-                var list = string.Join(", ", empty);
-                var missList = string.Join(", ", missing);
-                var bm = $"{t.Category}: type '{t.TypeName}' — {bad}/{states.Count} parameter wajib LOi {loi} tidak terisi"
-                         + (empty.Count > 0 ? $"; kosong: {list}" : "")
-                         + (missing.Count > 0 ? $"; tiada pada type: {missList}" : "");
-                var en = $"{t.Category}: type '{t.TypeName}' — {bad}/{states.Count} mandatory LOi {loi} parameters not filled"
-                         + (empty.Count > 0 ? $"; empty: {list}" : "")
-                         + (missing.Count > 0 ? $"; not on the type: {missList}" : "");
-                var actual = (empty.Count > 0 ? "kosong: " + list : "") + (empty.Count > 0 && missing.Count > 0 ? "; " : "")
-                             + (missing.Count > 0 ? "tiada: " + missList : "");
+                var pages = PageRange(rows);
+                var bm = $"{t.Category}: type '{t.TypeName}' — {bad}/{states.Count} parameter wajib LOi {loi} (PB hlm. {pages}) tidak terisi"
+                         + (empty.Count > 0 ? $"; kosong: {Names(empty, loi)}" : "")
+                         + (missing.Count > 0 ? $"; tiada pada type: {Names(missing, loi)}" : "");
+                var en = $"{t.Category}: type '{t.TypeName}' — {bad}/{states.Count} mandatory LOi {loi} parameters (PB p.{pages}) not filled"
+                         + (empty.Count > 0 ? $"; empty: {Names(empty, loi, true)}" : "")
+                         + (missing.Count > 0 ? $"; not on the type: {Names(missing, loi, true)}" : "");
+                var actual = (empty.Count > 0 ? "kosong: " + string.Join(", ", empty.Select(p => p.Name)) : "")
+                             + (empty.Count > 0 && missing.Count > 0 ? "; " : "")
+                             + (missing.Count > 0 ? "tiada: " + string.Join(", ", missing.Select(p => p.Name)) : "");
                 yield return FailType(id, t, bm, en, SpecCoverage.FailOnly, actual: actual, required: "terisi (PB, LOi " + loi + ")");
             }
             foreach (var kv in ok)
-                yield return Pass(id, $"{kv.Key}: {kv.Value} type: parameter wajib semua kategori AR (LOi {PbCommonLoi}+) terisi — senarai penuh per kategori belum disemak", kv.Value, SpecCoverage.FailOnly)
-                    .En($"{kv.Key}: {kv.Value} types: parameters mandatory for every AR category (LOi {PbCommonLoi}+) filled — the full per-category list is not checked here").InCat(kv.Key);
+            {
+                var book = SpecPbParameters.BookCategoryOf(kv.Key);
+                var pages = PageRange(SpecPbParameters.At(book, loi));
+                yield return Pass(id, $"{kv.Key}: {kv.Value} type: parameter wajib LOi {loi} (PB hlm. {pages}) yang boleh dibaca terisi — {judgedParams[kv.Key]} diperiksa; nilai Yes/No, nombor, material dan parameter Revit biasa belum disemak", kv.Value, SpecCoverage.FailOnly)
+                    .En($"{kv.Key}: {kv.Value} types: the mandatory LOi {loi} parameters (PB p.{pages}) that can be read are filled — {judgedParams[kv.Key]} checked; Yes/No, number, material values and plain Revit parameters are not checked yet").InCat(kv.Key);
+            }
+            // Starred rows: listed, never failed (D8 open).
+            foreach (var kv in starCounts.Where(x => x.Value.Count > 0).OrderBy(x => x.Key, StringComparer.Ordinal))
+            {
+                var names = string.Join(", ", kv.Value.Take(8).Select(p => p.Name + new string('*', p.Star))) + (kv.Value.Count > 8 ? " …" : "");
+                yield return SpecChecks.Listing(id, $"{kv.Key}: {kv.Value.Count} parameter bertanda * pada LOi {loi} disenaraikan, tidak digagalkan (* = \"Parameter yang perlu diisi jika berkaitan\", PB): {names}", kv.Value.Count)
+                    .En($"{kv.Key}: {kv.Value.Count} starred (*) parameters at LOi {loi} listed, not failed (* = fill if relevant, per the book's legend): {names}").InCat(kv.Key);
+            }
+
+            foreach (var r in DbRoomArea(m, loi, id)) yield return r;
+        }
+
+        /// <summary>"51–54" (the pages the category's rows ticked at the LOi sit on).</summary>
+        private static string PageRange(List<PbParam> rows)
+        {
+            var pages = rows.Select(p => p.Page).Where(x => x > 0).ToList();
+            if (pages.Count == 0) return "?";
+            return pages.Min() == pages.Max() ? pages.Min().ToString(CultureInfo.InvariantCulture)
+                : pages.Min().ToString(CultureInfo.InvariantCulture) + "–" + pages.Max().ToString(CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>"Kod_Jenis_jkr_stt (dari LOi 300), …": each parameter with the LOi it starts at, so the remark
+        /// says what was required at which LOi. Only the ones that start below the project's LOi get the tag.</summary>
+        private static string Names(List<PbParam> ps, int loi, bool en = false)
+        {
+            string Tag(PbParam p) => p.FromLoi < loi ? (en ? $" (from LOi {p.FromLoi})" : $" (dari LOi {p.FromLoi})") : "";
+            var shown = ps.Take(12).Select(p => p.Name + Tag(p));
+            return string.Join(", ", shown) + (ps.Count > 12 ? $" … (+{ps.Count - 12})" : "");
+        }
+
+        /// <summary>Room (PB p.37) and Area (PB p.36): per element, the parameters the snapshot read, blank = fail.
+        /// A parameter the snapshot does not hold is not judged (SpecRoom.Params lists parameters with a value, so
+        /// absent cannot be told from not-read).</summary>
+        private static IEnumerable<SpecResult> DbRoomArea(SpecModel m, int loi, string id)
+        {
+            foreach (var group in new[]
+            {
+                (Book: "Room", Label: "Room", Els: m.Rooms.Select(r => (r.Id, r.Name, r.Params)).ToList()),
+                (Book: "Area", Label: "Area", Els: m.Areas.Select(a => (a.Id, a.Name, a.Params)).ToList()),
+            })
+            {
+                if (group.Els.Count == 0) continue;
+                var rows = SpecPbParameters.At(group.Book, loi);
+                var required = rows.Where(p => p.IsShared && !p.Starred && p.IsTextValued).ToList();
+                if (required.Count == 0) continue;
+                var pages = PageRange(rows);
+                var bad = new Dictionary<string, List<long>>(StringComparer.Ordinal);
+                var okCount = 0;
+                foreach (var e in group.Els)
+                {
+                    var anyBad = false; var anyJudged = false;
+                    foreach (var p in required)
+                        if (e.Params != null && e.Params.TryGetValue(p.Name, out var v))
+                        {
+                            anyJudged = true;
+                            if (SpecExtractionRules.Classify(true, v).State != SpecParamState.Empty) continue;
+                            if (!bad.TryGetValue(p.Name, out var ids)) bad[p.Name] = ids = new List<long>();
+                            ids.Add(e.Id); anyBad = true;
+                        }
+                    if (anyJudged && !anyBad) okCount++;
+                }
+                if (bad.Count > 0)
+                {
+                    var all = bad.Values.SelectMany(x => x).Distinct().ToList();
+                    var list = string.Join(", ", bad.Select(kv => $"{kv.Key} ({kv.Value.Count})"));
+                    yield return Fail(id,
+                            $"{group.Label}: {all.Count} elemen — parameter wajib LOi {loi} (PB hlm. {pages}) kosong: {list}",
+                            all[0], group.Label, actual: "kosong: " + string.Join(", ", bad.Keys), required: "terisi (PB, LOi " + loi + ")",
+                            key: "pb:" + group.Book + ":" + loi, coverage: SpecCoverage.FailOnly, elementIds: all)
+                        .En($"{group.Label}: {all.Count} elements — mandatory LOi {loi} parameters (PB p.{pages}) empty: {list}").InCat(group.Label);
+                }
+                if (okCount > 0)
+                    yield return Pass(id, $"{group.Label}: {okCount} elemen: parameter wajib LOi {loi} (PB hlm. {pages}) yang boleh dibaca terisi", okCount, SpecCoverage.FailOnly)
+                        .En($"{group.Label}: {okCount} elements: the mandatory LOi {loi} parameters (PB p.{pages}) that can be read are filled").InCat(group.Label);
+            }
         }
 
         // ─── Db.2 — element material filled and JKR-coded ───

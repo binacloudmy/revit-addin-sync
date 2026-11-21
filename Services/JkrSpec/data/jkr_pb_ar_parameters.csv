@@ -1,0 +1,985 @@
+category,pb_page,param_kind,parameter,star,loi_from,loi_to,suffix_code,name_kind
+Area,36,Instance,Luas_Brif_jkr_sia,0,100,300,_jkr_sia,instance
+Area,36,Instance,Name,0,100,200,,revit-builtin
+Area,36,Instance,Kod_Department_jkr_sit,0,100,200,_jkr_sit,instance
+Room,37,Instance,Diterima_jkr_siy,0,200,300,_jkr_siy,instance
+Room,37,Instance,Luas_Brif_jkr_sia,0,200,300,_jkr_sia,instance
+Room,37,Type,Kod_Ruang_AR_jkr_stt,0,200,500,_jkr_stt,type
+Room,37,Instance,Number,0,200,500,,revit-builtin
+Room,37,Instance,Name,0,200,500,,revit-builtin
+Room,37,Instance,Occupancy,0,200,500,,revit-builtin
+Room,37,Instance,Department,0,200,500,,revit-builtin
+Room,37,Instance,Ceiling Finish,0,200,500,,revit-builtin
+Room,37,Instance,Wall Finish,0,200,500,,revit-builtin
+Room,37,Instance,Floor Finish,0,200,500,,revit-builtin
+Room,37,Instance,Tinggi_Siling_jkr_sil,0,200,500,_jkr_sil,instance
+Room,37,Instance,Kod_Kambi_jkr_sit,0,200,500,_jkr_sit,instance
+Room,37,Instance,Kod_Sistem_Pengudaraan_jkr_sit,0,200,500,_jkr_sit,instance
+Room,37,Instance,Kod_Department_jkr_sit,0,200,500,_jkr_sit,instance
+Room,37,Instance,Kod_DAK_Lokasi_jkr_sit,0,400,500,_jkr_sit,instance
+Casework,38,Type,Bahan_jkr_stm,0,300,500,_jkr_stm,type
+Casework,38,Type,Bahan_jkr_stt,0,200,500,_jkr_stt,type
+Casework,38,Type,Kaca_jkr_stm,1,300,500,_jkr_stm,type
+Casework,38,Type,Kaca_jkr_stt,1,200,500,_jkr_stt,type
+Casework,38,Type,Kaki_jkr_stm,1,300,500,_jkr_stm,type
+Casework,38,Type,Kaki_jkr_stt,1,200,500,_jkr_stt,type
+Casework,38,Type,Kemasan_jkr_stm,1,300,500,_jkr_stm,type
+Casework,38,Type,Kemasan_jkr_stt,1,200,500,_jkr_stt,type
+Casework,38,Type,Panel_jkr_stm,1,300,500,_jkr_stm,type
+Casework,38,Type,Panel_jkr_stt,1,200,500,_jkr_stt,type
+Casework,38,Type,Permukaan_Meja_jkr_stm,1,300,500,_jkr_stm,type
+Casework,38,Type,Permukaan_Meja_jkr_stt,1,200,500,_jkr_stt,type
+Casework,38,Type,Depth,0,100,500,,revit-builtin
+Casework,38,Type,Height,0,100,500,,revit-builtin
+Casework,38,Type,Width,0,100,500,,revit-builtin
+Casework,38,Type,Kod_Jenis_jkr_stt,0,300,500,_jkr_stt,type
+Casework,38,Type,Kod_Komponen_sumber_jkr_stt,0,300,500,_jkr_stt,type
+Casework,38,Type,Kod_Komponen_jkr_stt,0,300,500,_jkr_stt,type
+Casework,39,Type,Kod_Rekabentuk_jkr_stt,0,300,500,_jkr_stt,type
+Casework,39,Type,Kod_Komponen_Projek_jkr_stt,0,300,500,_jkr_stt,type
+Casework,39,Type,Kod_Ruang_Berkaitan_jkr_stt,1,300,500,_jkr_stt,type
+Casework,39,Type,Bidang_Kejuruteraan_jkr_stt,0,300,500,_jkr_stt,type
+Casework,39,Type,Sistem_jkr_stt,0,300,500,_jkr_stt,type
+Casework,39,Type,Sub_Sistem_jkr_stt,0,300,500,_jkr_stt,type
+Casework,39,Type,Nama_Komponen_Utama_jkr_stt,0,300,500,_jkr_stt,type
+Casework,39,Type,Kod_DAK_Komponen_jkr_stt,0,300,500,_jkr_stt,type
+Casework,39,Type,Kaedah_Perolehan_jkr_stt,0,300,500,_jkr_stt,type
+Casework,39,Type,Tarikh_Kelulusan_Bahan_jkr_stt,0,400,500,_jkr_stt,type
+Casework,39,Type,Description,0,300,500,,revit-builtin
+Casework,39,Type,Luar_Kontrak_jkr_sty,0,300,500,_jkr_sty,type
+Casework,40,Instance,Butiran_APK_jkr_six,1,400,500,_jkr_six,instance
+Casework,40,Instance,Tarikh_Kelulusan_APK_jkr_sit,2,400,500,_jkr_sit,instance
+Casework,40,Instance,Bukan_Komponen_DAK_jkr_siy,0,400,500,_jkr_siy,instance
+Casework,40,Instance,Tarikh_Perolehan_jkr_sit,0,400,500,_jkr_sit,instance
+Casework,40,Instance,Kos_Perolehan_jkr_sic,0,400,500,_jkr_sic,instance
+Casework,40,Instance,No_Pesanan_Rasmi_Kerajaan_jkr_sit,0,400,500,_jkr_sit,instance
+Casework,40,Instance,Kod_PTJ_jkr_sit,0,400,500,_jkr_sit,instance
+Casework,40,Instance,Tarikh_Dipasang_jkr_sit,0,400,500,_jkr_sit,instance
+Casework,40,Instance,Tarikh_Waranti_Tamat_jkr_sit,0,400,500,_jkr_sit,instance
+Casework,40,Instance,Tarikh_Tamat_DLP_jkr_sit,0,400,500,_jkr_sit,instance
+Casework,40,Instance,Jangka_Hayat_jkr_sit,0,400,500,_jkr_sit,instance
+Casework,40,Instance,Pengilang_jkr_sit,0,400,500,_jkr_sit,instance
+Casework,40,Instance,Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Casework,40,Instance,Alamat_Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Casework,40,Instance,No_Tel_Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Casework,40,Instance,Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Casework,40,Instance,Alamat_Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Casework,40,Instance,No_Tel_Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Casework,40,Instance,Status_Komponen_jkr_sit,0,400,500,_jkr_sit,instance
+Casework,41,Instance,Jenama_jkr_sit,0,400,500,_jkr_sit,instance
+Casework,41,Instance,Model_jkr_sit,0,400,500,_jkr_sit,instance
+Casework,41,Instance,No_Siri_jkr_sit,0,400,500,_jkr_sit,instance
+Casework,41,Instance,No_Teg_Label_jkr_sit,0,500,500,_jkr_sit,instance
+Casework,41,Instance,No_Sijil_Pendaftaran_jkr_sit,0,500,500,_jkr_sit,instance
+Casework,41,Instance,Kaedah_Pemasangan_jkr_sit,0,400,500,_jkr_sit,instance
+Casework,41,Instance,Catatan_Attribut_jkr_sit,0,400,500,_jkr_sit,instance
+Casework,41,Instance,Dokumen_Berkaitan_01_jkr_sit,0,400,500,_jkr_sit,instance
+Casework,41,Instance,Dokumen_Berkaitan_02_jkr_sit,0,400,500,_jkr_sit,instance
+Casework,41,Instance,Dokumen_Berkaitan_03_jkr_sit,0,400,500,_jkr_sit,instance
+Casework,41,Instance,Dokumen_Berkaitan_04_jkr_sit,0,400,500,_jkr_sit,instance
+Casework,41,Instance,No_Rujukan_Berkaitan_01_jkr_sit,0,400,500,_jkr_sit,instance
+Casework,41,Instance,No_Rujukan_Berkaitan_02_jkr_sit,0,400,500,_jkr_sit,instance
+Casework,41,Instance,No_Rujukan_Berkaitan_03_jkr_sit,0,400,500,_jkr_sit,instance
+Casework,41,Instance,No_Rujukan_Berkaitan_04_jkr_sit,0,400,500,_jkr_sit,instance
+Ceiling,42,Type,Structure,0,100,500,,revit-builtin
+Ceiling,42,Type,Komponen_IBS_jkr_sty,0,300,500,_jkr_sty,type
+Ceiling,42,Type,Warna_Kelulusan_PBT_jkr_stt,0,300,500,_jkr_stt,type
+Ceiling,42,Type,Bahan_jkr_stt,0,400,500,_jkr_stt,type
+Ceiling,42,Type,Kemasan_jkr_stt,1,400,500,_jkr_stt,type
+Ceiling,42,Type,Kod_Jenis_jkr_stt,0,300,500,_jkr_stt,type
+Ceiling,42,Type,Kod_Komponen_jkr_stt,0,300,500,_jkr_stt,type
+Ceiling,42,Type,Kod_Komponen_Projek_jkr_stt,0,300,500,_jkr_stt,type
+Ceiling,42,Type,Kod_Ruang_Berkaitan_jkr_stt,1,100,300,_jkr_stt,type
+Ceiling,42,Type,Description,0,300,500,,revit-builtin
+Ceiling,42,Type,Tarikh_Kelulusan_Bahan_jkr_stt,0,400,500,_jkr_stt,type
+Ceiling,42,Type,Kod_DAK_Komponen_jkr_stt,0,300,500,_jkr_stt,type
+Ceiling,43,Instance,Warna_Kelulusan_PBT_jkr_sit,0,200,500,_jkr_sit,instance
+Ceiling,43,Instance,Butiran_APK_jkr_six,1,400,500,_jkr_six,instance
+Ceiling,43,Instance,Tarikh_Kelulusan_APK_jkr_sit,1,400,500,_jkr_sit,instance
+Ceiling,43,Instance,Tarikh_Perolehan_jkr_sit,0,400,500,_jkr_sit,instance
+Ceiling,43,Instance,Kos_Perolehan_jkr_sic,0,400,500,_jkr_sic,instance
+Ceiling,43,Instance,No_Pesanan_Rasmi_Kerajaan_jkr_sit,0,400,500,_jkr_sit,instance
+Ceiling,43,Instance,Kod_PTJ_jkr_sit,0,400,500,_jkr_sit,instance
+Ceiling,43,Instance,Tarikh_Dipasang_jkr_sit,0,400,500,_jkr_sit,instance
+Ceiling,43,Instance,Tarikh_Waranti_Tamat_jkr_sit,0,400,500,_jkr_sit,instance
+Ceiling,43,Instance,Tarikh_Tamat_DLP_jkr_sit,0,400,500,_jkr_sit,instance
+Ceiling,43,Instance,Jangka_Hayat_jkr_sit,0,400,500,_jkr_sit,instance
+Ceiling,43,Instance,Pengilang_jkr_sit,0,400,500,_jkr_sit,instance
+Ceiling,43,Instance,Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Ceiling,43,Instance,Alamat_Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Ceiling,43,Instance,No_Tel_Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Ceiling,43,Instance,Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Ceiling,43,Instance,Alamat_Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Ceiling,44,Instance,No_Tel_Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Ceiling,44,Instance,Status_Komponen_jkr_sit,0,400,500,_jkr_sit,instance
+Ceiling,44,Instance,Jenama_jkr_sit,0,400,500,_jkr_sit,instance
+Ceiling,44,Instance,Model_jkr_sit,0,400,500,_jkr_sit,instance
+Ceiling,44,Instance,No_Siri_jkr_sit,0,400,500,_jkr_sit,instance
+Ceiling,44,Instance,No_Sijil_Pendaftaran_jkr_sit,0,500,500,_jkr_sit,instance
+Ceiling,44,Instance,Kaedah_Pemasangan_jkr_sit,0,400,500,_jkr_sit,instance
+Ceiling,44,Instance,Catatan_Attribut_jkr_sit,0,400,500,_jkr_sit,instance
+Ceiling,44,Instance,Dokumen_Berkaitan_01_jkr_sit,0,400,500,_jkr_sit,instance
+Ceiling,44,Instance,Dokumen_Berkaitan_02_jkr_sit,0,400,500,_jkr_sit,instance
+Ceiling,44,Instance,Dokumen_Berkaitan_03_jkr_sit,0,400,500,_jkr_sit,instance
+Ceiling,44,Instance,Dokumen_Berkaitan_04_jkr_sit,0,400,500,_jkr_sit,instance
+Ceiling,44,Instance,No_Rujukan_Berkaitan_01_jkr_sit,0,400,500,_jkr_sit,instance
+Ceiling,44,Instance,No_Rujukan_Berkaitan_02_jkr_sit,0,400,500,_jkr_sit,instance
+Ceiling,44,Instance,No_Rujukan_Berkaitan_03_jkr_sit,0,400,500,_jkr_sit,instance
+Ceiling,44,Instance,No_Rujukan_Berkaitan_04_jkr_sit,0,400,500,_jkr_sit,instance
+Column,45,Type,Komponen_IBS_jkr_sty,0,100,500,_jkr_sty,type
+Column,45,Type,Warna_Kelulusan_PBT_jkr_stt,0,300,500,_jkr_stt,type
+Column,45,Type,Bahan_jkr_stm,0,300,500,_jkr_stm,type
+Column,45,Type,Bahan_jkr_stt,0,200,500,_jkr_stt,type
+Column,45,Type,Kod_Komponen_jkr_stt,0,300,500,_jkr_stt,type
+Column,45,Type,Kod_Jenis_jkr_stt,0,300,500,_jkr_stt,type
+Column,45,Type,Kod_Komponen_Projek_jkr_stt,1,300,500,_jkr_stt,type
+Column,45,Type,Bidang_Kejuruteraan_jkr_stt,0,400,500,_jkr_stt,type
+Column,45,Type,Sistem_jkr_stt,0,400,500,_jkr_stt,type
+Column,45,Type,Sub_Sistem_jkr_stt,0,400,500,_jkr_stt,type
+Column,45,Type,Nama_Komponen_Utama_jkr_stt,0,400,500,_jkr_stt,type
+Column,45,Type,Kod_DAK_Komponen_jkr_stt,0,400,500,_jkr_stt,type
+Column,45,Type,Tarikh_Kelulusan_Bahan_jkr_stt,0,400,500,_jkr_stt,type
+Column,45,Type,Description,0,300,500,,revit-builtin
+Column,46,Instance,Base Level,0,100,500,,revit-builtin
+Column,46,Instance,Base Offset,0,100,500,,revit-builtin
+Column,46,Instance,Top Level,0,100,500,,revit-builtin
+Column,46,Instance,Top Offset,0,100,500,,revit-builtin
+Column,46,Instance,Butiran_APK_jkr_six,1,400,500,_jkr_six,instance
+Column,46,Instance,Tarikh_Kelulusan_APK_jkr_sit,1,400,500,_jkr_sit,instance
+Column,46,Instance,Tarikh_Perolehan_jkr_sit,0,400,500,_jkr_sit,instance
+Column,46,Instance,Kos_Perolehan_jkr_sic,0,400,500,_jkr_sic,instance
+Column,46,Instance,No_Pesanan_Rasmi_Kerajaan_jkr_sit,0,400,500,_jkr_sit,instance
+Column,46,Instance,Kod_PTJ_jkr_sit,0,400,500,_jkr_sit,instance
+Column,46,Instance,Tarikh_Dipasang_jkr_sit,0,400,500,_jkr_sit,instance
+Column,46,Instance,Tarikh_Waranti_Tamat_jkr_sit,0,400,500,_jkr_sit,instance
+Column,46,Instance,Tarikh_Tamat_DLP_jkr_sit,0,400,500,_jkr_sit,instance
+Column,46,Instance,Jangka_Hayat_jkr_sit,0,400,500,_jkr_sit,instance
+Column,46,Instance,Pengilang_jkr_sit,0,400,500,_jkr_sit,instance
+Column,46,Instance,Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Column,46,Instance,Alamat_Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Column,46,Instance,No_Tel_Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Column,46,Instance,Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Column,46,Instance,Alamat_Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Column,46,Instance,No_Tel_Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Column,46,Instance,Status_Komponen_jkr_sit,0,400,500,_jkr_sit,instance
+Column,46,Instance,Jenama_jkr_sit,0,400,500,_jkr_sit,instance
+Column,47,Instance,Model_jkr_sit,0,400,500,_jkr_sit,instance
+Column,47,Instance,No_Teg_Label_jkr_sit,0,500,500,_jkr_sit,instance
+Column,47,Instance,No_Sijil_Pendaftaran_jkr_sit,0,500,500,_jkr_sit,instance
+Column,47,Instance,Kaedah_Pemasangan_jkr_sit,0,400,500,_jkr_sit,instance
+Column,47,Instance,Catatan_Attribut_jkr_sit,0,400,500,_jkr_sit,instance
+Column,47,Instance,Dokumen_Berkaitan_01_jkr_sit,0,400,500,_jkr_sit,instance
+Column,47,Instance,Dokumen_Berkaitan_02_jkr_sit,0,400,500,_jkr_sit,instance
+Column,47,Instance,Dokumen_Berkaitan_03_jkr_sit,0,400,500,_jkr_sit,instance
+Column,47,Instance,Dokumen_Berkaitan_04_jkr_sit,0,400,500,_jkr_sit,instance
+Column,47,Instance,No_Rujukan_Berkaitan_01_jkr_sit,0,400,500,_jkr_sit,instance
+Column,47,Instance,No_Rujukan_Berkaitan_02_jkr_sit,0,400,500,_jkr_sit,instance
+Column,47,Instance,No_Rujukan_Berkaitan_03_jkr_sit,0,400,500,_jkr_sit,instance
+Column,47,Instance,No_Rujukan_Berkaitan_04_jkr_sit,0,400,500,_jkr_sit,instance
+Curtain System,48,Type,Curtain Panel,0,300,500,,revit-builtin
+Curtain System,48,Type,Warna_Kelulusan_PBT_jkr_stt,0,200,500,_jkr_stt,type
+Curtain System,48,Type,Bahan_jkr_stt,0,200,500,_jkr_stt,type
+Curtain System,48,Type,Kemasan_jkr_stt,0,200,500,_jkr_stt,type
+Curtain System,48,Type,Kod_Jenis_jkr_stt,0,300,500,_jkr_stt,type
+Curtain System,48,Type,Kod_Komponen_jkr_stt,0,300,500,_jkr_stt,type
+Curtain System,48,Type,Kod_Tinggi_jkr_jkr_stt,0,300,500,_jkr_stt,type
+Curtain System,48,Type,Kod_Komponen_Projek_jkr_stt,0,300,500,_jkr_stt,type
+Curtain System,48,Type,Kod_Ruang_Berkaitan_jkr_stt,1,100,300,_jkr_stt,type
+Curtain System,48,Type,Description,0,300,500,,revit-builtin
+Curtain System,48,Type,Tarikh_Kelulusan_Bahan_jkr_stt,0,400,500,_jkr_stt,type
+Curtain System,48,Type,Bidang_Kejuruteraan_jkr_stt,0,300,500,_jkr_stt,type
+Curtain System,48,Type,Sistem_jkr_stt,0,300,500,_jkr_stt,type
+Curtain System,48,Type,Sub_Sistem_jkr_stt,0,300,500,_jkr_stt,type
+Curtain System,48,Type,Nama_Komponen_Utama_jkr_stt,0,300,500,_jkr_stt,type
+Curtain System,48,Type,Kod_DAK_Komponen_jkr_stt,0,300,500,_jkr_stt,type
+Curtain System,49,Instance,Room Bounding,0,100,500,,revit-builtin
+Curtain System,49,Instance,Warna_Kelulusan_PBT_jkr_sit,0,100,200,_jkr_sit,instance
+Curtain System,49,Instance,Butiran_APK_jkr_six,1,400,500,_jkr_six,instance
+Curtain System,49,Instance,Tarikh_Kelulusan_APK_jkr_sit,1,400,500,_jkr_sit,instance
+Curtain System,49,Instance,Tarikh_Perolehan_jkr_sit,0,400,500,_jkr_sit,instance
+Curtain System,49,Instance,Kos_Perolehan_jkr_sic,0,400,500,_jkr_sic,instance
+Curtain System,49,Instance,No_Pesanan_Rasmi_Kerajaan_jkr_sit,0,400,500,_jkr_sit,instance
+Curtain System,49,Instance,Kod_PTJ_jkr_sit,0,400,500,_jkr_sit,instance
+Curtain System,49,Instance,Tarikh_Dipasang_jkr_sit,0,400,500,_jkr_sit,instance
+Curtain System,49,Instance,Tarikh_Waranti_Tamat_jkr_sit,0,400,500,_jkr_sit,instance
+Curtain System,49,Instance,Tarikh_Tamat_DLP_jkr_sit,0,400,500,_jkr_sit,instance
+Curtain System,49,Instance,Jangka_Hayat_jkr_sit,0,400,500,_jkr_sit,instance
+Curtain System,49,Instance,Pengilang_jkr_sit,0,400,500,_jkr_sit,instance
+Curtain System,49,Instance,Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Curtain System,49,Instance,Alamat_Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Curtain System,49,Instance,No_Tel_Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Curtain System,49,Instance,Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Curtain System,49,Instance,Alamat_Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Curtain System,49,Instance,No_Tel_Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Curtain System,49,Instance,Status_Komponen_jkr_sit,0,400,500,_jkr_sit,instance
+Curtain System,49,Instance,Jenama_jkr_sit,0,400,500,_jkr_sit,instance
+Curtain System,49,Instance,Model_jkr_sit,0,400,500,_jkr_sit,instance
+Curtain System,50,Instance,No_Teg_Label_jkr_sit,0,500,500,_jkr_sit,instance
+Curtain System,50,Instance,No_Sijil_Pendaftaran_jkr_sit,0,500,500,_jkr_sit,instance
+Curtain System,50,Instance,Kaedah_Pemasangan_jkr_sit,0,400,500,_jkr_sit,instance
+Curtain System,50,Instance,Catatan_Attribut_jkr_sit,0,400,500,_jkr_sit,instance
+Curtain System,50,Instance,Dokumen_Berkaitan_01_jkr_sit,0,400,500,_jkr_sit,instance
+Curtain System,50,Instance,Dokumen_Berkaitan_02_jkr_sit,0,400,500,_jkr_sit,instance
+Curtain System,50,Instance,Dokumen_Berkaitan_03_jkr_sit,0,400,500,_jkr_sit,instance
+Curtain System,50,Instance,Dokumen_Berkaitan_04_jkr_sit,0,400,500,_jkr_sit,instance
+Curtain System,50,Instance,No_Rujukan_Berkaitan_01_jkr_sit,0,400,500,_jkr_sit,instance
+Curtain System,50,Instance,No_Rujukan_Berkaitan_02_jkr_sit,0,400,500,_jkr_sit,instance
+Curtain System,50,Instance,No_Rujukan_Berkaitan_03_jkr_sit,0,400,500,_jkr_sit,instance
+Curtain System,50,Instance,No_Rujukan_Berkaitan_04_jkr_sit,0,400,500,_jkr_sit,instance
+Door,51,Type,Function,0,300,500,,revit-builtin
+Door,51,Type,Height,0,100,500,,revit-builtin
+Door,51,Type,Width,0,100,500,,revit-builtin
+Door,51,Type,Komponen_Bomba_jkr_sty,0,300,500,_jkr_sty,type
+Door,51,Type,Bingkai_jkr_stm,0,300,500,_jkr_stm,type
+Door,51,Type,Bingkai_jkr_stt,0,200,500,_jkr_stt,type
+Door,51,Type,Coping_jkr_stm,1,300,500,_jkr_stm,type
+Door,51,Type,Coping_jkr_stt,1,200,500,_jkr_stt,type
+Door,51,Type,Kaca_jkr_stm,1,300,500,_jkr_stm,type
+Door,51,Type,Kaca_jkr_stt,1,200,500,_jkr_stt,type
+Door,51,Type,Kumai_jkr_stm,1,300,500,_jkr_stm,type
+Door,51,Type,Kumai_jkr_stt,1,200,500,_jkr_stt,type
+Door,51,Type,Panel_jkr_stm,0,300,500,_jkr_stm,type
+Door,51,Type,Panel_jkr_stt,0,200,500,_jkr_stt,type
+Door,51,Type,Kod_Komponen_Sumber_jkr_stt,0,300,500,_jkr_stt,type
+Door,51,Type,Kod_Jenis_jkr_stt,0,300,500,_jkr_stt,type
+Door,52,Type,Kod_Rekabentuk_jkr_stt,0,300,500,_jkr_stt,type
+Door,52,Type,Kod_Komponen_Projek_jkr_stt,0,300,500,_jkr_stt,type
+Door,52,Type,Kod_Komponen_jkr_stt,0,300,500,_jkr_stt,type
+Door,52,Type,Kod_Ruang_Berkaitan_jkr_stt,2,300,500,_jkr_stt,type
+Door,52,Type,Tarikh_Kelulusan_Bahan_jkr_stt,0,400,500,_jkr_stt,type
+Door,52,Type,Description,0,300,500,,revit-builtin
+Door,52,Type,Bidang_Kejuruteraan_jkr_stt,0,300,500,_jkr_stt,type
+Door,52,Type,Sistem_jkr_stt,0,300,500,_jkr_stt,type
+Door,52,Type,Sub_Sistem_jkr_stt,0,300,500,_jkr_stt,type
+Door,52,Type,Nama_Komponen_Utama_jkr_stt,0,300,500,_jkr_stt,type
+Door,52,Type,Kod_DAK_Komponen_jkr_stt,0,300,500,_jkr_stt,type
+Door,53,Instance,Butiran_APK_jkr_six,1,400,500,_jkr_six,instance
+Door,53,Instance,Tarikh_Kelulusan_APK_jkr_sit,1,400,500,_jkr_sit,instance
+Door,53,Instance,Tarikh_Perolehan_jkr_sit,0,400,500,_jkr_sit,instance
+Door,53,Instance,Kos_Perolehan_jkr_sic,0,400,500,_jkr_sic,instance
+Door,53,Instance,No_Pesanan_Rasmi_Kerajaan_jkr_sit,0,400,500,_jkr_sit,instance
+Door,53,Instance,Kod_PTJ_jkr_sit,0,400,500,_jkr_sit,instance
+Door,53,Instance,Tarikh_Dipasang_jkr_sit,0,400,500,_jkr_sit,instance
+Door,53,Instance,Tarikh_Waranti_Tamat_jkr_sit,0,400,500,_jkr_sit,instance
+Door,53,Instance,Tarikh_Tamat_DLP_jkr_sit,0,400,500,_jkr_sit,instance
+Door,53,Instance,Jangka_Hayat_jkr_sit,0,400,500,_jkr_sit,instance
+Door,53,Instance,Pengilang_jkr_sit,0,400,500,_jkr_sit,instance
+Door,53,Instance,Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Door,53,Instance,Alamat_Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Door,53,Instance,No_Tel_Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Door,53,Instance,Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Door,53,Instance,Alamat_Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Door,53,Instance,No_Tel_Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Door,53,Instance,Status_Komponen_jkr_sit,0,400,500,_jkr_sit,instance
+Door,53,Instance,Jenama_jkr_sit,0,400,500,_jkr_sit,instance
+Door,54,Instance,Model_jkr_sit,0,400,500,_jkr_sit,instance
+Door,54,Instance,No_Siri_jkr_sit,0,400,500,_jkr_sit,instance
+Door,54,Instance,No_Teg_Label_jkr_sit,0,500,500,_jkr_sit,instance
+Door,54,Instance,No_Sijil_Pendaftaran_jkr_sit,0,500,500,_jkr_sit,instance
+Door,54,Instance,Kaedah_Pemasangan_jkr_sit,0,300,500,_jkr_sit,instance
+Door,54,Instance,Bekalan_Elektrik_jkr_sit,1,400,500,_jkr_sit,instance
+Door,54,Instance,Kadaran_jkr_sit,1,400,500,_jkr_sit,instance
+Door,54,Instance,Catatan_Attribut_jkr_sit,0,400,500,_jkr_sit,instance
+Door,54,Instance,Dokumen_Berkaitan_01_jkr_sit,0,400,500,_jkr_sit,instance
+Door,54,Instance,Dokumen_Berkaitan_02_jkr_sit,0,400,500,_jkr_sit,instance
+Door,54,Instance,Dokumen_Berkaitan_03_jkr_sit,0,400,500,_jkr_sit,instance
+Door,54,Instance,Dokumen_Berkaitan_04_jkr_sit,0,400,500,_jkr_sit,instance
+Door,54,Instance,No_Rujukan_Berkaitan_01_jkr_sit,0,400,500,_jkr_sit,instance
+Door,54,Instance,No_Rujukan_Berkaitan_02_jkr_sit,0,400,500,_jkr_sit,instance
+Door,54,Instance,No_Rujukan_Berkaitan_03_jkr_sit,0,400,500,_jkr_sit,instance
+Door,54,Instance,No_Rujukan_Berkaitan_04_jkr_sit,0,400,500,_jkr_sit,instance
+Floor,55,Type,Structure,0,100,500,,revit-builtin
+Floor,55,Type,Function,0,100,500,,revit-builtin
+Floor,55,Type,Lapisan_Kalis_Air_jkr_stx,0,100,500,_jkr_stx,type
+Floor,55,Type,Lapisan_Kalis_Air_jkr_sty,0,400,500,_jkr_sty,type
+Floor,55,Type,Komponen_IBS_jkr_sty,0,100,500,_jkr_sty,type
+Floor,55,Type,Komponen_Bomba_jkr_sty,0,400,500,_jkr_sty,type
+Floor,55,Type,Structural Material,0,400,500,,revit-builtin
+Floor,55,Type,Bahan_jkr_stt,0,400,500,_jkr_stt,type
+Floor,55,Type,Kemasan_jkr_stt,0,400,500,_jkr_stt,type
+Floor,55,Type,Kod_Jenis_jkr_stt,0,400,500,_jkr_stt,type
+Floor,55,Type,Kod_Komponen_jkr_stt,0,400,500,_jkr_stt,type
+Floor,55,Type,Kod_Komponen_Projek_jkr_stt,0,400,500,_jkr_stt,type
+Floor,55,Type,Kod_Ruang_Berkaitan_jkr_stt,1,100,300,_jkr_stt,type
+Floor,55,Type,Description,0,300,500,,revit-builtin
+Floor,56,Type,Bidang_Kejuruteraan_jkr_stt,0,300,500,_jkr_stt,type
+Floor,56,Type,Sistem_jkr_stt,0,300,500,_jkr_stt,type
+Floor,56,Type,Sub_Sistem_jkr_stt,0,300,500,_jkr_stt,type
+Floor,56,Type,Nama_Komponen_Utama_jkr_stt,0,300,500,_jkr_stt,type
+Floor,56,Type,Kod_DAK_Komponen_jkr_stt,0,300,500,_jkr_stt,type
+Floor,57,Instance,Warna_Kelulusan_PBT_jkr_sit,0,100,500,_jkr_sit,instance
+Floor,57,Instance,Butiran_APK_jkr_six,1,100,500,_jkr_six,instance
+Floor,57,Instance,Tarikh_Kelulusan_APK_jkr_sit,1,300,500,_jkr_sit,instance
+Floor,57,Instance,Tarikh_Perolehan_jkr_sit,0,400,500,_jkr_sit,instance
+Floor,57,Instance,Kos_Perolehan_jkr_sic,0,400,500,_jkr_sic,instance
+Floor,57,Instance,No_Pesanan_Rasmi_Kerajaan_jkr_sit,0,400,500,_jkr_sit,instance
+Floor,57,Instance,Kod_PTJ_jkr_sit,0,400,500,_jkr_sit,instance
+Floor,57,Instance,Tarikh_Dipasang_jkr_sit,0,400,500,_jkr_sit,instance
+Floor,57,Instance,Tarikh_Waranti_Tamat_jkr_sit,0,400,500,_jkr_sit,instance
+Floor,57,Instance,Tarikh_Tamat_DLP_jkr_sit,0,400,500,_jkr_sit,instance
+Floor,57,Instance,Jangka_Hayat_jkr_sit,0,400,500,_jkr_sit,instance
+Floor,57,Instance,Pengilang_jkr_sit,0,400,500,_jkr_sit,instance
+Floor,57,Instance,Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Floor,57,Instance,Alamat_Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Floor,57,Instance,No_Tel_Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Floor,57,Instance,Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Floor,57,Instance,Alamat_Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Floor,58,Instance,No_Tel_Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Floor,58,Instance,Status_Komponen_jkr_sit,0,400,500,_jkr_sit,instance
+Floor,58,Instance,Jenama_jkr_sit,0,400,500,_jkr_sit,instance
+Floor,58,Instance,Model_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture,59,Type,Lebar_jkr_stl,0,100,500,_jkr_stl,type
+Furniture,59,Type,Panjang_jkr_stl,0,100,500,_jkr_stl,type
+Furniture,59,Type,Tinggi_jkr_stl,0,100,500,_jkr_stl,type
+Furniture,59,Type,Bahan_jkr_stm,0,300,500,_jkr_stm,type
+Furniture,59,Type,Bahan_jkr_stt,0,200,500,_jkr_stt,type
+Furniture,59,Type,Kaca_jkr_stm,0,300,500,_jkr_stm,type
+Furniture,59,Type,Kaca_jkr_stt,0,200,500,_jkr_stt,type
+Furniture,59,Type,Kaki_jkr_stm,0,300,500,_jkr_stm,type
+Furniture,59,Type,Kaki_jkr_stt,0,200,500,_jkr_stt,type
+Furniture,59,Type,Kemasan_jkr_stm,0,300,500,_jkr_stm,type
+Furniture,59,Type,Kemasan_jkr_stt,0,200,500,_jkr_stt,type
+Furniture,59,Type,Panel_jkr_stm,0,300,500,_jkr_stm,type
+Furniture,59,Type,Panel_jkr_stt,0,200,500,_jkr_stt,type
+Furniture,59,Type,Permukaan_Meja_jkr_stm,0,300,500,_jkr_stm,type
+Furniture,59,Type,Permukaan_Meja_jkr_stt,0,200,500,_jkr_stt,type
+Furniture,59,Type,Kod_Jenis_jkr_stt,0,300,500,_jkr_stt,type
+Furniture,59,Type,Kod_Komponen_Sumber_jkr_stt,0,300,500,_jkr_stt,type
+Furniture,59,Type,Kod_Komponen_jkr_stt,0,300,500,_jkr_stt,type
+Furniture,60,Type,Kod_Komponen_Projek_jkr_stt,0,300,500,_jkr_stt,type
+Furniture,60,Type,Kod_Ruang_Berkaitan_jkr_stt,1,300,500,_jkr_stt,type
+Furniture,60,Type,Kaedah_Perolehan_jkr_stt,0,400,500,_jkr_stt,type
+Furniture,60,Type,Tarikh_Kelulusan_Bahan_jkr_stt,0,400,500,_jkr_stt,type
+Furniture,60,Type,Description,0,300,500,,revit-builtin
+Furniture,60,Type,Luar_Kontrak_jkr_sty,0,400,500,_jkr_sty,type
+Furniture,60,Type,Kumpulan_Peralatan_jkr_sti,0,300,500,_jkr_sti,type
+Furniture,60,Type,Nama_Komponen_Utama_jkr_stt,0,300,500,_jkr_stt,type
+Furniture,61,Instance,Butiran_APK_jkr_six,1,400,500,_jkr_six,instance
+Furniture,61,Instance,Tarikh_Kelulusan_APK_jkr_sit,1,400,500,_jkr_sit,instance
+Furniture,61,Instance,Tarikh_Perolehan_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture,61,Instance,Kos_Perolehan_jkr_sic,0,400,500,_jkr_sic,instance
+Furniture,61,Instance,No_Pesanan_Rasmi_Kerajaan_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture,61,Instance,Kod_PTJ_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture,61,Instance,Tarikh_Dipasang_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture,61,Instance,Tarikh_Waranti_Tamat_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture,61,Instance,Tarikh_Tamat_DLP_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture,61,Instance,Jangka_Hayat_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture,61,Instance,Pengilang_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture,61,Instance,Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture,61,Instance,Alamat_Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture,61,Instance,No_Tel_Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture,61,Instance,Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture,61,Instance,Alamat_Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture,61,Instance,No_Tel_Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture,61,Instance,Status_Komponen_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture,61,Instance,Jenama_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture,62,Instance,Model_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture,62,Instance,No_Siri_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture,62,Instance,No_Sijil_Pendaftaran_jkr_sit,0,500,500,_jkr_sit,instance
+Furniture,62,Instance,Kaedah_Pemasangan_jkr_sit,0,300,500,_jkr_sit,instance
+Furniture,62,Instance,Catatan_Attribut_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture,62,Instance,Dokumen_Berkaitan_01_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture,62,Instance,Dokumen_Berkaitan_02_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture,62,Instance,Dokumen_Berkaitan_03_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture,62,Instance,Dokumen_Berkaitan_04_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture,62,Instance,No_Rujukan_Berkaitan_01_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture,62,Instance,No_Rujukan_Berkaitan_02_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture,62,Instance,No_Rujukan_Berkaitan_03_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture,62,Instance,No_Rujukan_Berkaitan_04_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture System,63,Type,Bahan_jkr_stm,0,300,500,_jkr_stm,type
+Furniture System,63,Type,Bahan_jkr_stt,0,200,500,_jkr_stt,type
+Furniture System,63,Type,Kaca_jkr_stm,0,300,500,_jkr_stm,type
+Furniture System,63,Type,Kaca_jkr_stt,0,200,500,_jkr_stt,type
+Furniture System,63,Type,Kaki_jkr_stm,0,300,500,_jkr_stm,type
+Furniture System,63,Type,Kaki_jkr_stt,0,200,500,_jkr_stt,type
+Furniture System,63,Type,Kemasan_jkr_stm,0,300,500,_jkr_stm,type
+Furniture System,63,Type,Kemasan_jkr_stt,0,200,500,_jkr_stt,type
+Furniture System,63,Type,Panel_jkr_stm,0,300,500,_jkr_stm,type
+Furniture System,63,Type,Panel_jkr_stt,0,200,500,_jkr_stt,type
+Furniture System,63,Type,Permukaan_Meja_jkr_stm,0,300,500,_jkr_stm,type
+Furniture System,63,Type,Permukaan_Meja_jkr_stt,0,200,500,_jkr_stt,type
+Furniture System,63,Type,Kod_Jenis_jkr_stt,0,300,500,_jkr_stt,type
+Furniture System,63,Type,Kod_Komponen_Sumber_jkr_stt,0,300,500,_jkr_stt,type
+Furniture System,63,Type,Kod_Komponen_jkr_stt,0,300,500,_jkr_stt,type
+Furniture System,63,Type,Kod_Komponen_Projek_jkr_stt,0,300,500,_jkr_stt,type
+Furniture System,63,Type,Kod_Ruang_Berkaitan_jkr_stt,1,300,500,_jkr_stt,type
+Furniture System,63,Type,Kaedah_Perolehan_jkr_stt,0,400,500,_jkr_stt,type
+Furniture System,64,Type,Tarikh_Kelulusan_Bahan_jkr_stt,0,400,500,_jkr_stt,type
+Furniture System,64,Type,Description,0,300,500,,revit-builtin
+Furniture System,64,Type,Luar_Kontrak_jkr_sty,0,400,500,_jkr_sty,type
+Furniture System,64,Type,Kumpulan_Peralatan_jkr_sti,0,300,500,_jkr_sti,type
+Furniture System,64,Type,Bidang_Kejuruteraan_jkr_stt,0,300,500,_jkr_stt,type
+Furniture System,64,Type,Sistem_jkr_stt,0,300,500,_jkr_stt,type
+Furniture System,64,Type,Sub_Sistem_jkr_stt,0,300,500,_jkr_stt,type
+Furniture System,64,Type,Nama_Komponen_Utama_jkr_stt,0,300,500,_jkr_stt,type
+Furniture System,64,Type,Kod_DAK_Komponen_jkr_stt,0,300,500,_jkr_stt,type
+Furniture System,65,Instance,Butiran_APK_jkr_six,1,400,500,_jkr_six,instance
+Furniture System,65,Instance,Tarikh_Kelulusan_APK_jkr_sit,1,400,500,_jkr_sit,instance
+Furniture System,65,Instance,Bukan_Komponen_DAK_jkr_siy,0,400,500,_jkr_siy,instance
+Furniture System,65,Instance,Tarikh_Perolehan_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture System,65,Instance,Kos_Perolehan_jkr_sic,0,400,500,_jkr_sic,instance
+Furniture System,65,Instance,No_Pesanan_Rasmi_Kerajaan_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture System,65,Instance,Kod_PTJ_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture System,65,Instance,Tarikh_Dipasang_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture System,65,Instance,Tarikh_Waranti_Tamat_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture System,65,Instance,Tarikh_Tamat_DLP_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture System,65,Instance,Jangka_Hayat_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture System,65,Instance,Pengilang_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture System,65,Instance,Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture System,65,Instance,Alamat_Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture System,65,Instance,No_Tel_Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture System,65,Instance,Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture System,65,Instance,Alamat_Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture System,65,Instance,No_Tel_Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture System,65,Instance,Status_Komponen_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture System,66,Instance,Jenama_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture System,66,Instance,Model_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture System,66,Instance,No_Siri_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture System,66,Instance,No_Teg_Label_jkr_sit,0,500,500,_jkr_sit,instance
+Furniture System,66,Instance,No_Sijil_Pendaftaran_jkr_sit,0,500,500,_jkr_sit,instance
+Furniture System,66,Instance,Kaedah_Pemasangan_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture System,66,Instance,Bekalan_Elektrik_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture System,66,Instance,Kadaran_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture System,66,Instance,Catatan_Attribut_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture System,66,Instance,Dokumen_Berkaitan_01_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture System,66,Instance,Dokumen_Berkaitan_02_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture System,66,Instance,Dokumen_Berkaitan_03_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture System,66,Instance,Dokumen_Berkaitan_04_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture System,66,Instance,No_Rujukan_Berkaitan_01_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture System,66,Instance,No_Rujukan_Berkaitan_02_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture System,66,Instance,No_Rujukan_Berkaitan_03_jkr_sit,0,400,500,_jkr_sit,instance
+Furniture System,66,Instance,No_Rujukan_Berkaitan_04_jkr_sit,0,400,500,_jkr_sit,instance
+Generic Model,67,Type,Komponen_IBS_jkr_sty,0,100,500,_jkr_sty,type
+Generic Model,67,Type,Lebar_jkr_stl,0,100,500,_jkr_stl,type
+Generic Model,67,Type,Panjang_jkr_stl,0,100,500,_jkr_stl,type
+Generic Model,67,Type,Tinggi_jkr_stl,0,100,500,_jkr_stl,type
+Generic Model,67,Type,Bahan_jkr_stm,0,300,500,_jkr_stm,type
+Generic Model,67,Type,Bahan_jkr_stt,0,200,500,_jkr_stt,type
+Generic Model,67,Type,Kod_Jenis_jkr_stt,0,300,500,_jkr_stt,type
+Generic Model,67,Type,Kod_Komponen_sumber_jkr_stt,0,300,500,_jkr_stt,type
+Generic Model,67,Type,Kod_Komponen_jkr_stt,0,300,500,_jkr_stt,type
+Generic Model,67,Type,Kod_Komponen_Projek_jkr_stt,0,300,500,_jkr_stt,type
+Generic Model,67,Type,Kod_Ruang_Berkaitan_jkr_stt,1,100,300,_jkr_stt,type
+Generic Model,67,Type,Bidang_Kejuruteraan_jkr_stt,0,300,500,_jkr_stt,type
+Generic Model,67,Type,Sistem_jkr_stt,0,300,500,_jkr_stt,type
+Generic Model,67,Type,Sub_Sistem_jkr_stt,0,300,500,_jkr_stt,type
+Generic Model,67,Type,Nama_Komponen_Utama_jkr_stt,0,300,500,_jkr_stt,type
+Generic Model,67,Type,Kod_DAK_Komponen_jkr_stt,0,300,500,_jkr_stt,type
+Generic Model,68,Instance,Base Level,0,100,500,,revit-builtin
+Generic Model,68,Instance,Base Offset,0,100,500,,revit-builtin
+Generic Model,68,Instance,Top Level,0,100,500,,revit-builtin
+Generic Model,68,Instance,Top Offset,0,100,500,,revit-builtin
+Generic Model,68,Instance,Butiran_APK_jkr_six,1,100,500,_jkr_six,instance
+Generic Model,68,Instance,Tarikh_Kelulusan_APK_jkr_sit,1,300,500,_jkr_sit,instance
+Generic Model,68,Instance,Bukan_Komponen_DAK_jkr_siy,0,400,500,_jkr_siy,instance
+Generic Model,68,Instance,Tarikh_Perolehan_jkr_sit,0,400,500,_jkr_sit,instance
+Generic Model,68,Instance,Kos_Perolehan_jkr_sic,0,400,500,_jkr_sic,instance
+Generic Model,68,Instance,No_Pesanan_Rasmi_Kerajaan_jkr_sit,0,400,500,_jkr_sit,instance
+Generic Model,68,Instance,Kod_PTJ_jkr_sit,0,400,500,_jkr_sit,instance
+Generic Model,68,Instance,Tarikh_Dipasang_jkr_sit,0,400,500,_jkr_sit,instance
+Generic Model,68,Instance,Tarikh_Waranti_Tamat_jkr_sit,0,400,500,_jkr_sit,instance
+Generic Model,68,Instance,Tarikh_Tamat_DLP_jkr_sit,0,400,500,_jkr_sit,instance
+Generic Model,68,Instance,Jangka_Hayat_jkr_sit,0,400,500,_jkr_sit,instance
+Generic Model,68,Instance,Pengilang_jkr_sit,0,400,500,_jkr_sit,instance
+Generic Model,68,Instance,Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Generic Model,68,Instance,Alamat_Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Generic Model,68,Instance,No_Tel_Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Generic Model,68,Instance,Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Generic Model,68,Instance,Alamat_Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Generic Model,68,Instance,No_Tel_Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Generic Model,68,Instance,Status_Komponen_jkr_sit,0,400,500,_jkr_sit,instance
+Generic Model,69,Instance,Jenama_jkr_sit,0,400,500,_jkr_sit,instance
+Generic Model,69,Instance,Model_jkr_sit,0,400,500,_jkr_sit,instance
+Generic Model,69,Instance,No_Siri_jkr_sit,0,400,500,_jkr_sit,instance
+Generic Model,69,Instance,No_Teg_Label_jkr_sit,0,500,500,_jkr_sit,instance
+Generic Model,69,Instance,No_Sijil_Pendaftaran_jkr_sit,0,500,500,_jkr_sit,instance
+Generic Model,69,Instance,Kaedah_Pemasangan_jkr_sit,0,400,500,_jkr_sit,instance
+Generic Model,69,Instance,Bekalan_Elektrik_jkr_sit,0,400,500,_jkr_sit,instance
+Generic Model,69,Instance,Kadaran_jkr_sit,0,400,500,_jkr_sit,instance
+Generic Model,69,Instance,Kapasiti_jkr_sit,0,400,500,_jkr_sit,instance
+Generic Model,69,Instance,Catatan_Attribut_jkr_sit,0,400,500,_jkr_sit,instance
+Generic Model,69,Instance,Dokumen_Berkaitan_01_jkr_sit,0,400,500,_jkr_sit,instance
+Generic Model,69,Instance,Dokumen_Berkaitan_02_jkr_sit,0,400,500,_jkr_sit,instance
+Generic Model,69,Instance,Dokumen_Berkaitan_03_jkr_sit,0,400,500,_jkr_sit,instance
+Generic Model,69,Instance,Dokumen_Berkaitan_04_jkr_sit,0,400,500,_jkr_sit,instance
+Generic Model,69,Instance,No_Rujukan_Berkaitan_01_jkr_sit,0,400,500,_jkr_sit,instance
+Generic Model,69,Instance,No_Rujukan_Berkaitan_02_jkr_sit,0,400,500,_jkr_sit,instance
+Generic Model,69,Instance,No_Rujukan_Berkaitan_03_jkr_sit,0,400,500,_jkr_sit,instance
+Generic Model,69,Instance,No_Rujukan_Berkaitan_04_jkr_sit,0,400,500,_jkr_sit,instance
+Planting,70,Type,Height,0,100,500,,revit-builtin
+Planting,70,Type,Diameter_jkr_stl,0,100,500,_jkr_stl,type
+Planting,70,Type,Kod_Jenis_jkr_stt,0,300,500,_jkr_stt,type
+Planting,70,Type,Kod_Komponen_sumber_jkr_stt,0,300,500,_jkr_stt,type
+Planting,70,Type,Kod_Komponen_jkr_stt,0,300,500,_jkr_stt,type
+Planting,70,Type,Kod_Komponen_Projek_jkr_stt,0,300,500,_jkr_stt,type
+Planting,70,Type,Tarikh_Kelulusan_Bahan_jkr_stt,0,400,500,_jkr_stt,type
+Planting,70,Type,Description,0,300,500,,revit-builtin
+Planting,70,Type,Bidang_Kejuruteraan_jkr_stt,0,400,500,_jkr_stt,type
+Planting,70,Type,Sistem_jkr_stt,0,400,500,_jkr_stt,type
+Planting,70,Type,Sub_Sistem_jkr_stt,0,400,500,_jkr_stt,type
+Planting,70,Type,Nama_Komponen_Utama_jkr_stt,0,400,500,_jkr_stt,type
+Planting,70,Type,Kod_DAK_Komponen_jkr_stt,0,400,500,_jkr_stt,type
+Planting,71,Instance,Base Level,0,100,500,,revit-builtin
+Planting,71,Instance,Base Offset,0,100,500,,revit-builtin
+Planting,71,Instance,Top Level,0,100,500,,revit-builtin
+Planting,71,Instance,Top Offset,0,100,500,,revit-builtin
+Planting,71,Instance,Butiran_APK_jkr_six,1,100,500,_jkr_six,instance
+Planting,71,Instance,Tarikh_Kelulusan_APK_jkr_sit,1,300,500,_jkr_sit,instance
+Planting,71,Instance,Tarikh_Perolehan_jkr_sit,0,400,500,_jkr_sit,instance
+Planting,71,Instance,Kos_Perolehan_jkr_sic,0,400,500,_jkr_sic,instance
+Planting,71,Instance,No_Pesanan_Rasmi_Kerajaan_jkr_sit,0,400,500,_jkr_sit,instance
+Planting,71,Instance,Kod_PTJ_jkr_sit,0,400,500,_jkr_sit,instance
+Planting,71,Instance,Tarikh_Dipasang_jkr_sit,0,400,500,_jkr_sit,instance
+Planting,71,Instance,Tarikh_Waranti_Tamat_jkr_sit,0,400,500,_jkr_sit,instance
+Planting,71,Instance,Tarikh_Tamat_DLP_jkr_sit,0,400,500,_jkr_sit,instance
+Planting,71,Instance,Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Planting,71,Instance,Alamat_Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Planting,71,Instance,No_Tel_Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Planting,71,Instance,Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Planting,71,Instance,Alamat_Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Planting,71,Instance,No_Tel_Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Plumbing Fixture,72,Type,Lebar_jkr_stl,0,100,500,_jkr_stl,type
+Plumbing Fixture,72,Type,Panjang_jkr_stl,0,100,500,_jkr_stl,type
+Plumbing Fixture,72,Type,Tinggi_jkr_stl,0,100,500,_jkr_stl,type
+Plumbing Fixture,72,Type,Waste Connection,0,300,500,,revit-builtin
+Plumbing Fixture,72,Type,CW Connection,0,300,500,,revit-builtin
+Plumbing Fixture,72,Type,HW Connection,0,300,500,,revit-builtin
+Plumbing Fixture,72,Type,Bahan_jkr_stm,0,300,500,_jkr_stm,type
+Plumbing Fixture,72,Type,Bahan_jkr_stt,0,200,500,_jkr_stt,type
+Plumbing Fixture,72,Type,Kemasan_jkr_stm,1,300,500,_jkr_stm,type
+Plumbing Fixture,72,Type,Kemasan_jkr_stt,1,200,500,_jkr_stt,type
+Plumbing Fixture,72,Type,Kod_Jenis_jkr_stt,0,300,500,_jkr_stt,type
+Plumbing Fixture,72,Type,Kod_Komponen_Sumber_jkr_stt,0,300,500,_jkr_stt,type
+Plumbing Fixture,72,Type,Kod_Komponen_Projek_jkr_stt,0,300,500,_jkr_stt,type
+Plumbing Fixture,72,Type,Kod_Ruang_Berkaitan_jkr_stt,1,300,500,_jkr_stt,type
+Plumbing Fixture,72,Type,Tarikh_Kelulusan_Bahan_jkr_stt,0,400,500,_jkr_stt,type
+Plumbing Fixture,72,Type,Description,0,300,500,,revit-builtin
+Plumbing Fixture,73,Type,Bidang_Kejuruteraan_jkr_stt,0,300,500,_jkr_stt,type
+Plumbing Fixture,73,Type,Sistem_jkr_stt,0,300,500,_jkr_stt,type
+Plumbing Fixture,73,Type,Sub_Sistem_jkr_stt,0,300,500,_jkr_stt,type
+Plumbing Fixture,73,Type,Nama_Komponen_Utama_jkr_stt,0,300,500,_jkr_stt,type
+Plumbing Fixture,73,Type,Kod_DAK_Komponen_jkr_stt,0,300,500,_jkr_stt,type
+Plumbing Fixture,74,Instance,Butiran_APK_jkr_six,1,400,500,_jkr_six,instance
+Plumbing Fixture,74,Instance,Tarikh_Kelulusan_APK_jkr_sit,1,400,500,_jkr_sit,instance
+Plumbing Fixture,74,Instance,Tarikh_Perolehan_jkr_sit,0,400,500,_jkr_sit,instance
+Plumbing Fixture,74,Instance,Kos_Perolehan_jkr_sic,0,400,500,_jkr_sic,instance
+Plumbing Fixture,74,Instance,No_Pesanan_Rasmi_Kerajaan_jkr_sit,0,400,500,_jkr_sit,instance
+Plumbing Fixture,74,Instance,Kod_PTJ_jkr_sit,0,400,500,_jkr_sit,instance
+Plumbing Fixture,74,Instance,Tarikh_Dipasang_jkr_sit,0,400,500,_jkr_sit,instance
+Plumbing Fixture,74,Instance,Tarikh_Waranti_Tamat_jkr_sit,0,400,500,_jkr_sit,instance
+Plumbing Fixture,74,Instance,Tarikh_Tamat_DLP_jkr_sit,0,400,500,_jkr_sit,instance
+Plumbing Fixture,74,Instance,Jangka_Hayat_jkr_sit,0,400,500,_jkr_sit,instance
+Plumbing Fixture,74,Instance,Pengilang_jkr_sit,0,400,500,_jkr_sit,instance
+Plumbing Fixture,74,Instance,Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Plumbing Fixture,74,Instance,Alamat_Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Plumbing Fixture,74,Instance,No_Tel_Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Plumbing Fixture,74,Instance,Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Plumbing Fixture,74,Instance,Alamat_Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Plumbing Fixture,74,Instance,No_Tel_Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Plumbing Fixture,74,Instance,Status_Komponen_jkr_sit,0,400,500,_jkr_sit,instance
+Plumbing Fixture,74,Instance,Jenama_jkr_sit,0,400,500,_jkr_sit,instance
+Plumbing Fixture,75,Instance,Model_jkr_sit,0,400,500,_jkr_sit,instance
+Plumbing Fixture,75,Instance,No_Siri_jkr_sit,0,400,500,_jkr_sit,instance
+Plumbing Fixture,75,Instance,No_Teg_Label_jkr_sit,0,500,500,_jkr_sit,instance
+Plumbing Fixture,75,Instance,No_Sijil_Pendaftaran_jkr_sit,0,500,500,_jkr_sit,instance
+Plumbing Fixture,75,Instance,Kaedah_Pemasangan_jkr_sit,0,400,500,_jkr_sit,instance
+Plumbing Fixture,75,Instance,Kapasiti_jkr_sit,0,400,500,_jkr_sit,instance
+Plumbing Fixture,75,Instance,Bekalan_Elektrik_jkr_sit,0,400,500,_jkr_sit,instance
+Plumbing Fixture,75,Instance,Kadaran_jkr_sit,0,400,500,_jkr_sit,instance
+Plumbing Fixture,75,Instance,Catatan_Attribut_jkr_sit,0,400,500,_jkr_sit,instance
+Plumbing Fixture,75,Instance,Dokumen_Berkaitan_01_jkr_sit,0,400,500,_jkr_sit,instance
+Plumbing Fixture,75,Instance,Dokumen_Berkaitan_02_jkr_sit,0,400,500,_jkr_sit,instance
+Plumbing Fixture,75,Instance,Dokumen_Berkaitan_03_jkr_sit,0,400,500,_jkr_sit,instance
+Plumbing Fixture,75,Instance,Dokumen_Berkaitan_04_jkr_sit,0,400,500,_jkr_sit,instance
+Plumbing Fixture,75,Instance,No_Rujukan_Berkaitan_01_jkr_sit,0,400,500,_jkr_sit,instance
+Plumbing Fixture,75,Instance,No_Rujukan_Berkaitan_02_jkr_sit,0,400,500,_jkr_sit,instance
+Plumbing Fixture,75,Instance,No_Rujukan_Berkaitan_03_jkr_sit,0,400,500,_jkr_sit,instance
+Plumbing Fixture,75,Instance,No_Rujukan_Berkaitan_04_jkr_sit,0,400,500,_jkr_sit,instance
+Ramp,76,Type,Shape,0,100,500,,revit-builtin
+Ramp,76,Type,Function,0,100,500,,revit-builtin
+Ramp,76,Type,Komponen_IBS_jkr_sty,0,100,500,_jkr_sty,type
+Ramp,76,Type,Warna_Kelulusan_PBT_jkr_stt,0,100,200,_jkr_stt,type
+Ramp,76,Type,Ramp Material,0,400,500,,revit-builtin
+Ramp,76,Type,Bahan_jkr_stt,0,400,500,_jkr_stt,type
+Ramp,76,Type,Kemasan_jkr_stt,0,400,500,_jkr_stt,type
+Ramp,76,Type,Kod_Jenis_jkr_stt,0,400,500,_jkr_stt,type
+Ramp,76,Type,Kod_Komponen_jkr_stt,0,400,500,_jkr_stt,type
+Ramp,76,Type,Kod_Komponen_Projek_jkr_stt,0,400,500,_jkr_stt,type
+Ramp,76,Type,Kod_Ruang_Berkaitan_jkr_stt,1,100,300,_jkr_stt,type
+Ramp,76,Type,Description,0,300,500,,revit-builtin
+Ramp,77,Type,Tarikh_Kelulusan_Bahan_jkr_stt,0,400,500,_jkr_stt,type
+Ramp,77,Type,Bidang_Kejuruteraan_jkr_stt,0,300,500,_jkr_stt,type
+Ramp,77,Type,Sistem_jkr_stt,0,300,500,_jkr_stt,type
+Ramp,77,Type,Sub_Sistem_jkr_stt,0,300,500,_jkr_stt,type
+Ramp,77,Type,Nama_Komponen_Utama_jkr_stt,0,300,500,_jkr_stt,type
+Ramp,77,Type,Kod_DAK_Komponen_jkr_stt,0,300,500,_jkr_stt,type
+Ramp,78,Instance,Base Level,0,100,500,,revit-builtin
+Ramp,78,Instance,Base Offset,0,100,500,,revit-builtin
+Ramp,78,Instance,Top Level,0,100,500,,revit-builtin
+Ramp,78,Instance,Top Offset,0,100,500,,revit-builtin
+Ramp,78,Instance,Width,0,100,500,,revit-builtin
+Ramp,78,Instance,Warna_Kelulusan_PBT_jkr_sit,0,100,500,_jkr_sit,instance
+Ramp,78,Instance,Butiran_APK_jkr_six,1,100,500,_jkr_six,instance
+Ramp,78,Instance,Tarikh_Kelulusan_APK_jkr_sit,1,300,500,_jkr_sit,instance
+Ramp,78,Instance,Bukan_Komponen_DAK_jkr_siy,0,400,500,_jkr_siy,instance
+Ramp,78,Instance,Tarikh_Perolehan_jkr_sit,0,400,500,_jkr_sit,instance
+Ramp,78,Instance,Kos_Perolehan_jkr_sic,0,400,500,_jkr_sic,instance
+Ramp,78,Instance,No_Pesanan_Rasmi_Kerajaan_jkr_sit,0,400,500,_jkr_sit,instance
+Ramp,78,Instance,Kod_PTJ_jkr_sit,0,400,500,_jkr_sit,instance
+Ramp,78,Instance,Tarikh_Dipasang_jkr_sit,0,400,500,_jkr_sit,instance
+Ramp,78,Instance,Tarikh_Waranti_Tamat_jkr_sit,0,400,500,_jkr_sit,instance
+Ramp,78,Instance,Tarikh_Tamat_DLP_jkr_sit,0,400,500,_jkr_sit,instance
+Ramp,78,Instance,Jangka_Hayat_jkr_sit,0,400,500,_jkr_sit,instance
+Ramp,78,Instance,Pengilang_jkr_sit,0,400,500,_jkr_sit,instance
+Ramp,78,Instance,Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Ramp,78,Instance,Alamat_Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Ramp,78,Instance,No_Tel_Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Ramp,79,Instance,Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Ramp,79,Instance,Alamat_Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Ramp,79,Instance,No_Tel_Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Ramp,79,Instance,Status_Komponen_jkr_sit,0,400,500,_jkr_sit,instance
+Ramp,79,Instance,Jenama_jkr_sit,0,400,500,_jkr_sit,instance
+Ramp,79,Instance,Model_jkr_sit,0,400,500,_jkr_sit,instance
+Ramp,79,Instance,No_Siri_jkr_sit,0,400,500,_jkr_sit,instance
+Ramp,79,Instance,No_Teg_Label_jkr_sit,0,500,500,_jkr_sit,instance
+Ramp,79,Instance,No_Sijil_Pendaftaran_jkr_sit,0,500,500,_jkr_sit,instance
+Ramp,79,Instance,Kaedah_Pemasangan_jkr_sit,0,400,500,_jkr_sit,instance
+Ramp,79,Instance,Catatan_Attribut_jkr_sit,0,400,500,_jkr_sit,instance
+Ramp,79,Instance,Dokumen_Berkaitan_01_jkr_sit,0,400,500,_jkr_sit,instance
+Ramp,79,Instance,Dokumen_Berkaitan_02_jkr_sit,0,400,500,_jkr_sit,instance
+Ramp,79,Instance,Dokumen_Berkaitan_03_jkr_sit,0,400,500,_jkr_sit,instance
+Ramp,79,Instance,Dokumen_Berkaitan_04_jkr_sit,0,400,500,_jkr_sit,instance
+Ramp,79,Instance,No_Rujukan_Berkaitan_01_jkr_sit,0,400,500,_jkr_sit,instance
+Ramp,79,Instance,No_Rujukan_Berkaitan_02_jkr_sit,0,400,500,_jkr_sit,instance
+Ramp,79,Instance,No_Rujukan_Berkaitan_03_jkr_sit,0,400,500,_jkr_sit,instance
+Ramp,79,Instance,No_Rujukan_Berkaitan_04_jkr_sit,0,400,500,_jkr_sit,instance
+Railing,80,Type,Railing Height,0,100,500,,revit-builtin
+Railing,80,Type,Bahan_jkr_stt,0,400,500,_jkr_stt,type
+Railing,80,Type,Kemasan_jkr_stt,0,400,500,_jkr_stt,type
+Railing,80,Type,Kod_Jenis_jkr_stt,0,400,500,_jkr_stt,type
+Railing,80,Type,Kod_Komponen_jkr_stt,0,400,500,_jkr_stt,type
+Railing,80,Type,Kod_Komponen_Projek_jkr_stt,0,400,500,_jkr_stt,type
+Railing,80,Type,Kod_Ruang_Berkaitan_jkr_stt,1,100,300,_jkr_stt,type
+Railing,80,Type,Description,0,300,500,,revit-builtin
+Railing,80,Type,Tarikh_Kelulusan_Bahan_jkr_stt,0,400,500,_jkr_stt,type
+Railing,80,Type,Bidang_Kejuruteraan_jkr_stt,0,300,500,_jkr_stt,type
+Railing,80,Type,Sistem_jkr_stt,0,300,500,_jkr_stt,type
+Railing,80,Type,Sub_Sistem_jkr_stt,0,300,500,_jkr_stt,type
+Railing,80,Type,Nama_Komponen_Utama_jkr_stt,0,300,500,_jkr_stt,type
+Railing,80,Type,Kod_DAK_Komponen_jkr_stt,0,300,500,_jkr_stt,type
+Railing,81,Instance,Base Level,0,100,500,,revit-builtin
+Railing,81,Instance,Base Offset,0,100,500,,revit-builtin
+Railing,81,Instance,Offset from Path,0,100,500,,revit-builtin
+Railing,81,Instance,Length,0,100,500,,revit-builtin
+Railing,81,Instance,Warna_Kelulusan_PBT_jkr_sit,0,100,500,_jkr_sit,instance
+Railing,81,Instance,Butiran_APK_jkr_six,1,100,500,_jkr_six,instance
+Railing,81,Instance,Tarikh_Kelulusan_APK_jkr_sit,1,300,500,_jkr_sit,instance
+Railing,81,Instance,Tarikh_Perolehan_jkr_sit,0,400,500,_jkr_sit,instance
+Railing,81,Instance,Kos_Perolehan_jkr_sic,0,400,500,_jkr_sic,instance
+Railing,81,Instance,No_Pesanan_Rasmi_Kerajaan_jkr_sit,0,400,500,_jkr_sit,instance
+Railing,81,Instance,Kod_PTJ_jkr_sit,0,400,500,_jkr_sit,instance
+Railing,81,Instance,Tarikh_Dipasang_jkr_sit,0,400,500,_jkr_sit,instance
+Railing,81,Instance,Tarikh_Waranti_Tamat_jkr_sit,0,400,500,_jkr_sit,instance
+Railing,81,Instance,Tarikh_Tamat_DLP_jkr_sit,0,400,500,_jkr_sit,instance
+Railing,81,Instance,Jangka_Hayat_jkr_sit,0,400,500,_jkr_sit,instance
+Railing,81,Instance,Pengilang_jkr_sit,0,400,500,_jkr_sit,instance
+Railing,81,Instance,Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Railing,81,Instance,Alamat_Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Railing,81,Instance,No_Tel_Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Railing,81,Instance,Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Railing,81,Instance,Alamat_Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Railing,82,Instance,No_Tel_Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Railing,82,Instance,Status_Komponen_jkr_sit,0,400,500,_jkr_sit,instance
+Railing,82,Instance,Jenama_jkr_sit,0,400,500,_jkr_sit,instance
+Railing,82,Instance,Model_jkr_sit,0,400,500,_jkr_sit,instance
+Railing,82,Instance,No_Siri_jkr_sit,0,400,500,_jkr_sit,instance
+Railing,82,Instance,No_Teg_Label_jkr_sit,0,500,500,_jkr_sit,instance
+Railing,82,Instance,No_Sijil_Pendaftaran_jkr_sit,0,500,500,_jkr_sit,instance
+Railing,82,Instance,Kaedah_Pemasangan_jkr_sit,0,400,500,_jkr_sit,instance
+Railing,82,Instance,Catatan_Attribut_jkr_sit,0,400,500,_jkr_sit,instance
+Railing,82,Instance,Dokumen_Berkaitan_01_jkr_sit,0,400,500,_jkr_sit,instance
+Railing,82,Instance,Dokumen_Berkaitan_02_jkr_sit,0,400,500,_jkr_sit,instance
+Railing,82,Instance,Dokumen_Berkaitan_03_jkr_sit,0,400,500,_jkr_sit,instance
+Railing,82,Instance,Dokumen_Berkaitan_04_jkr_sit,0,400,500,_jkr_sit,instance
+Railing,82,Instance,No_Rujukan_Berkaitan_01_jkr_sit,0,400,500,_jkr_sit,instance
+Railing,82,Instance,No_Rujukan_Berkaitan_02_jkr_sit,0,400,500,_jkr_sit,instance
+Railing,82,Instance,No_Rujukan_Berkaitan_03_jkr_sit,0,400,500,_jkr_sit,instance
+Railing,82,Instance,No_Rujukan_Berkaitan_04_jkr_sit,0,400,500,_jkr_sit,instance
+Roof,83,Type,Structure,0,100,500,,revit-builtin
+Roof,83,Type,Komponen_IBS_jkr_sty,0,100,500,_jkr_sty,type
+Roof,83,Type,Warna_Kelulusan_PBT_jkr_stt,0,400,500,_jkr_stt,type
+Roof,83,Type,Bahan_jkr_stt,0,400,500,_jkr_stt,type
+Roof,83,Type,Kemasan_jkr_stt,0,400,500,_jkr_stt,type
+Roof,83,Type,Kod_Jenis_jkr_stt,0,400,500,_jkr_stt,type
+Roof,83,Type,Kod_Komponen_jkr_stt,0,400,500,_jkr_stt,type
+Roof,83,Type,Kod_Komponen_Projek_jkr_stt,0,400,500,_jkr_stt,type
+Roof,83,Type,Kod_Ruang_Berkaitan_jkr_stt,1,100,300,_jkr_stt,type
+Roof,83,Type,Description,0,300,500,,revit-builtin
+Roof,83,Type,Tarikh_Kelulusan_Bahan_jkr_stt,0,400,500,_jkr_stt,type
+Roof,84,Type,Bidang_Kejuruteraan_jkr_stt,0,300,500,_jkr_stt,type
+Roof,84,Type,Sistem_jkr_stt,0,300,500,_jkr_stt,type
+Roof,84,Type,Sub_Sistem_jkr_stt,0,300,500,_jkr_stt,type
+Roof,84,Type,Nama_Komponen_Utama_jkr_stt,0,300,500,_jkr_stt,type
+Roof,84,Type,Kod_DAK_Komponen_jkr_stt,0,300,500,_jkr_stt,type
+Roof,85,Instance,Warna_Kelulusan_PBT_jkr_sit,0,100,500,_jkr_sit,instance
+Roof,85,Instance,Butiran_APK_jkr_six,1,100,500,_jkr_six,instance
+Roof,85,Instance,Tarikh_Kelulusan_APK_jkr_sit,1,300,500,_jkr_sit,instance
+Roof,85,Instance,Bukan_Komponen_DAK_jkr_siy,0,400,500,_jkr_siy,instance
+Roof,85,Instance,Tarikh_Perolehan_jkr_sit,0,400,500,_jkr_sit,instance
+Roof,85,Instance,Kos_Perolehan_jkr_sic,0,400,500,_jkr_sic,instance
+Roof,85,Instance,No_Pesanan_Rasmi_Kerajaan_jkr_sit,0,400,500,_jkr_sit,instance
+Roof,85,Instance,Kod_PTJ_jkr_sit,0,400,500,_jkr_sit,instance
+Roof,85,Instance,Tarikh_Dipasang_jkr_sit,0,400,500,_jkr_sit,instance
+Roof,85,Instance,Tarikh_Waranti_Tamat_jkr_sit,0,400,500,_jkr_sit,instance
+Roof,85,Instance,Tarikh_Tamat_DLP_jkr_sit,0,400,500,_jkr_sit,instance
+Roof,85,Instance,Jangka_Hayat_jkr_sit,0,400,500,_jkr_sit,instance
+Roof,85,Instance,Pengilang_jkr_sit,0,400,500,_jkr_sit,instance
+Roof,85,Instance,Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Roof,85,Instance,Alamat_Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Roof,85,Instance,No_Tel_Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Roof,85,Instance,Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Roof,86,Instance,Alamat_Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Roof,86,Instance,No_Tel_Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Roof,86,Instance,Status_Komponen_jkr_sit,0,400,500,_jkr_sit,instance
+Roof,86,Instance,Jenama_jkr_sit,0,400,500,_jkr_sit,instance
+Roof,86,Instance,Model_jkr_sit,0,400,500,_jkr_sit,instance
+Roof,86,Instance,No_Siri_jkr_sit,0,400,500,_jkr_sit,instance
+Roof,86,Instance,No_Teg_Label_jkr_sit,0,500,500,_jkr_sit,instance
+Roof,86,Instance,No_Sijil_Pendaftaran_jkr_sit,0,500,500,_jkr_sit,instance
+Roof,86,Instance,Kaedah_Pemasangan_jkr_sit,0,400,500,_jkr_sit,instance
+Roof,86,Instance,Bekalan_Elektrik_jkr_sit,0,400,500,_jkr_sit,instance
+Roof,86,Instance,Kadaran_jkr_sit,0,400,500,_jkr_sit,instance
+Roof,86,Instance,Catatan_Attribut_jkr_sit,0,400,500,_jkr_sit,instance
+Roof,86,Instance,Dokumen_Berkaitan_01_jkr_sit,0,400,500,_jkr_sit,instance
+Roof,86,Instance,Dokumen_Berkaitan_02_jkr_sit,0,400,500,_jkr_sit,instance
+Roof,86,Instance,Dokumen_Berkaitan_03_jkr_sit,0,400,500,_jkr_sit,instance
+Roof,86,Instance,Dokumen_Berkaitan_04_jkr_sit,0,400,500,_jkr_sit,instance
+Roof,86,Instance,No_Rujukan_Berkaitan_01_jkr_sit,0,400,500,_jkr_sit,instance
+Roof,86,Instance,No_Rujukan_Berkaitan_02_jkr_sit,0,400,500,_jkr_sit,instance
+Roof,86,Instance,No_Rujukan_Berkaitan_03_jkr_sit,0,400,500,_jkr_sit,instance
+Roof,86,Instance,No_Rujukan_Berkaitan_04_jkr_sit,0,400,500,_jkr_sit,instance
+Specialty Equipment,87,Type,Lebar_jkr_stl,0,100,500,_jkr_stl,type
+Specialty Equipment,87,Type,Panjang_jkr_stl,0,100,500,_jkr_stl,type
+Specialty Equipment,87,Type,Tinggi_jkr_stl,0,100,500,_jkr_stl,type
+Specialty Equipment,87,Type,Bahan_jkr_stm,0,300,500,_jkr_stm,type
+Specialty Equipment,87,Type,Bahan_jkr_stt,0,200,500,_jkr_stt,type
+Specialty Equipment,87,Type,Kod_Jenis_jkr_stt,0,300,500,_jkr_stt,type
+Specialty Equipment,87,Type,Kod_Komponen_Sumber_jkr_stt,0,300,500,_jkr_stt,type
+Specialty Equipment,87,Type,Kod_Komponen_Projek_jkr_stt,0,300,500,_jkr_stt,type
+Specialty Equipment,87,Type,Kod_Ruang_Berkaitan_jkr_stt,1,300,500,_jkr_stt,type
+Specialty Equipment,87,Type,Tarikh_Kelulusan_Bahan_jkr_stt,0,400,500,_jkr_stt,type
+Specialty Equipment,87,Type,Description,0,300,500,,revit-builtin
+Specialty Equipment,87,Type,Kumpulan_Peralatan_jkr_sti,0,300,500,_jkr_sti,type
+Specialty Equipment,87,Type,Luar_Kontrak_jkr_sty,0,400,500,_jkr_sty,type
+Specialty Equipment,87,Type,Kaedah_Perolehan_jkr_stt,0,400,500,_jkr_stt,type
+Specialty Equipment,87,Type,Bidang_Kejuruteraan_jkr_stt,0,300,500,_jkr_stt,type
+Specialty Equipment,87,Type,Sistem_jkr_stt,0,300,500,_jkr_stt,type
+Specialty Equipment,87,Type,Sub_Sistem_jkr_stt,0,300,500,_jkr_stt,type
+Specialty Equipment,87,Type,Nama_Komponen_Utama_jkr_stt,0,300,500,_jkr_stt,type
+Specialty Equipment,88,Type,Kod_DAK_Komponen_jkr_stt,0,300,500,_jkr_stt,type
+Specialty Equipment,89,Instance,Butiran_APK_jkr_six,1,400,500,_jkr_six,instance
+Specialty Equipment,89,Instance,Tarikh_Kelulusan_APK_jkr_sit,1,400,500,_jkr_sit,instance
+Specialty Equipment,89,Instance,Bukan_Komponen_DAK_jkr_siy,0,400,500,_jkr_siy,instance
+Specialty Equipment,89,Instance,Tarikh_Perolehan_jkr_sit,0,400,500,_jkr_sit,instance
+Specialty Equipment,89,Instance,Kos_Perolehan_jkr_sic,0,400,500,_jkr_sic,instance
+Specialty Equipment,89,Instance,No_Pesanan_Rasmi_Kerajaan_jkr_sit,0,400,500,_jkr_sit,instance
+Specialty Equipment,89,Instance,Kod_PTJ_jkr_sit,0,400,500,_jkr_sit,instance
+Specialty Equipment,89,Instance,Tarikh_Dipasang_jkr_sit,0,400,500,_jkr_sit,instance
+Specialty Equipment,89,Instance,Tarikh_Waranti_Tamat_jkr_sit,0,400,500,_jkr_sit,instance
+Specialty Equipment,89,Instance,Tarikh_Tamat_DLP_jkr_sit,0,400,500,_jkr_sit,instance
+Specialty Equipment,89,Instance,Jangka_Hayat_jkr_sit,0,400,500,_jkr_sit,instance
+Specialty Equipment,89,Instance,Pengilang_jkr_sit,0,400,500,_jkr_sit,instance
+Specialty Equipment,89,Instance,Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Specialty Equipment,89,Instance,Alamat_Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Specialty Equipment,89,Instance,No_Tel_Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Specialty Equipment,89,Instance,Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Specialty Equipment,89,Instance,Alamat_Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Specialty Equipment,89,Instance,No_Tel_Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Specialty Equipment,89,Instance,Status_Komponen_jkr_sit,0,400,500,_jkr_sit,instance
+Specialty Equipment,89,Instance,Jenama_jkr_sit,0,400,500,_jkr_sit,instance
+Specialty Equipment,90,Instance,Model_jkr_sit,0,400,500,_jkr_sit,instance
+Specialty Equipment,90,Instance,No_Siri_jkr_sit,0,400,500,_jkr_sit,instance
+Specialty Equipment,90,Instance,No_Teg_Label_jkr_sit,0,500,500,_jkr_sit,instance
+Specialty Equipment,90,Instance,No_Sijil_Pendaftaran_jkr_sit,0,500,500,_jkr_sit,instance
+Specialty Equipment,90,Instance,Kaedah_Pemasangan_jkr_sit,0,400,500,_jkr_sit,instance
+Specialty Equipment,90,Instance,Kadaran_jkr_sit,0,400,500,_jkr_sit,instance
+Specialty Equipment,90,Instance,Kapasiti_jkr_sit,0,400,500,_jkr_sit,instance
+Specialty Equipment,90,Instance,Catatan_Attribut_jkr_sit,0,400,500,_jkr_sit,instance
+Specialty Equipment,90,Instance,Dokumen_Berkaitan_01_jkr_sit,0,400,500,_jkr_sit,instance
+Specialty Equipment,90,Instance,Dokumen_Berkaitan_02_jkr_sit,0,400,500,_jkr_sit,instance
+Specialty Equipment,90,Instance,Dokumen_Berkaitan_03_jkr_sit,0,400,500,_jkr_sit,instance
+Specialty Equipment,90,Instance,Dokumen_Berkaitan_04_jkr_sit,0,400,500,_jkr_sit,instance
+Specialty Equipment,90,Instance,No_Rujukan_Berkaitan_01_jkr_sit,0,400,500,_jkr_sit,instance
+Specialty Equipment,90,Instance,No_Rujukan_Berkaitan_02_jkr_sit,0,400,500,_jkr_sit,instance
+Specialty Equipment,90,Instance,No_Rujukan_Berkaitan_03_jkr_sit,0,400,500,_jkr_sit,instance
+Specialty Equipment,90,Instance,No_Rujukan_Berkaitan_04_jkr_sit,0,400,500,_jkr_sit,instance
+Stair,91,Type,Minimum Tread Depth,0,100,500,,revit-builtin
+Stair,91,Type,Komponen_IBS_jkr_sty,0,300,500,_jkr_sty,type
+Stair,91,Type,Monolithic Stairs,0,100,500,,revit-builtin
+Stair,91,Type,Function,0,100,500,,revit-builtin
+Stair,91,Type,Komponen_Bomba_jkr_sty,0,100,500,_jkr_sty,type
+Stair,91,Type,Warna_Kelulusan_PBT_jkr_stt,0,100,200,_jkr_stt,type
+Stair,91,Type,Tread Material,0,300,500,,revit-builtin
+Stair,91,Type,Riser Material,0,300,500,,revit-builtin
+Stair,91,Type,Bahan_jkr_stt,0,300,500,_jkr_stt,type
+Stair,91,Type,Kemasan_jkr_stt,0,300,500,_jkr_stt,type
+Stair,91,Type,Kod_Jenis_jkr_stt,0,400,500,_jkr_stt,type
+Stair,91,Type,Kod_Komponen_jkr_stt,0,400,500,_jkr_stt,type
+Stair,91,Type,Kod_Komponen_Projek_jkr_stt,0,400,500,_jkr_stt,type
+Stair,91,Type,Kod_Ruang_Berkaitan_jkr_stt,1,100,300,_jkr_stt,type
+Stair,92,Type,Tarikh_Kelulusan_Bahan_jkr_stt,0,400,500,_jkr_stt,type
+Stair,92,Type,Bidang_Kejuruteraan_jkr_stt,0,300,500,_jkr_stt,type
+Stair,92,Type,Sistem_jkr_stt,0,300,500,_jkr_stt,type
+Stair,92,Type,Sub_Sistem_jkr_stt,0,300,500,_jkr_stt,type
+Stair,92,Type,Nama_Komponen_Utama_jkr_stt,0,300,500,_jkr_stt,type
+Stair,92,Type,Kod_DAK_Komponen_jkr_stt,0,300,500,_jkr_stt,type
+Stair,93,Instance,Base Level,0,100,500,,revit-builtin
+Stair,93,Instance,Base Offset,0,100,500,,revit-builtin
+Stair,93,Instance,Top Level,0,100,500,,revit-builtin
+Stair,93,Instance,Top Offset,0,100,500,,revit-builtin
+Stair,93,Instance,LOD_jkr_sit,0,100,500,_jkr_sit,instance
+Stair,93,Instance,Warna_Kelulusan_PBT_jkr_sit,0,100,500,_jkr_sit,instance
+Stair,93,Instance,Butiran_APK_jkr_six,1,100,500,_jkr_six,instance
+Stair,93,Instance,Tarikh_Kelulusan_APK_jkr_sit,1,300,500,_jkr_sit,instance
+Stair,93,Instance,Tarikh_Perolehan_jkr_sit,0,400,500,_jkr_sit,instance
+Stair,93,Instance,Kos_Perolehan_jkr_sic,0,400,500,_jkr_sic,instance
+Stair,93,Instance,No_Pesanan_Rasmi_Kerajaan_jkr_sit,0,400,500,_jkr_sit,instance
+Stair,93,Instance,Kod_PTJ_jkr_sit,0,400,500,_jkr_sit,instance
+Stair,93,Instance,Tarikh_Dipasang_jkr_sit,0,400,500,_jkr_sit,instance
+Stair,93,Instance,Tarikh_Waranti_Tamat_jkr_sit,0,400,500,_jkr_sit,instance
+Stair,93,Instance,Tarikh_Tamat_DLP_jkr_sit,0,400,500,_jkr_sit,instance
+Stair,93,Instance,Jangka_Hayat_jkr_sit,0,400,500,_jkr_sit,instance
+Stair,93,Instance,Pengilang_jkr_sit,0,400,500,_jkr_sit,instance
+Stair,93,Instance,Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Stair,93,Instance,Alamat_Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Stair,93,Instance,No_Tel_Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Stair,93,Instance,Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Stair,94,Instance,Alamat_Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Stair,94,Instance,No_Tel_Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Stair,94,Instance,Status_Komponen_jkr_sit,0,400,500,_jkr_sit,instance
+Stair,94,Instance,Jenama_jkr_sit,0,400,500,_jkr_sit,instance
+Stair,94,Instance,Model_jkr_sit,0,400,500,_jkr_sit,instance
+Stair,94,Instance,No_Siri_jkr_sit,0,400,500,_jkr_sit,instance
+Stair,94,Instance,No_Teg_Label_jkr_sit,0,500,500,_jkr_sit,instance
+Stair,94,Instance,No_Sijil_Pendaftaran_jkr_sit,0,500,500,_jkr_sit,instance
+Stair,94,Instance,Kaedah_Pemasangan_jkr_sit,0,400,500,_jkr_sit,instance
+Stair,94,Instance,Catatan_Attribut_jkr_sit,0,400,500,_jkr_sit,instance
+Stair,94,Instance,Dokumen_Berkaitan_01_jkr_sit,0,400,500,_jkr_sit,instance
+Stair,94,Instance,Dokumen_Berkaitan_02_jkr_sit,0,400,500,_jkr_sit,instance
+Stair,94,Instance,Dokumen_Berkaitan_03_jkr_sit,0,400,500,_jkr_sit,instance
+Stair,94,Instance,Dokumen_Berkaitan_04_jkr_sit,0,400,500,_jkr_sit,instance
+Stair,94,Instance,No_Rujukan_Berkaitan_01_jkr_sit,0,400,500,_jkr_sit,instance
+Stair,94,Instance,No_Rujukan_Berkaitan_02_jkr_sit,0,400,500,_jkr_sit,instance
+Stair,94,Instance,No_Rujukan_Berkaitan_03_jkr_sit,0,400,500,_jkr_sit,instance
+Stair,94,Instance,No_Rujukan_Berkaitan_04_jkr_sit,0,400,500,_jkr_sit,instance
+Wall,95,Type,Structure,0,200,500,,revit-builtin
+Wall,95,Type,Function,0,200,500,,revit-builtin
+Wall,95,Type,Lapisan_Kalis_Air_jkr_stx,0,300,500,_jkr_stx,type
+Wall,95,Type,Lapisan_Kalis_Air_jkr_sty,0,300,500,_jkr_sty,type
+Wall,95,Type,Komponen_IBS_jkr_sty,0,300,500,_jkr_sty,type
+Wall,95,Type,Komponen_Bomba_jkr_sty,0,200,500,_jkr_sty,type
+Wall,95,Type,Structural Material,0,200,500,,revit-builtin
+Wall,95,Type,Bahan_jkr_stt,0,200,500,_jkr_stt,type
+Wall,95,Type,Kemasan_Luar_jkr_stt,0,200,500,_jkr_stt,type
+Wall,95,Type,Kemasan_Dalam_jkr_stt,0,200,500,_jkr_stt,type
+Wall,95,Type,Kod_Jenis_jkr_stt,0,300,500,_jkr_stt,type
+Wall,95,Type,Kod_Komponen_jkr_stt,0,300,500,_jkr_stt,type
+Wall,95,Type,Kod_Tinggi_jkr_jkr_stt,0,300,500,_jkr_stt,type
+Wall,95,Type,Kod_Komponen_Projek_jkr_stt,0,300,500,_jkr_stt,type
+Wall,95,Type,Kod_Ruang_Berkaitan_jkr_stt,1,100,300,_jkr_stt,type
+Wall,95,Type,Fire Rating,0,200,500,,revit-builtin
+Wall,95,Type,Tarikh_Kelulusan_Bahan_jkr_stt,0,400,500,_jkr_stt,type
+Wall,96,Type,Description,0,300,500,,revit-builtin
+Wall,96,Type,Bidang_Kejuruteraan_jkr_stt,0,300,500,_jkr_stt,type
+Wall,96,Type,Sistem_jkr_stt,0,300,500,_jkr_stt,type
+Wall,96,Type,Sub_Sistem_jkr_stt,0,300,500,_jkr_stt,type
+Wall,96,Type,Nama_Komponen_Utama_jkr_stt,0,300,500,_jkr_stt,type
+Wall,96,Type,Kod_DAK_Komponen_jkr_stt,0,300,500,_jkr_stt,type
+Wall,97,Instance,Base Constraint,0,100,500,,revit-builtin
+Wall,97,Instance,Base Offset,0,200,500,,revit-builtin
+Wall,97,Instance,Top Constraint,0,200,500,,revit-builtin
+Wall,97,Instance,Top Offset,0,100,500,,revit-builtin
+Wall,97,Instance,Room Bounding,0,100,500,,revit-builtin
+Wall,97,Instance,LOD_jkr_sit,0,100,500,_jkr_sit,instance
+Wall,97,Instance,Warna_Kelulusan_PBT_jkr_sit,0,100,200,_jkr_sit,instance
+Wall,97,Instance,Butiran_APK_jkr_six,1,400,500,_jkr_six,instance
+Wall,97,Instance,Tarikh_Kelulusan_APK_jkr_sit,2,400,500,_jkr_sit,instance
+Wall,97,Instance,Tarikh_Perolehan_jkr_sit,0,400,500,_jkr_sit,instance
+Wall,97,Instance,Kos_Perolehan_jkr_sic,0,400,500,_jkr_sic,instance
+Wall,97,Instance,No_Pesanan_Rasmi_Kerajaan_jkr_sit,0,400,500,_jkr_sit,instance
+Wall,97,Instance,Kod_PTJ_jkr_sit,0,400,500,_jkr_sit,instance
+Wall,97,Instance,Tarikh_Dipasang_jkr_sit,0,400,500,_jkr_sit,instance
+Wall,97,Instance,Tarikh_Waranti_Tamat_jkr_sit,0,400,500,_jkr_sit,instance
+Wall,97,Instance,Tarikh_Tamat_DLP_jkr_sit,0,400,500,_jkr_sit,instance
+Wall,97,Instance,Jangka_Hayat_jkr_sit,0,400,500,_jkr_sit,instance
+Wall,97,Instance,Pengilang_jkr_sit,0,400,500,_jkr_sit,instance
+Wall,97,Instance,Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Wall,97,Instance,Alamat_Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Wall,97,Instance,No_Tel_Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Wall,98,Instance,Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Wall,98,Instance,Alamat_Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Wall,98,Instance,No_Tel_Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Wall,98,Instance,Status_Komponen_jkr_sit,0,400,500,_jkr_sit,instance
+Wall,98,Instance,Jenama_jkr_sit,0,400,500,_jkr_sit,instance
+Wall,98,Instance,Model_jkr_sit,0,400,500,_jkr_sit,instance
+Wall,98,Instance,No_Teg_Label_jkr_sit,0,500,500,_jkr_sit,instance
+Wall,98,Instance,No_Sijil_Pendaftaran_jkr_sit,0,500,500,_jkr_sit,instance
+Window,99,Type,Height,0,100,500,,revit-builtin
+Window,99,Type,Width,0,100,500,,revit-builtin
+Window,99,Instance,Warna_Kelulusan_PBT_jkr_sit,0,300,500,_jkr_sit,instance
+Window,99,Type,Bingkai_jkr_stm,0,300,500,_jkr_stm,type
+Window,99,Type,Bingkai_jkr_stt,0,200,500,_jkr_stt,type
+Window,99,Type,Coping_jkr_stm,0,300,500,_jkr_stm,type
+Window,99,Type,Coping_jkr_stt,0,200,500,_jkr_stt,type
+Window,99,Type,Kumai_jkr_stm,0,300,500,_jkr_stm,type
+Window,99,Type,Kumai_jkr_stt,0,200,500,_jkr_stt,type
+Window,99,Type,Panel_jkr_stm,0,300,500,_jkr_stm,type
+Window,99,Type,Panel_jkr_stt,0,200,500,_jkr_stt,type
+Window,99,Type,Kod_Jenis_jkr_stt,0,300,500,_jkr_stt,type
+Window,99,Type,Kod_Komponen_Sumber_jkr_stt,0,300,500,_jkr_stt,type
+Window,99,Type,Kod_Komponen_jkr_stt,0,300,500,_jkr_stt,type
+Window,99,Type,Kod_Rekabentuk_jkr_stt,0,300,500,_jkr_stt,type
+Window,99,Type,Kod_Komponen_Projek_jkr_stt,0,300,500,_jkr_stt,type
+Window,99,Type,Kod_Ruang_Berkaitan_jkr_stt,1,300,500,_jkr_stt,type
+Window,100,Type,Tarikh_Kelulusan_Bahan_jkr_stt,0,400,500,_jkr_stt,type
+Window,100,Type,Description,0,300,500,,revit-builtin
+Window,100,Type,Bidang_Kejuruteraan_jkr_stt,0,300,500,_jkr_stt,type
+Window,100,Type,Sistem_jkr_stt,0,300,500,_jkr_stt,type
+Window,100,Type,Sub_Sistem_jkr_stt,0,300,500,_jkr_stt,type
+Window,100,Type,Nama_Komponen_Utama_jkr_stt,0,300,500,_jkr_stt,type
+Window,100,Type,Kod_DAK_Komponen_jkr_stt,0,300,500,_jkr_stt,type
+Window,101,Instance,Butiran_APK_jkr_six,1,400,500,_jkr_six,instance
+Window,101,Instance,Tarikh_Kelulusan_APK_jkr_sit,1,400,500,_jkr_sit,instance
+Window,101,Instance,Tarikh_Perolehan_jkr_sit,0,400,500,_jkr_sit,instance
+Window,101,Instance,Kos_Perolehan_jkr_sic,0,400,500,_jkr_sic,instance
+Window,101,Instance,No_Pesanan_Rasmi_Kerajaan_jkr_sit,0,400,500,_jkr_sit,instance
+Window,101,Instance,Kod_PTJ_jkr_sit,0,400,500,_jkr_sit,instance
+Window,101,Instance,Tarikh_Dipasang_jkr_sit,0,400,500,_jkr_sit,instance
+Window,101,Instance,Tarikh_Waranti_Tamat_jkr_sit,0,400,500,_jkr_sit,instance
+Window,101,Instance,Tarikh_Tamat_DLP_jkr_sit,0,400,500,_jkr_sit,instance
+Window,101,Instance,Jangka_Hayat_jkr_sit,0,400,500,_jkr_sit,instance
+Window,101,Instance,Pengilang_jkr_sit,0,400,500,_jkr_sit,instance
+Window,101,Instance,Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Window,101,Instance,Alamat_Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Window,101,Instance,No_Tel_Pembekal_jkr_sit,0,400,500,_jkr_sit,instance
+Window,101,Instance,Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Window,101,Instance,Alamat_Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Window,101,Instance,No_Tel_Kontraktor_jkr_sit,0,400,500,_jkr_sit,instance
+Window,101,Instance,Status_Komponen_jkr_sit,0,400,500,_jkr_sit,instance
+Window,101,Instance,Jenama_jkr_sit,0,400,500,_jkr_sit,instance
+Window,102,Instance,Model_jkr_sit,0,400,500,_jkr_sit,instance
+Window,102,Instance,No_Siri_jkr_sit,0,400,500,_jkr_sit,instance
+Window,102,Instance,No_Teg_Label_jkr_sit,0,500,500,_jkr_sit,instance
+Window,102,Instance,No_Sijil_Pendaftaran_jkr_sit,0,500,500,_jkr_sit,instance
+Window,102,Instance,Bekalan_Elektrik_jkr_sit,1,400,500,_jkr_sit,instance
+Window,102,Instance,Kadaran_jkr_sit,1,400,500,_jkr_sit,instance
+Window,102,Instance,Kaedah_Pemasangan_jkr_sit,0,400,500,_jkr_sit,instance
+Window,102,Instance,Catatan_Attribut_jkr_sit,0,400,500,_jkr_sit,instance
+Window,102,Instance,Dokumen_Berkaitan_01_jkr_sit,0,400,500,_jkr_sit,instance
+Window,102,Instance,Dokumen_Berkaitan_02_jkr_sit,0,400,500,_jkr_sit,instance
+Window,102,Instance,Dokumen_Berkaitan_03_jkr_sit,0,400,500,_jkr_sit,instance
+Window,102,Instance,Dokumen_Berkaitan_04_jkr_sit,0,400,500,_jkr_sit,instance
+Window,102,Instance,No_Rujukan_Berkaitan_01_jkr_sit,0,400,500,_jkr_sit,instance
+Window,102,Instance,No_Rujukan_Berkaitan_02_jkr_sit,0,400,500,_jkr_sit,instance
+Window,102,Instance,No_Rujukan_Berkaitan_03_jkr_sit,0,400,500,_jkr_sit,instance
+Window,102,Instance,No_Rujukan_Berkaitan_04_jkr_sit,0,400,500,_jkr_sit,instance

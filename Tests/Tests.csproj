@@ -165,6 +165,7 @@
     <!-- Dimension planners + chain verification (dimensions pack). -->
     <Compile Include="..\BinaVibe\Dimensions\DimensionPlans.cs" Link="DimensionPlans.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\JkrTierMap.cs" Link="JkrTierMap.cs" />
+    <Compile Include="..\UI\Jkr\ViewModels\JkrRowControls.cs" Link="JkrRowControls.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\IssueVm.cs" Link="IssueVm.cs" />
     <!-- Backend check status → AI verdict or "needs a person" (cannot_verify), and the pane's counts / % that leave people's items out. -->
     <Compile Include="..\UI\Jkr\ViewModels\JkrCheckStatus.cs" Link="JkrCheckStatus.cs" />
@@ -203,6 +204,8 @@
     <Compile Include="..\Services\JkrSpec\SpecChecks.BC.cs" Link="JkrSpec\SpecChecks.BC.cs" />
     <Compile Include="..\Services\JkrSpec\SpecChecks.DE.cs" Link="JkrSpec\SpecChecks.DE.cs" />
     <Compile Include="..\Services\JkrSpec\SpecPbData.cs" Link="JkrSpec\SpecPbData.cs" />
+    <Compile Include="..\Services\JkrSpec\SpecPbParameters.cs" Link="JkrSpec\SpecPbParameters.cs" />
+    <EmbeddedResource Include="..\Services\JkrSpec\data\jkr_pb_ar_parameters.csv" LogicalName="jkr_pb_ar_parameters.csv" Link="JkrSpec\jkr_pb_ar_parameters.csv" />
     <Compile Include="..\UI\Jkr\Panel\Core\DetailScreenModel.cs" Link="Panel\DetailScreenModel.cs" />
     <Compile Include="..\UI\Jkr\Panel\Core\FixResultModel.cs" Link="Panel\FixResultModel.cs" />
     <Compile Include="..\UI\Jkr\Panel\Core\PaneLanguage.cs" Link="Panel\PaneLanguage.cs" />

@@ -1,5 +1,6 @@
 using System.Linq;
 using RevitWebAppSync.Services.JkrSpec;
+using RevitWebAppSync.UI.Jkr.Panel.Core;
 using Xunit;
 
 namespace RevitWebAppSync.Tests
@@ -89,6 +90,11 @@ namespace RevitWebAppSync.Tests
             return t;
         }
 
+        private static void CarryEveryRequiredDoorParameter(SpecType t)
+        {
+            foreach (var p in SpecPbParameters.At("Door", 400).Where(x => x.IsShared && !x.Starred)) t.ParamNames.Add(p.Name);
+        }
+
         private static SpecModel At400(SpecType t)
         {
             var m = new SpecModel { Lod = 400 };
@@ -113,9 +119,8 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void Db1_only_empty_gives_the_old_wording_without_a_missing_part()
         {
-            var t = Door(true, "Tarikh_Perolehan_jkr_sit", "Kod_PTJ_jkr_sit", "Tarikh_Dipasang_jkr_sit", "Tarikh_Waranti_Tamat_jkr_sit",
-                "Tarikh_Tamat_DLP_jkr_sit", "Alamat_Pembekal_jkr_sit", "No_Tel_Pembekal_jkr_sit", "Kontraktor_jkr_sit",
-                "Alamat_Kontraktor_jkr_sit", "No_Tel_Kontraktor_jkr_sit");
+            var t = Door(true);
+            CarryEveryRequiredDoorParameter(t);   // carried as non-text: not judged
             t.Texts["Kod_Jenis_jkr_stt"] = "";
             t.Texts["Pembekal_jkr_sit"] = "Greatech";
             var f = SpecChecks.Rules["Db.1"](At400(t)).Single(r => r.Status == "fail");
@@ -136,13 +141,13 @@ namespace RevitWebAppSync.Tests
         public void Db1_a_type_with_every_mandatory_parameter_filled_passes()
         {
             var t = Door(true);
-            foreach (var p in new[] { "Kod_Jenis_jkr_stt", "Tarikh_Perolehan_jkr_sit", "Kod_PTJ_jkr_sit", "Tarikh_Dipasang_jkr_sit",
-                "Tarikh_Waranti_Tamat_jkr_sit", "Tarikh_Tamat_DLP_jkr_sit", "Pembekal_jkr_sit", "Alamat_Pembekal_jkr_sit",
-                "No_Tel_Pembekal_jkr_sit", "Kontraktor_jkr_sit", "Alamat_Kontraktor_jkr_sit", "No_Tel_Kontraktor_jkr_sit" })
-                t.Texts[p] = "x";
+            foreach (var p in SpecPbParameters.At("Door", 400).Where(x => x.IsShared && !x.Starred))
+            {
+                if (p.IsTextValued) t.Texts[p.Name] = "x"; else t.ParamNames.Add(p.Name);
+            }
             var rs = SpecChecks.Rules["Db.1"](At400(t)).ToList();
             Assert.DoesNotContain(rs, r => r.Status == "fail");
-            Assert.Single(rs, r => r.Status == "pass");
+            Assert.Single(rs, r => r.Status == "pass" && r.Coverage == SpecCoverage.FailOnly);
         }
     }
 }
