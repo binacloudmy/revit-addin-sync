@@ -89,25 +89,43 @@ namespace RevitWebAppSync.Services
         public async Task<List<UI.Copilot.Model.LibrarySection>> GetPromptLibraryAsync(
             string accessToken, CancellationToken cancellationToken = default)
         {
+            var load = await FetchPromptLibraryAsync(accessToken, cancellationToken);
+            return load != null && load.Ok ? load.Sections : null;
+        }
+
+        /// <summary>r23 (AI-459): the library, or why it could not be loaded (LibraryLoad: unreachable, timeout, sign-in, a server error
+        /// with its HTTP code, empty). Null only when the caller cancelled (the pane closed).</summary>
+        public async Task<UI.Copilot.Model.LibraryLoad> FetchPromptLibraryAsync(
+            string accessToken, CancellationToken cancellationToken = default)
+        {
             // r17 (tester 20 Nov, "Couldn't load the prompt library"): the copilot's own backend first (the one the turns go to, which signed
             // the token and serves the same route), then the cloud base. A pane pointed at a test backend asked the cloud with the test token.
+            var attempts = new List<UI.Copilot.Model.LibraryLoad>();
             foreach (var root in LibraryRoots(_baseUrl, BinaConfig.Load().ResolvedCloudBaseUrl))
             {
+                UI.Copilot.Model.LibraryLoad attempt;
                 try
                 {
                     using var req = new HttpRequestMessage(HttpMethod.Get, $"{root}/agents/revit-ai/library");
                     if (!string.IsNullOrEmpty(accessToken))
                         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-                    var resp = await _httpClient.SendAsync(req, cancellationToken);
-                    if (!resp.IsSuccessStatusCode) continue;
-                    var body = await resp.Content.ReadAsStringAsync();
-                    var sections = JsonConvert.DeserializeObject<LibraryResponse>(body)?.Sections;
-                    if (sections != null && sections.Count > 0) return sections;
+                    using var resp = await _httpClient.SendAsync(req, cancellationToken);
+                    List<UI.Copilot.Model.LibrarySection> sections = null;
+                    var unreadable = false;
+                    if (resp.IsSuccessStatusCode)
+                    {
+                        var body = await resp.Content.ReadAsStringAsync();
+                        try { sections = JsonConvert.DeserializeObject<LibraryResponse>(body)?.Sections; }
+                        catch (JsonException) { unreadable = true; }
+                    }
+                    attempt = UI.Copilot.Model.LibraryLoad.FromResponse((int)resp.StatusCode, sections, unreadable);
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { return null; }
-                catch { /* the next base */ }
+                catch (Exception ex) { attempt = UI.Copilot.Model.LibraryLoad.FromException(ex); }
+                if (attempt.Ok) return attempt;
+                attempts.Add(attempt);
             }
-            return null;
+            return UI.Copilot.Model.LibraryLoad.Pick(attempts);
         }
 
         /// <summary>Where the library is asked for, in order: the copilot backend, then the cloud base when it is another host.</summary>
