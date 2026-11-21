@@ -28,15 +28,37 @@ namespace BinaVibe.Copilot.Undo
             return n.Length <= MaxNameLength ? n : n.Substring(0, MaxNameLength - 1).TrimEnd() + "…";
         }
 
+        public const string UndoneMs = "Dibuat asal: ";
+        public const string RedoneMs = "Dibuat semula: ";
+        public const string UnnamedMs = "satu perubahan Copilot";
+
         /// <summary>"Undone: Set Mark", "Redone: Set Mark and Tag doors", "Undone: A, B, C and 2 more" (names as given; see <see cref="Name"/>).</summary>
-        public static string Line(bool redo, IEnumerable<string>? names)
+        public static string Line(bool redo, IEnumerable<string>? names) => Line(redo, names, false);
+
+        /// <summary>r22 (live M2 b7a76924): the same line in a Malay chat, "Dibuat asal: Set parameter Comments", "Dibuat asal: A, B dan 2 lagi";
+        /// the entry names stay exactly as Revit shows them (without the "BINA: " prefix).</summary>
+        public static string Line(bool redo, IEnumerable<string>? names, bool ms)
         {
-            var head = redo ? Redone : Undone;
+            var head = ms ? (redo ? RedoneMs : UndoneMs) : (redo ? Redone : Undone);
+            var and = ms ? " dan " : " and ";
             var list = (names ?? Array.Empty<string>()).Where(n => !string.IsNullOrWhiteSpace(n)).ToList();
-            if (list.Count == 0) return head + Unnamed;
+            if (list.Count == 0) return head + (ms ? UnnamedMs : Unnamed);
             if (list.Count == 1) return head + list[0];
-            if (list.Count <= MaxNamesShown) return head + string.Join(", ", list.Take(list.Count - 1)) + " and " + list[list.Count - 1];
-            return head + string.Join(", ", list.Take(MaxNamesShown)) + " and " + (list.Count - MaxNamesShown) + " more";
+            if (list.Count <= MaxNamesShown) return head + string.Join(", ", list.Take(list.Count - 1)) + and + list[list.Count - 1];
+            return head + string.Join(", ", list.Take(MaxNamesShown)) + and + (list.Count - MaxNamesShown) + (ms ? " lagi" : " more");
+        }
+
+        /// <summary>A line made in English (the undo job's summary, which the model reads too) as the pane shows it in a Malay chat: its
+        /// "Undone: " / "Redone: " head and a closing "and N more" in Malay; the names between are left exactly as written.</summary>
+        public static string ForPane(string? line, bool ms)
+        {
+            var text = line ?? "";
+            if (!ms) return text;
+            if (text.StartsWith(Undone, StringComparison.Ordinal)) text = UndoneMs + text.Substring(Undone.Length);
+            else if (text.StartsWith(Redone, StringComparison.Ordinal)) text = RedoneMs + text.Substring(Redone.Length);
+            else return text;
+            var m = System.Text.RegularExpressions.Regex.Match(text, @" and (\d+) more$");
+            return m.Success ? text.Substring(0, m.Index) + " dan " + m.Groups[1].Value + " lagi" : text;
         }
 
         /// <summary>The line for entries as Revit names them ("BINA: Revit code"): each stripped, repeats said once.</summary>

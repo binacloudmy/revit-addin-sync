@@ -19,8 +19,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public int After;
         public List<string> Names = new List<string>();
         public DateTime At;
+        /// <summary>r22: the language of the chat the line stands in (the undone turn's card language): "Dibuat asal: …" in a Malay chat.</summary>
+        public ReceiptLanguage Lang;
 
-        public string Text => UndoNotices.TextOf(Kind, Names);
+        public string Text => UndoNotices.TextOf(Kind, Names, Lang);
     }
 
     public sealed class UndoNotices
@@ -36,7 +38,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public IReadOnlyList<UndoNotice> Items => _items;
 
         /// <summary>A change of the undo stack. True when it made or extended a line (the thread should be drawn again).</summary>
-        public bool Record(UndoChange? change, int threadCount, DateTime now)
+        public bool Record(UndoChange? change, int threadCount, DateTime now) => Record(change, threadCount, now, ReceiptLanguage.En);
+
+        /// <summary>The same, for a chat in <paramref name="lang"/> (r22: the line reads Malay in a Malay chat).</summary>
+        public bool Record(UndoChange? change, int threadCount, DateTime now, ReceiptLanguage lang)
         {
             if (change == null || change.ByPane || string.IsNullOrEmpty(change.TurnId)) return false;
             if (change.Kind != UndoChangeKind.Undone && change.Kind != UndoChangeKind.Redone) return false;
@@ -49,7 +54,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 last.At = now;
                 return true;
             }
-            _items.Add(new UndoNotice { Kind = change.Kind, After = threadCount, Names = { name }, At = now });
+            _items.Add(new UndoNotice { Kind = change.Kind, After = threadCount, Names = { name }, At = now, Lang = lang });
             if (_items.Count > MaxNotices) _items.RemoveAt(0);
             return true;
         }
@@ -66,5 +71,9 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>"Undone: Set Mark", "Redone: Set Mark and Tag doors", "Undone: A, B, C and 2 more" (r18: the one undo wording, UndoWords;
         /// was "You undid: …").</summary>
         public static string TextOf(UndoChangeKind kind, IReadOnlyList<string> names) => UndoWords.Line(kind == UndoChangeKind.Redone, names);
+
+        /// <summary>r22: "Dibuat asal: Set parameter Comments" in a Malay chat; English exactly as <see cref="TextOf(UndoChangeKind, IReadOnlyList{string})"/>.</summary>
+        public static string TextOf(UndoChangeKind kind, IReadOnlyList<string> names, ReceiptLanguage lang) =>
+            UndoWords.Line(kind == UndoChangeKind.Redone, names, lang == ReceiptLanguage.Ms);
     }
 }
