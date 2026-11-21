@@ -41,7 +41,7 @@ namespace RevitAddinSync.Tests
             Assert.Equal("Dibuat asal: A, B dan C", UndoWords.Line(false, new[] { "A", "B", "C" }, true));
             Assert.Equal("Dibuat semula: A, B, C dan 2 lagi", UndoWords.Line(true, new[] { "A", "B", "C", "D", "E" }, true));
             Assert.Equal("Undone: A, B and C", UndoWords.Line(false, new[] { "A", "B", "C" }));
-            Assert.Equal("Dibuat asal: Revit code (+1 more)", UndoWords.ForPane("Undone: Revit code (+1 more)", true));
+            Assert.Equal("Dibuat asal: Revit code (+1 lagi)", UndoWords.ForPane("Undone: Revit code (+1 more)", true));   // r22 (P6 fba25214): the count reads Malay too
             Assert.Equal("Dibuat asal: A, B, C dan 2 lagi", UndoWords.ForPane("Undone: A, B, C and 2 more", true));
             Assert.Equal("Undone: Revit code", UndoWords.ForPane("Undone: Revit code", false));
         }
