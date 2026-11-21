@@ -882,6 +882,50 @@ namespace RevitAddinSync.Tests
             Assert.Equal("Berfikir…", r.Steps!.Single(s => s.StepId == "thinking").Label);
         }
 
+        [Theory]
+        [InlineData("ya")]
+        [InlineData("ok")]
+        public async Task Router_R22_M4_TypedYaOrOkAtAMalayCard_KeepsTheMalayChrome(string typed)
+        {
+            // r22 (M4, not reachable live in round L6): a Malay chat, a card is shown, the drafter types "ya" (or a neutral "ok"):
+            // the answer goes to that card, and the card, the Steps row and the chip read Malay.
+            var server = new Server()
+                .On(IsStart, Sse(Frame("ask", new { seq = 1, request_id = "req_q", question = "Elemen mana yang patut diubah?", multi = false, purpose = "clarify",
+                                                    options = new[] { new { id = "Whole model (77 doors)", label = "Seluruh model (77 pintu)" }, new { id = "This view (46 doors)", label = "View ini (46 pintu)" } } })))
+                .On(IsResults, Sse(Frame("reply_delta", new { seq = 2, text = "Baik." }) + Frame("turn_end", End(3))));
+            var (router, _) = RouterOn(server, new Tools());
+
+            var asked = await router.RouteAsync("Tetapkan Comments UJI pada semua pintu, tanya saya dulu", "ai-generated");
+            Assert.Equal(ReceiptLanguage.Ms, asked.Ask!.Language);
+            Assert.Equal("Jangan jawab", AskCardModel.DeclineText(asked.Ask.Language));
+            Assert.Equal("Perlu jawapan anda", TurnStatusText.Of("Needs input", false, asked.Ask.Language));
+
+            var answered = await router.RouteAsync(typed, "ai-generated");
+
+            Assert.Equal(ReceiptLanguage.Ms, answered.Language);
+            Assert.Equal("Berfikir…", answered.Steps!.Single(s => s.StepId == "thinking").Label);
+            Assert.Equal("Selesai", TurnStatusText.Of("Done", false, answered.Language));
+            var post = Assert.Single(server.Requests, r => IsResults(r.Path));
+            using var body = JsonDocument.Parse(post.Body);
+            Assert.Equal(typed, body.RootElement.GetProperty("answer").GetProperty("values").GetProperty("text").GetString());
+        }
+
+        [Fact]
+        public async Task Router_R22_M7_AMalayServerCardInAPromptReadAsEnglish_GetsMalayChrome()
+        {
+            // live M7 ab677831: "tinggikan kotak keratan ke 4 meter" reads English here; the server sent the box card in Malay
+            var server = new Server().On(IsStart, Sse(Frame("ask", new { seq = 1, request_id = "req_q", title = "Bahagian atas kotak keratan yang mana?",
+                question = "Ketinggian itu akan menggerakkan bahagian atas ke arah bertentangan. Yang mana satu maksud anda?", multi = false, purpose = "clarify",
+                options = new[] { new { id = "up|by|4 m", label = "Naikkan bahagian atas sebanyak 4 m, ke +8804 mm dari PTBR_Aras Bumbung" }, new { id = "Skip", label = "Langkau" } } })));
+            var (router, _) = RouterOn(server, new Tools());
+
+            var asked = await router.RouteAsync("tinggikan kotak keratan ke 4 meter", "ai-generated");
+
+            Assert.Equal(ReceiptLanguage.Ms, asked.Ask!.Language);
+            Assert.Equal("Jangan jawab", AskCardModel.DeclineText(asked.Ask.Language));
+            Assert.Equal(ReceiptLanguage.En, PromptLanguage.ForCard(ReceiptLanguage.En, "Which box top?", "That height would move the top the other way. Which did you mean?"));
+        }
+
         private sealed class ThrowingTools : ITurnTools
         {
             public ReceiptLanguage Language { get; set; }
