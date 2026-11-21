@@ -205,16 +205,79 @@ namespace BinaVibe.Copilot.Writes
     }
 
     /// <summary>The revit_busy envelope names the dialog when the add-in knows it (envelope <c>dialogs</c>: id, text, no answer given),
-    /// so the backend can tell the drafter which dialog blocks Revit instead of guessing.</summary>
+    /// so the backend can tell the drafter which dialog blocks Revit instead of guessing. r24 privacy: the id and text are redacted
+    /// (<see cref="DialogRedaction"/>) before they leave the add-in; the full words go to the local copilot-clicks.log only.</summary>
     public static class BusyDialogs
     {
         public static Envelope With(Envelope envelope, Exception? cause)
         {
             if (envelope == null || cause is not RevitBusyException busy || (busy.DialogId == null && busy.DialogText == null)) return envelope!;
-            var text = busy.DialogText ?? "";
-            if (text.Length > DialogPolicy.MaxTextChars) text = text.Substring(0, DialogPolicy.MaxTextChars - 1) + "…";
-            envelope.Dialogs = new System.Collections.Generic.List<DialogDto> { new DialogDto { Id = busy.DialogId ?? "", Text = text, AnsweredWith = null } };
+            try { BinaVibe.Copilot.Guard.StageTimer.Sink("revit_busy dialog (local only): id '" + (busy.DialogId ?? "") + "', text '" + (busy.DialogText ?? "") + "'"); }
+            catch (Exception) { /* a log line only */ }
+            var text = busy.DialogId == WatchdogPolicy.InCommandId ? DialogRedaction.RedactCommandText(busy.DialogText ?? "") : DialogRedaction.Redact(busy.DialogText ?? "");
+            var id = DialogRedaction.Redact(busy.DialogId ?? "");
+            envelope.Dialogs = new System.Collections.Generic.List<DialogDto> { new DialogDto { Id = id, Text = text, AnsweredWith = null } };
             return envelope;
         }
+    }
+
+    /// <summary>r24 privacy: what a Revit dialog or window title says before it goes into an envelope (the backend DB and the model). Windows
+    /// paths (drive letter, UNC, anything with \ or / segments) become &lt;path&gt;, file names of model and data files &lt;file&gt;, email
+    /// addresses and the Windows user name or profile folder &lt;user&gt;; at most <see cref="MaxChars"/> characters. A plain title ("Options")
+    /// is kept as it is. Never throws.</summary>
+    public static class DialogRedaction
+    {
+        public const int MaxChars = 80;
+
+        private static readonly System.Text.RegularExpressions.RegexOptions Opt =
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant;
+        private static readonly System.Text.RegularExpressions.Regex Email = new(@"[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(\.[A-Za-z0-9\-]+)+", Opt);
+        private static readonly System.Text.RegularExpressions.Regex Unc = new(@"\\\\[^\s""'<>|]+", Opt);
+        private static readonly System.Text.RegularExpressions.Regex Drive = new(@"\b[A-Za-z]:[\\/][^\s""'<>|]*", Opt);
+        private static readonly System.Text.RegularExpressions.Regex Segments = new(@"[^\s""'<>|]*[\\/][^\s""'<>|]*", Opt);
+        private static readonly System.Text.RegularExpressions.Regex File = new(@"[^\s""'<>|\\/]+\.(rvt|rfa|rte|rft|txt|xlsx|csv|ifc|dwg)\b", Opt);
+
+        public static string Redact(string? text) => Redact(text, SafeUser(), SafeProfile());
+
+        /// <param name="userName">The Windows user name (Environment.UserName); <paramref name="profile"/> its profile folder.</param>
+        public static string Redact(string? text, string? userName, string? profile)
+        {
+            if (string.IsNullOrEmpty(text)) return "";
+            try
+            {
+                var t = text!;
+                t = Email.Replace(t, "<user>");
+                if (!string.IsNullOrWhiteSpace(profile) && profile!.Length >= 3)
+                    t = System.Text.RegularExpressions.Regex.Replace(t, System.Text.RegularExpressions.Regex.Escape(profile.TrimEnd('\\', '/')), "<user>", Opt);
+                t = Unc.Replace(t, "<path>");
+                t = Drive.Replace(t, "<path>");
+                t = Segments.Replace(t, m => m.Value == "<user>" ? m.Value : "<path>");
+                t = File.Replace(t, "<file>");
+                if (!string.IsNullOrWhiteSpace(userName) && userName!.Trim().Length >= 2)
+                    t = System.Text.RegularExpressions.Regex.Replace(t, @"(?<![A-Za-z0-9])" + System.Text.RegularExpressions.Regex.Escape(userName.Trim()) + @"(?![A-Za-z0-9])", "<user>", Opt);
+                return t.Length <= MaxChars ? t : t.Substring(0, MaxChars - 1) + "…";
+            }
+            catch (Exception) { return "<redacted>"; }
+        }
+
+        /// <summary>The in-command text (WatchdogPolicy.InCommandText): our own head and ", press Esc in Revit" tail, which the backend's
+        /// copilot_busy parses, are kept whole; only the status-bar prompt between them is redacted and cut (at most
+        /// <see cref="WatchdogPolicy.PromptMaxChars"/>, so the whole text can pass 80). Anything else is redacted as dialog text.</summary>
+        public static string RedactCommandText(string? text)
+        {
+            const string head = "a Revit command or edit mode is still active";
+            const string tail = ", press Esc in Revit";
+            var t = text ?? "";
+            if (!t.StartsWith(head, StringComparison.Ordinal) || !t.EndsWith(tail, StringComparison.Ordinal)) return Redact(t);
+            var prompt = t.Substring(head.Length, t.Length - head.Length - tail.Length);
+            if (prompt.StartsWith(": ", StringComparison.Ordinal)) prompt = prompt.Substring(2);
+            if (prompt.Length == 0) return head + tail;
+            var r = Redact(prompt);
+            if (r.Length > WatchdogPolicy.PromptMaxChars) r = r.Substring(0, WatchdogPolicy.PromptMaxChars - 1) + "…";
+            return head + ": " + r + tail;
+        }
+
+        private static string? SafeUser() { try { return Environment.UserName; } catch (Exception) { return null; } }
+        private static string? SafeProfile() { try { return Environment.GetFolderPath(Environment.SpecialFolder.UserProfile); } catch (Exception) { return null; } }
     }
 }

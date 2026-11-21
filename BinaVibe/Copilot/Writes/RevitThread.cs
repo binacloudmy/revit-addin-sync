@@ -374,9 +374,10 @@ namespace BinaVibe.Copilot.Writes
                 // r18 (live L9 a7cde0c1, a3280dec: four ~62 s revit_busy, no dialog, Revit responding, cleared by a canvas click + Esc): the
                 // thread pumps, no modal window, yet neither Idling nor the kick ran. Revit is in a command or edit mode: say so, with its prompt.
                 var prompt = ModalWindows.StatusText(Volatile.Read(ref _mainWindow));
-                message = WatchdogPolicy.InCommandMessage(prompt);
+                var shown = prompt == null ? null : DialogRedaction.Redact(prompt);   // r24 privacy: the envelope's message and dialog get it redacted; the log keeps it
+                message = WatchdogPolicy.InCommandMessage(shown);
                 commandId = WatchdogPolicy.InCommandId;
-                commandText = WatchdogPolicy.InCommandText(prompt);
+                commandText = WatchdogPolicy.InCommandText(shown);
                 try
                 {
                     BinaVibe.Copilot.Guard.StageTimer.Sink("watchdog: no Idling or kick for " + (int)sinceArmed.TotalSeconds + " s, UI pumped (probe ran "
@@ -394,9 +395,10 @@ namespace BinaVibe.Copilot.Writes
             {
                 // The window itself, read now: its title names it, and it is brought to the front so the drafter sees it.
                 var name = ModalPolicy.Name(blocking);
-                message = WatchdogPolicy.NamedMessage(name);
+                var shownName = DialogRedaction.Redact(name);   // r24 privacy: "Options" stays; a title with a path or file does not leave the add-in
+                message = WatchdogPolicy.NamedMessage(shownName);
                 dialogId = "window:" + blocking.ClassName;
-                dialogText = name;
+                dialogText = shownName;
                 ModalWindows.BringToFront(blocking.Handle);
                 try { BinaVibe.Copilot.Guard.StageTimer.Sink("watchdog: Revit blocked by window '" + name + "' (" + blocking.ClassName + ")"); }
                 catch (Exception) { /* a log line only */ }

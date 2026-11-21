@@ -30,7 +30,7 @@ namespace RevitAddinSync.Tests
         public void ALongDialogTextIsCutToTheLimit()
         {
             var env = BusyDialogs.With(Busy(), new RevitBusyException("busy", "X", new string('a', 500)));
-            Assert.Equal(DialogPolicy.MaxTextChars, env.Dialogs!.Single().Text.Length);
+            Assert.Equal(DialogRedaction.MaxChars, env.Dialogs!.Single().Text.Length);   // r24: 80, was DialogPolicy.MaxTextChars (200)
         }
 
         [Fact]
@@ -47,6 +47,70 @@ namespace RevitAddinSync.Tests
         {
             var env = BusyDialogs.With(Busy(), new RevitBusyException("busy", "", "A dialog with no id"));
             Assert.Empty(EnvelopeInvariants.Violations(env));
+        }
+        // r24 privacy: the dialog's words are redacted before they leave the add-in; a plain title is kept.
+        [Theory]
+        [InlineData(@"Unable to open C:\Users\aminah\Desktop\MRSM3-run.rvt", "Unable to open <path>")]
+        [InlineData(@"Cannot find \\binacloudpc\share\links\STR_v3.rvt.", "Cannot find <path>")]
+        [InlineData("Link MRSM3-run.rvt is not loaded", "Link <file> is not loaded")]
+        [InlineData("Export failed: rooms.xlsx and doors.CSV", "Export failed: <file> and <file>")]
+        [InlineData("Signed in as aminah.binti@example.com", "Signed in as <user>")]
+        [InlineData("Saved to Documents/BINA/out.ifc", "Saved to <path>")]
+        [InlineData("Options", "Options")]
+        [InlineData("Unresolved references. Reload the link?", "Unresolved references. Reload the link?")]
+        public void DialogTextIsRedacted(string raw, string expected)
+        {
+            Assert.Equal(expected, DialogRedaction.Redact(raw, "nobody-here", null));
+        }
+
+        [Fact]
+        public void TheWindowsUserAndProfileAreRedacted()
+        {
+            Assert.Equal("Hello <user>, recovery file saved", DialogRedaction.Redact("Hello aminah, recovery file saved", "aminah", @"C:\Users\aminah"));
+            Assert.Equal("<user><path>", DialogRedaction.Redact(@"C:\Users\aminah\AppData\Local\Temp", "aminah", @"C:\Users\aminah"));
+            Assert.Equal("aminahx stays", DialogRedaction.Redact("aminahx stays", "aminah", null));   // only the whole name
+        }
+
+        [Fact]
+        public void TheEnvelopeNeverCarriesThePathOrTheName_AndKeepsAnOptionsTitle()
+        {
+            var env = BusyDialogs.With(Busy(), new RevitBusyException("busy", "TaskDialog_Open", @"Unable to open C:\Users\aminah\Desktop\MRSM3-run.rvt"));
+            var json = CopilotJson.Serialize(env);
+            Assert.DoesNotContain("aminah", json);
+            Assert.DoesNotContain("MRSM3-run", json);
+            Assert.DoesNotContain("Desktop", json);
+            Assert.Equal("Unable to open <path>", env.Dialogs!.Single().Text);
+            var options = BusyDialogs.With(Busy(), new RevitBusyException("busy", "window:#32770", "Options"));
+            Assert.Equal("Options", options.Dialogs!.Single().Text);
+            Assert.Equal("window:#32770", options.Dialogs!.Single().Id);
+            Assert.True(DialogRedaction.Redact(new string('a', 500), null, null).Length <= DialogRedaction.MaxChars);
+        }
+
+        [Fact]
+        public void TheInCommandText_KeepsTheWordsTheBackendParses_AndRedactsOnlyThePrompt()
+        {
+            var raw = WatchdogPolicy.InCommandText(@"Opening C:\Users\aminah\Desktop\MRSM3-run.rvt, please wait for the regeneration");
+            var env = BusyDialogs.With(Busy(), new RevitBusyException("busy", WatchdogPolicy.InCommandId, raw));
+            var text = env.Dialogs!.Single().Text;
+            Assert.StartsWith("a Revit command or edit mode is still active: ", text);
+            Assert.EndsWith(", press Esc in Revit", text);
+            Assert.DoesNotContain("aminah", text);
+            Assert.DoesNotContain("MRSM3", text);
+            Assert.Equal(WatchdogPolicy.InCommandText(null), DialogRedaction.RedactCommandText(WatchdogPolicy.InCommandText(null)));
+        }
+
+        [Fact]
+        public void TheWatchdog_RedactsTheWindowTitleAndThePrompt_BeforeTheyReachTheMessageOrTheDialog()
+        {
+            var dir = new System.IO.DirectoryInfo(System.IO.Directory.GetCurrentDirectory());
+            while (dir != null && !System.IO.File.Exists(System.IO.Path.Combine(dir.FullName, "RevitWebAppSync.csproj"))) dir = dir.Parent;
+            var s = System.IO.File.ReadAllText(System.IO.Path.Combine(dir!.FullName, "BinaVibe/Copilot/Writes/RevitThread.cs"));
+            Assert.Contains("message = WatchdogPolicy.InCommandMessage(shown);", s);
+            Assert.Contains("commandText = WatchdogPolicy.InCommandText(shown);", s);
+            Assert.Contains("message = WatchdogPolicy.NamedMessage(shownName);", s);
+            Assert.Contains("dialogText = shownName;", s);
+            Assert.DoesNotContain("InCommandMessage(prompt)", s);
+            Assert.DoesNotContain("NamedMessage(name)", s);
         }
     }
 }
