@@ -50,6 +50,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 Cite = CiteOf(i),
                 Fix = !human && i.AutoFixable && !string.IsNullOrEmpty(i.FixAction) ? FixKind.Fix : FixKind.None,
                 FixKey = FixKeyOf(i),
+                Extra = !human && i.IsExtra,
                 Hash = i.Id ?? "",
                 Reason = human ? desc : null,
                 FixError = PaneText.FixReason(i.FixError ?? "", lang),

@@ -55,6 +55,10 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// <summary>Why the AI did not judge it (items that need a person).</summary>
         public Text Reason;
 
+        /// <summary>AI-479: a fixable row with no spec id (Kod_Jenis, Sistem, Grid, Level …): on the board,
+        /// outside the %. Shown as "extra".</summary>
+        public bool Extra;
+
         /// <summary>Why the last auto-fix failed, or empty (shown on the row).</summary>
         public string FixError = "";
 

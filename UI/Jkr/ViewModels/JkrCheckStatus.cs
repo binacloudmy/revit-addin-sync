@@ -56,6 +56,36 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
     /// </summary>
     public static class JkrIssueCounts
     {
+        /// <summary>
+        /// AI-479: one row per problem. A2.1, A4.1 and B1.1 can come from the backend, the BIM010
+        /// checker and the spec evaluator at once (each with its own issue id); keep one source's
+        /// rows (<see cref="SpecDedupe"/>) and give them one tier. Returns the rows dropped.
+        /// </summary>
+        public static int DedupeBySpecCheck(List<IssueVm> issues)
+        {
+            if (issues == null || issues.Count == 0) return 0;
+            var rows = issues.Select(i => new Panel.Core.SpecDedupe.Row
+            {
+                CheckId = i.SpecCheckId ?? "",
+                Source = (i.CheckId ?? "").StartsWith("SPEC-", StringComparison.Ordinal) ? Panel.Core.SpecDedupe.FromModel
+                       : (i.CheckId ?? "").StartsWith("BIM010-", StringComparison.Ordinal) ? Panel.Core.SpecDedupe.FromAudit
+                       : Panel.Core.SpecDedupe.FromBackend,
+                Tier = (int)i.Priority,
+                Fixable = i.AutoFixable || i.IsPick || !string.IsNullOrEmpty(i.FixAction),
+            }).ToList();
+            var o = Panel.Core.SpecDedupe.Resolve(rows);
+            var kept = new List<IssueVm>();
+            for (var k = 0; k < issues.Count; k++)
+            {
+                if (!o.Keep[k]) continue;
+                if ((int)issues[k].Priority != o.Tier[k]) issues[k].Priority = (IssuePriority)o.Tier[k];
+                kept.Add(issues[k]);
+            }
+            var dropped = issues.Count - kept.Count;
+            if (dropped > 0) { issues.Clear(); issues.AddRange(kept); }
+            return dropped;
+        }
+
         /// <summary>AI-verified items: the base of "n of N resolved" and the %.</summary>
         public static int Total(IEnumerable<IssueVm> issues) => issues.Count(i => !i.NeedsPerson);
 

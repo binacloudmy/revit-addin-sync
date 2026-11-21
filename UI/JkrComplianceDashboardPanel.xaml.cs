@@ -924,6 +924,8 @@ namespace RevitWebAppSync.UI
         {
             // Captured before any status mutations so the post-fix toast can report a truthful delta.
             var openBeforeFix = _vm.OpenCount;
+            // AI-479: the board and the score before the fix, to say what moved on each after the re-scan.
+            var impactBefore = Jkr.Panel.Core.FixImpact.Take(openBeforeFix, _vm.Issues.Count(i => i.IsAiOpen && i.IsExtra), _vm.Spec);
 
             var totalToFix = fixable.Count;   // replaced below by the change count
             _fixInFlight = true;
@@ -1064,7 +1066,7 @@ namespace RevitWebAppSync.UI
                     var failCount = result.Failed + result.Skipped;
 
                     // Re-scan to verify — the re-scan will show fewer issues now.
-                    _ = RunScanAfterFix(total, totalToFix, failCount, preservedAfterFix, openBeforeFix, result);
+                    _ = RunScanAfterFix(total, totalToFix, failCount, preservedAfterFix, openBeforeFix, result, impactBefore);
                 });
             };
 
@@ -1209,7 +1211,8 @@ namespace RevitWebAppSync.UI
         /// </summary>
         private async Task RunScanAfterFix(int fixedCount, int toFixCount, int failCount,
                                             List<IssueVm> preservedAfterFix = null, int openBeforeFix = 0,
-                                            RenameResult fixResult = null)
+                                            RenameResult fixResult = null,
+                                            Jkr.Panel.Core.FixImpact.Snapshot impactBefore = null)
         {
             // The re-check is a scan: Reset, Run and Re-scan wait for it (a second scan
             // would race it; a Reset would be undone when it lands).
@@ -1224,7 +1227,15 @@ namespace RevitWebAppSync.UI
 
                 // One toast covers the batch outcome. Failed fixes stay Open with their
                 // reason on the row; they are also listed once in a dialog.
-                _vm.ShowToast(Jkr.Panel.Core.PaneText.ChangesWritten(fixedCount, failCount));
+                var toast = Jkr.Panel.Core.PaneText.ChangesWritten(fixedCount, failCount);
+                // AI-479: what moved on the board and on the score (extra rows are outside the %).
+                if (impactBefore != null)
+                {
+                    var impactAfter = Jkr.Panel.Core.FixImpact.Take(_vm.OpenCount, _vm.Issues.Count(i => i.IsAiOpen && i.IsExtra), _vm.Spec);
+                    var impact = Jkr.Panel.Core.FixImpact.Text(impactBefore, impactAfter);
+                    if (impact.Length > 0) toast += "\n" + impact;
+                }
+                _vm.ShowToast(toast);
                 if (fixResult != null)
                     ShowFailedFixes(fixResult, applied: fixResult.Renamed + fixResult.ParamFixed, fixAll: toFixCount > 1);
             }
@@ -1448,6 +1459,8 @@ namespace RevitWebAppSync.UI
             var modelResults = await modelTask;
             issues.AddRange(IssueMapper.FromModelResults(modelResults, Jkr.Panel.Core.PaneLanguage.Current)
                 .Where(i => !string.IsNullOrEmpty(i.Id) && knownIds.Add(i.Id)));
+            // AI-479: A2.1 / A4.1 / B1.1 come from up to three sources: one row per problem, one tier.
+            JkrIssueCounts.DedupeBySpecCheck(issues);
             // The same run against the spec's 61 checks (Checklist tab). Built from
             // every result — MapAll above drops passes — plus the BIM010 records and
             // the spec evaluators' results.

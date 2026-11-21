@@ -91,6 +91,10 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             return msg;
         }
 
+        /// <summary>AI-479: the row's mark for a fixable family with no spec id (outside the %).</summary>
+        public static string ExtraTag(string lang = null) =>
+            L(lang, "Tambahan · di luar %", "Extra · outside the %");
+
         /// <summary>prototype toastLoc: "Selected in model: Doors [204511] PT2p600a".</summary>
         public static string SelectedInModel(string element, string lang = null) =>
             PanelStrings.Get(lang ?? PaneLanguage.Current, "toastLoc") + ": " + element;
