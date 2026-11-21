@@ -391,10 +391,11 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         /// <summary>Saved Commands J1 — the "Save as command" footer action on a
         /// completed tool reply (design: bookmark icon + label, secondary
         /// button styling on the answer's action row).</summary>
-        public static FrameworkElement SaveCommandButton(System.Action onClick)
+        public static FrameworkElement SaveCommandButton(System.Action onClick, bool ms = false)
         {
-            var b = CardKit.Secondary("Save as command", onClick, CardKit.Icons.Bookmark);
-            b.ToolTip = "Turn this into a command you can re-run";
+            // r22 (live 83e423eb): a Malay chat's reply without a result card read "Save as command" (the result card's own row was Malay)
+            var b = CardKit.Secondary(ms ? "Simpan sebagai arahan" : "Save as command", onClick, CardKit.Icons.Bookmark);
+            b.ToolTip = ms ? "Jadikan ini arahan yang boleh dijalankan semula" : "Turn this into a command you can re-run";
             b.VerticalAlignment = VerticalAlignment.Center;
             return b;
         }

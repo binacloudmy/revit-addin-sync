@@ -122,7 +122,7 @@ namespace RevitAddinSync.Tests
         public void ThePaneWiresTheLanguage_ToTheWorkingCardAndBothStepsLists()
         {
             var view = File.ReadAllText(Path.Combine(Root(), "UI", "Copilot", "Screens", "ChatView.xaml.cs"));
-            Assert.Contains("PromptLanguage.Activity(last.Text)", view);                      // the live Working card and Steps list
+            Assert.Contains("PromptLanguage.Follow(last.Text", view);                         // the live Working card and Steps list (r22: a neutral "ok" keeps the chat's)
             Assert.DoesNotContain("PromptLanguage.Card(PromptLanguage.Detect(last.Text))", view);
             Assert.Contains("Language = m.ActivityLanguage", view);                           // a finished turn's Steps list
             var vm = File.ReadAllText(Path.Combine(Root(), "UI", "Copilot", "CopilotViewModel.cs"));

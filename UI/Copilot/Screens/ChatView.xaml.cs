@@ -956,7 +956,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                     var saveRow = new StackPanel
                     { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
                     saveRow.Children.Add(CopilotMessageBubble.SaveCommandButton(
-                        () => Vm?.OpenSaveCommandSheet(m)));
+                        () => Vm?.OpenSaveCommandSheet(m), m.Lang == ReceiptLanguage.Ms));
                     col.Children.Add(saveRow);
                 }
                 col.Children.Add(BuildFeedback(m, SourcePromptFor(m)));
@@ -1499,8 +1499,12 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         {
             try
             {
-                var last = Vm?.Thread.LastOrDefault(t => t.Role == "user");
-                return last == null || string.IsNullOrWhiteSpace(last.Text) ? ReceiptLanguage.En : PromptLanguage.Activity(last.Text);
+                var thread = Vm?.Thread;
+                var last = thread?.LastOrDefault(t => t.Role == "user");
+                if (thread == null || last == null || string.IsNullOrWhiteSpace(last.Text)) return ReceiptLanguage.En;
+                // r22 (sticky language): a neutral "ok" / "ya" at a Malay card keeps the chat's language, as the router does (PromptLanguage.Follow)
+                var before = thread.Take(thread.IndexOf(last)).LastOrDefault(t => t.Role == "ai");
+                return PromptLanguage.Follow(last.Text, before == null ? (ReceiptLanguage?)null : before.Lang);
             }
             catch (System.Exception) { return ReceiptLanguage.En; }
         }

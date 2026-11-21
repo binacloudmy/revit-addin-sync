@@ -646,10 +646,12 @@ namespace RevitWebAppSync.UI.Copilot
             private set { if (_runStatus == value) return; _runStatus = value; Raise(); Raise(nameof(RunStatusText)); }
         }
 
-        private string _needsText = Model.TurnStatusText.NeedsAnswer;
+        private bool _needsOk;
+        /// <summary>r22: the chat's language for the chip's words (the last turn's card language; a neutral "ok" keeps it).</summary>
+        private ReceiptLanguage _statusLang = ReceiptLanguage.En;
         /// <summary>What the status chip says. The state key stays "Needs input" (the chip's colours key on it); the words follow the card: a question says
-        /// "Needs your answer", the server's gate "Needs your OK" (UX review Q8: the chip and the card used two words for one state).</summary>
-        public string RunStatusText => Model.TurnStatusText.Of(_runStatus, _needsText);
+        /// "Needs your answer", the server's gate "Needs your OK" (UX review Q8: the chip and the card used two words for one state); r22: in the chat's language.</summary>
+        public string RunStatusText => Model.TurnStatusText.Of(_runStatus, _needsOk, _statusLang);
 
         // Live state for the CURRENT turn leg: the step list from the router
         // and the cumulative streamed reply. Reset at the start of every leg;
@@ -773,6 +775,7 @@ namespace RevitWebAppSync.UI.Copilot
                 if (parkedAsk != null && ReferenceEquals(msg.Ask, parkedAsk) && msg.Ask.AnsweredSummary == null)
                 {
                     msg.Ask.AnsweredSummary = shown;
+                    msg.Ask.AnsweredByTyping = true;   // r22: a typed answer at a write card is no approval (no tick on its record)
                     Thread[k] = Thread[k];   // item-replace redraw trick
                 }
             }
@@ -1264,6 +1267,7 @@ namespace RevitWebAppSync.UI.Copilot
             // reaches the card, its receipts and its history line.
             var cardLang = PromptLanguage.Card(rr.Language);
             cardLang = PromptLanguage.Card(PromptLanguage.FromServer(TurnStatus.ServerResultOf(rr)?.Lang, cardLang));   // r21: the language the server resolved wins
+            _statusLang = cardLang;   // r22: the chip ("Selesai", "Perlu jawapan anda") reads in the turn's language
             // The narrow no-op rule (B): a code no-op against a result that says things changed is a caution; the evidence needs the result first.
             if (!TurnStatus.IsFailed(rr)) rr.Evidence?.NoteServerResult(rr.ServerResult);
             if (rr.Ask != null)
@@ -1283,7 +1287,8 @@ namespace RevitWebAppSync.UI.Copilot
                     Time = System.DateTime.Now.ToString("h:mm tt"),
                 });
                 AppendToCurrentSession(displayText, rr.Ask.Question, "ok", null, historyFiles);
-                _needsText = rr.Ask.Wide != null ? Model.TurnStatusText.NeedsOk : Model.TurnStatusText.NeedsAnswer;
+                _needsOk = rr.Ask.Wide != null;
+                _statusLang = rr.Ask.Language;   // r22 (live M1 2ca7d010): "Perlu jawapan anda" in a Malay chat, as the card's own chrome
                 Raise(nameof(RunStatusText));
                 RunStatus = "Needs input";
                 return;
@@ -1424,9 +1429,16 @@ namespace RevitWebAppSync.UI.Copilot
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] undo state: " + ex.Message); }
         }
 
+        /// <summary>r22 (live M2 b7a76924): the language of the undone turn's card, else the chat's last reply's: its undo line reads in it.</summary>
+        private ReceiptLanguage UndoLanguage(BinaVibe.Copilot.Undo.UndoChange change)
+        {
+            var own = change == null ? null : Thread.LastOrDefault(t => t.Role == "ai" && !string.IsNullOrEmpty(t.TurnId) && t.TurnId == change.TurnId);
+            return (own ?? Thread.LastOrDefault(t => t.Role == "ai"))?.Lang ?? ReceiptLanguage.En;
+        }
+
         private void NoteUndo(BinaVibe.Copilot.Undo.UndoChange change)
         {
-            try { UndoNotices.Record(change, Thread.Count, DateTime.Now); }
+            try { UndoNotices.Record(change, Thread.Count, DateTime.Now, UndoLanguage(change)); }
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] undo notice: " + ex.Message); }
         }
 
@@ -1789,7 +1801,7 @@ namespace RevitWebAppSync.UI.Copilot
                 var summary = redo
                     ? await Revit.RedoTurnAsync(m.TurnId)
                     : await Revit.UndoTurnAsync(m.TurnId, lastBatchOnly);
-                text = summary ?? BinaVibe.Copilot.Undo.UndoWords.Line(redo, null);   // r18: one undo wording ("Undone: …")
+                text = BinaVibe.Copilot.Undo.UndoWords.ForPane(summary ?? BinaVibe.Copilot.Undo.UndoWords.Line(redo, null), ms);   // r18: one undo wording; r22: Malay in a Malay chat
                 moved = true;
             }
             catch (Exception ex)
