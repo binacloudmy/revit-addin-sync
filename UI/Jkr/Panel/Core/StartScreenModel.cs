@@ -47,14 +47,14 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
     public sealed class StartScreenModel : INotifyPropertyChanged
     {
         public static readonly string[] LodValues = { "100", "200", "300", "400", "500" };
-        public static readonly string[] DiscValues = { "AR", "CD", "EL", "ME", "ST" };
+        public static readonly string[] DiscValues = Services.JkrDisciplineDetector.Selectable;
 
         private readonly PanelCore _core;
         private string _fileLabel = "—";
-        /// <summary>The user picked a discipline for the current model: stop
-        /// following the one detected from its file name.</summary>
-        private bool _discChosen;
         private string _detectedDisc = "AR";
+        /// <summary>The model's file name names a discipline other than AR (ST, ME…):
+        /// the audit still runs as AR and the hint says so.</summary>
+        private bool _otherDisc;
 
         public StartScreenModel(PanelCore core)
         {
@@ -79,7 +79,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 value = value ?? "—";
                 if (_fileLabel == value) return;
                 _fileLabel = value;
-                _discChosen = false;
+                _otherDisc = value != "—" && Services.JkrDisciplineDetector.Detect(value) != "AR";
                 _detectedDisc = value == "—" ? "AR" : Services.JkrDisciplineDetector.DetectSelectable(value);
                 _core.SetDisc(_detectedDisc);
                 RaiseAll();
@@ -100,6 +100,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             ["lodHint"] = ("Menetapkan parameter yang mesti ada pada setiap family. Tiada nilai lalai.",
                            "Sets which parameters each family must carry. There is no default."),
             ["discHint"] = ("Pratetap daripada nama fail ({0}).", "Preset from the file name ({0})."),
+            ["discOnlyAr"] = ("Hanya AR disokong buat masa ini.", "Only AR is supported for now."),
             ["sectionsLabel"] = ("Seksyen Borang", "Borang sections"),
             ["checksMany"] = ("{0} semakan", "{0} checks"),
             ["checksOne"] = ("{0} semakan", "{0} check"),
@@ -114,7 +115,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// <summary>"— Pilih —" / "— Select —" first (value ""), then LOD 100–500.</summary>
         public IReadOnlyList<StartOption> LodOptions { get { EnsureOptions(); return _lodOptions; } }
 
-        /// <summary>AR shows "AR · Arkitek" / "AR · Architecture"; the others their code.</summary>
+        /// <summary>AR only for now: "AR · Arkitek" / "AR · Architect".</summary>
         public IReadOnlyList<StartOption> DiscOptions { get { EnsureOptions(); return _discOptions; } }
 
         // Built once; a language switch only renames them. Replacing the lists made
@@ -171,7 +172,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             set
             {
                 if (string.IsNullOrEmpty(value) || value == _core.Disc) return;
-                _discChosen = true;
+                if (Array.IndexOf(DiscValues, value) < 0) return;   // only offered disciplines
                 _core.SetDisc(value);
             }
         }
@@ -195,7 +196,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public string Lead => string.Format(T("setupLead"), TotalChecks);
         public string LodRequiredTag => T("lodRequiredTag");
         public string LodHint => T("lodHint");
-        public string DiscHint => string.Format(T("discHint"), _detectedDisc);
+        public string DiscHint => _otherDisc ? T("discOnlyAr") : string.Format(T("discHint"), _detectedDisc);
         public string SectionsLabel => T("sectionsLabel");
         public string SectionsCount => string.Format(T("checksMany"), TotalChecks);
         /// <summary>"Choose a level of development…", shown above Run until a LOD is chosen.</summary>
@@ -209,9 +210,6 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             RunRequested?.Invoke(lod, _core.Disc);
             return true;
         }
-
-        /// <summary>The user picked the discipline (it no longer follows the file name).</summary>
-        public bool DiscChosen => _discChosen;
 
         private void RaiseAll()
         {

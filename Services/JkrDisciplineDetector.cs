@@ -7,8 +7,10 @@ namespace RevitWebAppSync.Services
     /// </summary>
     public static class JkrDisciplineDetector
     {
-        /// <summary>The disciplines the Start screen offers.</summary>
-        public static readonly string[] Selectable = { "AR", "CD", "EL", "ME", "ST" };
+        /// <summary>The disciplines the Start screen offers. AR only for now: the
+        /// scan can only read the architectural model. Rule data for the others
+        /// stays; add a code here to bring one back.</summary>
+        public static readonly string[] Selectable = { "AR" };
 
         /// <summary>AR / ST / ME / EL / CD / LD from the file name; AR when unknown.</summary>
         public static string Detect(string fileName)
@@ -25,7 +27,7 @@ namespace RevitWebAppSync.Services
         }
 
         /// <summary>The detected discipline as one of <see cref="Selectable"/>:
-        /// LD (landscape) and unknown fall back to AR, as the scan already did.</summary>
+        /// ST / ME / EL / CD / LD and unknown fall back to AR (the only one offered).</summary>
         public static string DetectSelectable(string fileName)
         {
             var d = Detect(fileName);

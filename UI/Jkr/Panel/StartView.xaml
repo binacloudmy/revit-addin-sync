@@ -150,7 +150,7 @@
 
                 <!-- Discipline: preset from the file name -->
                 <TextBlock Text="{Binding DiscLabel}" Style="{StaticResource FieldLabel}" Margin="0,24,0,0"/>
-                <ComboBox x:Name="DiscSelect" Style="{StaticResource Bz.Select}" Margin="0,8,0,0" Height="40" FontSize="13"
+                <ComboBox x:Name="DiscSelect" IsEnabled="False" Style="{StaticResource Bz.Select}" Margin="0,8,0,0" Height="40" FontSize="13"
                           ItemsSource="{Binding DiscOptions}" ItemTemplate="{StaticResource Bz.OptionLabel}" SelectedValuePath="Value"
                           SelectedValue="{Binding DiscValue, Mode=TwoWay}"
                           AutomationProperties.Name="{Binding DiscLabel}"/>

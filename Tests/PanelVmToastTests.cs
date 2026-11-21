@@ -10,6 +10,15 @@ namespace RevitWebAppSync.Tests
     /// is a plain toast with the normal time: no Undo, no 6 s timer.</summary>
     public class PanelVmToastTests
     {
+        [Fact]
+        public void The_scan_panel_offers_ar_only()
+        {
+            var vm = new PanelVm();
+            Assert.Equal(new[] { "AR" }, vm.Disciplines.Select(d => d.Code));
+            Assert.Equal("AR", vm.SelectedDiscipline);
+        }
+
+
         private static (PanelVm vm, List<IssueVm> issues) Vm(int n = 3)
         {
             var vm = new PanelVm();

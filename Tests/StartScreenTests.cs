@@ -40,20 +40,49 @@ namespace RevitWebAppSync.Tests
             (int lod, string disc)? asked = null;
             s.RunRequested += (l, d) => asked = (l, d);
             s.LodValue = "400";
-            s.DiscValue = "ST";
+            s.DiscValue = "ST";                             // not offered: ignored
             Assert.True(s.Run());
-            Assert.Equal((400, "ST"), asked);
+            Assert.Equal((400, "AR"), asked);
+        }
+
+        [Theory]
+        [InlineData("jkrAR24_5a.rvt")]
+        [InlineData("jkrST22_2b_(BEdeA1_14-001)_A1_w-01_(S)_DS-PC_190124.rvt")]
+        [InlineData("Copy of jkrEL24-5a_(BEde1a_14).rvt")]
+        [InlineData("jkrME01.rvt")]
+        public void Any_jkr_file_name_lands_on_ar_only(string file)
+        {
+            var (s, _) = New();
+            s.FileLabel = file;
+            Assert.Equal("AR", s.DiscValue);
+            Assert.Equal("AR", s.DetectedDisc);
         }
 
         [Fact]
-        public void Discipline_is_detected_from_the_model_file_name()
+        public void Hint_says_only_ar_is_supported_for_a_non_ar_file_and_names_the_file_for_ar()
         {
-            var (s, _) = New();                            // jkrAR24_5a.rvt
-            Assert.Equal("AR", s.DiscValue);
-            s.FileLabel = "jkrST22_2b_(BEdeA1_14-001)_A1_w-01_(S)_DS-PC_190124.rvt";
-            Assert.Equal("ST", s.DiscValue);
-            s.FileLabel = "Copy of jkrEL24-5a_(BEde1a_14).rvt";
-            Assert.Equal("EL", s.DiscValue);
+            var (s, core) = New();
+            core.SetLang("en");
+            Assert.Equal("Preset from the file name (AR).", s.DiscHint);
+            s.FileLabel = "jkrST22_2b.rvt";
+            Assert.Equal("Only AR is supported for now.", s.DiscHint);
+            core.SetLang("ms");
+            Assert.Equal("Hanya AR disokong buat masa ini.", s.DiscHint);
+            s.FileLabel = "jkrAR24.rvt";
+            Assert.Equal("Pratetap daripada nama fail (AR).", s.DiscHint);
+        }
+
+        private static StartScreenModel Lang(StartScreenModel s, string l) { s.Core.SetLang(l); return s; }
+
+        [Fact]
+        public void Discipline_list_is_ar_only_in_bm_and_en()
+        {
+            var (s, core) = New();
+            Assert.Equal(new[] { "AR" }, StartScreenModel.DiscValues);
+            Assert.Equal(new[] { "AR" }, s.DiscOptions.Select(o => o.Value));
+            Assert.Equal(new[] { "AR · Arkitek" }, s.DiscOptions.Select(o => o.Label));
+            core.SetLang("en");
+            Assert.Equal(new[] { "AR · Architect" }, s.DiscOptions.Select(o => o.Label));
         }
 
         [Theory]
@@ -69,17 +98,16 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void A_discipline_the_user_picks_sticks_until_another_model_opens()
+        public void A_discipline_that_is_not_offered_cannot_be_set()
         {
             var (s, core) = New();
             s.DiscValue = "ME";
-            Assert.True(s.DiscChosen);
+            Assert.Equal("AR", s.DiscValue);
             core.SetLang("en");
-            core.Reset();                                   // Reset keeps the choice
-            Assert.Equal("ME", s.DiscValue);
-            s.FileLabel = "jkrST01.rvt";                    // a different model: detected again
-            Assert.Equal("ST", s.DiscValue);
-            Assert.False(s.DiscChosen);
+            core.Reset();
+            Assert.Equal("AR", s.DiscValue);
+            s.FileLabel = "jkrST01.rvt";                    // a non-AR model still runs the AR audit
+            Assert.Equal("AR", s.DiscValue);
         }
 
         [Fact]
@@ -87,7 +115,6 @@ namespace RevitWebAppSync.Tests
         {
             var (s, _) = New();
             s.DiscValue = "AR";                             // same as detected
-            Assert.False(s.DiscChosen);
             s.DiscValue = null;
             s.DiscValue = "";
             Assert.Equal("AR", s.DiscValue);
@@ -111,7 +138,7 @@ namespace RevitWebAppSync.Tests
             var (s, core) = New();
             Assert.Equal(new[] { "— Pilih tahap LOD —", "LOD 100", "LOD 200", "LOD 300", "LOD 400", "LOD 500" }, s.LodOptions.Select(o => o.Label));
             Assert.Equal(new[] { "", "100", "200", "300", "400", "500" }, s.LodOptions.Select(o => o.Value));
-            Assert.Equal(new[] { "AR · Arkitek", "CD", "EL", "ME", "ST" }, s.DiscOptions.Select(o => o.Label));
+            Assert.Equal(new[] { "AR · Arkitek" }, s.DiscOptions.Select(o => o.Label));
             core.SetLang("en");
             Assert.Equal("— Select LOD level —", s.LodOptions[0].Label);
             Assert.Equal("AR · Architect", s.DiscOptions[0].Label);
@@ -212,7 +239,7 @@ namespace RevitWebAppSync.Tests
             var (s, core) = New();
             core.SetLang("en");
             s.FileLabel = "jkrST22_2b.rvt";
-            Assert.Equal("Preset from the file name (ST).", s.DiscHint);
+            Assert.Equal("Only AR is supported for now.", s.DiscHint);
             Assert.True(s.ReadyHintVisible);
             s.LodValue = "200";
             Assert.False(s.ReadyHintVisible);

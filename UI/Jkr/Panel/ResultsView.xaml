@@ -427,7 +427,7 @@
                 <ComboBox x:Name="LodBox" Grid.Column="1" Style="{StaticResource Bz.Select}" FontSize="13" MinWidth="70" Margin="0,0,8,0" SizeChanged="Tools_SizeChanged"
                           ItemsSource="{Binding LodOptions}" DisplayMemberPath="Value" SelectedValuePath="Value"
                           SelectedValue="{Binding LodValue, Mode=TwoWay}" AutomationProperties.Name="LOD"/>
-                <ComboBox x:Name="DiscBox" Grid.Column="2" Style="{StaticResource Bz.Select}" FontSize="13" MinWidth="64" Margin="0,0,8,0" SizeChanged="Tools_SizeChanged"
+                <ComboBox x:Name="DiscBox" IsEnabled="False" Grid.Column="2" Style="{StaticResource Bz.Select}" FontSize="13" MinWidth="64" Margin="0,0,8,0" SizeChanged="Tools_SizeChanged"
                           ItemsSource="{Binding DiscOptions}" ItemTemplate="{StaticResource Bz.OptionLabel}" SelectedValuePath="Value"
                           SelectedValue="{Binding DiscValue, Mode=TwoWay}" AutomationProperties.Name="{Binding DiscShortLabel}"/>
                 <Button Grid.Column="4" Style="{StaticResource Bz.Btn.Ghost}" Click="Rescan_Click" IsEnabled="{Binding CanAct}"
