@@ -1036,6 +1036,51 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(1, Assert.Single(rs, r => r.Status == "pass").ElementCount);
         }
 
+        [Fact]
+        public void A7_1_judges_each_element_not_the_type()
+        {
+            // Four walls of one type: the first has a material, two do not.
+            var t = Type("Walls", "Basic Wall", "Generic 200", n: 4, firstId: 10);
+            t.Materials.Add("jkrAR_wll-b_(bb02)-3");        // what the type's first instance has
+            t.ElementMaterialsRead = true;
+            t.MateriallessIds = new List<long> { 11, 13 };
+            var m = new SpecModel { Types = { t } };
+            var rs = Run(m, "A7.1");
+            var f = Assert.Single(Fails(rs));
+            Assert.Equal("Walls | Basic Wall : Generic 200 | 2 daripada 4 elemen: tiada material", f.Note);
+            Assert.Equal("Walls | Basic Wall : Generic 200 | 2 of 4 elements: no material", f.NoteEn);
+            Assert.Equal(new long[] { 11, 13 }, f.ElementIds);   // only the bare elements are located
+            Assert.Equal(SpecCoverage.Full, f.Coverage);
+            var pass = Assert.Single(rs, r => r.Status == "pass");
+            Assert.Equal(2, pass.ElementCount);
+            Assert.Equal(SpecCoverage.Full, pass.Coverage);
+            Assert.Equal(SpecState.Fail, State(m, "A7.1"));
+        }
+
+        [Fact]
+        public void A7_1_every_element_with_a_material_is_a_full_pass()
+        {
+            var t = Type("Walls", "Basic Wall", "Generic 200", n: 3, firstId: 10, materials: new[] { "jkrAR_wll-b_(bb02)-3" });
+            t.ElementMaterialsRead = true;
+            var m = new SpecModel { Types = { t } };
+            var pass = Assert.Single(Run(m, "A7.1"));
+            Assert.Equal("pass", pass.Status);
+            Assert.Equal(3, pass.ElementCount);
+            Assert.Equal(SpecCoverage.Full, pass.Coverage);
+            Assert.Equal(SpecState.Pass, State(m, "A7.1"));
+        }
+
+        [Fact]
+        public void A7_1_a_type_with_more_instances_than_were_read_keeps_the_pass_partial()
+        {
+            var t = Type("Walls", "Basic Wall", "Generic 200", n: 3, firstId: 10, materials: new[] { "jkrAR_wll-b_(bb02)-3" });
+            t.ElementMaterialsRead = true;
+            t.InstanceCount = 5000;                      // the reader keeps 2000 ids; here, 3
+            var m = new SpecModel { Types = { t } };
+            Assert.Equal(SpecCoverage.FailOnly, Assert.Single(Run(m, "A7.1")).Coverage);
+            Assert.Equal(SpecState.Partial, State(m, "A7.1"));
+        }
+
         [Theory]
         [InlineData("jkrAR_dor-b_(ab)-2 Aluminium Bronzed Anodised", true)]
         [InlineData("jkrAR_(kt)- Konkrit tetulang", true)]
