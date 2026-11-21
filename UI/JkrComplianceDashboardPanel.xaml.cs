@@ -1096,11 +1096,13 @@ namespace RevitWebAppSync.UI
             // AI-434: a pick row starts on the AI's code (else the first option) so the affected count sees its
             // write; the dialog's picker then decides the value that is actually written.
             string PickPlanValue(IssueVm i) => !string.IsNullOrEmpty(i.AiSuggestedCode) ? i.AiSuggestedCode : i.ValidOptions[0];
-            foreach (var p in issues.Where(i => i.IsPick))
+            // AI-485: a name pick is not pre-planned (its first option would be a guess left on the row if the dialog
+            // is cancelled); its type is counted for the affected-elements figure straight from the element id.
+            foreach (var p in issues.Where(i => i.IsPick && !i.IsNamePick))
                 p.UseManualValue(JkrManualFix.Plan(p.RawRule, p.RevitCategory, PickPlanValue(p), p.ValidOptions, Jkr.Panel.Core.PaneLanguage.Current));
-            var renames = issues.Where(i => string.Equals(i.FixAction, "rename_type", StringComparison.OrdinalIgnoreCase))
+            var renames = issues.Where(i => i.IsNamePick || string.Equals(i.FixAction, "rename_type", StringComparison.OrdinalIgnoreCase))
                                 .Select(i => i.RevitElementId).ToList();
-            var fixes = issues.Where(i => !string.Equals(i.FixAction, "rename_type", StringComparison.OrdinalIgnoreCase))
+            var fixes = issues.Where(i => !i.IsNamePick && !string.Equals(i.FixAction, "rename_type", StringComparison.OrdinalIgnoreCase))
                               .Select(ToFixAction).ToList();
             return ConfirmWriteAsync(JkrConfirmKind.Fix, rows, renames, fixes, model =>
             {
@@ -1669,8 +1671,10 @@ namespace RevitWebAppSync.UI
                     model = _vm.Filename,
                     scanned = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
                     source = summary.SpecBased ? "spec" : "bim010_cells",
+                    // spec source: Fail = not passed (fail + partial + unjudged), not "failed".
                     audit_error = snapshot.AuditError,
-                    headline = new { pct = summary.Pct, ai_pass = summary.Pass, ai_total = summary.AiTotal, manual = summary.Pending },
+                    // spec source: pass = checks passed (AI pass + List + Human), total = checks that apply (not-passed = total - pass); bim010_cells source: AI cells.
+                    headline = new { pct = summary.Pct, ai_pass = summary.Pass, ai_total = summary.AiTotal, manual = summary.Pending, unjudged = summary.Unjudged, partial = summary.Partial, unjudged_reason = summary.UnjudgedReason },
                     sections = summary.Sections.Select(s => new { s.Section, s.Pass, s.Fail, s.Pending, s.Pct }),
                     rows = summary.Rows.Values.Select(r => new { r.Key, r.Mark, columns = r.Columns.Count > 0 ? r.Columns : null, r.Notes }),
                     unmapped = summary.Unmapped,

@@ -91,6 +91,7 @@ namespace RevitWebAppSync.Services.JkrSpec
             Part(m, "Grids", () => ReadGrids(doc, m));
             Part(m, "BasePoint", () => ReadBasePoint(doc, m));
             Part(m, "Rooms", () => ReadRooms(scope));
+            Part(m, "Areas", () => ReadAreas(scope));
             Part(m, "Floors", () => ReadFloors(scope));
             Part(m, "Ceilings", () => ReadCeilings(scope));
             Part(m, "Roofs", () => ReadRoofs(scope));
@@ -356,6 +357,23 @@ namespace RevitWebAppSync.Services.JkrSpec
                 if (x.Area > 0) ReadRoomGeometry(r, x);
                 m.Rooms.Add(x);
             }
+        }
+
+        private static void ReadAreas(Scope sc)
+        {
+            var doc = sc.Doc; var m = sc.M;
+            foreach (var a in new FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_Areas)
+                         .WhereElementIsNotElementType().OfType<Autodesk.Revit.DB.Area>())
+            {
+                if (!sc.Keep(a)) continue;
+                var x = new SpecArea { Id = IdOf(a.Id) };
+                try { x.Name = a.get_Parameter(BuiltInParameter.ROOM_NAME)?.AsString() ?? ""; } catch { }
+                try { x.LevelName = LevelName(doc, a.LevelId); } catch { }
+                try { x.Area = Math.Round(M2(a.Area), 3); } catch { }
+                x.Params = AllParams(a);
+                m.Areas.Add(x);
+            }
+            m.AreasRead = true;
         }
 
         /// <summary>A6.2 / A1.1: the room's boundary in plan (finish faces), the elevation its
@@ -687,7 +705,39 @@ namespace RevitWebAppSync.Services.JkrSpec
             ReadParamNames(type, first, t);
             ReadNumbers(doc, category, type, instances, t);
             ReadTypeMaterials(doc, type, first, t);
+            ReadElementMaterials(doc, type, instances, t);
             return t;
+        }
+
+        /// <summary>A7.1 judges per element: which placed instances (up to the id cap) carry no
+        /// material at all, from the type or on the element itself. An element is read with the
+        /// same sources as the type's first instance (<see cref="ReadTypeMaterials"/>).</summary>
+        private static void ReadElementMaterials(Document doc, ElementType type, List<Element> instances, SpecType t)
+        {
+            try
+            {
+                // Materials the type itself gives every instance (compound layers, type parameters).
+                var typeOnly = new SpecType();
+                try
+                {
+                    var cs = (type as HostObjAttributes)?.GetCompoundStructure();
+                    if (cs != null) foreach (var layer in cs.GetLayers()) AddMaterial(doc, layer.MaterialId, typeOnly);
+                }
+                catch { }
+                AddMaterialParams(doc, type, typeOnly);
+                var typeHas = typeOnly.Materials.Count > 0;
+                var none = new List<long>();
+                foreach (var e in instances.Take(InstanceIdCap))
+                {
+                    if (typeHas) break;
+                    var probe = new SpecType();
+                    ReadTypeMaterials(doc, type, e, probe);
+                    if (probe.Materials.Count == 0) none.Add(IdOf(e.Id));
+                }
+                t.MateriallessIds = none;
+                t.ElementMaterialsRead = true;
+            }
+            catch { t.ElementMaterialsRead = false; }
         }
 
         private static void ReadTypeParams(ElementType type, SpecType t)

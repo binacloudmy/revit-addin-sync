@@ -94,6 +94,10 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 Unmapped = report.Others.Select(o => (o.Where + " · " + o.Rule).Trim()).Distinct().OrderBy(x => x, StringComparer.Ordinal).ToList(),
             };
 
+            var tally = SpecChecklist.TallyOf(report);
+            summary.Unjudged = tally.Unjudged;
+            summary.Partial = tally.Partial;
+            summary.UnjudgedReason = tally.UnjudgedReason;
             foreach (var s in Bim010Form.Sections)
             {
                 var (pass, total) = SpecChecklist.Score(report, s);

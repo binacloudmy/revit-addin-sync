@@ -7,7 +7,7 @@ namespace RevitWebAppSync.Tests
 {
     /// <summary>
     /// The Result screen as Clear Sheet draws it: the head (verdict, "n spec checks
-    /// fail.", "36% compliant, 8 of 22 results pass. …", "n checks wait for semak
+    /// fail.", "41% compliant, 25 of 61 checks pass. …", "n checks wait for semak
     /// manual"), the Checklist / Issues tabs, the list of sections or aspects (a row
     /// opens its checks), "Other JKR rules", the split LOD / backend banner, and the
     /// checklist inside a section (state chips counted in that section, a check that
@@ -37,7 +37,7 @@ namespace RevitWebAppSync.Tests
             Assert.Equal("Tidak patuh", r.VerdictHead);
             Assert.Equal(fails + " semakan spec gagal.", r.VerdictSub);
             Assert.Equal(pct + "% patuh", r.HeadPctStrong);
-            Assert.Equal(", " + pass + " daripada " + total + " keputusan lulus. Peratus mengira keputusan, bukan semakan.", r.HeadResultsRest);
+            Assert.Equal(", " + pass + " daripada " + total + " semakan lulus. Semakan Senarai dan manusia dikira lulus; semakan AI yang belum dinilai tidak.", r.HeadResultsRest);
             Assert.True(r.HasManualLink);
             Assert.Equal(person + " semakan menunggu semak manual", r.ManualLinkLabel);
 
@@ -45,7 +45,7 @@ namespace RevitWebAppSync.Tests
             Assert.Equal("Does not comply", r.VerdictHead);
             Assert.Equal(fails + " spec checks fail.", r.VerdictSub);
             Assert.Equal(pct + "% compliant", r.HeadPctStrong);
-            Assert.Equal(", " + pass + " of " + total + " results pass. The % counts results, not checks.", r.HeadResultsRest);
+            Assert.Equal(", " + pass + " of " + total + " checks pass. List and Human checks count as pass; unjudged AI checks do not.", r.HeadResultsRest);
             Assert.Equal(person + " checks wait for semak manual", r.ManualLinkLabel);
             Assert.Equal(pct + "% compliant · " + fails + " fail", r.VerdictShortLine);
         }
@@ -86,7 +86,7 @@ namespace RevitWebAppSync.Tests
         {
             Assert.Equal("1 spec check fails.", SpecChecklist.Plural("vSubFail", PanelStrings.En, 1));
             Assert.Equal("1 semakan spec gagal.", SpecChecklist.Plural("vSubFail", PanelStrings.Ms, 1));
-            Assert.Equal(", 1 of 1 result passes. The % counts results, not checks.", SpecChecklist.Plural("hRest", PanelStrings.En, 1, 1, 1));
+            Assert.Equal(", 1 of 1 check passes. List and Human checks count as pass; unjudged AI checks do not.", SpecChecklist.Plural("hRest", PanelStrings.En, 1, 1, 1));
         }
 
         [Fact]

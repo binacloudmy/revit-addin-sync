@@ -89,6 +89,11 @@ namespace RevitWebAppSync.UI.Jkr.Export
         /// <summary>"4,612".</summary>
         public string SumTotal = "0";
         public int SumManual;
+        /// <summary>"checks" for a spec-based summary (the % counts checks), else "AI-verifiable cells".</summary>
+        public string SumUnit = "AI-verifiable cells";
+        /// <summary>AI checks not judged ("N tak dapat disemak") and why; partly checked ones. Spec-based only.</summary>
+        public int SumUnjudged, SumPartial;
+        public string SumUnjudgedReason = "";
         /// <summary>Reference document versions under the summary, as the template prints them.</summary>
         public IReadOnlyList<string> RefVersions = TemplateRefVersions;
 
@@ -199,6 +204,10 @@ namespace RevitWebAppSync.UI.Jkr.Export
             doc.SumPct = summary?.Pct?.ToString(CultureInfo.InvariantCulture) ?? Dash;
             doc.SumTotal = (summary?.AiTotal ?? 0).ToString("N0", CultureInfo.GetCultureInfo("en-US"));
             doc.SumManual = summary?.Pending ?? 0;
+            doc.SumUnit = summary != null && summary.SpecBased ? "checks" : "AI-verifiable cells";
+            doc.SumUnjudged = summary?.Unjudged ?? 0;
+            doc.SumPartial = summary?.Partial ?? 0;
+            doc.SumUnjudgedReason = summary?.UnjudgedReason ?? "";
             return doc;
         }
 
