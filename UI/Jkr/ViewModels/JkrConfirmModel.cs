@@ -102,6 +102,9 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             Old = Actual.Length > 0 ? Actual : JkrConfirmModel.MissingIn("en");
         }
 
+        private static string PersonsPick(IssueVm i) =>
+            !i.FixProposedByAi && i.ValidOptions.Contains(i.FixValue ?? "") ? i.FixValue : "";
+
         /// <summary>Row for one fixable issue: its Revit category (else the issue's
         /// category) and element, the value before and after, and whether the AI
         /// fixer proposed it.</summary>
@@ -115,7 +118,9 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 ? new JkrConfirmRow(where, issue.Title, actual, "", issue.RevitElementId, false,
                                     issue.FixParameterName, issue.LocateCount, issue.Confidence, issue.Id,
                                     issue.ValidOptions, JkrManualFix.ParameterOf(issue.RawRule),
-                                    issue.AiSuggestedCode, issue.AiSuggestionReason)
+                                    // AI-485: for a name the "code" is only the person's own earlier pick on the row.
+                                    issue.IsNamePick ? PersonsPick(issue) : issue.AiSuggestedCode,
+                                    issue.IsNamePick ? "" : issue.AiSuggestionReason)
                 : new JkrConfirmRow(where, issue.Title, actual, issue.FixValue,
                                     issue.RevitElementId, issue.FixProposedByAi,
                                     issue.FixParameterName, issue.LocateCount, issue.Confidence, issue.Id);
@@ -265,6 +270,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public string Parameter { get; }
         public string Category { get; }
         public string PickCode { get; }
+        /// <summary>AI-485: the options are whole element names, not codes.</summary>
+        public bool IsName { get; }
         public string Tooltip { get; }
         public string Badge { get; }
         public string CountLabel { get; }
@@ -280,7 +287,10 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             var codes = rows.Select(r => r.PickCode).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             PickCode = codes.Count == 1 ? codes[0] : "";
             Tooltip = PickCode.Length > 0 ? rows.Select(r => r.PickReason).FirstOrDefault(x => x.Length > 0) ?? "" : "";
-            _selected = PickCode.Length > 0 ? PickCode : Options[0];
+            // AI-485: a name pick (no parameter) starts empty, or on the name the person already picked on the
+            // row (never the AI's, never the first option); the dialog cannot be confirmed until one is chosen.
+            IsName = Parameter.Length == 0;
+            _selected = PickCode.Length > 0 ? PickCode : IsName ? "" : Options[0];
             Badge = JkrConfirmModel.Phrase(lang, "aiBadge");
             CountLabel = string.Format(countFormat, rows.Count);
         }
@@ -301,7 +311,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         }
 
         public bool IsValid => Options.Contains(_selected);
-        public bool ShowAiBadge => PickCode.Length > 0 && string.Equals(_selected, PickCode, StringComparison.OrdinalIgnoreCase);
+        public bool ShowAiBadge => !IsName && PickCode.Length > 0 && string.Equals(_selected, PickCode, StringComparison.OrdinalIgnoreCase);
 
         public event PropertyChangedEventHandler PropertyChanged;
     }

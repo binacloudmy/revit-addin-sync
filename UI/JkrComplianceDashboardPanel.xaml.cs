@@ -1096,11 +1096,13 @@ namespace RevitWebAppSync.UI
             // AI-434: a pick row starts on the AI's code (else the first option) so the affected count sees its
             // write; the dialog's picker then decides the value that is actually written.
             string PickPlanValue(IssueVm i) => !string.IsNullOrEmpty(i.AiSuggestedCode) ? i.AiSuggestedCode : i.ValidOptions[0];
-            foreach (var p in issues.Where(i => i.IsPick))
+            // AI-485: a name pick is not pre-planned (its first option would be a guess left on the row if the dialog
+            // is cancelled); its type is counted for the affected-elements figure straight from the element id.
+            foreach (var p in issues.Where(i => i.IsPick && !i.IsNamePick))
                 p.UseManualValue(JkrManualFix.Plan(p.RawRule, p.RevitCategory, PickPlanValue(p), p.ValidOptions, Jkr.Panel.Core.PaneLanguage.Current));
-            var renames = issues.Where(i => string.Equals(i.FixAction, "rename_type", StringComparison.OrdinalIgnoreCase))
+            var renames = issues.Where(i => i.IsNamePick || string.Equals(i.FixAction, "rename_type", StringComparison.OrdinalIgnoreCase))
                                 .Select(i => i.RevitElementId).ToList();
-            var fixes = issues.Where(i => !string.Equals(i.FixAction, "rename_type", StringComparison.OrdinalIgnoreCase))
+            var fixes = issues.Where(i => !i.IsNamePick && !string.Equals(i.FixAction, "rename_type", StringComparison.OrdinalIgnoreCase))
                               .Select(ToFixAction).ToList();
             return ConfirmWriteAsync(JkrConfirmKind.Fix, rows, renames, fixes, model =>
             {
