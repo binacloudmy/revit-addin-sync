@@ -47,7 +47,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
     public sealed class StartScreenModel : INotifyPropertyChanged
     {
         public static readonly string[] LodValues = { "100", "200", "300", "400", "500" };
-        public static readonly string[] DiscValues = { "AR", "CD", "EL", "ME", "ST" };
+        public static readonly string[] DiscValues = Services.JkrDisciplineDetector.Selectable;
 
         private readonly PanelCore _core;
         private string _fileLabel = "—";
@@ -114,7 +114,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// <summary>"— Pilih —" / "— Select —" first (value ""), then LOD 100–500.</summary>
         public IReadOnlyList<StartOption> LodOptions { get { EnsureOptions(); return _lodOptions; } }
 
-        /// <summary>AR shows "AR · Arkitek" / "AR · Architecture"; the others their code.</summary>
+        /// <summary>AR only for now: "AR · Arkitek" / "AR · Architect".</summary>
         public IReadOnlyList<StartOption> DiscOptions { get { EnsureOptions(); return _discOptions; } }
 
         // Built once; a language switch only renames them. Replacing the lists made
@@ -171,6 +171,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             set
             {
                 if (string.IsNullOrEmpty(value) || value == _core.Disc) return;
+                if (Array.IndexOf(DiscValues, value) < 0) return;   // only offered disciplines
                 _discChosen = true;
                 _core.SetDisc(value);
             }
