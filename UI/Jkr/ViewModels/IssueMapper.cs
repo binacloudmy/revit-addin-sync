@@ -234,7 +234,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// The add-in's spec evaluator results (SpecChecks.Run) as pane issues, like
         /// FromAuditRecords: a failed or unjudged result, or a Context finding with an
         /// issue id, gives one issue (Id = the result's stable IssueId, so Ignore /
-        /// Reviewed decisions survive a re-scan). Fails on AI-verifiable checks are
+        /// Reviewed decisions survive a re-scan). Priority is the catalog check's spec severity
+        /// (KRITIKAL → High, otherwise Medium). Fails on AI-verifiable checks are
         /// AI verdicts; the rest need a person. No auto-fix and no AI fix ("SPEC-"
         /// check ids). Results with the same issue id make one issue (their notes
         /// joined; a failure among them makes it an AI verdict).
@@ -281,7 +282,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     Required = r.Required ?? "",
                     AutoFixable = false,
                     Verification = ai ? IssueVerification.Ai : IssueVerification.Human,
-                    Priority = IssuePriority.Medium,
+                    Priority = PriorityOf(check?.Severity),
                     Status = IssueStatus.Open,
                     RevitElementId = firstId,
                     Locatable = firstId > 0,
