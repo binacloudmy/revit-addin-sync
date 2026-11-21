@@ -327,6 +327,7 @@
     <Compile Include="..\BinaVibe\Copilot\Writes\WriteEnvelopes.cs" Link="Copilot\Writes\WriteEnvelopes.cs" />
     <Compile Include="..\BinaVibe\Copilot\Writes\WriteLabels.cs" Link="Copilot\Writes\WriteLabels.cs" />
     <Compile Include="..\BinaVibe\Copilot\Writes\WriteBatchRunner.cs" Link="Copilot\Writes\WriteBatchRunner.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Writes\MepResizeGuard.cs" Link="Copilot\Writes\MepResizeGuard.cs" />
     <Compile Include="..\BinaVibe\Copilot\Writes\ValueParser.cs" Link="Copilot\Writes\ValueParser.cs" />
     <Compile Include="..\BinaVibe\Copilot\Writes\TypeNameMatch.cs" Link="Copilot\Writes\TypeNameMatch.cs" />
     <Compile Include="..\BinaVibe\Copilot\Writes\SetParametersArgs.cs" Link="Copilot\Writes\SetParametersArgs.cs" />
