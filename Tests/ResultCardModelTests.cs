@@ -474,7 +474,7 @@ namespace RevitAddinSync.Tests
             Assert.Equal(3, g.Instances);                   // the 2 put-back elements are not counted
             Assert.Equal(1, m.ChangeCount);
         }
-    
+
         // r23 (0.0.172, live laptop a1f1e15d): a duct moved not as one piece. The server's result was kind "findings" with a warning
         // check; the add-in's envelopes saw a plain change, so the headline drew the green tick. The server's measured warning now makes
         // the headline amber; a normal change keeps the tick; a findings result with info checks only keeps its neutral "i" (f85dd8f6).
@@ -507,5 +507,5 @@ namespace RevitAddinSync.Tests
             Assert.True(ReplyTone.NothingMade(ServerResult(TurnResultKinds.Findings, new ResultCountsDto { Skipped = 1, Findings = 0 }), null));
             Assert.False(new ResultCardModel().WithServerResult(null).ServerFindings);
         }
-}
+    }
 }
