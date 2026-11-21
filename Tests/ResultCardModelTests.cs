@@ -474,5 +474,38 @@ namespace RevitAddinSync.Tests
             Assert.Equal(3, g.Instances);                   // the 2 put-back elements are not counted
             Assert.Equal(1, m.ChangeCount);
         }
-    }
+    
+        // r23 (0.0.172, live laptop a1f1e15d): a duct moved not as one piece. The server's result was kind "findings" with a warning
+        // check; the add-in's envelopes saw a plain change, so the headline drew the green tick. The server's measured warning now makes
+        // the headline amber; a normal change keeps the tick; a findings result with info checks only keeps its neutral "i" (f85dd8f6).
+        private static TurnResultDto ServerResult(string kind, ResultCountsDto? counts = null, params (string Severity, string Text)[] checks) => new TurnResultDto
+        {
+            Kind = kind, Reply = "r", Counts = counts,
+            Checks = checks.Select(c => new ResultCheckDto { Severity = c.Severity, Text = c.Text }).ToList(),
+        };
+
+        [Fact]
+        public void AServerFindingsResultWithAWarning_MakesTheHeadlineAmber_A1f1e15d()
+        {
+            var m = new ResultCardModel { Kind = ResultKind.Changes }.WithServerResult(ServerResult(TurnResultKinds.Findings, null,
+                ("warning", "Measured after the move, element 1382112: Lower End Bottom Elevation: 0' - 6\" -> 0' - 9 15/16\"")));
+            Assert.True(m.ServerFindings);
+            Assert.True(m.HeadlineWarns);
+            Assert.True(new ResultCardModel { Kind = ResultKind.Changes }.WithServerResult(ServerResult(TurnResultKinds.Findings, new ResultCountsDto { Findings = 2 })).HeadlineWarns);
+            Assert.True(new ResultCardModel().WithServerResult(ServerResult(TurnResultKinds.Findings, null, ("error", "x"))).HeadlineWarns);
+        }
+
+        [Fact]
+        public void ANormalChange_OrAnInfoOnlyFindingsResult_KeepsItsDisc()
+        {
+            var change = new ResultCardModel { Kind = ResultKind.Changes }.WithServerResult(ServerResult(TurnResultKinds.Changes, new ResultCountsDto { Written = 2 }, ("warning", "x")));
+            Assert.False(change.ServerFindings);                              // the server's kind is "changes": the tick stays
+            Assert.False(change.HeadlineWarns);
+            var nothing = new ResultCardModel().WithServerResult(ServerResult(TurnResultKinds.Findings, new ResultCountsDto { Skipped = 1, Findings = 0 },
+                ("info", "material: a wall's material is set in the layers of its wall type")));
+            Assert.False(nothing.HeadlineWarns);                              // f85dd8f6: its "i" (NothingMade) is unchanged
+            Assert.True(ReplyTone.NothingMade(ServerResult(TurnResultKinds.Findings, new ResultCountsDto { Skipped = 1, Findings = 0 }), null));
+            Assert.False(new ResultCardModel().WithServerResult(null).ServerFindings);
+        }
+}
 }

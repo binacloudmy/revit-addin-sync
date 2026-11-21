@@ -95,11 +95,11 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void TheAddInVersion_Is0_0_171()
+        public void TheAddInVersion_Is0_0_172()
         {
             var m = Regex.Match(Src("RevitWebAppSync.csproj"), @"<Version Condition=""'\$\(Version\)' == ''"">([0-9.]+)</Version>");
             Assert.True(m.Success);
-            Assert.Equal("0.0.171", m.Groups[1].Value);
+            Assert.Equal("0.0.172", m.Groups[1].Value);
         }
     }
 }
