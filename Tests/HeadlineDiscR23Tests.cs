@@ -2,7 +2,8 @@
 // r23 (0.0.166): the headline disc of a reply that made or changed nothing. Live on 0.0.165 + merged50:
 //   PC f85dd8f6 "Nothing was changed." (set-parameter skipped all; result findings, counts {skipped 1, findings 0}) drew the green check;
 //   laptop b372f902 "No circuits made." (result changes, counts {values 0, written 0, elements 0}) drew the green check;
-//   laptop f7d1c886 (wall-by-points Skip, no server result, one short sentence) drew no disc at all.
+//   laptop f7d1c886 (wall-by-points Skip, no server result, one short sentence) drew no disc at all: a short reply of a turn that wrote
+//   nothing now gets the headline row with the "i" (audit: only those; other short tool replies and questions are drawn as before).
 // The rule: green only when something was written or made, or a read answered; the neutral "i" for nothing made, skipped or honestly
 // refused; never no disc for a tool turn. P8 74bd60f7 (the "i" after Langkau) is unchanged.
 using System.Collections.Generic;
@@ -53,19 +54,33 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void AToolTurnsShortReply_AlwaysHasAHeadlineDisc()
+        public void AShortReplyThatWroteNothing_GetsTheInfoDisc_OtherShortRepliesAreUnchanged()
         {
-            // f7d1c886: one sentence after Skip, no card, no server result.
-            Assert.True(ReplyTone.NeedsHeadline(true, false, 1, true, "Skipped, so no wall was made; say a length (e.g. 3000 mm) when you want it drawn."));
-            Assert.True(ReplyTone.NeedsHeadline(true, false, 2, false, "Done."));
-            Assert.True(ReplyTone.NeedsHeadline(true, false, 0, true, "Nothing was written."));
-            // Unchanged: a card draws its own headline; a chat reply with no tool; a table or a list keeps its markdown; the user's bubble.
-            Assert.False(ReplyTone.NeedsHeadline(true, true, 1, true, "Done."));
-            Assert.False(ReplyTone.NeedsHeadline(true, false, 0, false, "Hello! How can I help?"));
-            Assert.False(ReplyTone.NeedsHeadline(true, false, 1, false, "| Type | Count |\n|---|---|\n| D1 | 3 |"));
-            Assert.False(ReplyTone.NeedsHeadline(true, false, 1, false, "- one\n- two"));
-            Assert.False(ReplyTone.NeedsHeadline(false, false, 1, true, "Draw a wall"));
-            Assert.False(ReplyTone.NeedsHeadline(true, false, 1, true, ""));
+            // f7d1c886: one sentence after Skip, no card, no server result: the headline row, drawn with the neutral disc (nothing written).
+            Assert.True(ReplyTone.NeedsHeadline(true, false, true, "Skipped, so no wall was made; say a length (e.g. 3000 mm) when you want it drawn."));
+            Assert.True(ReplyTone.NeedsHeadline(true, false, true, "Nothing was written."));
+            // Audit of c848c5f9: a tool turn's other short replies keep their plain markdown (no new green check).
+            Assert.False(ReplyTone.NeedsHeadline(true, false, false, "I couldn't find a wall type named X."));
+            Assert.False(ReplyTone.NeedsHeadline(true, false, false, "Which level do you mean?"));
+            // A question back never gets a disc, even in a turn that wrote nothing.
+            Assert.False(ReplyTone.NeedsHeadline(true, false, true, "Which level do you mean?"));
+            Assert.True(ReplyTone.IsQuestion("Which level do you mean?  "));
+            Assert.False(ReplyTone.IsQuestion("I couldn't find a wall type named X."));
+            // Unchanged: a card draws its own headline; a table or a list keeps its markdown; the user's bubble; an empty reply.
+            Assert.False(ReplyTone.NeedsHeadline(true, true, true, "Done."));
+            Assert.False(ReplyTone.NeedsHeadline(true, false, true, "| Type | Count |\n|---|---|\n| D1 | 3 |"));
+            Assert.False(ReplyTone.NeedsHeadline(true, false, true, "- one\n- two"));
+            Assert.False(ReplyTone.NeedsHeadline(false, false, true, "Draw a wall"));
+            Assert.False(ReplyTone.NeedsHeadline(true, false, true, ""));
+        }
+
+        [Fact]
+        public void TheCouldNotFindReply_WithNoServerResult_IsNotNothingMade_SoNoNewIconPath()
+        {
+            // "I couldn't find a wall type named X": no server result, a read only: NothingMade says nothing (false), NeedsHeadline false,
+            // so the reply is drawn exactly as on 0.0.165.
+            Assert.False(ReplyTone.NothingMade(null, new List<Envelope?> { Env(EnvelopePhase.Read) }));
+            Assert.False(ReplyTone.NeedsHeadline(true, false, ReplyTone.NothingMade(null, null), "I couldn't find a wall type named X."));
         }
 
         [Fact]
@@ -81,7 +96,7 @@ namespace RevitAddinSync.Tests
             Assert.Contains("|| ReplyTone.NothingMade(TurnStatus.ServerResultOf(rr), rr.Evidence?.Calls.Select(c => c.Env));", vm);
             Assert.Contains("reply.ResultCard.InfoHeadline = reply.NothingWritten;", vm);   // the card path
             var chat = Src("UI/Copilot/Screens/ChatView.xaml.cs");
-            Assert.Contains("bool toolProse = Model.ReplyTone.NeedsHeadline(m.Kind == CpMsgKind.AiReply, cardShown, m.ToolsUsed?.Count ?? 0, m.NothingWritten, m.Text);", chat);
+            Assert.Contains("bool toolProse = Model.ReplyTone.NeedsHeadline(m.Kind == CpMsgKind.AiReply, cardShown, m.NothingWritten, m.Text);", chat);
             Assert.Contains("(serverProse || noopProse || toolProse || Model.ProseSplit.Applies(m.Text))", chat);
             Assert.Contains("info: m.NothingWritten)", chat);                                // the prose path
         }
