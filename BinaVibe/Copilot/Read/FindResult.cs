@@ -124,6 +124,11 @@ namespace BinaVibe.Copilot.Read
         /// <summary>AI-329: a room's Volume was read (sum or condition) while the project computes areas only, so
         /// Revit holds 0 for it. Those rooms are without a value, never 0 m³.</summary>
         public bool RoomVolumesOff;
+        /// <summary>r23 (AI-463): an in-view find that found rooms: the rooms with no location whose level is the view's own level (a
+        /// document-wide count: a view never shows an unplaced room). Null when the find was not in a view, or the view has no level.</summary>
+        public int? RoomsNotPlacedOnLevel;
+        /// <summary>r23 (AI-463): the find was in the active view (its rooms come from every level the plan shows).</summary>
+        public bool InView;
     }
 
     public static class FindResultBuilder
@@ -151,7 +156,18 @@ namespace BinaVibe.Copilot.Read
             }
 
             var rooms = o.Rows.Where(r => r.RoomStatus != null).ToList();
-            if (rooms.Count > 0) data["rooms"] = RoomTotals(rooms, o.AreaUnit);
+            if (rooms.Count > 0)
+            {
+                var totals = RoomTotals(rooms, o.AreaUnit);
+                // r23 (AI-463, backend rooms_scope.py): a view's rooms come from any level it shows and never include an unplaced one, so
+                // the view's count and the level's plan add up only with the split by level and the unplaced rooms on the view's level.
+                if (o.InView)
+                {
+                    totals["by_level"] = RoomsByLevel(rooms);
+                    if (o.RoomsNotPlacedOnLevel is int k) totals["not_placed_on_level"] = k;
+                }
+                data["rooms"] = totals;
+            }
 
             // Round 9 (F-t04): a bare type name that reached several families says so, in the
             // filter, a note and the summary, so the model and the backend see the spread.
@@ -343,6 +359,21 @@ namespace BinaVibe.Copilot.Read
                 ["area"] = AreaText(rooms.Where(r => r.RoomStatus == RoomStatus.Placed).Sum(r => r.AreaInternal ?? 0), areaUnit),
                 ["note"] = "Area sums count placed rooms only; not placed, not enclosed and redundant rooms are counted apart.",
             };
+        }
+
+        /// <summary>r23 (AI-463): the rooms of an in-view find by their level: {level: {placed, redundant, not_enclosed}}, levels in the order
+        /// first found; a room with no level under "". Not placed rooms are in no view, so they are not split here.</summary>
+        internal static Dictionary<string, object?> RoomsByLevel(IEnumerable<FoundRow> rooms)
+        {
+            var by = new Dictionary<string, object?>(StringComparer.Ordinal);
+            foreach (var g in rooms.Where(r => r.RoomStatus != null && r.RoomStatus != RoomStatus.NotPlaced).GroupBy(r => r.Level ?? ""))
+                by[g.Key] = new Dictionary<string, object?>
+                {
+                    ["placed"] = g.Count(r => r.RoomStatus == RoomStatus.Placed),
+                    ["redundant"] = g.Count(r => r.RoomStatus == RoomStatus.Redundant),
+                    ["not_enclosed"] = g.Count(r => r.RoomStatus == RoomStatus.NotEnclosed),
+                };
+            return by;
         }
 
         private static string RoomSummary(List<FoundRow> rooms, string areaUnit)

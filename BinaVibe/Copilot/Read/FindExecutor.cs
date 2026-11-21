@@ -209,6 +209,9 @@ namespace BinaVibe.Copilot.Read
             outcome.Partial = budget.Exhausted;
             outcome.Scanned = budget.Used;
             outcome.AreaUnit = RevitValues.UnitSymbol(doc, SpecTypeId.Area) is { Length: > 0 } au ? au : "m²";
+            // r23 (AI-463): an in-view find of rooms also says how many rooms on the view's level are not placed (in no view at all).
+            outcome.InView = plan.Queries.Any(q => q.InView);
+            if (outcome.InView && outcome.Rows.Any(r => r.RoomStatus != null)) outcome.RoomsNotPlacedOnLevel = UnplacedRoomsOnViewLevel(ctx);
 
             if (outcome.Rows.Count > 0)
             {
@@ -511,6 +514,22 @@ namespace BinaVibe.Copilot.Read
 
         // Revit's room warnings, read once per document per call (live test L9).
         [ThreadStatic] private static Dictionary<Document, (HashSet<long> Redundant, HashSet<long> NotEnclosed)>? _roomWarnings;
+
+        /// <summary>r23 (AI-463): rooms with no location (Room.Location null) whose level (SpatialElement.Level) is the active view's
+        /// GenLevel, from a document-wide collector; null when the view has no level or the read fails.</summary>
+        private static int? UnplacedRoomsOnViewLevel(ToolContext ctx)
+        {
+            try
+            {
+                var view = ctx.UiDoc?.ActiveView ?? ctx.Doc.ActiveView;
+                var level = view?.GenLevel;
+                if (level == null) return null;
+                return new FilteredElementCollector(ctx.Doc).OfCategory(BuiltInCategory.OST_Rooms).WhereElementIsNotElementType()
+                    .OfType<Autodesk.Revit.DB.Architecture.Room>()
+                    .Count(r => r.Location == null && r.Level != null && r.Level.Id == level.Id);
+            }
+            catch (Exception) { return null; }
+        }
 
         /// <summary>Start of a read call: room warnings are read fresh.</summary>
         internal static void ResetRoomWarnings() => _roomWarnings = null;
