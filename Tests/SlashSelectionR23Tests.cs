@@ -233,7 +233,8 @@ namespace RevitAddinSync.Tests
             var at = engine.IndexOf(commit, System.StringComparison.Ordinal);
             Assert.True(at > engine.IndexOf("AfterCommitRunner.Run(", System.StringComparison.Ordinal));               // after the code's own UI work
             Assert.True(at < engine.IndexOf("if (!noop) Highlight(uidoc!, doc!, envelopes, builder.AddedIds, select: false);", System.StringComparison.Ordinal));   // measured after
-            Assert.Contains("try { return PreviewBatch(app, batch); } finally { Code.RevitCodeHost.ForgetSelectionSwap(); }", engine);
+            Assert.Contains("try { return PreviewBatch(app, batch); }", engine);
+            Assert.Contains("finally { Code.RevitCodeHost.ForgetSelectionSwap(); RefreshCommandState(app, batch.TurnId, selectedAtStart); }", engine);   // r23: the swap is forgotten first, then the ribbon refresh
             // A commit that did not commit changed nothing: it gives back as a preview does, then forgets.
             var commitAsync = engine.Substring(engine.IndexOf("public Task<CommitOutcome> CommitAsync(", System.StringComparison.Ordinal));
             commitAsync = commitAsync.Substring(0, commitAsync.IndexOf("}, ct);", System.StringComparison.Ordinal));
