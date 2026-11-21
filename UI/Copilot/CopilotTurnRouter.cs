@@ -200,6 +200,9 @@ namespace RevitWebAppSync.UI.Copilot
         /// <summary>r21: the language of the chat's last message, for a neutral one (<see cref="PromptLanguage.Follow"/>); a new chat starts without it.</summary>
         private ReceiptLanguage? _chatLanguage;
 
+        /// <summary>r23 (AI-464 audit): the chat's language as the running turn has it (English before the first message).</summary>
+        public ReceiptLanguage ChatLanguage => _chatLanguage ?? ReceiptLanguage.En;
+
         private void ChangeSession(string? sessionId)
         {
             _chatLanguage = null;

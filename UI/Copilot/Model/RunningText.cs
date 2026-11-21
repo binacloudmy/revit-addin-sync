@@ -63,13 +63,21 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public static string QueueNoteFor(ReceiptLanguage lang) =>
             lang == ReceiptLanguage.Ms ? "Beratur selepas larian ini" : QueueNote;
 
+        /// <summary>r23 (AI-464 audit): the running composer's button tips in the turn's language (Stop on the send button, Queue).</summary>
+        public static string StopTip(ReceiptLanguage lang) => lang == ReceiptLanguage.Ms ? "Berhenti" : "Stop";
+
+        public static string QueueTip(ReceiptLanguage lang) => lang == ReceiptLanguage.Ms ? "Beratur" : "Queue";
+
         /// <summary>The composer's scope chip: "{3D} · 52 selected" (view name, then the selection count); "" when the
         /// view is unknown. Nothing selected reads just the view.</summary>
-        public static string ScopeText(string? viewName, int selected)
+        public static string ScopeText(string? viewName, int selected) => ScopeText(viewName, selected, ReceiptLanguage.En);
+
+        /// <summary>r23 (AI-464 audit): the scope chip in the running turn's language: "{3D} · 52 dipilih" in a Malay chat.</summary>
+        public static string ScopeText(string? viewName, int selected, ReceiptLanguage lang)
         {
             if (string.IsNullOrWhiteSpace(viewName)) return "";
             var view = "{" + viewName!.Trim() + "}";
-            return selected > 0 ? view + " · " + selected.ToString(CultureInfo.InvariantCulture) + " selected" : view;
+            return selected > 0 ? view + " · " + selected.ToString(CultureInfo.InvariantCulture) + (lang == ReceiptLanguage.Ms ? " dipilih" : " selected") : view;
         }
     }
 }

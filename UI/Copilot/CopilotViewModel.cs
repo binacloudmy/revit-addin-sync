@@ -1216,7 +1216,7 @@ namespace RevitWebAppSync.UI.Copilot
                 try
                 {
                     var snap = router.TurnSnapshot;
-                    var scope = RunningText.ScopeText(snap?.View?.Name, snap?.Selection?.Count ?? 0);
+                    var scope = RunningText.ScopeText(snap?.View?.Name, snap?.Selection?.Count ?? 0, router.ChatLanguage);   // r23: "· 2 dipilih" in a Malay chat
                     _pane.RunOnUi(() => RunScope = scope);
                 }
                 catch (Exception) { /* the chip is a convenience */ }

@@ -735,6 +735,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             // While a turn runs, a prompt typed now queues (board 2): the composer says so, in the turn's language.
             if (Input != null) Input.PlaceholderText = Busy ? RunningText.QueuePlaceholderFor(_runLanguage) : Placeholder;
             if (_queueNote != null) _queueNote.Text = RunningText.QueueNoteFor(_runLanguage);
+            if (_queueBtn != null) _queueBtn.ToolTip = RunningText.QueueTip(_runLanguage);
+            if (Busy && SendBtn != null) SendBtn.ToolTip = RunningText.StopTip(_runLanguage);
         }
 
         public static readonly DependencyProperty BusyProperty = DependencyProperty.Register(
@@ -751,7 +753,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             var pb = (PromptBar)d;
             bool busy = (bool)e.NewValue;
             if (pb.SendIcon != null) pb.SendIcon.Data = busy ? StopGeom : SendGeom;
-            if (pb.SendBtn != null) pb.SendBtn.ToolTip = busy ? "Stop" : "Send";
+            if (pb.SendBtn != null) pb.SendBtn.ToolTip = busy ? RunningText.StopTip(pb._runLanguage) : "Send";
             // While a turn runs, a prompt typed now queues (board 2): the composer says so.
             pb.ApplyRunLanguage();
             pb.UpdateHints();
