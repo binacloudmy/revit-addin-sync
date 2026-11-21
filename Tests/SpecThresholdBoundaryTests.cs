@@ -149,11 +149,14 @@ namespace RevitWebAppSync.Tests
         }
 
         [Theory]
-        [InlineData(399, false)]
+        [InlineData(50, false)]
+        [InlineData(299, false)]   // LOi 200: a Door's Kod_Jenis_jkr_stt starts at LOi 300 (PB p.51)
+        [InlineData(300, true)]
+        [InlineData(350, true)]
         [InlineData(400, true)]
         [InlineData(450, true)]
         [InlineData(500, true)]
-        public void Db_1_common_mandatory_parameters_are_judged_from_LOD_400(int lod, bool judged)
+        public void Db_1_a_Doors_Kod_Jenis_is_judged_from_LOi_300(int lod, bool judged)
         {
             var m = new SpecModel { Lod = lod, Types = { DbType("Kod_Jenis_jkr_stt", "") } };
             Assert.Equal(judged, Run(m, "Db.1").Any(r => r.Status == "fail"));
