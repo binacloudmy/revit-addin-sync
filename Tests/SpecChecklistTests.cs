@@ -372,33 +372,35 @@ namespace RevitWebAppSync.Tests
         // ── headline: two numbers, from the spec ──
 
         [Fact]
-        public void The_spec_score_counts_AI_verifiable_results_passed_over_passed_and_failed()
+        public void The_spec_score_counts_checks_AI_pass_plus_List_and_Human_over_all_61()
         {
-            // Failing sample, per result (spec "Kiraan %"): A2.1 1 pass / 1 fail (the backend naming results count once + checker A2),
-            // A4.1 2/0, B1.1 0/3 (the pass is a partial rule's, it proves nothing), Da.1 1/4, Dd.1 1/1,
-            // Db.1 1/2, C1.3.1 0/1, C2.1.1 1/0, C4.1.3 0/1, C4.2.1 1/0, E.1 0/1. Db.2's cannot_verify,
-            // partial passes and every human-decides / list check are left out.
+            // AI-474, failing sample, per CHECK: 3 AI checks pass (A4.1, C2.1.1, C4.2.1), 8 fail,
+            // 3 are partly checked (B1.1 …), the other 25 are unjudged (no rule yet / cannot
+            // verify). The 22 List and Human checks count as passed: (3 + 22) / 61 = 41%.
+            // (The old per-result count was 8 / 21 on this sample.)
             var r = Report("jkr_run_failing.json");
-            Assert.Equal((8, 22), SpecChecklist.Score(r));
-            Assert.Equal(36, SpecChecklist.Pct(r));
-            Assert.Equal(new int?[] { 75, 0, 50, 30, 0 }, PanelCore.Secs.Select(s => SpecChecklist.Pct(r, s)));
+            Assert.Equal((25, 61), SpecChecklist.Score(r));
+            Assert.Equal(41, SpecChecklist.Pct(r));
+            var t = SpecChecklist.TallyOf(r);
+            Assert.Equal((3, 22, 8, 3, 25), (t.AiPass, t.ListHuman, t.Fail, t.Partial, t.Unjudged));
+            Assert.Equal(new int?[] { 42, 33, 42, 44, 0 }, PanelCore.Secs.Select(s => SpecChecklist.Pct(r, s)));
             Assert.Equal(new[] { 3, 0, 3, 3, 0 }, PanelCore.Secs.Select(s => SpecChecklist.NeedsPerson(r, s)));
             Assert.Equal(r.NeedsPersonChecks, SpecChecklist.NeedsPerson(r));
-            Assert.Equal("8 / 22 keputusan lulus\n(bukan bilangan semakan)", SpecChecklist.ResultsLabel(r, PanelStrings.Ms));
-            Assert.Equal("8 / 22 results pass\n(not a count of checks)", SpecChecklist.ResultsLabel(r, PanelStrings.En));
+            Assert.Equal("25 / 61 semakan lulus\n(Senarai/manusia dikira lulus)", SpecChecklist.ResultsLabel(r, PanelStrings.Ms));
+            Assert.Equal("25 / 61 checks pass\n(List and Human count as pass)", SpecChecklist.ResultsLabel(r, PanelStrings.En));
             Assert.Equal("checks need a person", SpecChecklist.NeedPersonLabel(r, PanelStrings.En));
         }
 
         [Fact]
-        public void Only_checks_that_pass_or_fail_count_in_the_score()
+        public void Only_passed_checks_count_as_passed_and_the_rest_stay_in_the_denominator()
         {
-            // Da.1: backend per-element passes beside a partial checker pass → Partial: not in the %.
+            // Da.1: backend per-element passes beside a partial checker pass → Partial: not passed (own state, shown as "separa").
             var partial = SpecReport.Build(new[]
             {
                 new SpecResult { Source = SpecReport.Audit, CheckerId = "family_category", RowKey = "D10", RowLabel = "Doors", Status = "pass" },
                 new SpecResult { Source = SpecReport.Backend, Category = "Doors", Rule = "Naming convention", Status = "pass", ElementId = 1 },
                 new SpecResult { Source = SpecReport.Backend, Category = "Doors", Rule = "Naming convention", Status = "pass", ElementId = 2 },
-                // Db.2: one pass and one result the scan could not judge → needs a person: not in the %.
+                // Db.2: one pass and one result the scan could not judge → needs a person: not passed.
                 new SpecResult { Source = SpecReport.Backend, Category = "Walls", Rule = "Material code in name is valid", Status = "pass", ElementId = 3 },
                 new SpecResult { Source = SpecReport.Backend, Category = "Walls", Rule = "Material code in name is valid", Status = "cannot_verify", ElementId = 4 },
                 // A4.1 passes, A2.1 fails: these count.
@@ -408,19 +410,21 @@ namespace RevitWebAppSync.Tests
             Assert.NotEqual(SpecState.Pass, partial.For("Da.1").State);
             Assert.NotEqual(SpecState.Fail, partial.For("Da.1").State);
             Assert.Equal(SpecState.NeedsPerson, partial.For("Db.2").State);
-            Assert.Equal((1, 2), SpecChecklist.Score(partial));
-            Assert.Equal(50, SpecChecklist.Pct(partial));
-            Assert.Null(SpecChecklist.Pct(partial, "D"));                   // per section too
-            Assert.Equal(50, SpecChecklist.Pct(partial, "A"));
+            // A4.1 is the one passed AI check: (1 + 22) / 61.
+            Assert.Equal((23, 61), SpecChecklist.Score(partial));
+            Assert.Equal(38, SpecChecklist.Pct(partial));
+            Assert.Equal(1, SpecChecklist.TallyOf(partial).Partial);
+            Assert.Equal(44, SpecChecklist.Pct(partial, "D"));              // per section too: 4 of 9 (List/Human only)
+            Assert.Equal(42, SpecChecklist.Pct(partial, "A"));              // 9 List/Human + A4.1 of 24
         }
 
         [Fact]
-        public void Without_AI_verifiable_results_the_score_is_a_dash_not_zero()
+        public void Without_AI_verifiable_results_the_score_floors_at_22_of_61_not_a_dash()
         {
             var r = SpecReport.Build(new[] { new SpecResult { Source = SpecReport.Audit, CheckerId = "rooms_department", RowKey = "A6", Status = "fail" } });
-            Assert.Equal((0, 0), SpecChecklist.Score(r));
-            Assert.Null(SpecChecklist.Pct(r));
-            Assert.Null(SpecChecklist.Pct(null));
+            Assert.Equal((22, 61), SpecChecklist.Score(r));
+            Assert.Equal(36, SpecChecklist.Pct(r));
+            Assert.Null(SpecChecklist.Pct(null));                             // no report at all: still a dash
         }
 
         // ── legend + state filter ──
@@ -549,7 +553,7 @@ namespace RevitWebAppSync.Tests
             Assert.Equal("Tidak berkenaan", ms.StateLabel);
             Assert.Equal(1, SpecChecklist.StateChips(r, PanelStrings.En, null).Single(c => c.Key == "na").N);
             Assert.Contains("1 tidak berkenaan", SpecChecklist.Build(r, null, PanelStrings.Ms, PanelCore.AllSections, null, null).Single(s => s.Key == "A").Summary);
-            Assert.Null(SpecChecklist.Pct(r));                                    // not in the %
+            Assert.Equal(60, SpecChecklist.Score(r).Total);                       // not in the %: 61 less this one
         }
 
         // ── backend unavailable ──
@@ -577,7 +581,7 @@ namespace RevitWebAppSync.Tests
             Assert.Equal("1 result checked — it complies.", SpecChecklist.Plural("dPass", PanelStrings.En, 1));
             Assert.Equal("3 results checked — all comply.", SpecChecklist.Plural("dPass", PanelStrings.En, 3));
             Assert.Equal("1 check needs a person", "1 " + SpecChecklist.Plural("hPerson", PanelStrings.En, 1));
-            Assert.Equal("1 / 1 result passes\n(not a count of checks)", SpecChecklist.Plural("hResults", PanelStrings.En, 1, 1, 1));
+            Assert.Equal("1 / 1 check passes\n(List and Human count as pass)", SpecChecklist.Plural("hResults", PanelStrings.En, 1, 1, 1));
             Assert.Equal(" 1 other JKR rule also fails.", SpecChecklist.Plural("vOthers", PanelStrings.En, 1));
             Assert.Equal(" 4 other JKR rules also fail.", SpecChecklist.Plural("vOthers", PanelStrings.En, 4));
             Assert.Equal("4 other JKR rules (not in the spec) also fail — see below.", SpecChecklist.OthersNote(Report("jkr_run_failing.json"), PanelStrings.En));
@@ -627,20 +631,24 @@ namespace RevitWebAppSync.Tests
         {
             // Before, the % and the tiles came from the BIM010 rows while the verdict counted
             // spec checks, so they disagreed. Now all three are the spec's (see
-            // The_spec_score_counts_AI_verifiable_results_passed_over_passed_and_failed).
+            // The_spec_score_counts_checks_AI_pass_plus_List_and_Human_over_all_61).
             var (r, core) = Results("jkr_run_failing.json");
-            Assert.Equal("36%", r.HeadPctLabel);
-            Assert.Equal("8 / 22 keputusan lulus\n(bukan bilangan semakan)", r.HeadCellsLabel);
+            Assert.Equal("41%", r.HeadPctLabel);
+            Assert.Equal("25 / 61 semakan lulus\n(Senarai/manusia dikira lulus)", r.HeadCellsLabel);
+            Assert.Equal("25 tak dapat disemak — belum ada peraturan atau tidak dapat disahkan", r.UnjudgedLine);
+            Assert.Equal("3 separa", r.PartialLine);
             Assert.Equal(9, r.PendTotal);                                   // = NeedsPerson checks
             Assert.Equal(r.Spec.NeedsPersonChecks, r.PendTotal);
             Assert.Equal("semakan perlu manusia", r.NeedPersonLabel);
-            Assert.Equal(new[] { "75%", "0%", "50%", "30%", "0%" }, r.Sections.Select(s => s.PctLabel));
+            Assert.Equal(new[] { "42%", "33%", "42%", "44%", "0%" }, r.Sections.Select(s => s.PctLabel));
             Assert.Equal(new[] { "+3", "", "+3", "+3", "" }, r.Sections.Select(s => s.PendLabel));
-            Assert.Equal(0.75, r.Sections[0].Fraction, 2);
+            Assert.Equal(0.42, r.Sections[0].Fraction, 2);
             core.SetLang(PanelStrings.En);
-            Assert.Equal("8 / 22 results pass\n(not a count of checks)", r.HeadCellsLabel);
+            Assert.Equal("25 / 61 checks pass\n(List and Human count as pass)", r.HeadCellsLabel);
+            Assert.Equal("25 could not be checked — no rule yet, or could not verify", r.UnjudgedLine);
+            Assert.Equal("3 partly checked", r.PartialLine);
             Assert.Equal("checks need a person", r.NeedPersonLabel);
-            Assert.Contains("75%", r.Sections[0].Aria);
+            Assert.Contains("42%", r.Sections[0].Aria);
         }
 
         [Fact]

@@ -152,7 +152,7 @@ namespace RevitWebAppSync.Tests
             Assert.NotEqual("y", s.Rows["A6"].Mark);
             Assert.Contains("BIM010-A6", s.Rows["A6"].ManualIssueIds);
             Assert.DoesNotContain("BIM010-A6", s.Rows["A6"].FailIssueIds);
-            Assert.Equal(0, s.Fail);   // not a failure in the % either
+            Assert.Equal(0, SpecChecklist.TallyOf(SpecReport.Build(new[] { dept })).Fail);   // not a failed check in the % either
         }
 
         [Fact]

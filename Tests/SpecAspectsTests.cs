@@ -62,13 +62,13 @@ namespace RevitWebAppSync.Tests
         private static List<SpecCheckResult> In(SpecReport r, Func<SpecCheck, bool> member) =>
             SpecCatalog.Checks.Where(member).Select(c => r.For(c.Id)).ToList();
 
-        /// <summary>The section-row arithmetic, written out: % = AI results passed /
-        /// (passed + failed) of the checks that passed or failed; one tick per check in
+        /// <summary>The section-row arithmetic, written out (AI-474): % = (AI checks in state Pass +
+        /// List and Human checks) / checks that apply (not-applicable left out); one tick per check in
         /// catalog order; fails = checks that fail; manual = checks a person decides.</summary>
         private static void AssertRowOf(GroupRow row, List<SpecCheckResult> checks)
         {
-            var scored = checks.Where(c => c.Check.Class == SpecCellClass.Ai && (c.State == SpecState.Pass || c.State == SpecState.Fail)).ToList();
-            int p = scored.Sum(c => c.Passed), t = scored.Sum(c => c.Passed + c.Failed);
+            var applies = checks.Where(c => c.State != SpecState.NotApplicable).ToList();
+            int p = applies.Count(c => c.Check.Class != SpecCellClass.Ai || c.State == SpecState.Pass), t = applies.Count;
             int? pct = t == 0 ? (int?)null : (int)Math.Round(100.0 * p / t, MidpointRounding.AwayFromZero);
             Assert.Equal(checks.Count, row.Checks);
             Assert.Equal(pct, row.Pct);
