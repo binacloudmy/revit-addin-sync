@@ -811,8 +811,9 @@ namespace RevitWebAppSync.Services.JkrSpec
         /// C1.6.3 — every room schedule column has a value for every placed room: the schedules'
         /// visible fields, plus the Room columns the Buku Parameter marks at the project LOi
         /// (PB p.37). One fail per room (`Room | Kolum kosong`), and one per schedule missing a
-        /// PB column. Fail-only when the LOi is unknown (PB columns not known) or when the model
-        /// has areas (PB p.36 Area columns are not in the snapshot).
+        /// PB column. Placed areas are judged too: each needs the PB p.36 Area columns marked at the LOi
+        /// (AI-475). Fail-only when the LOi is unknown (PB columns not known) or when the model has
+        /// areas the snapshot did not read.
         /// </summary>
         internal static IEnumerable<SpecResult> C1_6_3(SpecModel m)
         {
@@ -830,7 +831,7 @@ namespace RevitWebAppSync.Services.JkrSpec
             var loi = SpecPbData.LoiOf(m.Lod);
             var pb = loi > 0 ? SpecPbData.RequiredAt(SpecPbData.RoomFields, loi).Select(f => f.Name).ToList() : new List<string>();
             int areas;
-            var partial = loi == 0 || (m.CategoryCounts.TryGetValue("Areas", out areas) && areas > 0);
+            var partial = loi == 0 || (!m.AreasRead && m.CategoryCounts.TryGetValue("Areas", out areas) && areas > 0);
             var cov = partial ? SpecCoverage.FailOnly : SpecCoverage.Full;
 
             var fails = 0;
@@ -867,6 +868,25 @@ namespace RevitWebAppSync.Services.JkrSpec
                 yield return SpecChecks.Fail(id, RoomLabel(r) + " | " + string.Join(", ", empty), r.Id, "Rooms · " + RoomLabel(r),
                         actual: empty.Count + " kolum kosong", required: "setiap kolum berisi", coverage: cov)
                     .En(RoomLabel(r) + " | " + string.Join(", ", empty));
+            }
+            // PB p.36: each placed area carries the Area columns marked at the LOi.
+            var placedAreas = m.AreasRead ? m.Areas.Where(x => x.Area > 0).ToList() : new List<SpecArea>();
+            var areaCols = loi > 0 ? SpecPbData.RequiredAt(SpecPbData.AreaFields, loi).Select(f => f.Name).ToList() : new List<string>();
+            foreach (var ar in placedAreas)
+            {
+                var empty = new List<string>();
+                foreach (var col in areaCols)
+                {
+                    string v;
+                    if (!SpecPbData.TryFind(ar.Params, col, out _, out v) && Same(col, "Name")) v = ar.Name;
+                    if (string.IsNullOrWhiteSpace(v)) empty.Add(col);
+                }
+                if (empty.Count == 0) continue;
+                var label = (ar.Name.Length > 0 ? ar.Name : "Area " + ar.Id) + (ar.LevelName.Length > 0 ? " (" + ar.LevelName + ")" : "");
+                fails++;
+                yield return SpecChecks.Fail(id, "Area " + label + " | " + string.Join(", ", empty), ar.Id, "Areas · " + label,
+                        actual: empty.Count + " kolum kosong", required: "setiap kolum Area PB p.36 berisi", coverage: cov, key: "area|" + ar.Id)
+                    .En("Area " + label + " | " + string.Join(", ", empty));
             }
             if (fails == 0)
                 yield return SpecChecks.Pass(id, placed.Count + " room × " + columns.Count + " kolum berisi" + (pb.Count > 0 ? " (termasuk kolum wajib LOi " + loi + ", PB p.37)" : ""), placed.Count, cov)

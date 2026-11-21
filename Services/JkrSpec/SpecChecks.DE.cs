@@ -107,8 +107,9 @@ namespace RevitWebAppSync.Services.JkrSpec
         /// <see cref="AuditNaming.IsJkrName"/> defines it (the repo's JKR naming rule, shared
         /// with fill_audit). A bare material name ("UPVC") is NOT JKR coding: fill_audit's
         /// looser <see cref="AuditNaming.IsSectionDCompliant"/> accepts it, the spec does not.
-        /// Generic names ("Door 1", "Basic Wall") fail at once. Coverage is FailOnly: the
-        /// pattern is tested, not whether the code exists in the JKR code list (backend).
+        /// Generic names ("Door 1", "Basic Wall") fail at once. Coverage is Full (AI-475):
+        /// the rule the add-in can prove from the model is the coding pattern; whether the code
+        /// exists in the JKR code list stays the backend's, and a backend fail still counts.
         /// </summary>
         private static IEnumerable<SpecResult> DaTypeNames(SpecModel m)
         {
@@ -132,12 +133,12 @@ namespace RevitWebAppSync.Services.JkrSpec
                 var en = name.Length == 0
                     ? $"{t.Category}: unnamed type ({t.InstanceCount} elements) does not follow JKR coding"
                     : $"{t.Category}: type '{name}' ({t.InstanceCount} elements) does not follow JKR coding{(generic ? " (generic name)" : "")} — no '(XXnnn)' code or 'jkrAR' prefix";
-                yield return FailType(id, t, bm, en, SpecCoverage.FailOnly, actual: name,
+                yield return FailType(id, t, bm, en, SpecCoverage.Full, actual: name,
                                       required: "(XXnnn) … / jkrAR_…");
             }
             foreach (var kv in ok)
-                yield return Pass(id, $"{kv.Key}: {kv.Value} type ikut pola coding JKR (kod belum disahkan dengan senarai kod JKR)", kv.Value, SpecCoverage.FailOnly)
-                    .En($"{kv.Key}: {kv.Value} types follow the JKR coding pattern (codes not yet checked against the JKR code list)").InCat(kv.Key);
+                yield return Pass(id, $"{kv.Key}: {kv.Value} type ikut pola coding JKR", kv.Value, SpecCoverage.Full)
+                    .En($"{kv.Key}: {kv.Value} types follow the JKR coding pattern").InCat(kv.Key);
             if (byFamily > 0)
                 yield return SpecChecks.Context(id, $"{byFamily} type diterima kerana kod JKR pada nama family (nama type hanya saiz/varian)")
                     .En($"{byFamily} types accepted because the JKR code is in the family name (the type name holds only the size/variant)");
@@ -221,8 +222,9 @@ namespace RevitWebAppSync.Services.JkrSpec
         /// <summary>
         /// Db.2 (T 22:28–22:29; PB p.35): each placed type in a Buku Parameter AR category has
         /// at least one material, and every material on it is JKR-coded ("jkrAR_…"). No
-        /// material → fail; any material without the prefix → fail. FailOnly: the prefix is
-        /// tested, not the code against the JKR code list (backend).
+        /// material → fail; any material without the prefix → fail. Full (AI-475): the prefix and
+        /// presence are what the add-in proves from the model; the code against the JKR code list
+        /// stays the backend's, and a backend fail still counts.
         /// </summary>
         private static IEnumerable<SpecResult> DbMaterials(SpecModel m)
         {
@@ -237,7 +239,7 @@ namespace RevitWebAppSync.Services.JkrSpec
                     yield return FailType(id, t,
                         $"{t.Category}: type '{t.TypeName}' tiada material",
                         $"{t.Category}: type '{t.TypeName}' has no material",
-                        SpecCoverage.FailOnly, actual: "tiada material", required: "material jkrAR_…", keySuffix: ":none");
+                        SpecCoverage.Full, actual: "tiada material", required: "material jkrAR_…", keySuffix: ":none");
                     continue;
                 }
                 var bad = mats.Where(x => !IsJkrMaterial(x)).ToList();
@@ -246,11 +248,11 @@ namespace RevitWebAppSync.Services.JkrSpec
                 yield return FailType(id, t,
                     $"{t.Category}: type '{t.TypeName}' guna material tidak ikut coding JKR: {list}",
                     $"{t.Category}: type '{t.TypeName}' uses materials not JKR-coded: {list}",
-                    SpecCoverage.FailOnly, actual: string.Join(", ", bad), required: "jkrAR_…", keySuffix: ":code");
+                    SpecCoverage.Full, actual: string.Join(", ", bad), required: "jkrAR_…", keySuffix: ":code");
             }
             foreach (var kv in ok)
-                yield return Pass(id, $"{kv.Key}: {kv.Value} type: material terisi dan berawalan JKR (kod belum disahkan dengan senarai kod JKR)", kv.Value, SpecCoverage.FailOnly)
-                    .En($"{kv.Key}: {kv.Value} types: materials filled and JKR-prefixed (codes not yet checked against the JKR code list)").InCat(kv.Key);
+                yield return Pass(id, $"{kv.Key}: {kv.Value} type: material terisi dan berawalan JKR", kv.Value, SpecCoverage.Full)
+                    .En($"{kv.Key}: {kv.Value} types: materials filled and JKR-prefixed").InCat(kv.Key);
         }
 
         // ─── Dc.1 — numbers in the type name tally with the geometry ───
@@ -320,17 +322,21 @@ namespace RevitWebAppSync.Services.JkrSpec
         /// geometry parameter it names — "Wall 146" → Width 146; door "900 x 2325" → Width 900,
         /// Height 2325 (see <see cref="NameNumbers"/>). Mismatches only (±1 mm): one fail per
         /// type, "Type name | value in name | parameter | actual". A name number whose parameter
-        /// the snapshot lacks is unjudged. FailOnly: names whose numbers cannot be read
-        /// unambiguously are not checked.
+        /// the snapshot lacks is unjudged. Full (AI-475) when every number in a judged category's
+        /// names was read; FailOnly when some name has numbers that cannot be read
+        /// unambiguously (those types are not checked). The ±1 mm tolerance is ASSUMED: the
+        /// spec gives none (question Q-Dc.1 of D4), and every Dc.1 remark says so.
         /// </summary>
         private static IEnumerable<SpecResult> DcNameNumbers(SpecModel m)
         {
             const string id = "Dc.1";
             var ok = new Dictionary<string, int>(StringComparer.Ordinal);
+            var unread = 0;
+            var results = new List<SpecResult>();
             foreach (var t in TypesIn(m, SectionDCategories))
             {
                 var stated = NameNumbers(t.Category, t.TypeName);
-                if (stated.Count == 0) continue;
+                if (stated.Count == 0) { if (HasUnreadNumbers(t)) unread++; continue; }
                 var bad = new List<string>();
                 var badEn = new List<string>();
                 var missing = new List<string>();
@@ -345,24 +351,36 @@ namespace RevitWebAppSync.Services.JkrSpec
                 }
                 if (bad.Count > 0)
                 {
-                    yield return FailType(id, t,
-                        $"{t.Category}: type '{t.TypeName}' — nilai dalam nama tidak padan: {string.Join("; ", bad)}",
-                        $"{t.Category}: type '{t.TypeName}' — number in the name does not match: {string.Join("; ", badEn)}",
-                        SpecCoverage.FailOnly,
+                    results.Add(FailType(id, t,
+                        $"{t.Category}: type '{t.TypeName}' — nilai dalam nama tidak padan: {string.Join("; ", bad)} (toleransi ±1 mm: andaian, belum ditetapkan spesifikasi)",
+                        $"{t.Category}: type '{t.TypeName}' — number in the name does not match: {string.Join("; ", badEn)} (±1 mm tolerance: assumed, not set by the spec)",
+                        SpecCoverage.Full,
                         actual: string.Join("; ", stated.Where(x => t.Numbers.ContainsKey(x.Param)).Select(x => x.Param + " " + Mm(t.Numbers[x.Param]))),
-                        required: string.Join("; ", stated.Select(x => x.Param + " " + Mm(x.Value))));
+                        required: string.Join("; ", stated.Select(x => x.Param + " " + Mm(x.Value)))));
                 }
                 else if (missing.Count > 0)
                 {
-                    yield return UnjudgedType(id, t,
+                    results.Add(UnjudgedType(id, t,
                         $"{t.Category}: type '{t.TypeName}' — nilai {string.Join(", ", missing)} tidak dibaca dari model; tidak dapat dibanding dengan nama",
-                        $"{t.Category}: type '{t.TypeName}' — {string.Join(", ", missing)} was not read from the model; cannot compare with the name");
+                        $"{t.Category}: type '{t.TypeName}' — {string.Join(", ", missing)} was not read from the model; cannot compare with the name"));
                 }
                 else Bump(ok, t.Category);
             }
+            foreach (var r in results) yield return r;
+            var cov = unread > 0 ? SpecCoverage.FailOnly : SpecCoverage.Full;
             foreach (var kv in ok)
-                yield return Pass(id, $"{kv.Key}: {kv.Value} type: nilai dalam nama padan dengan parameter geometri", kv.Value, SpecCoverage.FailOnly)
-                    .En($"{kv.Key}: {kv.Value} types: numbers in the name match the geometry").InCat(kv.Key);
+                yield return Pass(id, $"{kv.Key}: {kv.Value} type: nilai dalam nama padan dengan parameter geometri (toleransi ±1 mm: andaian)", kv.Value, cov)
+                    .En($"{kv.Key}: {kv.Value} types: numbers in the name match the geometry (±1 mm tolerance: assumed)").InCat(kv.Key);
+        }
+
+        /// <summary>The type's name has a number in a category Dc.1 judges, but
+        /// <see cref="NameNumbers"/> could not read it (several candidates, out of range): that
+        /// type is not checked.</summary>
+        private static bool HasUnreadNumbers(SpecType t)
+        {
+            if (!IsDoorOrWindow(t.Category) && SingleParamOf(t.Category) == null) return false;
+            var s = Bracketed.Replace(t.TypeName ?? "", " ");
+            return Pair.IsMatch(s) || Single.IsMatch(s);
         }
 
         // ─── Dd.1 — name ↔ Revit category ───
@@ -455,17 +473,19 @@ namespace RevitWebAppSync.Services.JkrSpec
         /// Dd.1 (T 22:35): the Revit category must be the one the name implies — a window
         /// type is not in Doors, a floor is in Floors. Expected category from the JKR
         /// component code in the type name (strongest; <see cref="CodeCategories"/>), else
-        /// from the first word of the type or family name (EN/BM keywords). Mismatches only;
-        /// FailOnly, since names without a code or keyword are not judged.
+        /// from the first word of the type or family name (EN/BM keywords). Mismatches only. Full
+        /// (AI-475) when every type's name said something judgeable; FailOnly when some type's
+        /// name has no code or keyword (that type is not judged, so a pass is partial).
         /// </summary>
         private static IEnumerable<SpecResult> DdNameCategory(SpecModel m)
         {
             const string id = "Dd.1";
             var ok = new Dictionary<string, int>(StringComparer.Ordinal);
+            var unjudged = 0;
             foreach (var t in TypesIn(m, SectionDCategories))
             {
                 var exp = ExpectedCategories(t);
-                if (exp == null) continue;
+                if (exp == null) { unjudged++; continue; }
                 if (In(exp.Value.Categories, t.Category)) { Bump(ok, t.Category); continue; }
                 var expected = string.Join(" / ", exp.Value.Categories);
                 var srcEn = exp.Value.Source.StartsWith("kod", StringComparison.Ordinal) ? exp.Value.Source.Replace("kod", "code")
@@ -473,10 +493,11 @@ namespace RevitWebAppSync.Services.JkrSpec
                 yield return FailType(id, t,
                     $"Type '{t.TypeName}' dalam kategori {t.Category} — {exp.Value.Source} menunjukkan {expected}",
                     $"Type '{t.TypeName}' is in {t.Category} — its {srcEn} says {expected}",
-                    SpecCoverage.FailOnly, actual: t.Category, required: expected);
+                    SpecCoverage.Full, actual: t.Category, required: expected);
             }
+            var cov = unjudged > 0 ? SpecCoverage.FailOnly : SpecCoverage.Full;
             foreach (var kv in ok)
-                yield return Pass(id, $"{kv.Key}: {kv.Value} type: kategori Revit padan dengan nama", kv.Value, SpecCoverage.FailOnly)
+                yield return Pass(id, $"{kv.Key}: {kv.Value} type: kategori Revit padan dengan nama", kv.Value, cov)
                     .En($"{kv.Key}: {kv.Value} types: Revit category matches the name").InCat(kv.Key);
         }
 

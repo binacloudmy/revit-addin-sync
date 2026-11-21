@@ -614,6 +614,40 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(SpecState.Partial, State("C1.6.3", m).State);
         }
 
+        private static SpecArea FilledArea(long id, string name, double area = 30) =>
+            new SpecArea { Id = id, Name = name, LevelName = "Aras 01", Area = area,
+                           Params = SpecPbData.AreaFields.ToDictionary(f => f.Name, f => "x") };
+
+        [Fact]
+        public void C1_6_3_judges_the_Area_columns_of_each_placed_area_and_is_full_once_areas_are_read()
+        {
+            var m = Compliant();
+            m.CategoryCounts["Areas"] = 2;
+            m.AreasRead = true;
+            m.Areas.Add(FilledArea(300, "Pejabat"));
+            m.Areas.Add(FilledArea(301, "Stor"));
+            m.Areas[1].Params["Luas_Brif_jkr_sia"] = " ";    // PB p.36, LOi 100+
+            var fails = Fails(Run("C1.6.3", m));
+            var f = Assert.Single(fails);
+            Assert.Equal(301, f.ElementId);
+            Assert.Equal("Area Stor (Aras 01) | Luas_Brif_jkr_sia", f.Note);
+            Assert.Equal(SpecCoverage.Full, f.Coverage);
+
+            m.Areas[1].Params["Luas_Brif_jkr_sia"] = "40";
+            var pass = Assert.Single(Run("C1.6.3", m));
+            Assert.Equal(SpecCoverage.Full, pass.Coverage);
+            Assert.Equal(SpecState.Pass, State("C1.6.3", m).State);
+        }
+
+        [Fact]
+        public void C1_6_3_areas_not_read_keep_the_pass_partial()
+        {
+            var m = Compliant();
+            m.CategoryCounts["Areas"] = 2;                   // present, contents not read (old snapshot)
+            Assert.Equal(SpecCoverage.FailOnly, Assert.Single(Run("C1.6.3", m)).Coverage);
+            Assert.Equal(SpecState.Partial, State("C1.6.3", m).State);
+        }
+
         // ══════════════ C2 / C3 ══════════════
 
         [Fact]
