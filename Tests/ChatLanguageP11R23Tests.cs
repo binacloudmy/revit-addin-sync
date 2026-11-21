@@ -70,11 +70,36 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void TheAddInVersion_Is0_0_167()
+        public void AMalayTurnWithNoCard_EndsWithAMalayChip_EvenInANewChat()
+        {
+            // L14 e33b2db9 / 824dbaae: a new chat (the chip reset to English), a Malay prompt, a read-only answer with no card. IsSending's
+            // end set "Done" before the reply was drawn and AfterResult kept it, so nothing re-read the chip: it said "Done". Now the chip
+            // takes the thread's language when the send starts, and is raised again once the turn's language is set.
+            var thread = new List<ChatMessage>();
+            Assert.Equal(ReceiptLanguage.En, TurnStatusText.ChipLanguage(thread));                 // the new chat
+            thread.Add(Msg("user", "Kira jumlah beban elektrik (watt) semua lampu dalam view ini. Jangan ubah apa-apa."));
+            thread.Add(Msg("ai", "Thinking…"));                                                     // the live placeholder, English by default
+            var atSend = TurnStatusText.ChipLanguage(thread);
+            Assert.Equal(ReceiptLanguage.Ms, atSend);
+            Assert.Equal(TurnStatusText.Of("Running", false, ReceiptLanguage.Ms), TurnStatusText.Of("Running", false, atSend));
+            Assert.Equal(TurnStatusText.Of("Done", false, ReceiptLanguage.Ms), TurnStatusText.Of(TurnStatus.AfterResult("Done", false, false), false, atSend));
+            Assert.NotEqual(TurnStatusText.Of("Done", false, ReceiptLanguage.En), TurnStatusText.Of("Done", false, atSend));
+            // An English turn in the same pane stays English.
+            Assert.Equal(ReceiptLanguage.En, TurnStatusText.ChipLanguage(new List<ChatMessage> { Msg("user", "Calculate the total lighting load in this view.") }));
+
+            var vm = Src("UI/Copilot/CopilotViewModel.cs");
+            Assert.Contains("if (value) { _statusLang = Model.TurnStatusText.ChipLanguage(Thread); RunStatus = \"Running\"; Raise(nameof(RunStatusText)); }", vm);
+            var set = vm.IndexOf("_statusLang = cardLang;", System.StringComparison.Ordinal);
+            Assert.True(set > 0);
+            Assert.True(vm.IndexOf("Raise(nameof(RunStatusText));", set, System.StringComparison.Ordinal) < vm.IndexOf("if (rr.Ask != null)", set, System.StringComparison.Ordinal));
+        }
+
+        [Fact]
+        public void TheAddInVersion_Is0_0_168()
         {
             var m = Regex.Match(Src("RevitWebAppSync.csproj"), @"<Version Condition=""'\$\(Version\)' == ''"">([0-9.]+)</Version>");
             Assert.True(m.Success);
-            Assert.Equal("0.0.167", m.Groups[1].Value);
+            Assert.Equal("0.0.168", m.Groups[1].Value);
         }
     }
 }
