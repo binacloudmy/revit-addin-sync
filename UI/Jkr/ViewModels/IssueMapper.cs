@@ -126,7 +126,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 // AND with ElementId>0: backend can report Locatable=true for
                 // element-less issues (e.g. Project Base Point, element_id=0);
                 // without the element the Locate button would render and no-op.
-                Locatable = dto.Locatable && dto.ElementId > 0,
+                Locatable = dto.ElementId > 0 || JkrRowControls.LocateTargetOf(category, dto.CheckId) != JkrLocateTarget.Element,
+                LocateTarget = dto.ElementId > 0 ? JkrLocateTarget.Element : JkrRowControls.LocateTargetOf(category, dto.CheckId),
                 FixReference = dto.FixReference ?? "",
             };
             // AI-434: several valid codes → a picker row (never auto-fixable, never in Fix all).
@@ -285,7 +286,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     Priority = PriorityOf(check?.Severity),
                     Status = IssueStatus.Open,
                     RevitElementId = firstId,
-                    Locatable = firstId > 0,
+                    LocateTarget = firstId > 0 ? JkrLocateTarget.Element : JkrRowControls.LocateTargetOf("", checkId),
+                    Locatable = firstId > 0 || JkrRowControls.LocateTargetOf("", checkId) != JkrLocateTarget.Element,
                     LocateCount = Math.Max(1, ids.Count),
                     BorangKey = borangKey,
                     Element = new ElementRef

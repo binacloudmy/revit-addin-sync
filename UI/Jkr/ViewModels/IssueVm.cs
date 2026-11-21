@@ -288,6 +288,9 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// Controls visibility of the "Locate in 3D" button.</summary>
         public bool Locatable { get; set; }
 
+        /// <summary>AI-480: where Locate goes when there is no element id (Project Information, base point, links).</summary>
+        public JkrLocateTarget LocateTarget { get; set; } = JkrLocateTarget.Element;
+
         /// <summary>JKR spec reference for the fix (e.g. "Doc 09 — BIM Spesifikasi Parameter JKR").
         /// Shown in the fix tab so users know which spec mandates the change.</summary>
         public string FixReference { get; set; } = "";
@@ -367,7 +370,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public bool IsResolved => Status == IssueStatus.Fixed || Status == IssueStatus.Approved;
         public bool CanIgnore  => JkrTierMap.CanIgnore(Priority);
         public bool CanApprove => JkrTierMap.CanApprove(Priority);
-        public bool CanMarkManual => JkrTierMap.CanMarkManual(Priority);
+        public bool CanMarkManual => JkrRowControls.CanMarkManual(JkrTierMap.CanMarkManual(Priority), JkrRowControls.HasFixControl(AutoFixable, AiFixCandidate, IsPick));
         public bool ShowAutoFixButton => IsActionable && AutoFixable;
         public bool ShowIgnoreButton  => IsAiOpen && CanIgnore;  // only from Open → Ignored
         public bool ShowApproveButton => IsActionable && CanApprove;
