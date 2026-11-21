@@ -59,11 +59,17 @@ namespace BinaVibe.Copilot.Writes
 
         // r23 (AI-456): a selection swap of run_revit_code never outlives the request it was made in.
         public Task<PreviewOutcome> PreviewAsync(WriteBatch batch, CancellationToken ct) =>
-            RevitThread.RunAsync(app => { try { return PreviewBatch(app, batch); } finally { Code.RevitCodeHost.ForgetSelectionSwap(); RefreshCommandState(app); } }, ct);
+            RevitThread.RunAsync(app =>
+            {
+                var selectedAtStart = SelectedIds(app);
+                try { return PreviewBatch(app, batch); }
+                finally { Code.RevitCodeHost.ForgetSelectionSwap(); RefreshCommandState(app, batch.TurnId, selectedAtStart); }
+            }, ct);
 
         public Task<CommitOutcome> CommitAsync(WriteBatch batch, PreviewOutcome preview, string planHash, CancellationToken ct) =>
             RevitThread.RunAsync(app =>
             {
+                var selectedAtStart = SelectedIds(app);
                 var track = new CommitTrack();
                 try { return CommitBatch(app, batch, preview, planHash, track); }
                 finally
@@ -73,22 +79,36 @@ namespace BinaVibe.Copilot.Writes
                     // (re-audit: a throw after Assimilate must not reselect written doors); the commit's own give-back decides then.
                     if (Code.TurnSelection.GiveBackAtCommitEnd(track.Doc != null, track.GroupKept)) Code.RevitCodeHost.GiveBackSelection(track.Doc, track.UiDoc);
                     Code.RevitCodeHost.ForgetSelectionSwap();
-                    RefreshCommandState(app);   // r23 (P16 G3 7241e714): after the give-back, never instead of it
+                    RefreshCommandState(app, batch.TurnId, selectedAtStart);   // r23 (P16 G3 7241e714): after the give-back, never instead of it
                 }
             }, ct);
 
         /// <summary>r23 (live P16 G3 7241e714): at the end of every write request, Revit's ribbon and view-routed commands (Select by ID)
         /// follow the selection again: the active view's window is activated as after a find (ViewActivation.Show). No view change, no
         /// selection change; only for a valid document with no transaction open (WriteEndRefresh). Never throws.</summary>
-        private static void RefreshCommandState(UIApplication app)
+        private static void RefreshCommandState(UIApplication app, string? turnId, IReadOnlyList<long>? selectedAtStart)
         {
             try
             {
                 var doc = app?.ActiveUIDocument?.Document;
-                if (!WriteEndRefresh.Applies(doc != null, doc != null && doc.IsValidObject, doc != null && doc.IsValidObject && doc.IsModifiable)) return;
+                // Audit of b3e3c99b: only when Revit's selection changed during this request, and once per turn (the activation holds the
+                // keyboard about a second; a drafter typing the next step must not lose keys on every read pass and preview).
+                if (!WriteEndRefresh.Applies(doc != null, doc != null && doc.IsValidObject, doc != null && doc.IsValidObject && doc.IsModifiable,
+                        selectedAtStart, SelectedIds(app!), turnId, _refreshedTurn)) return;
+                _refreshedTurn = turnId;
                 RevitWebAppSync.UI.Copilot.Model.ClickTrace.Sink("write end: " + ViewActivation.Show(app!));
             }
             catch (Exception) { /* a refresh is a convenience: the write's outcome stands */ }
+        }
+
+        // r23: the turn whose write request last refreshed Revit's command state (Revit's one API thread).
+        private static string? _refreshedTurn;
+
+        /// <summary>Revit's selected host ids now; empty when there is no document or it cannot be read.</summary>
+        private static IReadOnlyList<long> SelectedIds(UIApplication? app)
+        {
+            try { return app?.ActiveUIDocument?.Selection.GetElementIds().Select(id => (long)id.Value).ToList() ?? new List<long>(); }
+            catch (Exception) { return new List<long>(); }
         }
 
         /// <summary>r23: what CommitAsync's finally needs: the batch's document once it was checked, and whether the group was kept.</summary>
