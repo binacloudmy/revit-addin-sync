@@ -31,6 +31,11 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// palette) and no turn running; any other Up keeps its own meaning (caret up, list up).</summary>
         public static bool RecallsOnUp(string composerText, bool popupOpen, bool busy) =>
             !busy && !popupOpen && string.IsNullOrEmpty(composerText);
+
+        /// <summary>r23 (observations part A): and only with the caret at index 0 of that empty box (a box that only looks empty, or a
+        /// caret anywhere else, keeps Up as the caret's own key).</summary>
+        public static bool RecallsOnUp(string composerText, bool popupOpen, bool busy, int caretIndex) =>
+            caretIndex == 0 && RecallsOnUp(composerText, popupOpen, busy);
     }
 
     /// <summary>

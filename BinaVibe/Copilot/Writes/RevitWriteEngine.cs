@@ -59,7 +59,7 @@ namespace BinaVibe.Copilot.Writes
 
         // r23 (AI-456): a selection swap of run_revit_code never outlives the request it was made in.
         public Task<PreviewOutcome> PreviewAsync(WriteBatch batch, CancellationToken ct) =>
-            RevitThread.RunAsync(app => { try { return PreviewBatch(app, batch); } finally { Code.RevitCodeHost.ForgetSelectionSwap(); } }, ct);
+            RevitThread.RunAsync(app => { try { return PreviewBatch(app, batch); } finally { Code.RevitCodeHost.ForgetSelectionSwap(); RefreshCommandState(app); } }, ct);
 
         public Task<CommitOutcome> CommitAsync(WriteBatch batch, PreviewOutcome preview, string planHash, CancellationToken ct) =>
             RevitThread.RunAsync(app =>
@@ -73,8 +73,23 @@ namespace BinaVibe.Copilot.Writes
                     // (re-audit: a throw after Assimilate must not reselect written doors); the commit's own give-back decides then.
                     if (Code.TurnSelection.GiveBackAtCommitEnd(track.Doc != null, track.GroupKept)) Code.RevitCodeHost.GiveBackSelection(track.Doc, track.UiDoc);
                     Code.RevitCodeHost.ForgetSelectionSwap();
+                    RefreshCommandState(app);   // r23 (P16 G3 7241e714): after the give-back, never instead of it
                 }
             }, ct);
+
+        /// <summary>r23 (live P16 G3 7241e714): at the end of every write request, Revit's ribbon and view-routed commands (Select by ID)
+        /// follow the selection again: the active view's window is activated as after a find (ViewActivation.Show). No view change, no
+        /// selection change; only for a valid document with no transaction open (WriteEndRefresh). Never throws.</summary>
+        private static void RefreshCommandState(UIApplication app)
+        {
+            try
+            {
+                var doc = app?.ActiveUIDocument?.Document;
+                if (!WriteEndRefresh.Applies(doc != null, doc != null && doc.IsValidObject, doc != null && doc.IsValidObject && doc.IsModifiable)) return;
+                RevitWebAppSync.UI.Copilot.Model.ClickTrace.Sink("write end: " + ViewActivation.Show(app!));
+            }
+            catch (Exception) { /* a refresh is a convenience: the write's outcome stands */ }
+        }
 
         /// <summary>r23: what CommitAsync's finally needs: the batch's document once it was checked, and whether the group was kept.</summary>
         private sealed class CommitTrack

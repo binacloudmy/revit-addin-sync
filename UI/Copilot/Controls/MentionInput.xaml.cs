@@ -689,7 +689,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
             // Up in an EMPTY box with no list open brings back the last prompt to change and send again (r17). Never sends.
             if (e.Key == Key.Up && Keyboard.Modifiers == ModifierKeys.None && RecallLast != null
-                && RevitWebAppSync.UI.Copilot.Model.PromptRecall.RecallsOnUp(Editor.Text, Picker.IsOpen || _slashOpen, busy: false))
+                && RevitWebAppSync.UI.Copilot.Model.PromptRecall.RecallsOnUp(Editor.Text, Picker.IsOpen || _slashOpen, busy: false, caretIndex: Editor.CaretIndex))
             {
                 var last = RecallLast();
                 if (!string.IsNullOrEmpty(last)) { PutPrompt(last); e.Handled = true; return; }
