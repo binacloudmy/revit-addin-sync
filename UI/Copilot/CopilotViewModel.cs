@@ -1216,8 +1216,10 @@ namespace RevitWebAppSync.UI.Copilot
                 try
                 {
                     var snap = router.TurnSnapshot;
-                    var scope = RunningText.ScopeText(snap?.View?.Name, snap?.Selection?.Count ?? 0, router.ChatLanguage);   // r23: "· 2 dipilih" in a Malay chat
-                    _pane.RunOnUi(() => RunScope = scope);
+                    var view = snap?.View?.Name; var count = snap?.Selection?.Count ?? 0;
+                    // r23 (re-audit): the chip reads the thread's language, the one source of the placeholder and the Working card
+                    // (the router's is cleared when a chat is reopened), so a reopened Malay chat says "· 2 dipilih".
+                    _pane.RunOnUi(() => RunScope = RunningText.ScopeText(view, count, PromptLanguage.OfThread(Thread)));
                 }
                 catch (Exception) { /* the chip is a convenience */ }
                 _lastSteps = steps;

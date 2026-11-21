@@ -1499,15 +1499,9 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         /// English in a Malay chat while the rows were Malay). G8 (English) still holds for the result card and its receipts.</summary>
         private ReceiptLanguage LiveLanguage()
         {
-            try
-            {
-                var thread = Vm?.Thread;
-                var last = thread?.LastOrDefault(t => t.Role == "user");
-                if (thread == null || last == null || string.IsNullOrWhiteSpace(last.Text)) return ReceiptLanguage.En;
-                // r22 (sticky language): a neutral "ok" / "ya" at a Malay card keeps the chat's language, as the router does (PromptLanguage.Follow)
-                var before = thread.Take(thread.IndexOf(last)).LastOrDefault(t => t.Role == "ai");
-                return PromptLanguage.Follow(last.Text, before == null ? (ReceiptLanguage?)null : before.Lang);
-            }
+            // r22 (sticky language): a neutral "ok" at a Malay card keeps the chat's language, as the router does (PromptLanguage.Follow);
+            // r23: the rule is PromptLanguage.OfThread, which the composer's scope chip reads too.
+            try { return PromptLanguage.OfThread(Vm?.Thread); }
             catch (System.Exception) { return ReceiptLanguage.En; }
         }
 

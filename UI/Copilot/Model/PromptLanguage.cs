@@ -78,6 +78,18 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return Detect(prompt);
         }
 
+        /// <summary>The running turn's language from the chat's thread (r18/r22, moved here in r23 so the Working card, the composer's
+        /// placeholder and its scope chip read ONE source): the last drafter message, a neutral one ("ok", "retry")
+        /// keeping the language of the reply before it (<see cref="Follow"/>); English for an empty thread.</summary>
+        public static ReceiptLanguage OfThread(IList<ChatMessage>? thread)
+        {
+            if (thread == null) return ReceiptLanguage.En;
+            var last = thread.LastOrDefault(t => t?.Role == "user");
+            if (last == null || string.IsNullOrWhiteSpace(last.Text)) return ReceiptLanguage.En;
+            var before = thread.Take(thread.IndexOf(last)).LastOrDefault(t => t?.Role == "ai");
+            return Follow(last.Text, before == null ? (ReceiptLanguage?)null : before.Lang);
+        }
+
         /// <summary>The language the server resolved for the turn (<c>result.lang</c>), else <paramref name="fallback"/>.</summary>
         public static ReceiptLanguage FromServer(string? lang, ReceiptLanguage fallback) =>
             string.Equals(lang, "ms", StringComparison.OrdinalIgnoreCase) ? ReceiptLanguage.Ms
