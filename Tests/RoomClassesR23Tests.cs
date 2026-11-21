@@ -45,6 +45,70 @@ namespace RevitAddinSync.Tests
             Assert.Equal(100, counts.Values.Sum());
         }
 
+        private static FoundRow Room(long id, string level, string status) => new FoundRow
+        {
+            Ref = new BinaVibe.Copilot.Contracts.ElementRef(id, null), Category = "Rooms", Level = level, RoomStatus = status,
+            AreaInternal = status == RoomStatus.Placed ? 10 / 0.09290304 : 0,
+        };
+
+        private static System.Text.Json.JsonElement RoomsOf(bool inView, int? notPlacedOnLevel)
+        {
+            Assert.True(QueryParser.TryParse(System.Text.Json.JsonDocument.Parse(inView ? "{\"queries\":[{\"category\":\"Rooms\",\"in_view\":true}]}" : "{\"queries\":[{\"category\":\"Rooms\"}]}").RootElement.Clone(), out var plan, out var error), error);
+            var o = new FindOutcome { Sources = { "host" }, Categories = { "Rooms" }, Handle = "h_00000001", AreaUnit = "m²", InView = inView, RoomsNotPlacedOnLevel = notPlacedOnLevel };
+            // P13 C2 36f24f81 shape: the view shows rooms of PTBR_Aras 01 and of another level (all redundant there).
+            var id = 1L;
+            for (var i = 0; i < 3; i++) o.Rows.Add(Room(id++, "PTBR_Aras 01", RoomStatus.Placed));
+            for (var i = 0; i < 2; i++) o.Rows.Add(Room(id++, "PTBR_Aras 01", RoomStatus.Redundant));
+            o.Rows.Add(Room(id++, "PTBR_Aras 01", RoomStatus.NotEnclosed));
+            for (var i = 0; i < 4; i++) o.Rows.Add(Room(id++, "PTBR_Aras 00", RoomStatus.Redundant));
+            o.Queries.Add(new QueryOutcome { Count = o.Rows.Count, Filter = "category = Rooms", Subject = "Rooms" });
+            return FindResultBuilder.Build(plan!, o).Data!.Value.GetProperty("rooms");
+        }
+
+        [Fact]
+        public void AnInViewRoomCount_IsSplitByLevel_AndSaysTheUnplacedRoomsOnTheViewsLevel()
+        {
+            var rooms = RoomsOf(inView: true, notPlacedOnLevel: 8);
+            Assert.Equal(3, rooms.GetProperty("placed").GetInt32());
+            Assert.Equal(6, rooms.GetProperty("redundant").GetInt32());
+            var by = rooms.GetProperty("by_level");
+            var a1 = by.GetProperty("PTBR_Aras 01");
+            Assert.Equal(3, a1.GetProperty("placed").GetInt32());
+            Assert.Equal(2, a1.GetProperty("redundant").GetInt32());
+            Assert.Equal(1, a1.GetProperty("not_enclosed").GetInt32());
+            var a0 = by.GetProperty("PTBR_Aras 00");
+            Assert.Equal(0, a0.GetProperty("placed").GetInt32());
+            Assert.Equal(4, a0.GetProperty("redundant").GetInt32());
+            Assert.Equal(8, rooms.GetProperty("not_placed_on_level").GetInt32());
+            // The view's own level adds up with the level plan: 8 not placed + 3 placed + 2 redundant + 1 not enclosed.
+            Assert.Equal(14, 8 + a1.GetProperty("placed").GetInt32() + a1.GetProperty("redundant").GetInt32() + a1.GetProperty("not_enclosed").GetInt32());
+        }
+
+        [Fact]
+        public void AFindNotInAView_KeepsItsRoomTotalsAsBefore()
+        {
+            var rooms = RoomsOf(inView: false, notPlacedOnLevel: null);
+            Assert.False(rooms.TryGetProperty("by_level", out _));
+            Assert.False(rooms.TryGetProperty("not_placed_on_level", out _));
+            Assert.Equal(3, rooms.GetProperty("placed").GetInt32());
+            // In a view with no level (a 3D view) the unplaced count is not sent, the split still is.
+            var noLevel = RoomsOf(inView: true, notPlacedOnLevel: null);
+            Assert.True(noLevel.TryGetProperty("by_level", out _));
+            Assert.False(noLevel.TryGetProperty("not_placed_on_level", out _));
+        }
+
+        [Fact]
+        public void TheExecutor_CountsUnplacedRoomsOnTheViewsGenLevel_DocumentWide()
+        {
+            var dir = new DirectoryInfo(Directory.GetCurrentDirectory());
+            while (dir != null && !File.Exists(Path.Combine(dir.FullName, "RevitWebAppSync.csproj"))) dir = dir.Parent;
+            var find = File.ReadAllText(Path.Combine(dir!.FullName, "BinaVibe", "Copilot", "Read", "FindExecutor.cs")).Replace("\r\n", "\n");
+            Assert.Contains("outcome.InView = plan.Queries.Any(q => q.InView);", find);
+            Assert.Contains("var level = view?.GenLevel;", find);
+            Assert.Contains("new FilteredElementCollector(ctx.Doc).OfCategory(BuiltInCategory.OST_Rooms).WhereElementIsNotElementType()", find);
+            Assert.Contains(".Count(r => r.Location == null && r.Level != null && r.Level.Id == level.Id);", find);
+        }
+
         [Fact]
         public void BothSameRegionWarnings_MarkARoomRedundant_AsInTheRoomsPlan()
         {
