@@ -1166,11 +1166,14 @@ namespace RevitWebAppSync.Services.JkrSpec
         // ════════════════════════════════════════════════════════════════════
 
         /// <summary>
-        /// A7.1 (T 21:42–21:43): every element in every category has a material. Per
-        /// placed type in a category where a material applies (everything but the
-        /// non-physical ones in <see cref="SpecA.NoMaterialCategories"/>, plus Planting and
-        /// Entourage, whose render content carries no Revit material): an empty material
-        /// list fails, as `Kategori | Type | Bil. elemen`.
+        /// A7.1 (T 21:42–21:43): every element in every category has a material. Judged per
+        /// element (AI-475): in each placed type of a category where a material applies
+        /// (everything but the non-physical ones in <see cref="SpecA.NoMaterialCategories"/>,
+        /// plus Planting and Entourage, whose render content carries no Revit material), the
+        /// instances with no material fail, as `Kategori | Type | n daripada N elemen`; the
+        /// failing result carries exactly those element ids. A snapshot without per-element data (old,
+        /// hand-made) falls back to the type's materials, as before. A pass is FailOnly when a
+        /// type has more instances than the reader's id cap (the rest were not read).
         /// </summary>
         private static IEnumerable<SpecResult> A71Materials(SpecModel m)
         {
@@ -1182,17 +1185,34 @@ namespace RevitWebAppSync.Services.JkrSpec
                 list.Add(Unjudged(id, "Tiada elemen model dibaca — material tidak dapat disemak", key: "no-types").En("No model elements read — materials cannot be checked"));
                 return list;
             }
-            var passed = 0;
+            var passedElements = 0;
+            var partly = false;
             foreach (var t in types)
             {
-                if (t.Materials.Any(x => !string.IsNullOrWhiteSpace(x))) { passed++; continue; }
-                var n = K.Count(t);
-                list.Add(Fail(id, $"{K.Or(t.Category)} | {K.TypeLabel(t)} | {n} elemen: tiada material", elementName: K.ElementLabel(t),
-                              actual: "tiada material", required: "material", key: K.TypeKey(t), elementIds: t.InstanceIds)
-                    .En($"{K.Or(t.Category)} | {K.TypeLabel(t)} | {n} elements: no material"));
+                var typeHas = t.Materials.Any(x => !string.IsNullOrWhiteSpace(x));
+                if (!t.ElementMaterialsRead)
+                {
+                    // No per-element data (old snapshot): the type's list stands for its elements.
+                    if (typeHas) { passedElements += Math.Max(1, t.InstanceCount); continue; }
+                    var n0 = K.Count(t);
+                    list.Add(Fail(id, $"{K.Or(t.Category)} | {K.TypeLabel(t)} | {n0} elemen: tiada material", elementName: K.ElementLabel(t),
+                                  actual: "tiada material", required: "material", key: K.TypeKey(t), elementIds: t.InstanceIds)
+                        .En($"{K.Or(t.Category)} | {K.TypeLabel(t)} | {n0} elements: no material"));
+                    continue;
+                }
+                var judged = t.InstanceIds.Count;
+                if (t.InstanceCount > judged) partly = true;   // more instances than the reader read
+                var bare = t.MateriallessIds.Distinct().ToList();
+                if (bare.Count == 0) { passedElements += Math.Max(judged, 0); continue; }
+                passedElements += Math.Max(judged - bare.Count, 0);
+                var total = Math.Max(t.InstanceCount, judged);
+                list.Add(Fail(id, $"{K.Or(t.Category)} | {K.TypeLabel(t)} | {bare.Count} daripada {total} elemen: tiada material", elementName: K.ElementLabel(t),
+                              actual: "tiada material", required: "material", key: K.TypeKey(t), elementIds: bare)
+                    .En($"{K.Or(t.Category)} | {K.TypeLabel(t)} | {bare.Count} of {total} elements: no material"));
             }
-            if (passed > 0)
-                list.Add(Pass(id, $"{passed} jenis elemen ada material", passed).En($"{passed} element types have a material"));
+            if (passedElements > 0)
+                list.Add(Pass(id, $"{passedElements} elemen ada material", passedElements, partly ? SpecCoverage.FailOnly : SpecCoverage.Full)
+                    .En($"{passedElements} elements have a material"));
             return list;
         }
 

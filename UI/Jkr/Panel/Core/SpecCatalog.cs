@@ -48,6 +48,11 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public Text NotComply { get; set; } = Text.Same("");
         /// <summary>The spec's "SEMAK MANUAL / nota" (BM verbatim; EN translation).</summary>
         public Text Manual { get; set; } = Text.Same("");
+        /// <summary>The spec's severity for a ✗ on this check: "critical" (the spec writes
+        /// KRITIKAL), "major" (the default; the spec writes nothing) or "minor". Same words as
+        /// the checker's severity, so IssueMapper.PriorityOf turns it into the board tier
+        /// (critical → High, major → Medium, minor → Low).</summary>
+        public string Severity { get; set; } = "major";
     }
 
     /// <summary>
@@ -542,6 +547,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 NotComply = T("Disiplin wajib tiada link ATAU status Unloaded → ✗ KRITIKAL",
                               "A required discipline has no link OR status Unloaded → ✗ CRITICAL"),
                 Manual = Dash,
+                Severity = "critical",
             },
             new SpecCheck("C5.1.2", "C5.1", T("Nama fail link vs BPEP",
                           "Link file names vs the BPEP"), Ai, "T 22:23–22:25")
