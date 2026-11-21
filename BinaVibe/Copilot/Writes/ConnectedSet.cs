@@ -5,7 +5,8 @@
 //
 // Connected means: an MEP connector neighbour of a target (physical connections only: a logical connection or a system is
 // not a neighbour), one more connector hop from those (the fitting beyond a transition), elements joined to a target
-// (JoinGeometryUtils) and a target's dependents (Element.GetDependentElements: insulation, lining, hosted inserts, tags).
+// (JoinGeometryUtils), a target's dependents (Element.GetDependentElements: insulation, lining, hosted inserts, tags) and (r22) the
+// MEP systems the targets and those connected elements belong to (MEPCurve.MEPSystem, Connector.MEPSystem), never any other system.
 // Every read is guarded: an element that cannot be read adds nothing. At most ConnectedDrift.MaxConnected ids; no set at
 // all above ConnectedDrift.MaxTargets targets (no force offered then).
 
@@ -49,6 +50,16 @@ namespace BinaVibe.Copilot.Writes
                 var e = Get(doc, id);
                 if (e == null) continue;
                 foreach (var n in ConnectorNeighbours(e)) Add(doc, found, targetSet, n);
+                if (found.Count >= ConnectedDrift.MaxConnected || clock.Elapsed > Budget) return found;
+            }
+            // r22 (live K3 4e3aa38e): the MEP system a target or a connected element belongs to changes with every resize (duct 1382112's Duct
+            // System 1365689), so it is part of that change. Only the systems of those elements: MEPCurve.MEPSystem for a duct or pipe, the
+            // connectors' MEPSystem for a fitting or equipment. No other system is ever counted.
+            foreach (var id in targetSet.Concat(found.Keys.ToList()).ToList())
+            {
+                var e = Get(doc, id);
+                if (e == null) continue;
+                foreach (var s in SystemsOf(e)) Add(doc, found, targetSet, s);
                 if (found.Count >= ConnectedDrift.MaxConnected || clock.Elapsed > Budget) return found;
             }
             complete = true;
@@ -107,6 +118,30 @@ namespace BinaVibe.Copilot.Writes
                 // An element whose connectors cannot be read adds no neighbours.
             }
             return ids;
+        }
+
+        /// <summary>The MEP systems <paramref name="e"/> itself belongs to (MEPCurve.MEPSystem; Connector.MEPSystem of a family instance's
+        /// connectors); none for anything else or when unreadable.</summary>
+        private static IEnumerable<long> SystemsOf(Element e)
+        {
+            var ids = new List<long>();
+            try
+            {
+                if (e is MEPCurve curve)
+                {
+                    if (curve.MEPSystem != null) ids.Add((long)curve.MEPSystem.Id.Value);
+                }
+                else if (e is FamilyInstance fi && fi.MEPModel?.ConnectorManager is ConnectorManager cm)
+                {
+                    foreach (Connector c in cm.Connectors)
+                        if (c?.MEPSystem != null) ids.Add((long)c.MEPSystem.Id.Value);
+                }
+            }
+            catch (Exception)
+            {
+                // A system that cannot be read adds nothing (the forced commit is then refused, the safe side).
+            }
+            return ids.Distinct();
         }
 
         private static IEnumerable<long> Joined(Document doc, Element e)
