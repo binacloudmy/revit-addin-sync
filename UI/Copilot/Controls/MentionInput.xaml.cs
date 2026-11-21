@@ -296,20 +296,18 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             BuildPicker(query);
         }
 
-        // Index of the "/" that starts the command token ending at the caret, or -1.
-        // The slash must sit at the start of the input or right after whitespace
-        // (so "and/or", URLs and paths don't trigger the palette), and the run from
-        // it to the caret must be a single unbroken token.
-        private static int LastSlashTrigger(string text, int caret)
+        // Index of the "/" that starts the command token ending at the caret, or -1 (rule in Model/SlashTrigger.cs).
+        private static int LastSlashTrigger(string text, int caret) => SlashTrigger.Find(text, caret);
+
+        /// <summary>r23 (AI-460, Z8): the "/" button on an EMPTY composer. Setting the text fires OnTextChanged while the caret
+        /// is still 0, where no "/" token ends, so the tools list stayed shut and only a "/" was left. Seed the "/", put the caret
+        /// after it, then detect: the palette opens exactly as for a typed "/" (a pick replaces the "/", Backspace closes it).</summary>
+        public void SeedSlash()
         {
-            for (int i = caret - 1; i >= 0; i--)
-            {
-                char c = text[i];
-                if (c == '/')
-                    return (i == 0 || char.IsWhiteSpace(text[i - 1])) ? i : -1;
-                if (char.IsWhiteSpace(c)) return -1;   // token broken before a slash
-            }
-            return -1;
+            if (Editor == null) return;
+            Editor.Text = "/";
+            Editor.CaretIndex = 1;
+            DetectToken();
         }
 
         private void OpenSlash(string text, int slashIdx, int caret)

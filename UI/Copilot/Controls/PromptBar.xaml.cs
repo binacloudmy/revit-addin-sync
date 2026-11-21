@@ -275,11 +275,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             // r17 (tester: "the / button inserted only a slash, no tools menu"): a composer with no palette attached never gets a lone "/";
             // a draft keeps its text and the palette opens over it.
             if (!Input.HasSlashPalette) { Input.Editor.Focus(); return; }
-            if (string.IsNullOrWhiteSpace(Input.Editor.Text))
-            {
-                Input.Editor.Text = "/";
-                Input.Editor.CaretIndex = 1;
-            }
+            // r23 (AI-460): an empty box seeds "/" with the caret after it and opens the list (the text set alone ran detection at caret 0).
+            if (string.IsNullOrWhiteSpace(Input.Editor.Text)) Input.SeedSlash();
             else Input.OpenSlashOverDraft();
             Input.Editor.Focus();
         }
