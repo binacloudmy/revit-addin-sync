@@ -137,7 +137,7 @@ namespace RevitWebAppSync.Tests
             Assert.Equal("D10", rows[0].Row);
             Assert.Equal(("Door 1", "jkrAR_x"), (rows[0].OldValue, rows[0].NewValue));
             Assert.Equal(("High", "High"), (rows[0].SvLabel, rows[0].SvKind));
-            Assert.Equal("High · Doors [204511] PT2p600a · Architectural families", rows[0].Meta);
+            Assert.Equal("High · Doors [204511] PT2p600a · Architectural families · Extra · outside the %", rows[0].Meta);
             Assert.True(rows[0].ShowFix);
             Assert.True(rows[0].IsSel);
             Assert.Equal("Still reads “Door 1”. Needs manual action.", rows[1].NoFixText);

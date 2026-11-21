@@ -87,8 +87,9 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(("Door 1", "jkrAR_x"), (row.OldValue, row.NewValue));
             Assert.Equal("", row.NoFixText);
             Assert.Equal("High", row.Sev);
-            // The Borang key leads the title, so the meta does not repeat "Borang D10".
-            Assert.Equal("High · Doors [204511] PT2p600a · Architectural families", row.Meta);
+            // The Borang key leads the title, so the meta does not repeat "Borang D10". The fixture row has a fix
+            // and no spec id, so it is an "extra" row (AI-479): on the board, outside the %.
+            Assert.Equal("High · Doors [204511] PT2p600a · Architectural families · Extra · outside the %", row.Meta);
             Assert.False(row.IsAiFixer);
             Assert.True(row.ShowFix);
         }
