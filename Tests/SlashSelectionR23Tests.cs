@@ -10,6 +10,7 @@
 //   "on the selected doors" found none. The swap stays (code sees the drafter's selection, live 14 Nov); a read run and a plan now give
 //   back what Revit held before it, and so does the write engine after a preview's rollback (a Cancel at the card) and after a commit
 //   that changed or made none of those elements; a commit that wrote them ends on the turn's selection (r13 2acc6aaf, live fb713fc2).
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using BinaVibe.Copilot.Code;
@@ -98,6 +99,36 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
+        public void TheScopeChipAndTheRunningButtonTips_FollowTheRunLanguage()
+        {
+            Assert.Equal("{PTBR_PELAN LANTAI ARAS 01} · 2 dipilih", RunningText.ScopeText("PTBR_PELAN LANTAI ARAS 01", 2, ReceiptLanguage.Ms));
+            Assert.Equal("{PTBR_PELAN LANTAI ARAS 01} · 2 selected", RunningText.ScopeText("PTBR_PELAN LANTAI ARAS 01", 2, ReceiptLanguage.En));
+            Assert.Equal(RunningText.ScopeText("{3D}", 52), RunningText.ScopeText("{3D}", 52, ReceiptLanguage.En));   // the English two-argument form is unchanged
+            Assert.Equal("{3D}", RunningText.ScopeText("3D", 0, ReceiptLanguage.Ms));
+            Assert.Equal("Berhenti", RunningText.StopTip(ReceiptLanguage.Ms));
+            Assert.Equal("Stop", RunningText.StopTip(ReceiptLanguage.En));
+            Assert.Equal("Beratur", RunningText.QueueTip(ReceiptLanguage.Ms));
+            Assert.Equal("Queue", RunningText.QueueTip(ReceiptLanguage.En));
+            var vm = Src("UI", "Copilot", "CopilotViewModel.cs");
+            Assert.Contains("RunningText.ScopeText(snap?.View?.Name, snap?.Selection?.Count ?? 0, router.ChatLanguage);", vm);
+            var bar = Body(Src("UI", "Copilot", "Controls", "PromptBar.xaml.cs"), "private void ApplyRunLanguage()");
+            Assert.Contains("_queueBtn.ToolTip = RunningText.QueueTip(_runLanguage);", bar);
+            Assert.Contains("SendBtn.ToolTip = RunningText.StopTip(_runLanguage);", bar);
+        }
+
+        [Fact]
+        public void TheToolsList_IsNeverEmpty_WhenThePromptLibraryOrTheCatalogueIsUnavailable()
+        {
+            // The "/" list is ToolCatalog.All (saved commands, then the curated tier), not the Commands tab's prompt library. With the
+            // backend catalogue unavailable (null or no live row) it is the built-in nine.
+            var builtIn = ToolCatalog.CuratedFrom(null);
+            Assert.Equal(new[] { "create", "delete", "change", "rename", "open-view", "count", "clone", "place", "audit" }, builtIn.Select(t => t.Id));
+            Assert.Same(ToolCatalog.Curated, ToolCatalog.CuratedFrom(new List<RevitWebAppSync.Models.CatalogCommandDto>()));
+            Assert.Contains(ToolCatalog.All, t => t.Name == "Count / List");
+            Assert.True(ToolCatalog.All.Count >= 9);
+        }
+
+        [Fact]
         public void TheChat_SetsTheRunLanguage_AsItDoesForTheWorkingCard()
         {
             var bar = Src("UI", "Copilot", "Controls", "PromptBar.xaml.cs");
@@ -159,7 +190,72 @@ namespace RevitAddinSync.Tests
             Assert.True(at > engine.IndexOf("AfterCommitRunner.Run(", System.StringComparison.Ordinal));               // after the code's own UI work
             Assert.True(at < engine.IndexOf("if (!noop) Highlight(uidoc!, doc!, envelopes, builder.AddedIds, select: false);", System.StringComparison.Ordinal));   // measured after
             Assert.Contains("try { return PreviewBatch(app, batch); } finally { Code.RevitCodeHost.ForgetSelectionSwap(); }", engine);
-            Assert.Contains("try { return CommitBatch(app, batch, preview, planHash); } finally { Code.RevitCodeHost.ForgetSelectionSwap(); }", engine);
+            // A commit that did not commit changed nothing: it gives back as a preview does, then forgets.
+            var commitAsync = engine.Substring(engine.IndexOf("public Task<CommitOutcome> CommitAsync(", System.StringComparison.Ordinal));
+            commitAsync = commitAsync.Substring(0, commitAsync.IndexOf("}, ct);", System.StringComparison.Ordinal));
+            Assert.Contains("if (outcome?.Kind != CommitKind.Committed) Code.RevitCodeHost.GiveBackSelection(app.ActiveUIDocument?.Document, app.ActiveUIDocument);", commitAsync);
+            Assert.True(commitAsync.IndexOf("GiveBackSelection", System.StringComparison.Ordinal) < commitAsync.IndexOf("ForgetSelectionSwap", System.StringComparison.Ordinal));
+        }
+
+        // ─── the swap ledger, as the tool and the engine drive it (audit of r23) ─────────────────────────────────────────
+
+        private static readonly long[] Doors = { 977255, 977284 };
+
+        [Fact]
+        public void ABatchOfTwoSelectionRuns_KeepsTheFirstSwap_SoACancelAfterThePreviewGivesTheDoorsBack()
+        {
+            var ledger = new SelectionSwapLedger();
+            // Preview: call 0 finds the find's doors selected, swaps in the turn's (empty) selection and records it.
+            ledger.Record(Doors, null, new long[0]);
+            // Call 1 finds the turn's selection already in place: UseTurnSelection records nothing, the first swap stays open.
+            Assert.True(ledger.Open);
+            // After the rollback (Cancel at the card next): the doors come back.
+            var back = ledger.Take(new long[0], All);
+            Assert.Equal(Doors, back!.Ids);
+            Assert.Null(back.References);
+            Assert.False(ledger.Open);                       // consumed: a second give-back does nothing
+            Assert.Null(ledger.Take(new long[0], All));
+        }
+
+        [Fact]
+        public void TheSwapRecordsWhatRevitKept_NotWhatWasAsked()
+        {
+            // The turn listed 3 ids but Revit kept 2 after the set (UiSelectionReadBack, c61a1d44): the give-back compares with the 2.
+            var ledger = new SelectionSwapLedger();
+            ledger.Record(Doors, null, new long[] { 101, 102 });
+            Assert.Equal(Doors, ledger.Take(new long[] { 102, 101 }, All)!.Ids);
+            // Had it recorded the 3 asked for, the same live selection would not match and nothing would come back.
+            Assert.Null(TurnSelection.GiveBack(Doors, new long[] { 101, 102, 103 }, new long[] { 101, 102 }, All));
+        }
+
+        [Fact]
+        public void LinkedPicks_ComeBackAsReferences_NeverAsTheLinkInstance()
+        {
+            var ledger = new SelectionSwapLedger();
+            var refs = new[] { "host-door-stable", "link-instance:0:RVTLINK/linked-door-stable" };
+            ledger.Record(new long[] { 977255, 5550001 /* the RevitLinkInstance GetElementIds reports */ }, refs, new long[0]);
+            var back = ledger.Take(new long[0], All);
+            Assert.Equal(refs, back!.References);
+            Assert.Empty(back.Ids);                          // no SetElementIds of the link instance
+            // The same guards hold: changed since, or written by the commit, nothing comes back.
+            ledger.Record(new long[] { 977255 }, refs, new long[0]);
+            Assert.Null(ledger.Take(new long[] { 42 }, All));
+            ledger.Record(new long[] { 977255 }, refs, new long[0]);
+            Assert.Null(ledger.Take(new long[0], All, written: new long[] { 977255 }));
+        }
+
+        [Fact]
+        public void ForgetOrTheCodesOwnSelect_ClosesTheSwap()
+        {
+            var ledger = new SelectionSwapLedger();
+            ledger.Record(Doors, null, new long[0]);
+            ledger.Forget();
+            Assert.False(ledger.Open);
+            Assert.Null(ledger.Take(new long[0], All));
+            ledger.Record(Doors, null, new long[0]);
+            Assert.Null(ledger.Take(new long[0], All, written: new long[] { 977255 }));   // a commit wrote a door: r13
+            ledger.Record(Doors, null, new long[0]);
+            Assert.Null(ledger.Take(new long[] { 7 }, All));                              // the code selected 7 since
         }
 
         [Fact]
@@ -177,15 +273,20 @@ namespace RevitAddinSync.Tests
 
             var host = Src("BinaVibe", "Copilot", "Code", "RevitCodeHost.cs");
             var use = Body(host, "public static void UseTurnSelection(");
-            // Code that never reads the selection keeps an earlier call's swap (a batch of two runs); code that reads it starts afresh.
-            Assert.True(use.IndexOf("UsesSelection != true) return;", System.StringComparison.Ordinal) < use.IndexOf("_swap = null;", System.StringComparison.Ordinal));
-            Assert.Contains("if (decision.Restore) _swap = new SelectionSwap(live, decision.Ids);", use);
+            // A swap is recorded only when this call set the selection, with what Revit kept (read back after the set); a call that
+            // found the turn's selection in place never resets an earlier call's swap (audit: a batch of two runs lost it).
+            Assert.DoesNotContain("Forget", use);
+            Assert.Contains("if (decision.Restore) Swaps.Record(live, linked, uidoc.Selection.GetElementIds().Select(id => (long)id.Value).ToList());", use);
+            Assert.True(use.IndexOf("if (decision.Restore) uidoc.Selection.SetElementIds(", System.StringComparison.Ordinal)
+                        < use.IndexOf("Swaps.Record(", System.StringComparison.Ordinal));
+            Assert.Contains("var linked = decision.Restore ? LinkedPickRefs(doc, uidoc) : null;", use);
             var give = Body(host, "public static void GiveBackSelection(");
-            Assert.Contains("TurnSelection.GiveBack(swap.Before, swap.SwappedIn, live,", give);
+            Assert.Contains("Swaps.Take(live,", give);
+            Assert.Contains("uidoc.Selection.SetReferences(refs);", give);
             Assert.Contains("catch (Exception", give);
-            // The code's own select request wins: it drops the swap before it sets the selection.
-            Assert.Contains("if (!plan.HasSelection) return;\n                _swap = null;", host);
-            Assert.Contains("if (!plan.HasReferences) return;\n                _swap = null;", host);
+            // The code's own select request wins: it closes the swap before it sets the selection.
+            Assert.Contains("if (!plan.HasSelection) return;\n                Swaps.Forget();", host);
+            Assert.Contains("if (!plan.HasReferences) return;\n                Swaps.Forget();", host);
         }
 
         [Fact]
