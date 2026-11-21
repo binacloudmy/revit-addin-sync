@@ -55,6 +55,14 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public static string QueuePlaceholderFor(ReceiptLanguage lang) =>
             lang == ReceiptLanguage.Ms ? "Taip langkah seterusnya. Ia dijalankan selepas yang ini selesai." : QueuePlaceholder;
 
+        /// <summary>The idle composer's default placeholder (PromptBar.Placeholder).</summary>
+        public const string IdlePlaceholder = "Ask Copilot";
+
+        /// <summary>r23 (AI-464, live P11 c7e4f9cb / 329dbc75): the idle composer in a Malay chat read "Ask Copilot". A Malay thread reads
+        /// "Tanya Copilot"; a new or English chat, and any placeholder a host set itself, are unchanged.</summary>
+        public static string IdlePlaceholderFor(ReceiptLanguage lang, string? placeholder) =>
+            lang == ReceiptLanguage.Ms && (placeholder == null || placeholder == IdlePlaceholder) ? "Tanya Copilot" : placeholder ?? IdlePlaceholder;
+
         /// <summary>r23: <see cref="QueueHint"/> in the running turn's language.</summary>
         public static string QueueHintFor(ReceiptLanguage lang) =>
             lang == ReceiptLanguage.Ms ? "Beratur selepas larian ini. Henti mengosongkannya." : QueueHint;

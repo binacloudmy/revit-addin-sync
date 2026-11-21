@@ -256,7 +256,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             if (e.PropertyName == nameof(CopilotViewModel.IsSending))
             {
                 // r23 (AI-464, live 3c11223a): the running composer reads in the running turn's language, as the Working card does.
-                if (Prompt != null && Vm != null && Vm.IsSending) Prompt.RunLanguage = LiveLanguage();
+                if (Prompt != null && Vm != null) Prompt.RunLanguage = LiveLanguage();
                 UpdateUsage();
                 UpdateElapsedClock();
                 UpdateSubHeader(Vm == null || Vm.Thread.Count == 0);
@@ -412,6 +412,8 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             // content raises ExtentHeightChange). Unconditionally scrolling here would
             // yank a user who has scrolled up to read.
             if (e.Action == NotifyCollectionChangedAction.Replace && TryRenderLiveTail(e)) return;
+            // r23 (AI-464, live P11): the composer's words (idle "Tanya Copilot", the running ones) follow the thread; a new chat is English.
+            if (Prompt != null) Prompt.RunLanguage = LiveLanguage();
             Rebuild();
         }
 

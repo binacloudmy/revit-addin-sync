@@ -733,7 +733,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         private void ApplyRunLanguage()
         {
             // While a turn runs, a prompt typed now queues (board 2): the composer says so, in the turn's language.
-            if (Input != null) Input.PlaceholderText = Busy ? RunningText.QueuePlaceholderFor(_runLanguage) : Placeholder;
+            if (Input != null) Input.PlaceholderText = Busy ? RunningText.QueuePlaceholderFor(_runLanguage) : RunningText.IdlePlaceholderFor(_runLanguage, Placeholder);
             if (_queueNote != null) _queueNote.Text = RunningText.QueueNoteFor(_runLanguage);
             if (_queueBtn != null) _queueBtn.ToolTip = RunningText.QueueTip(_runLanguage);
             if (Busy && SendBtn != null) SendBtn.ToolTip = RunningText.StopTip(_runLanguage);
@@ -806,13 +806,13 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         // artifact's composer 1:1 exactly.
         public static readonly DependencyProperty PlaceholderProperty = DependencyProperty.Register(
             nameof(Placeholder), typeof(string), typeof(PromptBar),
-            new PropertyMetadata("Ask Copilot", OnPlaceholderChanged));
+            new PropertyMetadata(RunningText.IdlePlaceholder, OnPlaceholderChanged));
         public string Placeholder { get => (string)GetValue(PlaceholderProperty); set => SetValue(PlaceholderProperty, value); }
 
         private static void OnPlaceholderChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
         {
             var pb = (PromptBar)d;
-            if (pb.Input != null) pb.Input.PlaceholderText = (string)e.NewValue;
+            if (pb.Input != null && !pb.Busy) pb.Input.PlaceholderText = RunningText.IdlePlaceholderFor(pb._runLanguage, (string)e.NewValue);
         }
     }
 }

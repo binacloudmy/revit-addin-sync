@@ -46,6 +46,9 @@ namespace RevitWebAppSync.UI.Copilot
             Revit.UndoChanged += OnUndoChanged;
             // A new chat or another one continued (Thread.Clear raises Reset): the undo lines went with the old thread.
             Thread.CollectionChanged += (_, e) => { if (e.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Reset) UndoNotices.Clear(); };
+            // r23 (live P11 83058dfb): the chip's language belongs to the thread: a new chat, or another chat opened, starts from its own
+            // messages ("Selesai" from a Malay chat never carries into a new English one).
+            Thread.CollectionChanged += (_, e) => { if (e.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Reset) ResetStatusLanguage(); };
             // The commands saved on this PC are the catalog's Mine tier from the first frame.
             try { ToolCatalog.MergeMine(LocalCommandStore.Default.ToTools()); } catch (Exception) { /* none shown */ }
             var st = CopilotStateStore.Load();
@@ -357,6 +360,13 @@ namespace RevitWebAppSync.UI.Copilot
             else router?.ResetSession();
         }
 
+        /// <summary>r23: the status chip's language from the thread as it is now (English for an empty one).</summary>
+        private void ResetStatusLanguage()
+        {
+            _statusLang = Model.TurnStatusText.ChipLanguage(Thread);
+            Raise(nameof(RunStatusText));
+        }
+
         private void StartNewChat()
         {
             Thread.Clear();
@@ -399,6 +409,7 @@ namespace RevitWebAppSync.UI.Copilot
                     Lang = PromptLanguage.Card(m.Lang),   // r21: a saved card reads in the language it was made in
                 });
             }
+            ResetStatusLanguage();   // r23: a reopened chat's chip reads in its own language
             Tab = CpTab.Chat;
         }
 
