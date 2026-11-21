@@ -866,7 +866,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             {
                 // AI replies are markdown (headers, **bold**, tables, lists); a long prose answer gets a headline and "More detail".
                 col.Children.Add(proseLayout
-                    ? Controls.ProseAnswer.Build(m.Text, m.Lang, textWidth, tableDownloads: tableDownloads, serverHeadline: serverProse ? m.ResultCard.ServerReply : null, warn: m.Failed || (m.ResultCard != null && m.ResultCard.ClaimMismatch))
+                    ? Controls.ProseAnswer.Build(m.Text, m.Lang, textWidth, tableDownloads: tableDownloads, serverHeadline: serverProse ? m.ResultCard.ServerReply : null, warn: m.Failed || (m.ResultCard != null && m.ResultCard.ClaimMismatch), info: m.NothingWritten)
                     : CopilotMessageBubble.MarkdownText(m.Text, textWidth, tableDownloads: tableDownloads));
                 // Copyable: right-click → Copy message, plus a hover ⧉ button.
                 CopilotMessageBubble.AttachCopyMenu(col, m.Text);

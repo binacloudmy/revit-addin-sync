@@ -213,12 +213,12 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 ToolTipService.SetShowOnDisabled(off, true);
                 undo = off;
             }
-            return HeadlineText(card.Headline, warn, undo);
+            return HeadlineText(card.Headline, warn, undo, info: card.InfoHeadline && !warn);
         }
 
         /// <summary>The 22px disc (green check, or amber "!") and the headline at 17px/600, with an optional button on the right:
         /// shared by a result card (Undo) and a prose answer (none).</summary>
-        internal static FrameworkElement HeadlineText(string headline, bool warn, Button? undo = null)
+        internal static FrameworkElement HeadlineText(string headline, bool warn, Button? undo = null, bool info = false)
         {
             headline = ProseSplit.TidyHeadline(headline);
             var row = new Grid { Margin = new Thickness(0, 0, 0, 0) };
@@ -234,16 +234,17 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             }
             var icon = new Grid { Width = 22, Height = 22, VerticalAlignment = VerticalAlignment.Top, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 1, 0, 0) };
             var disc = new System.Windows.Shapes.Ellipse { Width = 22, Height = 22 };
-            disc.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, warn ? "Cp.AmberBg" : "Cp.Tier1Bg");
+            // r22 (P5): a reply that wrote nothing after a refused typed answer is neither a success nor a doubt: a neutral disc with an "i"
+            disc.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, warn ? "Cp.AmberBg" : info ? ReplyTone.InfoDiscFill : "Cp.Tier1Bg");
             icon.Children.Add(disc);
             var glyph = new System.Windows.Shapes.Path
             {
-                Data = System.Windows.Media.Geometry.Parse(warn ? "M11,6 V12 M11,15.2 V15.3" : "M6.5,11.3 L9.6,14.2 L15.6,7.8"),
+                Data = System.Windows.Media.Geometry.Parse(warn ? "M11,6 V12 M11,15.2 V15.3" : info ? ReplyTone.InfoGlyph : "M6.5,11.3 L9.6,14.2 L15.6,7.8"),
                 Width = 22, Height = 22, StrokeThickness = 2,
                 StrokeStartLineCap = System.Windows.Media.PenLineCap.Round, StrokeEndLineCap = System.Windows.Media.PenLineCap.Round,
                 StrokeLineJoin = System.Windows.Media.PenLineJoin.Round,
             };
-            glyph.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, warn ? "Cp.Amber" : "Cp.Green");
+            glyph.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, warn ? "Cp.Amber" : info ? ReplyTone.InfoGlyphStroke : "Cp.Green");
             icon.Children.Add(glyph);
             row.Children.Add(icon);
             // The whole sentence, wrapped over as many lines as it needs: no line limit, no ellipsis (live R7, C3).

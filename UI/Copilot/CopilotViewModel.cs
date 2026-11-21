@@ -186,6 +186,8 @@ namespace RevitWebAppSync.UI.Copilot
 
         // ─── Model-mirror indexing (Copilot open → seed → then prompt) ────────
         private bool _isIndexing;
+        /// <summary>r22 (P5 6bf0f4ec): this turn's write card was answered by typing (refused as an approval): its reply gets the info disc.</summary>
+        private bool _typedAtWriteCard;
         public bool IsIndexing { get => _isIndexing; private set { if (_isIndexing == value) return; _isIndexing = value; Raise(); } }
 
         private int _indexProgress;
@@ -769,6 +771,7 @@ namespace RevitWebAppSync.UI.Copilot
             // question answers it (the router posts it as the "text" answer);
             // the question card collapses into the record.
             var parkedAsk = TurnRouter?.PendingAsk;
+            if (parkedAsk == null) _typedAtWriteCard = false;   // a new request, not an answer: no earlier typed answer counts
             for (int k = 0; k < Thread.Count; k++)
             {
                 var msg = Thread[k];
@@ -776,6 +779,7 @@ namespace RevitWebAppSync.UI.Copilot
                 {
                     msg.Ask.AnsweredSummary = shown;
                     msg.Ask.AnsweredByTyping = true;   // r22: a typed answer at a write card is no approval (no tick on its record)
+                    _typedAtWriteCard = _typedAtWriteCard || msg.Ask.Wide != null;   // r22 P5: its reply gets the info disc
                     Thread[k] = Thread[k];   // item-replace redraw trick
                 }
             }
@@ -1294,8 +1298,11 @@ namespace RevitWebAppSync.UI.Copilot
                 return;
             }
 
+            var nothingWritten = ReplyTone.TypedRefusal(_typedAtWriteCard, rr.Evidence?.Calls.Select(c => c.Env));
+            _typedAtWriteCard = false;   // one turn's typed answer only
             var reply = new ChatMessage
             {
+                NothingWritten = nothingWritten,
                 Role = "ai", Kind = CpMsgKind.AiReply, ToolId = fallbackToolId,
                 // Exactly the model's text.
                 Text = rr.Reply ?? "",
@@ -1324,6 +1331,7 @@ namespace RevitWebAppSync.UI.Copilot
                     reply.ResultCard = ResultCardModel.From(rr.Evidence, cardLang, AttachmentName(routeText)).WithServerResult(serverResult);
                     reply.ResultCard.DocKey = _turnDocKey;
                     reply.ResultCard.Failed = reply.Failed;   // r12 audit: no Found marks, no green disc for a failed turn
+                    reply.ResultCard.InfoHeadline = reply.NothingWritten;   // r22 P5: nothing written after a typed answer: the info disc
                     reply.ResultCard.Elapsed = ProgressTrail.TotalElapsedText(ProgressTrail.UserVisible(rr.Steps));
                     if (reply.ResultCard.Kind != ResultKind.None && rr.Evidence != null)
                     {

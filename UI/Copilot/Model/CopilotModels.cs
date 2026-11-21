@@ -280,6 +280,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public bool Interrupted;
         // The turn failed (TurnStatus.IsFailed): no "Save as command" (live R7, t06).
         public bool Failed;
+        // r22 (P5 6bf0f4ec): the turn wrote nothing because typed text at its write card was refused: the headline's disc is info, not the green check.
+        public bool NothingWritten;
         // Proposal card status ("proposed" default / "dismissed") — the design's
         // "· Proposed / · Applied / · Dismissed" header suffix. Applied state is
         // carried by the Result message, so only dismissal is stored here.

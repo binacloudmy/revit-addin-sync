@@ -253,6 +253,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
         /// <summary>The headline's disc is the amber "!" (a check's findings, values that read back different, a claim the
         /// envelopes contradict, a failed turn), not the green check.</summary>
+        /// <summary>r22 (P5 6bf0f4ec): nothing was written because typed text at the write card was refused: the headline's disc is info.</summary>
+        public bool InfoHeadline;
         public bool HeadlineWarns => Kind == ResultKind.Findings || Mismatches > 0 || ClaimMismatch || Failed;
 
         /// <summary>The type a stored change-type script gave the elements ("Family: Type"), from its own "MADE … changed to"

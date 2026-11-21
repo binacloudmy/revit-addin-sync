@@ -42,7 +42,7 @@ namespace RevitAddinSync.Tests
             Assert.Contains("bool tableDownloads = TurnStatus.CanExport(m.Failed) && !evidenceExports;", view);
             Assert.Contains("warn: m.Failed || (m.ResultCard != null && m.ResultCard.ClaimMismatch)", view);
             Assert.Contains("var warn = card.HeadlineWarns;", Src("UI/Copilot/Controls/ResultCardView.cs"));
-            Assert.Contains("ResultCardView.HeadlineText(headline, warn: warn)", Src("UI/Copilot/Controls/ProseAnswer.cs"));
+            Assert.Contains("ResultCardView.HeadlineText(headline, warn: warn, info: info && !warn)", Src("UI/Copilot/Controls/ProseAnswer.cs"));   // r22 P5: plus the info tone
         }
     }
 }
