@@ -184,5 +184,17 @@ namespace RevitAddinSync.Tests
             Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(Src("BinaVibe/Copilot/CopilotToolHost.cs"), System.Text.RegularExpressions.Regex.Escape(r)).Count);
             Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(Src("BinaVibe/Copilot/Read/FindExecutor.cs"), System.Text.RegularExpressions.Regex.Escape(r)).Count);
         }
+
+        [Fact]
+        public void DialogRedaction_LivesInItsOwnRevitFreeFile_AndKeepsThePromptLimit()
+        {
+            Assert.Equal(WatchdogPolicy.PromptMaxChars, DialogRedaction.PromptMaxChars);
+            var dir = new System.IO.DirectoryInfo(System.IO.Directory.GetCurrentDirectory());
+            while (dir != null && !System.IO.File.Exists(System.IO.Path.Combine(dir.FullName, "RevitWebAppSync.csproj"))) dir = dir.Parent;
+            var src = System.IO.File.ReadAllText(System.IO.Path.Combine(dir!.FullName, "BinaVibe/Copilot/Guard/DialogRedaction.cs"));
+            Assert.DoesNotContain("Autodesk", src);
+            Assert.DoesNotContain("WatchdogPolicy.", src.Replace("(WatchdogPolicy.InCommandText)", "").Replace("WatchdogPolicy.PromptMaxChars (kept", ""));
+            Assert.DoesNotContain("class DialogRedaction", System.IO.File.ReadAllText(System.IO.Path.Combine(dir.FullName, "BinaVibe/Copilot/Writes/WriteSeams.cs")));
+        }
     }
 }
