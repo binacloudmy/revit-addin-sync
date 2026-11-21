@@ -66,11 +66,16 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return writeKind && TurnEvidence.CountsAllZero(c);
         }
 
-        /// <summary>r23 (live laptop f7d1c886, wall-by-points Skip: "Skipped, so no wall was made…" drew NO icon): a reply of a turn that
-        /// used a tool, or wrote nothing, always gets the headline row with its disc, even when it is one short sentence and no card is
-        /// shown. A plain chat reply with no tool, and a structured answer (a table, a list, code), keep their markdown.</summary>
-        public static bool NeedsHeadline(bool aiReply, bool cardShown, int toolsUsed, bool nothingWritten, string? text) =>
-            aiReply && !cardShown && (toolsUsed > 0 || nothingWritten) && ProseSplit.IsPlainProse(text, 1);
+        /// <summary>r23 (live laptop f7d1c886, wall-by-points Skip: "Skipped, so no wall was made…" drew NO icon): a short reply of a
+        /// turn that wrote nothing (a Skip, a Cancel, a refused typed answer, a server result that made nothing) gets the headline row,
+        /// and so the neutral "i". Only those: audit of c848c5f9, a tool turn's other short replies ("I couldn't find a wall type named
+        /// X") must not newly draw a green check, so they keep their markdown as before. A question back ("Which level do you mean?")
+        /// never gets a disc; nor a table, a list or code.</summary>
+        public static bool NeedsHeadline(bool aiReply, bool cardShown, bool nothingWritten, string? text) =>
+            aiReply && !cardShown && nothingWritten && ProseSplit.IsPlainProse(text, 1) && !IsQuestion(text);
+
+        /// <summary>The reply ends by asking (its last character is "?"): a question back, not a result.</summary>
+        public static bool IsQuestion(string? text) => (text ?? "").TrimEnd().EndsWith("?", System.StringComparison.Ordinal);
 
         /// <summary>The reply wrote nothing because typed text at a write card was refused: the turn's write card was answered by typing
         /// and no write of the turn committed.</summary>
