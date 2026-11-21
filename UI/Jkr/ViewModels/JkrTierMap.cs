@@ -34,6 +34,18 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             return IssuePriority.Medium;
         }
 
+        /// <summary>A severity word ("critical" = the spec's KRITIKAL, "major", "minor"; the
+        /// checker's too) → board tier: critical → High, minor → Low, anything else Medium.</summary>
+        public static IssuePriority FromSeverity(string severity)
+        {
+            switch ((severity ?? "").Trim().ToLowerInvariant())
+            {
+                case "critical": return IssuePriority.High;
+                case "minor": return IssuePriority.Low;
+                default: return IssuePriority.Medium;
+            }
+        }
+
         public static string Label(IssuePriority tier)
         {
             switch (tier)
