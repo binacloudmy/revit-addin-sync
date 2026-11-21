@@ -183,7 +183,7 @@ namespace RevitAddinSync.Tests
             Assert.Contains("QueueHint.Text = RunningText.QueueHintFor(_runLanguage);", bar);
             Assert.DoesNotContain("busy ? RunningText.QueuePlaceholder :", bar);
             var chat = Src("UI", "Copilot", "Screens", "ChatView.xaml.cs");
-            Assert.Contains("if (Prompt != null && Vm != null && Vm.IsSending) Prompt.RunLanguage = LiveLanguage();", chat);
+            Assert.Contains("if (Prompt != null && Vm != null) Prompt.RunLanguage = LiveLanguage();", chat);   // P11: on every turn start and end, not only while it runs
             Assert.Contains("_activityView.Language = LiveLanguage();", chat);   // the same source as the Working card's "Langkah"
         }
 
