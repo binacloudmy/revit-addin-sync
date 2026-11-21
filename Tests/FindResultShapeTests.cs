@@ -732,7 +732,7 @@ namespace RevitAddinSync.Tests
         [InlineData(false, 0.0, false, false, "not placed")]
         [InlineData(true, 0.0, false, false, "not enclosed")]
         [InlineData(true, 0.0, false, true, "not enclosed")]
-        [InlineData(true, 12.5, true, false, "redundant")]
+        [InlineData(true, 12.5, true, false, "placed")]      // r23 (AI-463): an area wins over a same-region warning, as in the rooms plan
         [InlineData(true, 0.0, true, false, "redundant")]
         [InlineData(true, 12.5, false, false, "placed")]
         public void RoomStatus_Classifies(bool located, double area, bool redundantWarning, bool notEnclosedWarning, string expected)

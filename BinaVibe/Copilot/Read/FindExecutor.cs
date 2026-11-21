@@ -523,12 +523,14 @@ namespace BinaVibe.Copilot.Read
             var notEnclosed = new HashSet<long>();
             try
             {
+                // r23 (AI-463): both same-region warnings, as the backend's rooms plan reads them.
                 var sameRegion = BuiltInFailures.RoomFailures.RoomsInSameRegionRooms;
+                var sameRegionToo = BuiltInFailures.RoomFailures.RoomsInSameRegion;
                 var open = BuiltInFailures.RoomFailures.RoomNotEnclosed;
                 foreach (var w in doc.GetWarnings())
                 {
                     var id = w.GetFailureDefinitionId();
-                    var set = id == sameRegion ? redundant : id == open ? notEnclosed : null;
+                    var set = id == sameRegion || id == sameRegionToo ? redundant : id == open ? notEnclosed : null;
                     if (set == null) continue;
                     foreach (var e in w.GetFailingElements()) set.Add(e.Value);
                 }

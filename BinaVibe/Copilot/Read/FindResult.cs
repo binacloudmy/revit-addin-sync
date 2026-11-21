@@ -577,12 +577,16 @@ namespace BinaVibe.Copilot.Read
         /// <param name="area">Room.Area (any unit; 0 when Revit computes none).</param>
         /// <param name="redundantWarning">Revit's "multiple rooms in the same enclosed region" warning names it.</param>
         /// <param name="notEnclosedWarning">Revit's "room is not in a properly enclosed region" warning names it.</param>
+        /// <remarks>r23 (AI-463, live 1eb9fd16 / a4777a83: "placed 0, redundant 90" while the delete plan said otherwise): the order of
+        /// area-tables-osc and the backend's rooms plan (data/copilot/creates/rooms-plan.cs): not placed (no location) → placed (an
+        /// area, whatever Revit's warnings say) → redundant (no area, named by a same-region warning) → not enclosed (no area otherwise).
+        /// A room with an area is never redundant or not enclosed, so the find, inspect and the delete card count the same rooms.</remarks>
         public static string Classify(bool located, double area, bool redundantWarning, bool notEnclosedWarning)
         {
             if (!located) return NotPlaced;
+            if (area > 0) return Placed;
             if (redundantWarning) return Redundant;
-            if (area <= 0 || notEnclosedWarning) return NotEnclosed;
-            return Placed;
+            return NotEnclosed;
         }
     }
 }
