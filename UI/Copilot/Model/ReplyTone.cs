@@ -66,6 +66,18 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return writeKind && TurnEvidence.CountsAllZero(c);
         }
 
+        /// <summary>r23 (live PC P13 C6 44c1f9e6, "Muatkan semula semua pautan…": both reload runs, run_revit_code with expected modifies 6,
+        /// were refused before Revit saw them, and the Malay reply "Maaf, tiada pautan dimuatkan…" drew the green check): the turn tried to
+        /// change the model (a set_parameters call, or a run_revit_code that declares changes) and every such attempt came back refused or
+        /// failed, with nothing committed. A read that answered beside them does not make it a success: the change asked for was not made.</summary>
+        public static bool RefusedOnly(IEnumerable<(ToolCallDto Call, Envelope Env)>? calls)
+        {
+            var list = (calls ?? Enumerable.Empty<(ToolCallDto Call, Envelope Env)>()).ToList();
+            if (list.Any(c => c.Env != null && c.Env.Ok && c.Env.Phase == EnvelopePhase.Commit && c.Env.Status != EnvelopeStatus.Noop)) return false;
+            var attempts = list.Where(c => c.Call != null && (c.Call.Tool == ToolNames.SetParameters || TurnEvidence.DeclaresChange(c.Call))).ToList();
+            return attempts.Count > 0 && attempts.All(c => c.Env == null || !c.Env.Ok);
+        }
+
         /// <summary>r23 (live laptop f7d1c886, wall-by-points Skip: "Skipped, so no wall was made…" drew NO icon): a short reply of a
         /// turn that wrote nothing (a Skip, a Cancel, a refused typed answer, a server result that made nothing) gets the headline row,
         /// and so the neutral "i". Only those: audit of c848c5f9, a tool turn's other short replies ("I couldn't find a wall type named
