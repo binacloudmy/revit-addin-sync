@@ -96,17 +96,73 @@ namespace RevitAddinSync.Tests
         public void TheEngine_ReadsAfterTheCodeRanAndBeforeOnceRolledBack_AndRefusesBeforeAnyCommit()
         {
             var engine = Src("BinaVibe/Copilot/Writes/RevitWriteEngine.cs");
-            // Preview, code only, no playbook: the sizes the code left, read inside the preview group.
-            Assert.Contains("if (MepResizeGuard.Applies(call)) run.MepAfter = MepSizes(doc, labelled.Modified.Where(id => !benign.Contains(id)));", engine);
-            // After the rollback: the same values again (before), compared; a change is the call's failure, so the runner commits nothing.
+            // Preview, code only, no playbook: the sizes the code left, the guarded curves it added, the ids it deleted, inside the group.
+            Assert.Contains("run.MepAfter = MepSizes(doc, labelled.Modified.Where(id => !benign.Contains(id)));", engine);
+            Assert.Contains("run.MepAdded = GuardedCurves(doc, labelled.Added.Where(id => !benign.Contains(id)));", engine);
+            // After the rollback: the same values again (before), compared and kept for the commit; then the delete-and-recreate rule.
             var rollback = engine.IndexOf("st.Mark(\"rollback\");", System.StringComparison.Ordinal);
-            var check = engine.IndexOf("MepResizeGuard.Changed(kv.Value.MepAfter!, MepSizes(doc, kv.Value.MepAfter!.Select(v => v.Id).Distinct()))", System.StringComparison.Ordinal);
-            Assert.True(rollback > 0 && check > rollback);
+            var check = engine.IndexOf("var rows = MepResizeGuard.Changed(kv.Value.MepAfter!, was);", System.StringComparison.Ordinal);
+            var replace = engine.IndexOf("var replaced = MepResizeGuard.Replaced(guardedDeleted, guardedAdded);", System.StringComparison.Ordinal);
+            Assert.True(rollback > 0 && check > rollback && replace > check);
+            Assert.Contains("outcome.MepBefore.AddRange(was);", engine);
             Assert.Contains("if (rows.Count > 0) { outcome.Failures[kv.Key] = MepResizeGuard.Refusal(rows); break; }", engine);
-            Assert.True(check < engine.IndexOf("private CommitOutcome CommitBatch(", System.StringComparison.Ordinal));
+            Assert.True(replace < engine.IndexOf("private CommitOutcome CommitBatch(", System.StringComparison.Ordinal));
             // A preview failure stops the batch in the runner (no commit request is made).
             var runner = Src("BinaVibe/Copilot/Writes/WriteBatchRunner.cs");
             Assert.Contains("if (j < preview.Failures.Length && preview.Failures[j] != null) { failed = j; break; }", runner);
+        }
+
+        [Fact]
+        public void TheCommit_ChecksAgain_AndItsFailureRollsTheGroupBack()
+        {
+            var engine = Src("BinaVibe/Copilot/Writes/RevitWriteEngine.cs");
+            Assert.Contains("RunCall(doc!, tools[i], contexts[i], batch.Calls[i], fresh[i], WritePhase.Commit, preview.GroupName, builder, before, preview.MepBefore);", engine);
+            Assert.Contains("if (phase == WritePhase.Commit && MepResizeGuard.Applies(call))", engine);
+            Assert.Contains("var rows = MepResizeGuard.Changed(MepSizes(doc, labelled.Modified.Where(id => !benign.Contains(id))), mepBefore ?? Array.Empty<MepResizeGuard.SizeValue>());", engine);
+            // RunCall's failure at commit: the caller rolls the whole group back and returns a failed commit.
+            var at = engine.IndexOf("WritePhase.Commit, preview.GroupName, builder, before, preview.MepBefore);", System.StringComparison.Ordinal);
+            var tail = engine.Substring(at, 400);
+            Assert.Contains("if (run.Failure != null)", tail);
+            Assert.Contains("RollBackIfOpen(group);", tail);
+            Assert.Contains("return Failed(batch, i, run.Failure);", tail);
+        }
+
+        [Fact]
+        public void AtCommit_ASizeThatDiffersFromThePreviewsBefore_OrACurveThePreviewNeverRead_IsRefused()
+        {
+            var before = new[] { V(1382112, "RBS_CURVE_WIDTH_PARAM", 1.1667, "356 mm") };
+            Assert.Empty(MepResizeGuard.Changed(new[] { V(1382112, "RBS_CURVE_WIDTH_PARAM", 1.1667, "356 mm") }, before));       // as previewed
+            Assert.Single(MepResizeGuard.Changed(new[] { V(1382112, "RBS_CURVE_WIDTH_PARAM", 0.984, "300 mm") }, before));        // resized at commit
+            var unknown = MepResizeGuard.Changed(new[] { V(999, "RBS_PIPE_DIAMETER_PARAM", 0.25, "76 mm", "Pipes") }, before);    // never read: fail closed
+            Assert.Single(unknown);
+            Assert.Equal(MepResizeGuard.UnreadableText, unknown[0]["before"]);
+        }
+
+        [Fact]
+        public void AnUnreadableGuardedCurve_FailsClosed()
+        {
+            var unreadable = new MepResizeGuard.SizeValue { Id = 5, Category = "Ducts", Param = "size", Unreadable = true };
+            var after = MepResizeGuard.Changed(new[] { unreadable }, new[] { unreadable });
+            Assert.Single(after);
+            Assert.Equal(MepResizeGuard.UnreadableText, after[0]["after"]);
+            // Readable after the code ran but not once rolled back: still refused.
+            Assert.Single(MepResizeGuard.Changed(new[] { V(5, "RBS_CURVE_WIDTH_PARAM", 1.0, "305 mm") }, new[] { unreadable }));
+            // The engine writes one Unreadable value for a guarded curve with no readable size.
+            Assert.Contains("if (mine.Count == 0) mine.Add(new MepResizeGuard.SizeValue { Id = id, Category = category, Param = \"size\", Unreadable = true });",
+                Src("BinaVibe/Copilot/Writes/RevitWriteEngine.cs"));
+        }
+
+        [Fact]
+        public void DeleteAndRecreate_IsRefused_PlainCreationOrDeletionIsNot()
+        {
+            var rows = MepResizeGuard.Replaced(new[] { (1382112L, "Ducts") }, new[] { (3500001L, "Ducts") });
+            Assert.Equal(2, rows.Count);
+            Assert.Equal(MepResizeGuard.DeletedParam, rows[0]["param"]);
+            Assert.Equal(MepResizeGuard.CreatedParam, rows[1]["param"]);
+            Assert.Equal(MepResizeGuard.OwnResize, MepResizeGuard.Refusal(rows).Error!.Message);
+            Assert.Empty(MepResizeGuard.Replaced(new (long, string)[0], new[] { (3500001L, "Ducts") }));    // drawing a new duct
+            Assert.Empty(MepResizeGuard.Replaced(new[] { (1382112L, "Ducts") }, new (long, string)[0]));    // deleting one
+            Assert.Empty(MepResizeGuard.Replaced(null, null));
         }
 
         private static string Src(string rel)
