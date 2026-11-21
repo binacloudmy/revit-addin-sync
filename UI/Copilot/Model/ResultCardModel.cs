@@ -255,7 +255,20 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// envelopes contradict, a failed turn), not the green check.</summary>
         /// <summary>r22 (P5 6bf0f4ec): nothing was written because typed text at the write card was refused: the headline's disc is info.</summary>
         public bool InfoHeadline;
-        public bool HeadlineWarns => Kind == ResultKind.Findings || Mismatches > 0 || ClaimMismatch || Failed;
+        public bool HeadlineWarns => Kind == ResultKind.Findings || Mismatches > 0 || ClaimMismatch || Failed || ServerFindings;
+
+        /// <summary>r23 (0.0.172, live laptop a1f1e15d, a duct moved not as one piece): the server measured something to look at, a result of
+        /// kind "findings" with findings counted or a warning or error check, while the add-in's own envelopes saw a plain change; the
+        /// headline wears the amber "!". A findings result with info checks only (f85dd8f6 "Nothing was changed.", skipped 1) is not this,
+        /// so its neutral "i" stays.</summary>
+        public bool ServerFindings;
+
+        /// <summary>The rule behind <see cref="ServerFindings"/>.</summary>
+        public static bool IsServerFindings(BinaVibe.Copilot.Contracts.TurnResultDto? result) =>
+            result != null && result.Kind == BinaVibe.Copilot.Contracts.TurnResultKinds.Findings
+            && ((result.Counts?.Findings ?? 0) > 0
+                || (result.Checks ?? new List<BinaVibe.Copilot.Contracts.ResultCheckDto>()).Any(c => c != null
+                       && (string.Equals(c.Severity, "warning", StringComparison.OrdinalIgnoreCase) || string.Equals(c.Severity, "error", StringComparison.OrdinalIgnoreCase))));
 
         /// <summary>The type a stored change-type script gave the elements ("Family: Type"), from its own "MADE … changed to"
         /// line; "" when the turn ran no such script or the line is not there.</summary>
@@ -264,6 +277,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public ResultCardModel WithServerResult(BinaVibe.Copilot.Contracts.TurnResultDto? result)
         {
             ServerReply = (result?.Reply ?? "").Trim();
+            ServerFindings = IsServerFindings(result);   // r23 (a1f1e15d): the server's own measured warning reaches the headline's disc
             NotSearched = (result?.NotSearched ?? new List<string>()).Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()).ToList();
             Checks = CheckItems.From(result);
             // A server reply with no card to hang it on (a no-op, a plain answer) is still the headline, with the check disc.
