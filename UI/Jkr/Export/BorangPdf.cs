@@ -242,6 +242,17 @@ namespace RevitWebAppSync.UI.Jkr.Export
         }
 
         // ── AUDIT SUMMARY box (generated, not part of the standard form) ──
+        private static string UnjudgedWhy(string reason)
+        {
+            switch (reason)
+            {
+                case "backend": return "backend unavailable";
+                case "mixed": return "some: backend unavailable, the rest no rule yet or could not verify";
+                case "nothing": return "nothing was judged";
+                default: return "no rule yet, or could not verify";
+            }
+        }
+
         private static void Summary(ColumnDescriptor col, BorangDoc d)
         {
             col.Item().PaddingTop(Px(20)).ShowEntire().Border(Line).PaddingVertical(Px(12)).PaddingHorizontal(Px(14)).Column(box =>
@@ -253,7 +264,13 @@ namespace RevitWebAppSync.UI.Jkr.Export
                     row.AutoItem().Column(c =>
                     {
                         c.Item().Text(d.SumPct + (d.SumPct == BorangDoc.Dash ? "" : "%")).FontSize(Px(20)).Bold().LineHeight(1f);
-                        c.Item().PaddingTop(Px(2)).Text("of " + d.SumTotal + " AI-verifiable cells comply").FontSize(Px(8.5f)).FontColor("#444444");
+                        c.Item().PaddingTop(Px(2)).Text("of " + d.SumTotal + " " + d.SumUnit + (d.SumUnit == "checks" ? " pass" : " comply")).FontSize(Px(8.5f)).FontColor("#444444");
+                        if (d.SumUnit == "checks")
+                            c.Item().Text("List and Human checks count as pass").FontSize(Px(8)).FontColor("#444444");
+                        if (d.SumUnjudged > 0)
+                            c.Item().Text(d.SumUnjudged + " could not be checked (tak dapat disemak) — " + UnjudgedWhy(d.SumUnjudgedReason)).FontSize(Px(8)).FontColor("#444444");
+                        if (d.SumPartial > 0)
+                            c.Item().Text(d.SumPartial + " partly checked (separa)").FontSize(Px(8)).FontColor("#444444");
                     });
                     row.ConstantItem(Px(26));
                     // template: border-left 1 px dashed #666, padding-left 26 px

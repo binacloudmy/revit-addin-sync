@@ -267,6 +267,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             ["hUnjudged"] = ("{0} tak dapat disemak — {1}", "{0} could not be checked — {1}"),
             ["hPartial"] = ("{0} separa", "{0} partly checked"),
             ["hWhy_backend"] = ("backend tidak tersedia", "backend unavailable"),
+            ["hWhy_mixed"] = ("sebahagian: backend tidak tersedia, selebihnya belum ada peraturan atau tidak dapat disahkan", "some: backend unavailable, the rest no rule yet or could not verify"),
             ["hWhy_nothing"] = ("tiada yang dinilai", "nothing was judged"),
             ["hWhy_rule"] = ("belum ada peraturan atau tidak dapat disahkan", "no rule yet, or could not verify"),
             ["notCounted"] = ("Juga dilapor oleh {0} — tidak dikira: semakan add-in sendiri sudah menilai semakan ini.",
@@ -441,14 +442,14 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             public int Unjudged;
             /// <summary>Checks in the % (not-applicable ones left out).</summary>
             public int Total;
-            /// <summary>Why the unjudged ones are unjudged: backend | nothing | rule | "" (none unjudged).</summary>
+            /// <summary>Why the unjudged ones are unjudged: backend (all of them) | mixed (some) | nothing | rule | "" (none unjudged).</summary>
             public string UnjudgedReason = "";
             public int Passed => AiPass + ListHuman;
             /// <summary>AI checks that got a verdict (pass or fail) or a partial one.</summary>
             public int Judged => AiPass + Fail + Partial;
         }
 
-        public const string ReasonBackend = "backend", ReasonNothing = "nothing", ReasonRule = "rule";
+        public const string ReasonBackend = "backend", ReasonMixed = "mixed", ReasonNothing = "nothing", ReasonRule = "rule";
 
         public static Tally TallyOf(SpecReport r, string section = null) => TallyOf(r, InSection(section));
 
@@ -456,7 +457,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         {
             var t = new Tally();
             if (r == null) return t;
-            bool backendBlocked = false;
+            int backendBlocked = 0;
             foreach (var c in r.Checks)
             {
                 if (!member(c.Check) || c.State == SpecState.NotApplicable) continue;
@@ -469,12 +470,12 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                     case SpecState.Partial: t.Partial++; break;
                     default:
                         t.Unjudged++;
-                        if (r.BackendUnavailable && SpecReport.BackendMappedChecks.Contains(c.Check.Id)) backendBlocked = true;
+                        if (r.BackendUnavailable && SpecReport.BackendMappedChecks.Contains(c.Check.Id)) backendBlocked++;
                         break;
                 }
             }
             if (t.Unjudged > 0)
-                t.UnjudgedReason = backendBlocked ? ReasonBackend : t.Judged == 0 ? ReasonNothing : ReasonRule;
+                t.UnjudgedReason = backendBlocked == t.Unjudged ? ReasonBackend : backendBlocked > 0 ? ReasonMixed : t.Judged == 0 ? ReasonNothing : ReasonRule;
             return t;
         }
 

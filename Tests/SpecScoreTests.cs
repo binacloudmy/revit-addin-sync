@@ -78,15 +78,40 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void Backend_down_names_the_backend_as_the_reason()
+        public void Backend_down_names_the_backend_only_for_the_checks_that_need_it()
         {
+            // Empty run, backend down: the stubs have no rule either way, so the reason is "mixed", not "backend unavailable".
             var r = SpecReport.Build(new SpecResult[0], "connection refused");
             var t = SpecChecklist.TallyOf(r);
             Assert.True(t.Unjudged > 0);
-            Assert.Equal(SpecChecklist.ReasonBackend, t.UnjudgedReason);
+            Assert.Equal(SpecChecklist.ReasonMixed, t.UnjudgedReason);
             Assert.Equal(36, SpecChecklist.Pct(r));
-            Assert.EndsWith("— backend unavailable", SpecChecklist.UnjudgedLine(r, PanelStrings.En));
-            Assert.EndsWith("— backend tidak tersedia", SpecChecklist.UnjudgedLine(r, PanelStrings.Ms));
+            Assert.Contains("some: backend unavailable", SpecChecklist.UnjudgedLine(r, PanelStrings.En));
+            Assert.Contains("sebahagian: backend tidak tersedia", SpecChecklist.UnjudgedLine(r, PanelStrings.Ms));
+        }
+
+        [Fact]
+        public void Backend_reason_is_mixed_when_only_some_unjudged_checks_need_the_backend()
+        {
+            var stubs = new[] { "A3.3", "C5.1.2", "C1.1.1", "C1.1.2" };
+            var backendMapped = SpecReport.BackendMappedChecks.First(id => SpecCatalog.Find(id)?.Class == SpecCellClass.Ai && !stubs.Contains(id));
+            var r = SpecReport.Build(AiIds().Where(id => !stubs.Contains(id) && id != backendMapped).Select(Pass).ToList(), "timeout");
+            var t = SpecChecklist.TallyOf(r);
+            Assert.Equal(5, t.Unjudged);
+            Assert.Equal(SpecChecklist.ReasonMixed, t.UnjudgedReason);
+            Assert.StartsWith("5 could not be checked — some:", SpecChecklist.UnjudgedLine(r, PanelStrings.En));
+        }
+
+        [Fact]
+        public void The_borang_summary_carries_the_unjudged_and_partial_counts()
+        {
+            var report = SpecReport.Build(new[] { Pass("A2.1") }, "timeout");
+            var s = SpecBorang.Build(report, new[] { Pass("A2.1") });
+            var t = SpecChecklist.TallyOf(report);
+            Assert.Equal((t.Unjudged, t.Partial, t.UnjudgedReason), (s.Unjudged, s.Partial, s.UnjudgedReason));
+            Assert.True(s.Unjudged > 0);
+            Assert.Equal(61, s.AiTotal);
+            Assert.Equal(23, s.Pass);
         }
 
         [Fact]

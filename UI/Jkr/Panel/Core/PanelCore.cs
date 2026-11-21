@@ -248,8 +248,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
 
         public int AiPass => Stats().Values.Sum(s => s.Pass);
         public int AiTotal => Stats().Values.Sum(s => s.Pass + s.Fail);
-        /// <summary>Headline: AI-verified passing cells / AI-verified cells; items
-        /// that need a person are never in it.</summary>
+        /// <summary>Headline for a run WITHOUT a spec report (BIM010 cells): AI-verified passing cells /
+        /// AI-verified cells; items that need a person are never in it. With a spec report the headline
+        /// is <see cref="SpecChecklist.Pct(SpecReport, string)"/> (checks, List/Human = pass).</summary>
         public int? HeadPct => AiTotal == 0 ? (int?)null : (int)Math.Round(AiPass * 100.0 / AiTotal, MidpointRounding.AwayFromZero);
         /// <summary>Items that need a person (the "Manual review" number).</summary>
         public int PendTotal => Live.Count(x => x.IsHuman);
