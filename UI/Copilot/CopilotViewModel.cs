@@ -622,7 +622,9 @@ namespace RevitWebAppSync.UI.Copilot
                 // Header status pill (PRD A7) rides the same transitions: a
                 // send opens Running; its end lands on Stopped (user clicked
                 // Stop this turn) or Done. No extra state machine.
-                if (value) RunStatus = "Running";
+                // r23 (live L14 e33b2db9, 824dbaae): the chip's words follow the thread from the moment the drafter's message is in it,
+                // by the composer's rule, so "Running" and the "Done" set here (before the reply is drawn) already read Malay in a Malay chat.
+                if (value) { _statusLang = Model.TurnStatusText.ChipLanguage(Thread); RunStatus = "Running"; Raise(nameof(RunStatusText)); }
                 else if (RunStatus == "Running") RunStatus = _stopRequested ? "Stopped" : "Done";
                 _stopRequested = false;
             }
@@ -1285,6 +1287,9 @@ namespace RevitWebAppSync.UI.Copilot
             var cardLang = PromptLanguage.Card(rr.Language);
             cardLang = PromptLanguage.Card(PromptLanguage.FromServer(TurnStatus.ServerResultOf(rr)?.Lang, PromptLanguage.ForReply(cardLang, rr.Reply)));   // r21: the language the server resolved wins; r22 (N5): else its Malay reply
             _statusLang = cardLang;   // r22: the chip ("Selesai", "Perlu jawapan anda") reads in the turn's language
+            // r23 (live L14 e33b2db9, 824dbaae): the pill already read "Done" (IsSending's end ran first) and AfterResult keeps it, so the
+            // RunStatus setter raises nothing: the chip kept the language it had before this turn. Say it again in this turn's language.
+            Raise(nameof(RunStatusText));
             // The narrow no-op rule (B): a code no-op against a result that says things changed is a caution; the evidence needs the result first.
             if (!TurnStatus.IsFailed(rr)) rr.Evidence?.NoteServerResult(rr.ServerResult);
             if (rr.Ask != null)
