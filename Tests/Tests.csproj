@@ -166,6 +166,10 @@
     <Compile Include="..\BinaVibe\Dimensions\DimensionPlans.cs" Link="DimensionPlans.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\JkrTierMap.cs" Link="JkrTierMap.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\IssueVm.cs" Link="IssueVm.cs" />
+    <!-- AI-437: the backend DTO and the mapper from it to the pane's rows (JkrZeroDeadEndsTests). -->
+    <Compile Include="..\Services\ComplianceService.cs" Link="Services\ComplianceService.cs" />
+    <Compile Include="..\Services\JkrComplianceService.cs" Link="Services\JkrComplianceService.cs" />
+    <Compile Include="..\UI\Jkr\ViewModels\IssueMapper.cs" Link="IssueMapper.cs" />
     <!-- Backend check status → AI verdict or "needs a person" (cannot_verify), and the pane's counts / % that leave people's items out. -->
     <Compile Include="..\UI\Jkr\ViewModels\JkrCheckStatus.cs" Link="JkrCheckStatus.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\JkrRecheck.cs" Link="JkrRecheck.cs" />
@@ -383,6 +387,11 @@
 
   <ItemGroup Condition="'$(SkipRevitSources)' == 'true'">
     <Compile Remove="DocumentChangedIndexerTests.cs" />
+  </ItemGroup>
+
+  <!-- Stand-ins for WPF types, for the macOS harness only (it globs Tests/**/*.cs itself). -->
+  <ItemGroup>
+    <Compile Remove="MacShim\**" />
   </ItemGroup>
 
   <ItemGroup>
