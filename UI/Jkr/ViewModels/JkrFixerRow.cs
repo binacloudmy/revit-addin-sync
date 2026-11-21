@@ -191,7 +191,10 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             // AI-434: a multi-valid-code picker. The dropdown starts on the AI's code when it gave one
             // (badged "AI suggested"), else on the first option; nothing is written until a person writes it.
             IsPick = isPick && Options.Count > 0;
-            if (IsPick)
+            // AI-485: a name pick (no JKR parameter in the rule) starts empty: no AI code, no first option.
+            IsNamePick = IsPick && JkrManualFix.ParameterOf(_rule).Length == 0;
+            if (IsNamePick) _manual = "";
+            else if (IsPick)
             {
                 PickCode = Options.FirstOrDefault(o => string.Equals(o, pickCode ?? "", StringComparison.OrdinalIgnoreCase)) ?? "";
                 PickReason = PickCode.Length > 0 ? pickReason ?? "" : "";
@@ -201,6 +204,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
 
         /// <summary>The row is a multi-valid-code picker (AI-434).</summary>
         public bool IsPick { get; }
+        /// <summary>AI-485: the options are whole names; nothing is preselected and Ask AI is not offered.</summary>
+        public bool IsNamePick { get; }
         /// <summary>The AI's code among the options, or "".</summary>
         public string PickCode { get; } = "";
         /// <summary>Why the AI chose it: the dropdown's tooltip.</summary>
@@ -220,7 +225,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public bool HasAiValue => AiState == FixerAiState.Suggested;
         public bool HasAiReason => AiReason.Length > 0;
         /// <summary>Ask AI is offered until the fixer has proposed something.</summary>
-        public bool CanAsk => IsPick ? PickCode.Length == 0 && AiState != FixerAiState.NoSuggestion : AiState != FixerAiState.Suggested;
+        public bool CanAsk => IsNamePick ? false : IsPick ? PickCode.Length == 0 && AiState != FixerAiState.NoSuggestion : AiState != FixerAiState.Suggested;
         public bool CanAccept => !IsPick && HasAiValue && AiValue.Length > 0;
         public string AskLabel => S("ask");
         public string AcceptLabel => S("accept");

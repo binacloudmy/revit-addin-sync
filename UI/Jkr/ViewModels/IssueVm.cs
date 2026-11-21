@@ -242,6 +242,11 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// <summary>The row is a picker: several valid codes and a person has to choose. Fix all never writes it.</summary>
         public bool IsPick => RequiresUserChoice && ValidOptions.Count > 0 && !NeedsPerson;
 
+        /// <summary>AI-485: a pick row whose options are whole element names ("Naming convention" on a category with
+        /// several subtypes: wall b/k/d, door k/g/b, window b/k), not codes for a parameter. The subtype is the person's
+        /// call: no option is ever preselected, not by the AI and not by position.</summary>
+        public bool IsNamePick => IsPick && string.IsNullOrEmpty(JkrManualFix.ParameterOf(RawRule));
+
         /// <summary>Fix all (and the checklist's Fix n) may write this row: a ready-made fix, never a pick row.</summary>
         public bool BulkFixable => AutoFixable && !IsPick;
 
@@ -259,6 +264,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             AiSuggestedCode = hit ?? "";
             AiSuggestionReason = hit != null ? (reason ?? "").Trim() : "";
             if (IsPick) AutoFixable = false;
+            // AI-485: no AI pre-selection for a name (a guessed subtype is what this ticket removes).
+            if (IsNamePick) { AiSuggestedCode = ""; AiSuggestionReason = ""; }
         }
 
         /// <summary>Load the AI proposal into the Fix* fields for ONE accepted write (the
