@@ -355,15 +355,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         }
 
         /// <summary>Checker severity → pane priority (critical/major/minor → High/Medium/Low).</summary>
-        public static IssuePriority PriorityOf(string severity)
-        {
-            switch ((severity ?? "").Trim().ToLowerInvariant())
-            {
-                case "critical": return IssuePriority.High;
-                case "minor": return IssuePriority.Low;
-                default: return IssuePriority.Medium;
-            }
-        }
+        public static IssuePriority PriorityOf(string severity) => JkrTierMap.FromSeverity(severity);
 
         /// <summary>
         /// Map all non-pass issues from both BuildingRequirements + ElementIssues lists,
