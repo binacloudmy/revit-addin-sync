@@ -219,6 +219,9 @@ namespace BinaVibe.Copilot.Writes
                     Shape = preview.Shape,
                     Revision = preview.Revision,
                     GroupName = preview.GroupName,
+                    // r23 audit of 60a367a6: the MEP resize guard's before values travel to the commit (without them every own-code edit
+                    // of a duct was a curve the preview "never read" and rolled back at commit).
+                    MepBefore = preview.MepBefore,
                 };
                 var writeSlots = writes.Select(j => active[j]).ToList();
 
