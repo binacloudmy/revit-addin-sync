@@ -71,7 +71,7 @@ namespace RevitWebAppSync.Tests
         // ── Da.1 ──
 
         [Fact]
-        public void Da1_generic_names_fail_and_JKR_coded_names_pass_partly()
+        public void Da1_generic_names_fail_and_JKR_coded_names_pass_in_full()
         {
             var door1 = T("Doors", "Door 1");
             var basic = T("Walls", "Basic Wall");
@@ -81,7 +81,7 @@ namespace RevitWebAppSync.Tests
 
             var fails = Fails(r);
             Assert.Equal(2, fails.Count);
-            Assert.All(fails, f => Assert.Equal(SpecCoverage.FailOnly, f.Coverage));
+            Assert.All(fails, f => Assert.Equal(SpecCoverage.Full, f.Coverage));
             var f1 = fails.Single(f => f.ElementName == "Doors · Door 1");
             Assert.Equal(door1.InstanceIds[0], f1.ElementId);
             Assert.Equal(door1.InstanceIds, f1.ElementIds);
@@ -94,7 +94,7 @@ namespace RevitWebAppSync.Tests
             var passes = Passes(r);
             Assert.Equal(new[] { "Doors", "Walls" }, passes.Select(p => p.Category).OrderBy(c => c));
             Assert.All(passes, p => Assert.Equal(1, p.ElementCount));
-            Assert.All(passes, p => Assert.Equal(SpecCoverage.FailOnly, p.Coverage));
+            Assert.All(passes, p => Assert.Equal(SpecCoverage.Full, p.Coverage));
         }
 
         [Fact]
@@ -147,10 +147,17 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void Da1_with_only_coded_names_is_partly_checked_never_a_full_pass()
+        public void Da1_with_only_coded_names_is_a_full_pass()
         {
             var s = Report("Da.1", Model(T("Doors", "(PT2p600a) 900 x 2325 a")));
-            Assert.Equal(SpecState.Partial, s.State);
+            Assert.Equal(SpecState.Pass, s.State);
+        }
+
+        [Fact]
+        public void Da1_one_generic_name_among_coded_ones_fails_the_check()
+        {
+            var s = Report("Da.1", Model(T("Doors", "(PT2p600a) 900 x 2325 a"), T("Doors", "Door 1")));
+            Assert.Equal(SpecState.Fail, s.State);
         }
 
         // ── Db.1 ──
@@ -204,7 +211,15 @@ namespace RevitWebAppSync.Tests
             Assert.Contains(fails, f => f.Note.Contains("tiada material") && f.NoteEn.Contains("has no material"));
             Assert.Contains(fails, f => f.Note.Contains("'Glass'") && !f.Note.Contains("jkrAR_wdw"));
             Assert.Equal(1, PassOf(r).ElementCount);
-            Assert.All(r, x => Assert.Equal(SpecCoverage.FailOnly, x.Coverage));
+            Assert.All(r, x => Assert.Equal(SpecCoverage.Full, x.Coverage));
+        }
+
+        [Fact]
+        public void Db2_all_materials_JKR_coded_is_a_full_pass()
+        {
+            var w = T("Walls", "(DGb493a) 150");
+            w.Materials.Add("jkrAR_wll-b_(bb02)-3");
+            Assert.Equal(SpecState.Pass, Report("Db.2", Model(w)).State);
         }
 
         [Theory]
@@ -285,7 +300,60 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(1, PassOf(r).ElementCount);
         }
 
+        [Fact]
+        public void Dc1_remarks_label_the_assumed_tolerance_and_full_pass_when_all_numbers_read()
+        {
+            var bad = T("Walls", "Wall 146"); bad.Numbers["Width"] = 150;
+            var f = Fails(Run("Dc.1", Model(bad))).Single();
+            Assert.Equal(SpecCoverage.Full, f.Coverage);
+            Assert.Contains("andaian", f.Note);
+            Assert.Contains("assumed", f.NoteEn);
+
+            var ok = T("Walls", "Wall 200"); ok.Numbers["Width"] = 200;
+            var r = Run("Dc.1", Model(ok));
+            Assert.Equal(SpecCoverage.Full, PassOf(r).Coverage);
+            Assert.Contains("assumed", PassOf(r).NoteEn);
+            Assert.Equal(SpecState.Pass, Report("Dc.1", Model(ok)).State);
+        }
+
+        [Fact]
+        public void Dc1_a_name_with_numbers_that_cannot_be_read_keeps_the_pass_partial()
+        {
+            var ok = T("Walls", "Wall 200"); ok.Numbers["Width"] = 200;
+            var ambiguous = T("Walls", "CW 102-85-100p");
+            var m = Model(ok, ambiguous);
+            Assert.Equal(SpecCoverage.FailOnly, PassOf(Run("Dc.1", m)).Coverage);
+            Assert.Equal(SpecState.Partial, Report("Dc.1", m).State);
+            // a name without any number has nothing to compare: no reason to hold the pass back
+            var plain = T("Doors", "Single-Flush");
+            Assert.Equal(SpecState.Pass, Report("Dc.1", Model(ok, plain)).State);
+        }
+
         // ── Dd.1 ──
+
+        [Fact]
+        public void Dd1_every_name_judged_is_a_full_pass_and_a_mismatch_fails()
+        {
+            var okDoor = T("Doors", "(PT2p600a) 900 x 2325 a");
+            var okWall = T("Walls", "Wall 146");
+            var r = Run("Dd.1", Model(okDoor, okWall));
+            Assert.All(r, x => Assert.Equal(SpecCoverage.Full, x.Coverage));
+            Assert.Equal(SpecState.Pass, Report("Dd.1", Model(okDoor, okWall)).State);
+            var tk = T("Doors", "(TKh281a) 600 x 1800");
+            var fails = Fails(Run("Dd.1", Model(okDoor, tk)));
+            Assert.Equal(SpecCoverage.Full, Assert.Single(fails).Coverage);
+            Assert.Equal(SpecState.Fail, Report("Dd.1", Model(okDoor, tk)).State);
+        }
+
+        [Fact]
+        public void Dd1_a_type_whose_name_says_nothing_keeps_the_pass_partial()
+        {
+            var okDoor = T("Doors", "(PT2p600a) 900 x 2325 a");
+            var silent = T("Walls", "jkrAR_xyz_(q1)");   // no code prefix in the table, no keyword
+            var m = Model(okDoor, silent);
+            Assert.Equal(SpecCoverage.FailOnly, Passes(Run("Dd.1", m)).First().Coverage);
+            Assert.Equal(SpecState.Partial, Report("Dd.1", m).State);
+        }
 
         [Fact]
         public void Dd1_window_code_or_name_in_Doors_fails()
@@ -305,7 +373,7 @@ namespace RevitWebAppSync.Tests
             Assert.Contains("kod (TK…)", tk.Note);
             Assert.Contains(fails, f => f.ElementName == "Generic Models · Floor 150" && f.Required == "Floors" && f.Category == "Generic Models");
             Assert.Equal(new[] { "Doors", "Walls" }, Passes(r).Select(p => p.Category).OrderBy(c => c));
-            Assert.All(r, x => Assert.Equal(SpecCoverage.FailOnly, x.Coverage));
+            Assert.All(r, x => Assert.Equal(SpecCoverage.Full, x.Coverage));
         }
 
         [Fact]

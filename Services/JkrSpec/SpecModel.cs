@@ -28,6 +28,11 @@ namespace RevitWebAppSync.Services.JkrSpec
         /// frame as the grid end points); null when not read.</summary>
         public SpecPoint ProjectBasePoint;
         public List<SpecRoom> Rooms = new List<SpecRoom>();
+        /// <summary>Placed Area elements with their parameters (C1.6.3, PB p.36 Area columns).</summary>
+        public List<SpecArea> Areas = new List<SpecArea>();
+        /// <summary>The reader read <see cref="Areas"/>. False for old snapshots and hand-made
+        /// fixtures, where an Areas category count alone says areas exist but not what they hold.</summary>
+        public bool AreasRead;
         public List<SpecFloor> Floors = new List<SpecFloor>();
         public List<SpecCeiling> Ceilings = new List<SpecCeiling>();
         public List<SpecRoof> Roofs = new List<SpecRoof>();
@@ -61,6 +66,8 @@ namespace RevitWebAppSync.Services.JkrSpec
             Levels = Levels ?? new List<SpecLevel>();
             Grids = Grids ?? new List<SpecGrid>();
             Rooms = Rooms ?? new List<SpecRoom>();
+            Areas = Areas ?? new List<SpecArea>();
+            foreach (var x in Areas) { x.Name = x.Name ?? ""; x.LevelName = x.LevelName ?? ""; x.Params = x.Params ?? new Dictionary<string, string>(); }
             Floors = Floors ?? new List<SpecFloor>();
             Ceilings = Ceilings ?? new List<SpecCeiling>();
             Roofs = Roofs ?? new List<SpecRoof>();
@@ -86,7 +93,7 @@ namespace RevitWebAppSync.Services.JkrSpec
             foreach (var x in Floors) { x.TypeName = x.TypeName ?? ""; x.LevelName = x.LevelName ?? ""; x.Loops = CleanLoops(x.Loops); }
             foreach (var x in Ceilings) { x.TypeName = x.TypeName ?? ""; x.LevelName = x.LevelName ?? ""; x.Loops = CleanLoops(x.Loops); }
             foreach (var x in Roofs) { x.TypeName = x.TypeName ?? ""; x.LevelName = x.LevelName ?? ""; x.Materials = x.Materials ?? new List<string>(); x.LayerFunctions = x.LayerFunctions ?? new List<string>(); }
-            foreach (var x in Types) { x.Category = x.Category ?? ""; x.FamilyName = x.FamilyName ?? ""; x.TypeName = x.TypeName ?? ""; x.InstanceIds = x.InstanceIds ?? new List<long>(); x.Numbers = x.Numbers ?? new Dictionary<string, double>(); x.Texts = x.Texts ?? new Dictionary<string, string>(); x.Materials = x.Materials ?? new List<string>(); x.ParamNames = x.ParamNames ?? new List<string>(); }
+            foreach (var x in Types) { x.Category = x.Category ?? ""; x.FamilyName = x.FamilyName ?? ""; x.TypeName = x.TypeName ?? ""; x.InstanceIds = x.InstanceIds ?? new List<long>(); x.Numbers = x.Numbers ?? new Dictionary<string, double>(); x.Texts = x.Texts ?? new Dictionary<string, string>(); x.Materials = x.Materials ?? new List<string>(); x.MateriallessIds = x.MateriallessIds ?? new List<long>(); x.ParamNames = x.ParamNames ?? new List<string>(); }
             foreach (var x in Materials) { x.Name = x.Name ?? ""; x.Class = x.Class ?? ""; }
             foreach (var x in Views) { x.Name = x.Name ?? ""; x.Kind = x.Kind ?? ""; x.LevelName = x.LevelName ?? ""; x.TemplateName = x.TemplateName ?? ""; x.SheetNumber = x.SheetNumber ?? ""; }
             foreach (var x in Schedules) { x.Name = x.Name ?? ""; x.Category = x.Category ?? ""; x.Fields = x.Fields ?? new List<string>(); x.RowElementIds = x.RowElementIds ?? new List<long>(); }
@@ -162,6 +169,17 @@ namespace RevitWebAppSync.Services.JkrSpec
         public double? Height;
     }
 
+    public sealed class SpecArea
+    {
+        public long Id;
+        public string Name = "";
+        public string LevelName = "";
+        /// <summary>m²; 0 = not placed / not enclosed.</summary>
+        public double Area;
+        /// <summary>Every area parameter with a value (name → shown value; "" when empty).</summary>
+        public Dictionary<string, string> Params = new Dictionary<string, string>();
+    }
+
     public sealed class SpecFloor
     {
         public long Id;
@@ -232,6 +250,15 @@ namespace RevitWebAppSync.Services.JkrSpec
         public bool ParamNamesRead;
         /// <summary>Material names on the type (layers or material parameters); empty = no material.</summary>
         public List<string> Materials = new List<string>();
+        /// <summary>The reader checked every placed instance (up to the instance-id cap) for a
+        /// material, not only the first one: <see cref="MateriallessIds"/> is then the
+        /// instances with none. False for old snapshots and hand-made fixtures, where only
+        /// <see cref="Materials"/> (the type) says anything (A7.1 judges per element).</summary>
+        public bool ElementMaterialsRead;
+        /// <summary>Placed instance ids (a subset of <see cref="InstanceIds"/>) that carry no
+        /// material — neither from the type nor on the element itself. Meaningful only when
+        /// <see cref="ElementMaterialsRead"/>.</summary>
+        public List<long> MateriallessIds = new List<long>();
     }
 
     public sealed class SpecMaterial
