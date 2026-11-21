@@ -225,6 +225,16 @@ namespace BinaVibe.Copilot.Writes
                 }
             }
 
+            // r23 (live bfa7d410): the model's own code (no playbook) never resizes a duct, pipe, conduit or cable tray. Every element it
+            // modified in those categories is read again now that the preview rolled back (the values before); any size that differs
+            // from what the code left refuses the call, so nothing of the batch is committed.
+            if (!outcome.HasFailures)
+                foreach (var kv in runs.Where(r => r.Value.MepAfter != null && r.Value.MepAfter.Count > 0))
+                {
+                    var rows = MepResizeGuard.Changed(kv.Value.MepAfter!, MepSizes(doc, kv.Value.MepAfter!.Select(v => v.Id).Distinct()));
+                    if (rows.Count > 0) { outcome.Failures[kv.Key] = MepResizeGuard.Refusal(rows); break; }
+                }
+
             // L15: the code's edits as real rows. The edited elements are back to their old values
             // now, so read them again as "before" (the first 50; the rest behind a handle).
             if (!outcome.HasFailures)
@@ -632,8 +642,53 @@ namespace BinaVibe.Copilot.Writes
         // One call: one guarded transaction inside the open group
         // ------------------------------------------------------------------
 
+        // r23 (live bfa7d410): the guarded categories and size parameters, as MepResizeGuard names them.
+        private static readonly HashSet<BuiltInCategory> MepCurveCategories = new HashSet<BuiltInCategory>
+        {
+            BuiltInCategory.OST_DuctCurves, BuiltInCategory.OST_PipeCurves, BuiltInCategory.OST_FlexDuctCurves,
+            BuiltInCategory.OST_FlexPipeCurves, BuiltInCategory.OST_Conduit, BuiltInCategory.OST_CableTray,
+        };
+
+        private static readonly BuiltInParameter[] MepSizeParameters =
+        {
+            BuiltInParameter.RBS_CURVE_WIDTH_PARAM, BuiltInParameter.RBS_CURVE_HEIGHT_PARAM, BuiltInParameter.RBS_CURVE_DIAMETER_PARAM,
+            BuiltInParameter.RBS_PIPE_DIAMETER_PARAM, BuiltInParameter.RBS_CONDUIT_DIAMETER_PARAM, BuiltInParameter.RBS_CABLETRAY_WIDTH_PARAM,
+            BuiltInParameter.RBS_CABLETRAY_HEIGHT_PARAM,
+        };
+
+        /// <summary>The size values of the given elements that are MEP curves of a guarded category (other elements: none).</summary>
+        private static List<MepResizeGuard.SizeValue> MepSizes(Document doc, IEnumerable<long> ids)
+        {
+            var values = new List<MepResizeGuard.SizeValue>();
+            foreach (var id in ids)
+            {
+                try
+                {
+                    var el = doc.GetElement(ElemIds.From(id));
+                    var cat = el?.Category;
+                    if (el == null || cat == null) continue;
+                    var bic = (BuiltInCategory)(int)cat.Id.Value;
+                    if (!MepCurveCategories.Contains(bic)) continue;
+                    foreach (var bip in MepSizeParameters)
+                    {
+                        var p = el.get_Parameter(bip);
+                        if (p == null || p.StorageType != StorageType.Double) continue;
+                        values.Add(new MepResizeGuard.SizeValue
+                        {
+                            Id = id, Category = cat.Name ?? bic.ToString(), Param = bip.ToString(),
+                            Value = p.HasValue ? p.AsDouble() : (double?)null, Display = p.AsValueString(),
+                        });
+                    }
+                }
+                catch (Exception) { /* an element Revit cannot read here is not a size the code changed */ }
+            }
+            return values;
+        }
+
         private sealed class CallRun
         {
+            /// <summary>r23: run_revit_code (no playbook) previews: the size values it left on modified MEP curves.</summary>
+            public List<MepResizeGuard.SizeValue>? MepAfter;
             public Envelope? Envelope;
             public Envelope? Failure;
             public ChangeSet? Changes;
@@ -814,6 +869,8 @@ namespace BinaVibe.Copilot.Writes
                     EnvelopeChanges.SetCreated(run.Envelope!, CreatedItems(doc, addedNonBenign.Where(visibleAdded.Contains)));
                     if (phase == WritePhase.Preview)
                     {
+                        // r23: the sizes the model's own code left on MEP curves, read before the preview's group rolls back.
+                        if (MepResizeGuard.Applies(call)) run.MepAfter = MepSizes(doc, labelled.Modified.Where(id => !benign.Contains(id)));
                         run.ModifiedIds = labelled.Modified.Where(id => !benign.Contains(id)).OrderBy(id => id).ToList();
                         run.ValuesAfter = RevitValueFingerprints.Cells(doc, run.ModifiedIds.Take(EnvelopeLimits.MaxRows));
                     }
