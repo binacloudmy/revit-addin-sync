@@ -46,6 +46,9 @@ namespace BinaVibe.Copilot.Writes
         public Envelope?[] Reads = Array.Empty<Envelope?>();
         public Envelope?[] Failures = Array.Empty<Envelope?>();
         public WritePlan[] Plans = Array.Empty<WritePlan>();
+        /// <summary>r23 (MEP resize guard): the size values of the guarded MEP curves the model's own code modified, as the preview read them
+        /// once rolled back (the values before); the commit compares its own values with these.</summary>
+        public List<MepResizeGuard.SizeValue> MepBefore = new();
         /// <summary>One preview-phase envelope per call (estimate-only envelopes when the
         /// batch could not be previewed); the slots of read calls are unused.</summary>
         public Envelope[] Envelopes = Array.Empty<Envelope>();

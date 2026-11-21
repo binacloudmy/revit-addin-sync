@@ -5,6 +5,10 @@
 // flex duct, flex pipe, conduit or cable tray is never committed. Its envelope is refused (ok false, status rejected, phase preview,
 // policy_rejected) with the backend's OWN_RESIZE text (copilot_unitask.py on fix/copilot-r23-units4 a1fbd320) and data.mep_resize, one
 // row per changed value. Stored playbook runs and set_parameters are untouched. Revit-free (the engine reads the values) so it is tested.
+// Safety audit of 7487d5bf: (1) delete-and-recreate: own code that deletes a guarded curve AND adds one in the same batch is refused
+// whatever the sizes (plain creation, and plain deletion, stay allowed: neither resizes an existing run); (2) fail closed: a guarded
+// curve whose size cannot be read, after the code or once rolled back, refuses the call; (3) the commit checks again, against the values
+// the preview read before it, and rolls back on any change or on a guarded curve the preview never read.
 
 using System;
 using System.Collections.Generic;
@@ -53,7 +57,15 @@ namespace BinaVibe.Copilot.Writes
             public string Param = "";
             public double? Value;
             public string? Display;
+            /// <summary>A guarded curve whose size could not be read (Revit threw, or it has none of the size parameters): fail closed.</summary>
+            public bool Unreadable;
         }
+
+        /// <summary>The row of a curve whose size could not be read.</summary>
+        public const string UnreadableText = "(size could not be read)";
+
+        /// <summary>The "param" of a delete-and-recreate row.</summary>
+        public const string CreatedParam = "(created)", DeletedParam = "(deleted)";
 
         /// <summary>The rows that changed: each value read after the code ran in the preview, against the same value once the preview rolled
         /// back (the value before). A value that appeared or disappeared counts as changed.</summary>
@@ -64,6 +76,13 @@ namespace BinaVibe.Copilot.Writes
             foreach (var now in after ?? Enumerable.Empty<SizeValue>())
             {
                 was.TryGetValue((now.Id, now.Param), out var old);
+                if (now.Unreadable || old == null || old.Unreadable)
+                {
+                    // Fail closed: a size not read after the code ran, or not read before it (gone, or unreadable once rolled back).
+                    rows.Add(Row(now.Id, now.Category, now.Param, old == null || old.Unreadable ? UnreadableText : old.Display,
+                                 now.Unreadable ? UnreadableText : now.Display));
+                    continue;
+                }
                 var a = now.Value; var b = old?.Value;
                 var same = a.HasValue == b.HasValue && (!a.HasValue || Math.Abs(a.Value - b!.Value) <= Tolerance);
                 if (same) continue;
@@ -75,6 +94,20 @@ namespace BinaVibe.Copilot.Writes
             }
             return rows;
         }
+
+        /// <summary>Delete-and-recreate (audit of 7487d5bf): rows when the model's own code in one batch both deleted and added guarded
+        /// curves (a resize by another road); none otherwise. Each item: id and category.</summary>
+        public static List<Dictionary<string, object?>> Replaced(IEnumerable<(long Id, string Category)>? deleted, IEnumerable<(long Id, string Category)>? added)
+        {
+            var d = (deleted ?? Enumerable.Empty<(long, string)>()).ToList();
+            var a = (added ?? Enumerable.Empty<(long, string)>()).ToList();
+            if (d.Count == 0 || a.Count == 0) return new List<Dictionary<string, object?>>();
+            return d.Select(x => Row(x.Id, x.Category, DeletedParam, "existed", "deleted"))
+                    .Concat(a.Select(x => Row(x.Id, x.Category, CreatedParam, null, "created"))).ToList();
+        }
+
+        private static Dictionary<string, object?> Row(long id, string category, string param, string? before, string? after) =>
+            new Dictionary<string, object?> { ["id"] = id, ["category"] = category, ["param"] = param, ["before"] = before, ["after"] = after };
 
         /// <summary>The refusal that replaces the preview's envelope: nothing is committed.</summary>
         public static Envelope Refusal(IReadOnlyList<Dictionary<string, object?>> rows)

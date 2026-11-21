@@ -231,9 +231,24 @@ namespace BinaVibe.Copilot.Writes
             if (!outcome.HasFailures)
                 foreach (var kv in runs.Where(r => r.Value.MepAfter != null && r.Value.MepAfter.Count > 0))
                 {
-                    var rows = MepResizeGuard.Changed(kv.Value.MepAfter!, MepSizes(doc, kv.Value.MepAfter!.Select(v => v.Id).Distinct()));
+                    var was = MepSizes(doc, kv.Value.MepAfter!.Select(v => v.Id).Distinct());
+                    outcome.MepBefore.AddRange(was);   // the commit compares with these
+                    var rows = MepResizeGuard.Changed(kv.Value.MepAfter!, was);
                     if (rows.Count > 0) { outcome.Failures[kv.Key] = MepResizeGuard.Refusal(rows); break; }
                 }
+            // Audit of 7487d5bf: delete-and-recreate. The deleted elements exist again now, so their category is read here; the added ones
+            // were read before the rollback. Own code that both deletes and adds guarded curves in one batch is refused, whatever the sizes.
+            if (!outcome.HasFailures)
+            {
+                var guardedDeleted = GuardedCurves(doc, runs.Values.Where(r => r.MepDeletedIds != null).SelectMany(r => r.MepDeletedIds!).Distinct());
+                var guardedAdded = runs.Values.Where(r => r.MepAdded != null).SelectMany(r => r.MepAdded!).ToList();
+                var replaced = MepResizeGuard.Replaced(guardedDeleted, guardedAdded);
+                if (replaced.Count > 0)
+                {
+                    var at = runs.Where(r => (r.Value.MepAdded?.Count ?? 0) > 0).Select(r => r.Key).Min();   // the first call that added one
+                    outcome.Failures[at] = MepResizeGuard.Refusal(replaced);
+                }
+            }
 
             // L15: the code's edits as real rows. The edited elements are back to their old values
             // now, so read them again as "before" (the first 50; the rest behind a handle).
@@ -457,7 +472,7 @@ namespace BinaVibe.Copilot.Writes
                         // The stored calls, re-planned now and proven identical to the previewed plans by
                         // the hash above (frozen at preview time), so a tool that mutated its preview
                         // plan object cannot change what commits.
-                        var run = RunCall(doc!, tools[i], contexts[i], batch.Calls[i], fresh[i], WritePhase.Commit, preview.GroupName, builder, before);
+                        var run = RunCall(doc!, tools[i], contexts[i], batch.Calls[i], fresh[i], WritePhase.Commit, preview.GroupName, builder, before, preview.MepBefore);
                         st.Mark("run call " + i + " (" + (batch.Calls[i].Tool ?? "") + ")");
                         if (run.Failure != null)
                         {
@@ -656,39 +671,68 @@ namespace BinaVibe.Copilot.Writes
             BuiltInParameter.RBS_CABLETRAY_HEIGHT_PARAM,
         };
 
-        /// <summary>The size values of the given elements that are MEP curves of a guarded category (other elements: none).</summary>
+        /// <summary>The guarded MEP curve an element is (its category name), or null.</summary>
+        private static string? GuardedCategory(Element? el)
+        {
+            var cat = el?.Category;
+            if (cat == null) return null;
+            var bic = (BuiltInCategory)(int)cat.Id.Value;
+            return MepCurveCategories.Contains(bic) ? (cat.Name ?? bic.ToString()) : null;
+        }
+
+        /// <summary>The given elements that are guarded MEP curves, with their category name.</summary>
+        private static List<(long Id, string Category)> GuardedCurves(Document doc, IEnumerable<long> ids)
+        {
+            var found = new List<(long, string)>();
+            foreach (var id in ids)
+            {
+                try { if (GuardedCategory(doc.GetElement(ElemIds.From(id))) is string c) found.Add((id, c)); }
+                catch (Exception) { /* not readable: not known to be a curve */ }
+            }
+            return found;
+        }
+
+        /// <summary>The size values of the given elements that are MEP curves of a guarded category (other elements: none). Fail closed
+        /// (audit of 7487d5bf): a guarded curve whose sizes Revit cannot read, or that has none of the size parameters, gives one
+        /// Unreadable value, which refuses the call.</summary>
         private static List<MepResizeGuard.SizeValue> MepSizes(Document doc, IEnumerable<long> ids)
         {
             var values = new List<MepResizeGuard.SizeValue>();
             foreach (var id in ids)
             {
+                Element? el;
+                string? category;
+                try { el = doc.GetElement(ElemIds.From(id)); category = GuardedCategory(el); }
+                catch (Exception) { continue; }
+                if (el == null || category == null) continue;
+                var mine = new List<MepResizeGuard.SizeValue>();
                 try
                 {
-                    var el = doc.GetElement(ElemIds.From(id));
-                    var cat = el?.Category;
-                    if (el == null || cat == null) continue;
-                    var bic = (BuiltInCategory)(int)cat.Id.Value;
-                    if (!MepCurveCategories.Contains(bic)) continue;
                     foreach (var bip in MepSizeParameters)
                     {
                         var p = el.get_Parameter(bip);
                         if (p == null || p.StorageType != StorageType.Double) continue;
-                        values.Add(new MepResizeGuard.SizeValue
+                        mine.Add(new MepResizeGuard.SizeValue
                         {
-                            Id = id, Category = cat.Name ?? bic.ToString(), Param = bip.ToString(),
+                            Id = id, Category = category, Param = bip.ToString(),
                             Value = p.HasValue ? p.AsDouble() : (double?)null, Display = p.AsValueString(),
                         });
                     }
                 }
-                catch (Exception) { /* an element Revit cannot read here is not a size the code changed */ }
+                catch (Exception) { mine.Clear(); }
+                if (mine.Count == 0) mine.Add(new MepResizeGuard.SizeValue { Id = id, Category = category, Param = "size", Unreadable = true });
+                values.AddRange(mine);
             }
             return values;
         }
 
         private sealed class CallRun
         {
-            /// <summary>r23: run_revit_code (no playbook) previews: the size values it left on modified MEP curves.</summary>
+            /// <summary>r23: run_revit_code (no playbook) previews: the size values it left on modified MEP curves, the guarded curves it
+            /// added, and the ids it deleted.</summary>
             public List<MepResizeGuard.SizeValue>? MepAfter;
+            public List<(long Id, string Category)>? MepAdded;
+            public List<long>? MepDeletedIds;
             public Envelope? Envelope;
             public Envelope? Failure;
             public ChangeSet? Changes;
@@ -743,7 +787,8 @@ namespace BinaVibe.Copilot.Writes
 
         private static CallRun RunCall(Document doc, IWriteTool tool, ToolContext ctx, ToolCallDto call, WritePlan plan,
                                        WritePhase phase, string transactionName, BatchShapeBuilder builder,
-                                       IReadOnlyDictionary<long, string> categoriesBefore)
+                                       IReadOnlyDictionary<long, string> categoriesBefore,
+                                       IReadOnlyList<MepResizeGuard.SizeValue>? mepBefore = null)
         {
             var phaseName = EnvelopePhase.Of(phase);
             var run = new CallRun();
@@ -862,6 +907,14 @@ namespace BinaVibe.Copilot.Writes
                     run.Envelope.Warnings.Insert(0, new WarningDto { Text = fittingNote, Severity = WarningSeverity.Warning });
                 }
 
+                // Audit of 7487d5bf: the commit checks again, against the sizes the preview read before it (fail closed: a guarded curve the
+                // preview never read is a change). The caller rolls the commit's group back on this failure.
+                if (phase == WritePhase.Commit && MepResizeGuard.Applies(call))
+                {
+                    var rows = MepResizeGuard.Changed(MepSizes(doc, labelled.Modified.Where(id => !benign.Contains(id))), mepBefore ?? Array.Empty<MepResizeGuard.SizeValue>());
+                    if (rows.Count > 0) { run.Failure = MepResizeGuard.Refusal(rows); run.Failure.Phase = phaseName; run.Envelope = null; return run; }
+                }
+
                 if (isCode)
                 {
                     // L15: what the code creates, by name, and (preview) the values it edits.
@@ -869,8 +922,14 @@ namespace BinaVibe.Copilot.Writes
                     EnvelopeChanges.SetCreated(run.Envelope!, CreatedItems(doc, addedNonBenign.Where(visibleAdded.Contains)));
                     if (phase == WritePhase.Preview)
                     {
-                        // r23: the sizes the model's own code left on MEP curves, read before the preview's group rolls back.
-                        if (MepResizeGuard.Applies(call)) run.MepAfter = MepSizes(doc, labelled.Modified.Where(id => !benign.Contains(id)));
+                        // r23: the sizes the model's own code left on MEP curves, read before the preview's group rolls back; and the
+                        // guarded curves it added (they exist only now) and the ids it deleted (their category is read once rolled back).
+                        if (MepResizeGuard.Applies(call))
+                        {
+                            run.MepAfter = MepSizes(doc, labelled.Modified.Where(id => !benign.Contains(id)));
+                            run.MepAdded = GuardedCurves(doc, labelled.Added.Where(id => !benign.Contains(id)));
+                            run.MepDeletedIds = labelled.Deleted.Where(id => !benign.Contains(id)).ToList();
+                        }
                         run.ModifiedIds = labelled.Modified.Where(id => !benign.Contains(id)).OrderBy(id => id).ToList();
                         run.ValuesAfter = RevitValueFingerprints.Cells(doc, run.ModifiedIds.Take(EnvelopeLimits.MaxRows));
                     }
