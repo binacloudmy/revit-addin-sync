@@ -9,22 +9,30 @@ namespace RevitWebAppSync.Tests
     /// <summary>AI-494: the Fix via Copilot sequence (open, new chat, wait for indexing, send each part, errors, not signed in) on a fake session.</summary>
     public class JkrCopilotLauncherTests
     {
+        /// <summary>Per send, the turn is scripted by poll number n (reads of IsSending since that send):
+        /// (sending, card). Default: sending for 2 polls, then idle with an approved card (a finished write).</summary>
         private sealed class FakeSession : ICopilotSession
         {
             public readonly List<string> Log = new List<string>();
             public string OpenError;
             public Exception OpenThrows, NewChatThrows, SendThrows;
-            public int IndexingPolls = 0;          // IsIndexing reads true this many times, then false (int.MaxValue = never clears)
-            public bool SignedIn = true;
-            public Func<int, bool> Busy = _ => false;   // IsTurnBusy by read count since the last send
-            private int _busyReads, _indexReads;
+            public int IndexingPolls = 0;
+            public bool SignedIn = true, PaneVisible = true;
+            public bool BusyAtStart;                  // a request is running before the click
+            public CopilotCardState CardAtStart = CopilotCardState.None;
+            public Func<int, int, (bool sending, CopilotCardState card)> Turn = (part, n) => (n < 2, n < 2 ? CopilotCardState.None : CopilotCardState.Approved);
+            public Action<int> OnSend;                // part index just sent (e.g. close the pane)
+            private int _sends, _n, _indexReads;
+            private (bool sending, CopilotCardState card) _cur;
 
             public Task<string> OpenPaneAsync() { Log.Add("open"); if (OpenThrows != null) throw OpenThrows; return Task.FromResult(OpenError); }
             public void NewChat() { Log.Add("new"); if (NewChatThrows != null) throw NewChatThrows; }
             public bool IsIndexing => _indexReads++ < IndexingPolls;
             public bool IsSignedIn => SignedIn;
-            public bool IsTurnBusy => Busy(_busyReads++);
-            public void Send(string text) { Log.Add("send:" + text); _busyReads = 0; if (SendThrows != null) throw SendThrows; }
+            public bool IsPaneVisible => PaneVisible;
+            public bool IsSending { get { if (_sends == 0) return BusyAtStart; _cur = Turn(_sends - 1, _n++); return _cur.sending; } }
+            public CopilotCardState Cards => _sends == 0 ? CardAtStart : _cur.card;
+            public void Send(string text) { Log.Add("send:" + text); _sends++; _n = 0; _cur = Turn(_sends - 1, 0); OnSend?.Invoke(_sends - 1); if (SendThrows != null) throw SendThrows; }
         }
 
         private static readonly CopilotFixRequest Req = new CopilotFixRequest("i1", "Da.1", new long[] { 1, 2 }, "Title");
@@ -126,43 +134,114 @@ namespace RevitWebAppSync.Tests
             Assert.DoesNotContain("first part", toasts[0]);
         }
 
+        private static JkrCopilotFixLauncher Timed(FakeSession s, List<string> toasts, string[] parts, Action tick = null,
+            TimeSpan? turnTimeout = null) =>
+            new JkrCopilotFixLauncher(s, _ => parts, toasts.Add, () => false, _ => { tick?.Invoke(); return Task.CompletedTask; },
+                turnTimeout: turnTimeout ?? TimeSpan.FromMinutes(5));
+
         [Fact]
-        public async Task Each_part_waits_for_the_turn_to_finish_before_the_next()
+        public async Task Each_part_waits_for_its_write_to_finish_before_the_next()
         {
-            // after each send: busy for 8 reads, then free
-            var s = new FakeSession { Busy = n => n < 8 };
-            var order = new List<string>();
-            var l = new JkrCopilotFixLauncher(s, _ => new[] { "A", "B", "C" }, _ => { }, () => false,
-                _ => { order.Add("tick"); return Task.CompletedTask; },
-                turnTimeout: TimeSpan.FromMinutes(5));
+            var s = new FakeSession { Turn = (part, n) => (n < 8, n < 8 ? CopilotCardState.None : CopilotCardState.Approved) };
+            var ticks = 0;
+            var l = Timed(s, new List<string>(), new[] { "A", "B", "C" }, () => ticks++);
             Assert.Equal(CopilotLaunchOutcome.Sent, await l.LaunchAsync(Req));
             Assert.Equal(new[] { "open", "new", "send:A", "send:B", "send:C" }, s.Log);
-            // the delays between sends (ticks) prove a wait happened: with busy for 8 reads there are at least 8 ticks per gap
-            Assert.True(order.Count >= 16, "ticks=" + order.Count);
+            Assert.True(ticks >= 2 * (7 + 12), "ticks=" + ticks);   // per gap: last busy poll 7 + the 3 s settle (12 polls)
         }
 
         [Fact]
-        public async Task A_confirm_card_that_never_resolves_stops_the_chain_with_a_message()
+        public async Task A_slow_write_after_Ya_does_not_release_the_next_part_early()
         {
-            var s = new FakeSession { Busy = _ => true };   // card open forever
-            var (l, toasts) = Make(s, "A", "B");
+            // card open 4 polls (person thinking), then Ya: 8 idle polls (2 s, shorter than the 3 s settle), then the write runs 6 polls, then done
+            (bool, CopilotCardState) Script(int part, int n) =>
+                n < 4 ? (false, CopilotCardState.Open)
+                : n < 12 ? (false, CopilotCardState.Approved)
+                : n < 18 ? (true, CopilotCardState.Approved)
+                : (false, CopilotCardState.Approved);
+            var s = new FakeSession { Turn = Script };
+            var ticks = 0;
+            var l = Timed(s, new List<string>(), new[] { "A", "B" }, () => ticks++);
+            Assert.Equal(CopilotLaunchOutcome.Sent, await l.LaunchAsync(Req));
+            Assert.Equal(new[] { "open", "new", "send:A", "send:B" }, s.Log);
+            Assert.True(ticks >= 17 + 12, "released too early: ticks=" + ticks);
+        }
+
+        [Fact]
+        public async Task A_card_that_never_resolves_stops_the_chain_and_names_the_unsent_parts()
+        {
+            var s = new FakeSession { Turn = (p, n) => (false, CopilotCardState.Open) };
+            var toasts = new List<string>();
+            var l = Timed(s, toasts, new[] { "A", "B", "C" }, turnTimeout: TimeSpan.FromSeconds(2));
             Assert.Equal(CopilotLaunchOutcome.TurnTimeout, await l.LaunchAsync(Req));
             Assert.Equal(new[] { "open", "new", "send:A" }, s.Log);
-            Assert.Contains("part 1 of 2", Assert.Single(toasts));
+            Assert.Contains("Parts 2-3 not sent", Assert.Single(toasts));
         }
 
         [Fact]
-        public async Task A_brief_gap_between_card_and_next_turn_does_not_release_the_next_part_early()
+        public async Task Tidak_stops_the_chain_and_names_the_unsent_parts()
         {
-            // busy, free for 2 reads (card resolved, next turn not yet started), busy again, then free for good
-            var s = new FakeSession { Busy = n => n < 3 || (n >= 5 && n < 9) };
-            var reads = 0;
-            var l = new JkrCopilotFixLauncher(s, _ => new[] { "A", "B" }, _ => { }, () => false,
-                _ => { reads++; return Task.CompletedTask; }, turnTimeout: TimeSpan.FromMinutes(5));
-            Assert.Equal(CopilotLaunchOutcome.Sent, await l.LaunchAsync(Req));
-            Assert.Equal(new[] { "open", "new", "send:A" }, s.Log.GetRange(0, 3));
-            // the wait outlasted the 2-read gap: it ended only after busy reads 5-8 were over (reads 1-12: last busy read 8 + the 4-poll settle)
-            Assert.True(reads >= 12, "ticks=" + reads);
+            var s = new FakeSession { Turn = (p, n) => n < 3 ? (false, CopilotCardState.Open) : (false, CopilotCardState.Declined) };
+            var toasts = new List<string>();
+            var l = Timed(s, toasts, new[] { "A", "B", "C" });
+            Assert.Equal(CopilotLaunchOutcome.Declined, await l.LaunchAsync(Req));
+            Assert.Equal(new[] { "open", "new", "send:A" }, s.Log);
+            Assert.Contains("Parts 2-3 not sent", Assert.Single(toasts));
+            Assert.Contains("No", toasts[0]);
+        }
+
+        [Fact]
+        public async Task A_turn_that_ends_with_no_card_and_no_write_stops_the_chain()
+        {
+            var s = new FakeSession { Turn = (p, n) => (n < 3, CopilotCardState.None) };   // Copilot just answered
+            var toasts = new List<string>();
+            var l = Timed(s, toasts, new[] { "A", "B" });
+            Assert.Equal(CopilotLaunchOutcome.NoWrite, await l.LaunchAsync(Req));
+            Assert.Equal(new[] { "open", "new", "send:A" }, s.Log);
+            Assert.Contains("Part 2 not sent", Assert.Single(toasts));
+        }
+
+        [Fact]
+        public async Task A_turn_that_never_starts_counts_as_no_write()
+        {
+            var s = new FakeSession { Turn = (p, n) => (false, CopilotCardState.None) };
+            var l = Timed(s, new List<string>(), new[] { "A", "B" });
+            Assert.Equal(CopilotLaunchOutcome.NoWrite, await l.LaunchAsync(Req));
+        }
+
+        [Fact]
+        public async Task Pane_closed_mid_sequence_stops_and_says_so()
+        {
+            var s = new FakeSession();
+            s.OnSend = part => { if (part == 0) s.PaneVisible = false; };
+            var toasts = new List<string>();
+            var l = Timed(s, toasts, new[] { "A", "B" });
+            Assert.Equal(CopilotLaunchOutcome.PaneClosed, await l.LaunchAsync(Req));
+            Assert.Equal(new[] { "open", "new", "send:A" }, s.Log);
+            Assert.Contains("Part 2 not sent", Assert.Single(toasts));
+        }
+
+        [Fact]
+        public async Task A_second_click_while_Copilot_is_running_does_not_clear_or_send()
+        {
+            var s = new FakeSession { BusyAtStart = true };
+            var toasts = new List<string>();
+            var l = Timed(s, toasts, new[] { "A" });
+            Assert.Equal(CopilotLaunchOutcome.CopilotBusy, await l.LaunchAsync(Req));
+            Assert.Equal(new[] { "open" }, s.Log);   // pane shown, nothing cleared, nothing sent
+            Assert.Equal("Finish or answer the current Copilot request first.", Assert.Single(toasts));
+        }
+
+        [Fact]
+        public async Task An_open_Ya_Tidak_card_is_not_wiped_by_a_new_click()
+        {
+            var s = new FakeSession { CardAtStart = CopilotCardState.Open };
+            var toasts = new List<string>();
+            var l = Timed(s, toasts, new[] { "A" });
+            Assert.Equal(CopilotLaunchOutcome.CopilotBusy, await l.LaunchAsync(Req));
+            Assert.DoesNotContain("new", s.Log);
+            Assert.DoesNotContain(s.Log, x => x.StartsWith("send"));
+            Assert.Single(toasts);
         }
 
         [Fact]
@@ -209,7 +288,9 @@ namespace RevitWebAppSync.Tests
             public void NewChat() { }
             public bool IsIndexing => false;
             public bool IsSignedIn => true;
-            public bool IsTurnBusy => false;
+            public bool IsSending => false;
+            public CopilotCardState Cards => CopilotCardState.None;
+            public bool IsPaneVisible => true;
             public void Send(string text) { }
         }
 
