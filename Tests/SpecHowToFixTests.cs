@@ -16,6 +16,14 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
+        public void C1_5_2_steps_name_no_second_folder_level_because_Jenis_Lukisan_jkr_pit_is_a_sheet_parameter()
+        {
+            var steps = SpecHowToFix.Find("C1.5.2").Steps;
+            Assert.DoesNotContain(steps, x => x.Contains("01_Lukisan Utama"));
+            Assert.Contains(steps, x => x.Contains("07d_Dokumen > 3D Views") && x.Contains("second folder level stays blank"));
+        }
+
+        [Fact]
         public void Every_one_of_the_61_checks_has_steps_and_the_csv_has_no_unknown_id()
         {
             var catalog = SpecCatalog.Checks.Select(c => c.Id).ToList();
