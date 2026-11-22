@@ -244,14 +244,16 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     _notify(Text.PaneClosed(bm, i, parts.Count));
                     return CopilotLaunchOutcome.PaneClosed;
                 }
+                // AI-501: this part's turn always shows the Ya/Tidak card, even with Auto on (consumed by ChatSend).
+                RevitWebAppSync.Services.ForcedConfirm.ArmForNextTurn();
                 try { _session.Send(part); }
-                catch (Exception ex) { _notify(Text.SendFailed(bm, ex.Message)); return CopilotLaunchOutcome.SendFailed; }
+                catch (Exception ex) { RevitWebAppSync.Services.ForcedConfirm.EndTurn(); _notify(Text.SendFailed(bm, ex.Message)); return CopilotLaunchOutcome.SendFailed; }
 
                 // AI-495: the last turn is awaited too: the re-check runs once its write is done.
                 var end = await WaitForTurnAsync().ConfigureAwait(true);
                 if (end == null) { _notify(Text.TurnTimeout(bm, i + 1, parts.Count)); return CopilotLaunchOutcome.TurnTimeout; }
-                if (end == CopilotCardState.Declined) { _notify(Text.Declined(bm, i + 1, parts.Count)); return CopilotLaunchOutcome.Declined; }
-                if (end != CopilotCardState.Approved) { _notify(Text.NoWrite(bm, i + 1, parts.Count)); return CopilotLaunchOutcome.NoWrite; }
+                if (end == CopilotCardState.Declined) { RevitWebAppSync.Services.ForcedConfirm.EndTurn(); _notify(Text.Declined(bm, i + 1, parts.Count)); return CopilotLaunchOutcome.Declined; }
+                if (end != CopilotCardState.Approved) { RevitWebAppSync.Services.ForcedConfirm.EndTurn(); _notify(Text.NoWrite(bm, i + 1, parts.Count)); return CopilotLaunchOutcome.NoWrite; }
             }
 
             // 6. every part wrote (Ya, write ran): re-check ONCE, after the last part. The parts are one row's element ids

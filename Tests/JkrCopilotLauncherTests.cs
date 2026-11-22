@@ -7,6 +7,7 @@ using Xunit;
 namespace RevitWebAppSync.Tests
 {
     /// <summary>AI-494: the Fix via Copilot sequence (open, new chat, wait for indexing, send each part, errors, not signed in) on a fake session.</summary>
+    [Collection("ForcedConfirmStatic")]
     public class JkrCopilotLauncherTests
     {
         /// <summary>Per send, the turn is scripted by poll number n (reads of IsSending since that send):
@@ -369,5 +370,80 @@ namespace RevitWebAppSync.Tests
             seam.Launch(Req);
             Assert.Same(Req, got);
         }
-    }
+    
+        // AI-501: the launcher arms ForcedConfirm right before each Send. The fake Send plays ChatSend's BeginTurn.
+        private sealed class ForcedFake : ICopilotSession
+        {
+            public readonly List<bool> ArmedAtSend = new List<bool>();
+            public readonly List<bool> ActiveAfterBegin = new List<bool>();
+            public CopilotCardState Card = CopilotCardState.None;
+            public bool PaneVisible = true, ThrowOnSend;
+            private int _sends;
+            public Task<string> OpenPaneAsync() => Task.FromResult<string>(null);
+            public void NewChat() { }
+            public bool IsIndexing => false;
+            public bool IsSignedIn => true;
+            public bool IsPaneVisible => PaneVisible;
+            public bool IsSending => false;
+            public CopilotCardState Cards => _sends == 0 ? CopilotCardState.None : Card;
+            public void Send(string text)
+            {
+                ArmedAtSend.Add(RevitWebAppSync.Services.ForcedConfirm.IsArmed);
+                RevitWebAppSync.Services.ForcedConfirm.BeginTurn();
+                ActiveAfterBegin.Add(RevitWebAppSync.Services.ForcedConfirm.IsActive);
+                _sends++;
+                if (ThrowOnSend) throw new InvalidOperationException("boom");
+                if (PaneVisible && _sends == 1 && ClosePaneAfterFirst) PaneVisible = false;
+            }
+            public bool ClosePaneAfterFirst;
+        }
+
+        private static JkrCopilotFixLauncher MakeForced(ICopilotSession s, params string[] parts) =>
+            new JkrCopilotFixLauncher(s, _ => parts, _ => { }, () => false, _ => Task.CompletedTask,
+                indexingTimeout: TimeSpan.FromSeconds(1), turnTimeout: TimeSpan.FromSeconds(2),
+                startGrace: TimeSpan.FromSeconds(1), settle: TimeSpan.FromSeconds(1));
+
+        [Fact]
+        public async Task Forced_confirm_is_armed_before_each_part()
+        {
+            RevitWebAppSync.Services.ForcedConfirm.EndTurn();
+            var s = new ForcedFake { Card = CopilotCardState.Approved };
+            Assert.Equal(CopilotLaunchOutcome.Sent, await MakeForced(s, "A", "B").LaunchAsync(Req));
+            Assert.Equal(new[] { true, true }, s.ArmedAtSend);
+            Assert.Equal(new[] { true, true }, s.ActiveAfterBegin);
+            RevitWebAppSync.Services.ForcedConfirm.EndTurn();
+        }
+
+        [Fact]
+        public async Task Forced_confirm_is_cleared_when_the_person_declines()
+        {
+            RevitWebAppSync.Services.ForcedConfirm.EndTurn();
+            var s = new ForcedFake { Card = CopilotCardState.Declined };
+            Assert.Equal(CopilotLaunchOutcome.Declined, await MakeForced(s, "A", "B").LaunchAsync(Req));
+            Assert.Single(s.ArmedAtSend);
+            Assert.False(RevitWebAppSync.Services.ForcedConfirm.IsActive);
+            Assert.False(RevitWebAppSync.Services.ForcedConfirm.IsArmed);
+        }
+
+        [Fact]
+        public async Task Forced_confirm_is_not_armed_for_a_part_not_sent_when_the_pane_closed()
+        {
+            RevitWebAppSync.Services.ForcedConfirm.EndTurn();
+            var s = new ForcedFake { Card = CopilotCardState.Approved, ClosePaneAfterFirst = true };
+            Assert.Equal(CopilotLaunchOutcome.PaneClosed, await MakeForced(s, "A", "B").LaunchAsync(Req));
+            Assert.Single(s.ArmedAtSend);
+            Assert.False(RevitWebAppSync.Services.ForcedConfirm.IsArmed);   // nothing left armed for the pane's next normal chat
+            RevitWebAppSync.Services.ForcedConfirm.EndTurn();
+        }
+
+        [Fact]
+        public async Task Forced_confirm_is_cleared_when_the_send_throws()
+        {
+            RevitWebAppSync.Services.ForcedConfirm.EndTurn();
+            var s = new ForcedFake { ThrowOnSend = true };
+            Assert.Equal(CopilotLaunchOutcome.SendFailed, await MakeForced(s, "A").LaunchAsync(Req));
+            Assert.False(RevitWebAppSync.Services.ForcedConfirm.IsActive);
+            Assert.False(RevitWebAppSync.Services.ForcedConfirm.IsArmed);
+        }
+}
 }

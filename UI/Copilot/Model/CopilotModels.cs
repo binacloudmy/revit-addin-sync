@@ -448,6 +448,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public string Text;
         public List<string> ImagesBase64;
         public List<FileAttachment> Files;
+        /// <summary>AI-501: the prompt was sent as a forced-confirm turn; a re-send (sign-in, retry) must re-arm.</summary>
+        public bool ForceConfirm;
     }
 
     /// <summary>Floating viewport marker (Task 15). Coordinates are % of the active view rect.</summary>
