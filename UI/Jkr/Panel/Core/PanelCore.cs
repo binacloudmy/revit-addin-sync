@@ -225,7 +225,6 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
 
         public List<PanelItem> Filtered()
         {
-            var qq = (Q ?? "").Trim().ToLowerInvariant();
             return Issues
                 .Where(x => !x.Passed)
                 .Where(x => Cat == AllSections || x.Sec == Cat)
@@ -237,9 +236,17 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                     if (Tab == PanelTab.Ignore) return x.Status == ItemStatus.Ignored;
                     return x.Status == ItemStatus.Resolved;
                 })
-                .Where(x => qq.Length == 0 || string.Join(" ", x.Title.In(Lang), x.Row, x.El, x.Act.In(Lang), x.Cite)
-                    .ToLowerInvariant().Contains(qq))
+                .Where(MatchesQuery)
                 .ToList();
+        }
+
+        /// <summary>The search box's test for one row (empty search matches all). Shared by the list and
+        /// the bulk actions, so "Ignore all" and "Fix all" act on the rows the list shows (AI-505).</summary>
+        public bool MatchesQuery(PanelItem x)
+        {
+            var qq = (Q ?? "").Trim().ToLowerInvariant();
+            return qq.Length == 0 || string.Join(" ", x.Title.In(Lang), x.Row, x.El, x.Act.In(Lang), x.Cite)
+                .ToLowerInvariant().Contains(qq);
         }
 
         // ── derived (prototype renderVals) ──
@@ -267,10 +274,15 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             return new[] { "High", "Med", "Low" }.ToDictionary(s => s, s => open.Count(x => x.Sev == s));
         }
 
+        /// <summary>Ignore all scope (AI-505): the open AI rows the list shows (section + search), never the
+        /// High tier (it has no Ignore control, see JkrTierMap.CanIgnore).</summary>
+        public List<PanelItem> IgnorableVisible() =>
+            InCat.Where(x => !x.IsHuman && x.Status == ItemStatus.Open && !x.MarkedManual && x.Sev != "High" && MatchesQuery(x)).ToList();
+
         /// <summary>Fix all scope: open AI items with a plain fix in the current
-        /// section. A CopilotFixable row (AI-492) is never in it: Copilot proposes and a person confirms.</summary>
+        /// section and search. A CopilotFixable row (AI-492) is never in it: Copilot proposes and a person confirms.</summary>
         public List<PanelItem> FixableOpen() =>
-            InCat.Where(x => !x.IsHuman && x.Status == ItemStatus.Open && !x.MarkedManual && x.Fix == FixKind.Fix && !x.CopilotFixable).ToList();
+            InCat.Where(x => !x.IsHuman && x.Status == ItemStatus.Open && !x.MarkedManual && x.Fix == FixKind.Fix && !x.CopilotFixable && MatchesQuery(x)).ToList();
 
         /// <summary>AI-442: Fix all (n) in changes, the unit of the batch, progress, toast and result
         /// window: rows that ask for the same write are one change, a rename with no name is none.</summary>
@@ -363,7 +375,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// <summary>Ignore all: open AI items in the current section.</summary>
         public void IgnoreAll()
         {
-            var ids = InCat.Where(x => !x.IsHuman && x.Status == ItemStatus.Open && !x.MarkedManual).Select(x => x.Id).ToList();
+            var ids = IgnorableVisible().Select(x => x.Id).ToList();
             if (ids.Count > 0) Ignore(ids);
         }
 

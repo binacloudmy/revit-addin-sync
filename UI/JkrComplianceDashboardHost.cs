@@ -67,6 +67,7 @@ namespace RevitWebAppSync.UI
                 // (same confirm, same AI fixer reusing the last scan request).
                 results.FixCheckRequested += ids => _ = _panel.FixAllAsync(null, openOnly: true, onlyIds: ids);
                 results.IgnoreRequested += ids => _panel.IgnoreIssues(ids);
+                results.ConfirmIgnoreAll = n => _panel.ConfirmIgnoreAll(n);
                 results.MarkManualRequested += id => _panel.SetManual(id, true);
                 // AI-492: Fix via Copilot. JkrCopilotFix.Launcher is set by the Copilot launcher (AI-494); until then a no-op.
                 results.CopilotFixRequested += id =>

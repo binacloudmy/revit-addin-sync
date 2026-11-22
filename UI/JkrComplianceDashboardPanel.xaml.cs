@@ -192,10 +192,22 @@ namespace RevitWebAppSync.UI
         }
 
         /// <summary>Ignore these issues: one plain toast, saved to the audit file.</summary>
+        /// <summary>AI-505: the confirm before "Ignore all", with the row count. True = go on.</summary>
+        public bool ConfirmIgnoreAll(int n)
+        {
+            var dlg = new TaskDialog(Jkr.Panel.Core.PaneText.DialogTitle)
+            {
+                MainInstruction = Jkr.Panel.Core.PaneText.IgnoreAllConfirm(n),
+                CommonButtons = TaskDialogCommonButtons.Ok | TaskDialogCommonButtons.Cancel,
+                DefaultButton = TaskDialogResult.Cancel,
+            };
+            return dlg.Show() == TaskDialogResult.Ok;
+        }
+
         public void IgnoreIssues(IReadOnlyList<string> ids)
         {
             var issues = (ids ?? Array.Empty<string>()).Select(FindIssue)
-                .Where(i => i != null && i.IsAiOpen).ToList();
+                .Where(i => i != null && i.IsAiOpen && i.CanIgnore).ToList();   // High has no Ignore (AI-505)
             if (issues.Count == 0) return;
             _vm.ApplyDecisions(issues, IssueStatus.Ignored,
                 Jkr.Panel.Core.PaneText.IssuesIgnored(issues.Count));

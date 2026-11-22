@@ -327,7 +327,11 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         }
 
         // ── actions ──
-        public string IgnoreAllLabel => T("ignoreAll");
+        /// <summary>AI-505: "Ignore all n" counts the rows it would ignore (the list's rows, not High).</summary>
+        public int IgnoreAllN => _core.IgnorableVisible().Count;
+        public string IgnoreAllLabel => IgnoreAllN > 0 ? T("ignoreAll") + " " + IgnoreAllN : T("ignoreAll");
+        /// <summary>The host's confirm for Ignore all (row count in, true = go on). Without one nothing is ignored.</summary>
+        public Func<int, bool> ConfirmIgnoreAll { get; set; }
         /// <summary>Fix all (n): changes (not rows) for the open items in the section with a ready-made fix. AI-fixer rows are
         /// not in it: they are accepted or typed one at a time (AI-435).</summary>
         public int FixableN => _core.FixableChanges();
@@ -909,17 +913,22 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public void FixAll()
         {
             if (!CanAct || FixableN == 0) return;
-            FixAllRequested?.Invoke(_core.Cat == PanelCore.AllSections ? null : _core.Cat);
+            // A search narrows it to the shown rows (AI-505); without one it is the whole section.
+            if (!string.IsNullOrWhiteSpace(_core.Q))
+                FixCheckRequested?.Invoke(_core.FixableOpen().Select(x => x.Id).ToList());
+            else
+                FixAllRequested?.Invoke(_core.Cat == PanelCore.AllSections ? null : _core.Cat);
         }
 
-        /// <summary>Ignore all: open AI items in the current section.</summary>
+        /// <summary>Ignore all (AI-505): the open AI rows the list shows (section and search), never High,
+        /// after the host's confirm with the row count. Cancel changes nothing.</summary>
         public void IgnoreAll()
         {
             if (!CanAct) return;
-            var ids = _core.Issues.Where(x => !x.Passed && !x.IsHuman && x.Status == ItemStatus.Open && !x.MarkedManual
-                                              && (_core.Cat == PanelCore.AllSections || x.Sec == _core.Cat))
-                                  .Select(x => x.Id).ToList();
-            if (ids.Count > 0) IgnoreRequested?.Invoke(ids);
+            var ids = _core.IgnorableVisible().Select(x => x.Id).ToList();
+            if (ids.Count == 0) return;
+            if (ConfirmIgnoreAll == null || !ConfirmIgnoreAll(ids.Count)) return;
+            IgnoreRequested?.Invoke(ids);
         }
 
         public void Rescan()
