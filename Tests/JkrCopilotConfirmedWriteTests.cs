@@ -138,18 +138,15 @@ namespace RevitWebAppSync.Tests
             var ids = Enumerable.Range(1, 2000).Select(i => 5000L + i).ToList();
             var f = new CopilotPromptFacts { CheckId = "Da.1", Category = "Doors", ElementIds = ids, ElementLabels = ids.ToDictionary(i => i, i => "Doors · Big") };
             Assert.True(JkrCopilotConfirmedWrite.InstanceCountCapped(f));
-            var en = JkrCopilotConfirm.Build(f, false);
+            var en = JkrCopilotConfirm.Build(f);
             Assert.Contains("(2000+ instances)", en.Heading);
             Assert.Contains("at least 2000+ instances", en.Body);
-            var bm = JkrCopilotConfirm.Build(f, true);
-            Assert.Contains("(2000+ instance)", bm.Heading);
-            Assert.Contains("sekurang-kurangnya 2000+ instance", bm.Body);
             Assert.Equal(2000, JkrCopilotConfirmedWrite.ForPart(f, 0).Instances);
             // two types of 1500 each are not capped (per type, not per row)
             var two = Enumerable.Range(1, 3000).Select(i => 9000L + i).ToList();
             var g = new CopilotPromptFacts { CheckId = "Da.1", Category = "Doors", ElementIds = two, ElementLabels = two.ToDictionary(i => i, i => i % 2 == 0 ? "Doors · A" : "Doors · B") };
             Assert.False(JkrCopilotConfirmedWrite.InstanceCountCapped(g));
-            Assert.Contains("(3000 instances)", JkrCopilotConfirm.Build(g, false).Heading);
+            Assert.Contains("(3000 instances)", JkrCopilotConfirm.Build(g).Heading);
         }
 
         [Fact]
@@ -182,7 +179,7 @@ namespace RevitWebAppSync.Tests
         private static readonly CopilotFixRequest Req = new CopilotFixRequest("i1", "Db.2", new long[] { 1, 2 }, "T");
 
         private static JkrCopilotFixLauncher Launcher(ICopilotSession s, Func<CopilotFixRequest, bool> confirm, Func<CopilotFixRequest, int, ConfirmedWriteDto> cw, params string[] parts) =>
-            new JkrCopilotFixLauncher(s, _ => parts, _ => { }, () => false, _ => Task.CompletedTask, indexingTimeout: TimeSpan.FromSeconds(1),
+            new JkrCopilotFixLauncher(s, _ => parts, _ => { }, _ => Task.CompletedTask, indexingTimeout: TimeSpan.FromSeconds(1),
                 turnTimeout: TimeSpan.FromSeconds(2), startGrace: TimeSpan.FromSeconds(1), settle: TimeSpan.FromSeconds(1), confirm: confirm, confirmedWrite: cw);
 
         private static ConfirmedWriteDto Dto(int part) => new ConfirmedWriteDto { CheckId = "part" + part, Ids = new List<long> { part + 1 }, Params = new List<string> { "Material" } };

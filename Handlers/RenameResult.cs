@@ -142,16 +142,16 @@ namespace RevitWebAppSync.Handlers
         /// <summary>The summary list: at most <paramref name="max"/> lines, then
         /// "…and n more", each reason in <paramref name="lang"/> ("ms" / "en";
         /// null = the pane's language).</summary>
-        public string BuildFailDetails(int max, string lang = null)
+        public string BuildFailDetails(int max)
         {
             if (FailLines.Count == 0) return "";
             var lines = FailLines.Select(l =>
             {
-                var why = RevitWebAppSync.UI.Jkr.Panel.Core.PaneText.FixReason(l.Why, lang);
+                var why = l.Why ?? "";
                 return string.IsNullOrWhiteSpace(l.What) ? why : $"{l.What}: {why}";
             }).ToList();
             if (max <= 0 || lines.Count <= max) return string.Join("\n", lines);
-            return string.Join("\n", lines.Take(max)) + "\n" + RevitWebAppSync.UI.Jkr.Panel.Core.PaneText.AndMore(lines.Count - max, lang);
+            return string.Join("\n", lines.Take(max)) + "\n" + RevitWebAppSync.UI.Jkr.Panel.Core.PaneText.AndMore(lines.Count - max);
         }
     }
 

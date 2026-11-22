@@ -79,7 +79,7 @@ namespace RevitWebAppSync.Tests
             b.Core.Replace(b.Items, null);
         }
 
-        private static ChecklistCheck Header(Board b) => SpecChecklist.CheckRow(b.Spec.For(b.Check), b.Spec, b.Items.ToDictionary(i => i.Id), PanelStrings.En, _ => true);
+        private static ChecklistCheck Header(Board b) => SpecChecklist.CheckRow(b.Spec.For(b.Check), b.Spec, b.Items.ToDictionary(i => i.Id), _ => true);
 
         // ── eligibility, label ──
 
@@ -90,7 +90,7 @@ namespace RevitWebAppSync.Tests
             {
                 var items = new List<PanelItem> { Item("a", id, 1), Item("b", id, 2) };
                 var spec = SpecReport.Build(new[] { FailResult(id, 1, "a"), FailResult(id, 2, "b") });
-                var row = SpecChecklist.CheckRow(spec.For(id), spec, items.ToDictionary(i => i.Id), PanelStrings.En, _ => true);
+                var row = SpecChecklist.CheckRow(spec.For(id), spec, items.ToDictionary(i => i.Id), _ => true);
                 Assert.Equal(SevenChecks.Contains(id), row.CanFixViaCopilot);
                 if (!row.CanFixViaCopilot) Assert.Empty(row.CopilotFixIds);
             }
@@ -110,13 +110,13 @@ namespace RevitWebAppSync.Tests
                 Item("notready", "Da.1", 8, false),     // CopilotFixable false: no launcher, no ids, a wall material ...
             };
             var spec = SpecReport.Build(items.Select((x, i) => FailResult("Da.1", i + 1, x.Id)).ToList());
-            var row = SpecChecklist.CheckRow(spec.For("Da.1"), spec, items.ToDictionary(i => i.Id), PanelStrings.En, _ => true);
+            var row = SpecChecklist.CheckRow(spec.For("Da.1"), spec, items.ToDictionary(i => i.Id), _ => true);
             Assert.Equal(new[] { "ok1", "ok2" }, row.CopilotFixIds);
             Assert.Equal(2, row.CopilotFixElements);
             Assert.Equal("Fix all 2 elements via Copilot", row.CopilotFixLabel);
 
             foreach (var x in items) x.CopilotFixable = false;
-            row = SpecChecklist.CheckRow(spec.For("Da.1"), spec, items.ToDictionary(i => i.Id), PanelStrings.En, _ => true);
+            row = SpecChecklist.CheckRow(spec.For("Da.1"), spec, items.ToDictionary(i => i.Id), _ => true);
             Assert.False(row.CanFixViaCopilot);
             Assert.Equal("", row.CopilotFixLabel);
         }
@@ -129,14 +129,12 @@ namespace RevitWebAppSync.Tests
             Assert.True(h.CanFixViaCopilot);
             Assert.Equal(46, h.CopilotFixElements);
             Assert.Equal("Fix all 46 elements via Copilot", h.CopilotFixLabel);
-            Assert.Equal("Baiki semua 46 elemen melalui Copilot", JkrCopilotFix.FixAllLabel(46, PanelStrings.Ms));
-            Assert.Equal("Fix all 1 element via Copilot", JkrCopilotFix.FixAllLabel(1, PanelStrings.En));
+            Assert.Equal("Fix all 1 element via Copilot", JkrCopilotFix.FixAllLabel(1));
 
             // one row that carries 46 ids (a spec row can cover 46 doors)
             var one = Item("only", "Da.1", 1, true, x => x.ElementIds = Enumerable.Range(1, 46).Select(i => (long)i).ToArray());
             var spec = SpecReport.Build(new[] { FailResult("Da.1", 1, "only") });
-            var row = SpecChecklist.CheckRow(spec.For("Da.1"), spec, new Dictionary<string, PanelItem> { ["only"] = one }, PanelStrings.Ms, _ => true);
-            Assert.Equal("Baiki semua 46 elemen melalui Copilot", row.CopilotFixLabel);
+            var row = SpecChecklist.CheckRow(spec.For("Da.1"), spec, new Dictionary<string, PanelItem> { ["only"] = one }, _ => true);
             Assert.Equal(new[] { "only" }, row.CopilotFixIds);
         }
 
@@ -238,13 +236,10 @@ namespace RevitWebAppSync.Tests
         public void The_confirm_names_the_check_the_total_and_that_it_is_one_confirmation_for_all_parts()
         {
             var merged = JkrCopilotPrompt.MergeFacts(Enumerable.Range(0, 12).Select(k => RowFacts("Db.2", k * 10 + 1, 10)).ToList());
-            var en = JkrCopilotConfirm.Build(merged, false);
+            var en = JkrCopilotConfirm.Build(merged);
             Assert.Equal("Let Copilot change 120 elements for check Db.2?", en.Heading);
             Assert.Contains("Sent in 3 parts, with this one confirmation", en.Body);
             Assert.Contains("... and 70 more", en.Details);
-            var ms = JkrCopilotConfirm.Build(merged, true);
-            Assert.Contains("120 elemen", ms.Heading);
-            Assert.Contains("3 bahagian", ms.Body);
         }
 
         // ── the launcher: one confirm, one chat, parts in order, one re-check ──
@@ -267,7 +262,7 @@ namespace RevitWebAppSync.Tests
         {
             var s = new Session();
             var log = new List<string>();
-            var l = new JkrCopilotFixLauncher(s, req => JkrCopilotPrompt.Build(facts, false), log.Add, () => false, _ => Task.CompletedTask,
+            var l = new JkrCopilotFixLauncher(s, req => JkrCopilotPrompt.Build(facts, false), log.Add, _ => Task.CompletedTask,
                 indexingTimeout: TimeSpan.FromSeconds(1), turnTimeout: TimeSpan.FromSeconds(5), settle: TimeSpan.FromMilliseconds(500),
                 afterWrite: req => { log.Add("recheck"); return Task.CompletedTask; },
                 confirm: req => { log.Add("confirm"); return confirm(); },
@@ -342,7 +337,6 @@ namespace RevitWebAppSync.Tests
                 MarkStillFailing = (rs, reason) => { foreach (var r in rs) r.Error = reason; },
                 Remember = (req, r) => Remembered.Add((req, r)),
                 Toast = Toasts.Add,
-                IsBm = () => false,
             };
         }
 
@@ -453,7 +447,7 @@ namespace RevitWebAppSync.Tests
             var req = CopilotFixRequest.ForCheck("Db.2", f.Rows.Select(r => r.Id), merged.ElementIds, "t");
             // the rows whose ids lie in parts 2 and 3 were never written: the rule still fails on them
             foreach (var r in f.Rows.Skip(5)) f.Failing.Add(r.Id);
-            var l = new JkrCopilotFixLauncher(s, _ => JkrCopilotPrompt.Build(merged, false), toasts.Add, () => false, _ => Task.CompletedTask,
+            var l = new JkrCopilotFixLauncher(s, _ => JkrCopilotPrompt.Build(merged, false), toasts.Add, _ => Task.CompletedTask,
                 indexingTimeout: TimeSpan.FromSeconds(1), turnTimeout: TimeSpan.FromSeconds(3), startGrace: TimeSpan.FromMilliseconds(500), settle: TimeSpan.FromMilliseconds(500),
                 afterWrite: re.RunAsync, confirm: _ => true);
             var o = await l.LaunchAsync(req);
@@ -513,7 +507,7 @@ namespace RevitWebAppSync.Tests
 
             var f = new Fake { Rows = Enumerable.Range(0, 12).Select(k => new Row { Id = "r" + k, RevitElementId = 5001 + k * 10, ElementIds = new long[] { 5001 + k * 10 } }).ToList() };
             var s2 = new Scripted(p => CopilotCardState.Approved);
-            var l = new JkrCopilotFixLauncher(s2, _ => JkrCopilotPrompt.Build(merged, false), _ => { }, () => false, _ => { s2.Visible = false; return Task.CompletedTask; },
+            var l = new JkrCopilotFixLauncher(s2, _ => JkrCopilotPrompt.Build(merged, false), _ => { }, _ => { s2.Visible = false; return Task.CompletedTask; },
                 indexingTimeout: TimeSpan.FromSeconds(1), turnTimeout: TimeSpan.FromSeconds(3), settle: TimeSpan.FromMilliseconds(500),
                 afterWrite: new JkrCopilotRecheck<Row>(f.Host()).RunAsync, confirm: _ => true);
             var o = await l.LaunchAsync(CopilotFixRequest.ForCheck("Db.2", f.Rows.Select(r => r.Id), merged.ElementIds, "t"));
@@ -524,8 +518,7 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void The_header_tooltip_warns_that_a_type_rename_changes_all_instances_in_both_languages()
         {
-            Assert.Contains("Da.1 / Dc.1: a type rename changes all instances", JkrCopilotFix.FixAllTooltip(PanelStrings.En));
-            Assert.Contains("Da.1 / Dc.1: menukar nama type mengubah semua instance", JkrCopilotFix.FixAllTooltip(PanelStrings.Ms));
+            Assert.Contains("Da.1 / Dc.1: a type rename changes all instances", JkrCopilotFix.FixAllTooltip());
         }
 
         // ── Undo: every row of the pack reopens ──

@@ -87,37 +87,20 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
     {
         /// <summary>Shell strings the prototype does not have: the "Waiting for a model"
         /// state (flow s-nomodel) and the kept login-required state.</summary>
-        private static readonly Dictionary<string, (string Ms, string En)> Extra = new Dictionary<string, (string, string)>
+        private static readonly Dictionary<string, string> Extra = new Dictionary<string, string>
         {
-            ["waiting"] = ("Menunggu model", "Waiting for a model"),
-            ["noModelT"] = ("Buka model Revit untuk mengauditnya", "Open a Revit model to audit it"),
-            ["noModelS"] = ("Pane ini mengambil model aktif sebaik sahaja ada yang dibuka.",
-                            "The pane picks up the active model as soon as one is open."),
-            ["loginT"] = ("Log masuk ke BINA untuk menjalankan audit", "Log in to BINA to run the audit"),
-            ["loginS"] = ("Sesetengah semakan dijalankan pada backend BINA. Log masuk daripada tab Bina pada riben Revit, kemudian cuba semula.",
-                          "Some checks run on the BINA backend. Log in from the Bina tab on the Revit ribbon, then retry."),
-            ["loginRetry"] = ("Cuba semula", "Retry"),
+            ["waiting"] = "Waiting for a model",
+            ["noModelT"] = "Open a Revit model to audit it",
+            ["noModelS"] = "The pane picks up the active model as soon as one is open.",
+            ["loginT"] = "Log in to BINA to run the audit",
+            ["loginS"] = "Some checks run on the BINA backend. Log in from the Bina tab on the Revit ribbon, then retry.",
+            ["loginRetry"] = "Retry",
         };
 
-        private string _lang = PanelStrings.Ms;
         private ActiveModelInfo _model = ActiveModelInfo.None;
         private bool _loginRequired;
 
         public event PropertyChangedEventHandler PropertyChanged;
-
-        /// <summary>"ms" (default, as in the prototype) or "en".</summary>
-        public string Lang => _lang;
-        /// <summary>Settable for the BM / EN radio pair (setting true switches).</summary>
-        public bool IsBm { get => _lang == PanelStrings.Ms; set { if (value) SetLang(PanelStrings.Ms); } }
-        public bool IsEn { get => _lang == PanelStrings.En; set { if (value) SetLang(PanelStrings.En); } }
-
-        public void SetLang(string lang)
-        {
-            var l = string.Equals(lang, PanelStrings.En, StringComparison.OrdinalIgnoreCase) ? PanelStrings.En : PanelStrings.Ms;
-            if (l == _lang) return;
-            _lang = l;
-            RaiseAll();
-        }
 
         public ActiveModelInfo Model
         {
@@ -143,7 +126,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public bool ShowContent => State == ShellState.Content;
 
         // ── strings ──
-        public string T(string key) => Extra.TryGetValue(key, out var p) ? (IsEn ? p.En : p.Ms) : PanelStrings.Get(_lang, key);
+        public string T(string key) => Extra.TryGetValue(key, out var p) ? p : PanelStrings.Get(key);
         public string PanelTitle => T("panelTitle");
         public string ProjectLabel => T("project");
         public string FileLabel => _model.CanAudit ? _model.FileLabel : "—";

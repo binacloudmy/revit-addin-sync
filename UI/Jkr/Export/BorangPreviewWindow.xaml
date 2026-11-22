@@ -79,7 +79,6 @@
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
                         <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,10,0">
                             <TextBlock x:Name="TitleText" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource Bz.Text}"
@@ -87,13 +86,7 @@
                             <TextBlock x:Name="FileText" FontFamily="{StaticResource Bz.Font.Mono}" FontSize="11.5" Foreground="{StaticResource Bz.Text2}"
                                        TextTrimming="CharacterEllipsis" Margin="0,1,0,0"/>
                         </StackPanel>
-                        <Border Grid.Column="1" Background="{StaticResource Bz.Sunken2}" CornerRadius="8" Padding="2" VerticalAlignment="Center" Margin="0,0,6,0">
-                            <StackPanel Orientation="Horizontal">
-                                <ToggleButton x:Name="BmBtn" Content="BM" Style="{StaticResource Bz.SegButton}" Click="Bm_Click"/>
-                                <ToggleButton x:Name="EnBtn" Content="EN" Style="{StaticResource Bz.SegButton}" Click="En_Click"/>
-                            </StackPanel>
-                        </Border>
-                        <Button x:Name="CloseBtn" Grid.Column="2" Style="{StaticResource Bz.ChromeIconButton}" Width="32" Height="32"
+                        <Button x:Name="CloseBtn" Grid.Column="1" Style="{StaticResource Bz.ChromeIconButton}" Width="32" Height="32"
                                 VerticalAlignment="Center" Click="Close_Click">
                             <Path Data="M4.5,4.5 L11.5,11.5 M11.5,4.5 L4.5,11.5" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
                                   StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="14" Height="14" Stretch="Uniform"/>

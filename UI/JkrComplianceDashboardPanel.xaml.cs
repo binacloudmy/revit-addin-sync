@@ -184,7 +184,7 @@ namespace RevitWebAppSync.UI
         {
             var issue = FindIssue(id);
             if (issue == null || !(issue.AiFixCandidate || issue.IsPick)) return;
-            var plan = JkrManualFix.Plan(issue.RawRule, issue.RevitCategory, value, issue.IsPick ? issue.ValidOptions : issue.ReferenceValues, Jkr.Panel.Core.PaneLanguage.Current);
+            var plan = JkrManualFix.Plan(issue.RawRule, issue.RevitCategory, value, issue.IsPick ? issue.ValidOptions : issue.ReferenceValues);
             if (!plan.Ok) { _vm.ShowToast(Jkr.Panel.Core.PaneText.ManualRefused(plan.Error)); return; }
             if (_fixInFlight) { _vm.ShowToast(Jkr.Panel.Core.PaneText.FixRunning()); return; }
             issue.UseManualValue(plan);
@@ -1129,7 +1129,7 @@ namespace RevitWebAppSync.UI
             // AI-485: a name pick is not pre-planned (its first option would be a guess left on the row if the dialog
             // is cancelled); its type is counted for the affected-elements figure straight from the element id.
             foreach (var p in issues.Where(i => i.IsPick && !i.IsNamePick))
-                p.UseManualValue(JkrManualFix.Plan(p.RawRule, p.RevitCategory, PickPlanValue(p), p.ValidOptions, Jkr.Panel.Core.PaneLanguage.Current));
+                p.UseManualValue(JkrManualFix.Plan(p.RawRule, p.RevitCategory, PickPlanValue(p), p.ValidOptions));
             var renames = issues.Where(i => i.IsNamePick || string.Equals(i.FixAction, "rename_type", StringComparison.OrdinalIgnoreCase))
                                 .Select(i => i.RevitElementId).ToList();
             var fixes = issues.Where(i => !i.IsNamePick && !string.Equals(i.FixAction, "rename_type", StringComparison.OrdinalIgnoreCase))
@@ -1140,7 +1140,7 @@ namespace RevitWebAppSync.UI
                 {
                     if (!issues[k].IsPick) continue;
                     var chosen = model.SelectedFor(rows[k]);
-                    issues[k].UseManualValue(JkrManualFix.Plan(issues[k].RawRule, issues[k].RevitCategory, chosen, issues[k].ValidOptions, Jkr.Panel.Core.PaneLanguage.Current));
+                    issues[k].UseManualValue(JkrManualFix.Plan(issues[k].RawRule, issues[k].RevitCategory, chosen, issues[k].ValidOptions));
                 }
             });
         }
@@ -1175,7 +1175,7 @@ namespace RevitWebAppSync.UI
                     System.Diagnostics.Debug.WriteLine($"[BINA Confirm] affected count failed, using distinct elements: {ex.Message}");
                 }
 
-                var model = new JkrConfirmModel(kind, rows, affected, lang: Jkr.Panel.Core.PaneLanguage.Current);
+                var model = new JkrConfirmModel(kind, rows, affected);
                 var confirmed = JkrConfirmWindow.Ask(model, this);
                 if (confirmed) onConfirmed?.Invoke(model);
                 return confirmed;
@@ -1485,7 +1485,7 @@ namespace RevitWebAppSync.UI
             // The spec evaluators' findings join the same way (stable ids, so the
             // audit-store merge below keeps their Ignore / Reviewed decisions).
             var modelResults = await modelTask;
-            var modelIssues = IssueMapper.FromModelResults(modelResults, Jkr.Panel.Core.PaneLanguage.Current);
+            var modelIssues = IssueMapper.FromModelResults(modelResults);
             // AI-479 / AI-506: one list from the three sources, one row per problem (A2.1 / A4.1 / B1.1 and
             // Db.1 against the backend's "Missing ... Parameter" rows), one tier. Same input, same list.
             var issues = JkrIssueCounts.MergeSources(backendIssues, auditIssues, modelIssues);
@@ -1861,9 +1861,7 @@ namespace RevitWebAppSync.UI
         {
             var why = (error ?? "").Trim();
             if (why.Length > 120) why = why.Substring(0, 120).TrimEnd() + "…";
-            return Jkr.Panel.Core.PaneLanguage.Pick(
-                "Semakan backend JKR tidak tersedia — hanya semakan add-in ditunjukkan. " + why,
-                "The JKR backend check is unavailable — showing the add-in's own checks only. " + why).Trim();
+            return ("The JKR backend check is unavailable — showing the add-in's own checks only. " + why).Trim();
         }
 
         /// <summary>TEST ONLY (BINA_DEV_UNLOCK): write the BIM010 summary of the last
@@ -1943,7 +1941,7 @@ namespace RevitWebAppSync.UI
             if (outcome.Errors.Count > 0)
             {
                 TaskDialog.Show("BINA JKR Compliance — TEST MODE",
-                    Jkr.Panel.Core.PaneLanguage.Pick("Fail fixture ada masalah:", "Fixture has problems:") + $"\n{path}\n\n" + string.Join("\n", outcome.Errors.Take(15)));
+                    "Fixture has problems:" + $"\n{path}\n\n" + string.Join("\n", outcome.Errors.Take(15)));
                 return null;
             }
             if (outcome.Generated)

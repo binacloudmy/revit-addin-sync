@@ -62,26 +62,19 @@ namespace RevitWebAppSync.Tests
         public void Hint_says_only_ar_is_supported_for_a_non_ar_file_and_names_the_file_for_ar()
         {
             var (s, core) = New();
-            core.SetLang("en");
             Assert.Equal("Preset from the file name (AR).", s.DiscHint);
             s.FileLabel = "jkrST22_2b.rvt";
             Assert.Equal("Only AR is supported for now.", s.DiscHint);
-            core.SetLang("ms");
-            Assert.Equal("Hanya AR disokong buat masa ini.", s.DiscHint);
             s.FileLabel = "jkrAR24.rvt";
-            Assert.Equal("Pratetap daripada nama fail (AR).", s.DiscHint);
+            Assert.Equal("Preset from the file name (AR).", s.DiscHint);
         }
 
-        private static StartScreenModel Lang(StartScreenModel s, string l) { s.Core.SetLang(l); return s; }
-
         [Fact]
-        public void Discipline_list_is_ar_only_in_bm_and_en()
+        public void Discipline_list_is_ar_only()
         {
             var (s, core) = New();
             Assert.Equal(new[] { "AR" }, StartScreenModel.DiscValues);
             Assert.Equal(new[] { "AR" }, s.DiscOptions.Select(o => o.Value));
-            Assert.Equal(new[] { "AR · Arkitek" }, s.DiscOptions.Select(o => o.Label));
-            core.SetLang("en");
             Assert.Equal(new[] { "AR · Architect" }, s.DiscOptions.Select(o => o.Label));
         }
 
@@ -103,7 +96,6 @@ namespace RevitWebAppSync.Tests
             var (s, core) = New();
             s.DiscValue = "ME";
             Assert.Equal("AR", s.DiscValue);
-            core.SetLang("en");
             core.Reset();
             Assert.Equal("AR", s.DiscValue);
             s.FileLabel = "jkrST01.rvt";                    // a non-AR model still runs the AR audit
@@ -136,10 +128,7 @@ namespace RevitWebAppSync.Tests
         public void Options_follow_the_prototype_in_bm_and_en()
         {
             var (s, core) = New();
-            Assert.Equal(new[] { "— Pilih tahap LOD —", "LOD 100", "LOD 200", "LOD 300", "LOD 400", "LOD 500" }, s.LodOptions.Select(o => o.Label));
             Assert.Equal(new[] { "", "100", "200", "300", "400", "500" }, s.LodOptions.Select(o => o.Value));
-            Assert.Equal(new[] { "AR · Arkitek" }, s.DiscOptions.Select(o => o.Label));
-            core.SetLang("en");
             Assert.Equal("— Select LOD level —", s.LodOptions[0].Label);
             Assert.Equal("AR · Architect", s.DiscOptions[0].Label);
         }
@@ -148,31 +137,24 @@ namespace RevitWebAppSync.Tests
         public void Strings_are_the_prototypes()
         {
             var (s, core) = New();
-            Assert.Equal(("Projek", "Tahap LOD", "Disiplin", "Jalankan audit"), (s.ProjectLabel, s.LodLabel, s.DiscLabel, s.RunLabel));
-            Assert.Equal("Borang Model Audit BIM010 · Seksyen A–E", s.RunHint);
-            core.SetLang("en");
             Assert.Equal("Required. Mandatory parameters depend on LOD; the audit cannot run without it.", s.LodRequiredNote);
             Assert.Equal("Checks start from LOD 200. LOD 100 checks naming only.", s.Lod100Note);
             Assert.Equal("Run audit", s.RunLabel);
         }
 
         [Fact]
-        public void A_language_switch_renames_the_options_but_keeps_the_same_objects()
+        public void The_options_are_built_once_and_keep_the_same_objects()
         {
-            // Replacing the lists made the Discipline dropdown go blank after BM → EN.
+            // Replacing the lists made the Discipline dropdown go blank.
             var (s, core) = New();
             var lods = s.LodOptions;
             var discs = s.DiscOptions;
             var ar = discs[0];
             s.LodValue = "300";
-            string renamed = null;
-            ar.PropertyChanged += (_, e) => renamed = e.PropertyName;
-            core.SetLang("en");
             Assert.Same(lods, s.LodOptions);
             Assert.Same(discs, s.DiscOptions);
             Assert.Equal("AR · Architect", ar.Label);
-            Assert.Equal("Label", renamed);
-            Assert.Equal("300", s.LodValue);               // both choices survive the switch
+            Assert.Equal("300", s.LodValue);               // both choices survive
             Assert.Equal("AR", s.DiscValue);
         }
 
@@ -212,10 +194,9 @@ namespace RevitWebAppSync.Tests
         }
     
         [Fact]
-        public void Clear_sheet_copy_is_in_both_languages()
+        public void Clear_sheet_copy()
         {
             var (s, core) = New();
-            core.SetLang("en");
             Assert.Equal("Set up the audit", s.Title);
             Assert.StartsWith("61 checks from the JKR Model Audit spec", s.Lead);
             Assert.Equal("Required", s.LodRequiredTag);
@@ -227,17 +208,12 @@ namespace RevitWebAppSync.Tests
             Assert.Contains(SpecCatalog.Checks.Count + " checks from", s.Lead);
             Assert.Equal("Choose a level of development to run the audit.", s.ReadyHint);
             Assert.Equal("AR · Architect", s.DiscOptions[0].Label);
-            core.SetLang("ms");
-            Assert.Equal("Sediakan audit", s.Title);
-            Assert.Equal("Wajib", s.LodRequiredTag);
-            Assert.Equal("61 semakan", s.SectionsCount);
         }
 
         [Fact]
         public void Hint_follows_the_detected_discipline_and_shows_only_without_a_lod()
         {
             var (s, core) = New();
-            core.SetLang("en");
             s.FileLabel = "jkrST22_2b.rvt";
             Assert.Equal("Only AR is supported for now.", s.DiscHint);
             Assert.True(s.ReadyHintVisible);
@@ -249,16 +225,12 @@ namespace RevitWebAppSync.Tests
         public void Borang_sections_list_the_five_sections_totalling_61_checks()
         {
             var (s, core) = New();
-            core.SetLang("en");
             Assert.Equal(new[] { "A", "B", "C", "D", "E" }, s.Sections.Select(x => x.Letter));
             Assert.Equal(new[] { "24 checks", "3 checks", "24 checks", "9 checks", "1 check" }, s.Sections.Select(x => x.CountLabel));
             Assert.Equal(61, s.Sections.Sum(x => x.Checks));
             Assert.Equal(SpecCatalog.Checks.Count, s.Sections.Sum(x => x.Checks));   // counted, not typed
             Assert.Equal(new[] { 24, 3, 24, 9, 1 }, s.Sections.Select(x => x.Checks));   // guard: the spec still has these
             Assert.Equal("Model integrity & quality", s.Sections[0].Name);
-            core.SetLang("ms");
-            Assert.Equal("Integriti & kualiti model", s.Sections[0].Name);
-            Assert.Equal("1 semakan", s.Sections[4].CountLabel);
         }
 }
 }

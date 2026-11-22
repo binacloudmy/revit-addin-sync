@@ -106,9 +106,9 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(6, t.Extra);       // the level rows: part of Open, outside the %
             Assert.Equal(6, t.Fixable);     // Fix all counts them, and nothing else
             Assert.True(t.Fixable <= t.Open && t.Extra <= t.Open);
-            Assert.Contains("= " + t.Total + " in the file", ScanBoard.Line(t, true));
-            Assert.Contains("6 open are extra, outside the %", ScanBoard.Line(t, true));
-            Assert.Contains("semak manual", ScanBoard.Line(t, false));
+            Assert.Contains("= " + t.Total + " in the file", ScanBoard.Line(t));
+            Assert.Contains("6 open are extra, outside the %", ScanBoard.Line(t));
+            Assert.Contains("manual review", ScanBoard.Line(t));
         }
 
         [Fact]

@@ -52,9 +52,7 @@ namespace RevitWebAppSync.Tests
         {
             Assert.Equal(new[] { "N", "P", "Q", "G" }, All.Select(SpecAspects.Letter));
             Assert.Equal(new[] { "Naming", "Parameters and information", "Quality and integrity", "Design geometry" },
-                All.Select(a => SpecAspects.Name(a, PanelStrings.En)));
-            Assert.Equal(new[] { "Penamaan", "Parameter dan maklumat", "Kualiti dan integriti", "Geometri reka bentuk" },
-                All.Select(a => SpecAspects.Name(a, PanelStrings.Ms)));
+                All.Select(a => SpecAspects.Name(a)));
         }
 
         // ── rows: computed as section rows are ──
@@ -85,7 +83,7 @@ namespace RevitWebAppSync.Tests
         {
             var r = SpecChecklistTests.Report(run);
 
-            var secs = SpecChecklist.SectionRows(r, PanelStrings.En);
+            var secs = SpecChecklist.SectionRows(r);
             Assert.Equal(PanelCore.Secs, secs.Select(s => s.Key));
             foreach (var s in secs)
             {
@@ -93,11 +91,11 @@ namespace RevitWebAppSync.Tests
                 Assert.Equal(SpecChecklist.Pct(r, s.Key), s.Pct);   // the tiles' % is the same
             }
 
-            var asp = SpecAspects.Rows(r, PanelStrings.En);
+            var asp = SpecAspects.Rows(r);
             Assert.Equal(new[] { "N", "P", "Q", "G" }, asp.Select(a => a.Letter));
             foreach (var (row, a) in asp.Zip(All, (row, a) => (row, a)))
             {
-                Assert.Equal(SpecAspects.Name(a, PanelStrings.En), row.Name);
+                Assert.Equal(SpecAspects.Name(a), row.Name);
                 AssertRowOf(row, In(r, c => SpecAspects.Of(c.Id) == a));
             }
             Assert.Equal(SpecCatalog.Checks.Count, asp.Sum(a => a.Checks));
@@ -120,7 +118,7 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void A_row_says_n_fail_or_when_none_fail_n_manual()
         {
-            var failing = SpecAspects.Rows(SpecChecklistTests.Report("jkr_run_failing.json"), PanelStrings.En);
+            var failing = SpecAspects.Rows(SpecChecklistTests.Report("jkr_run_failing.json"));
             foreach (var row in failing)
             {
                 if (row.Fails > 0) { Assert.Equal(row.Fails + " fail", row.CountLabel); Assert.Equal("fail", row.CountTone); }
@@ -128,8 +126,7 @@ namespace RevitWebAppSync.Tests
                 else Assert.Equal("", row.CountLabel);
             }
             Assert.Contains(failing, row => row.Fails > 0);
-            var bm = SpecAspects.Rows(SpecChecklistTests.Report("jkr_run_failing.json"), PanelStrings.Ms).First(x => x.Fails > 0);
-            Assert.Equal(bm.Fails + " gagal", bm.CountLabel);
+            var bm = SpecAspects.Rows(SpecChecklistTests.Report("jkr_run_failing.json")).First(x => x.Fails > 0);
         }
 
         // ── the Result screen toggle ──
@@ -138,7 +135,6 @@ namespace RevitWebAppSync.Tests
         public void The_result_screen_shows_sections_first_and_toggles_to_aspects()
         {
             var (r, core) = SpecChecklistTests.Results("jkr_run_failing.json");
-            core.SetLang(PanelStrings.En);
             Assert.False(r.ShowAspects);
             Assert.Equal(PanelCore.Secs, r.GroupRows.Select(g => g.Letter));
             Assert.Equal("Borang sections", r.SectionsToggleLabel);
@@ -151,8 +147,6 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(new[] { "N", "P", "Q", "G" }, r.GroupRows.Select(g => g.Letter));
             Assert.Equal(SpecCatalog.Checks.Count, r.GroupRows.Sum(g => g.Checks));
 
-            core.SetLang(PanelStrings.Ms);
-            Assert.Equal("Seksyen Borang", r.SectionsToggleLabel);
             Assert.Equal("Aspek", r.AspectsToggleLabel);
             Assert.Equal("Penamaan", r.GroupRows[0].Name);
         }

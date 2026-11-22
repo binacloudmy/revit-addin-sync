@@ -28,14 +28,13 @@ namespace RevitWebAppSync.UI.Jkr.Export
         private readonly string _modelFile;
         private readonly int _issueCount;
         private readonly Func<IssueExportFormat, string> _issuesExport;
-        private readonly Action<string> _setLanguage;
         private readonly IReadOnlyList<BitmapImage> _pages;
         private int _index;
         private double _zoom = 1.0;
         private const double MinZoom = 1.0, MaxZoom = 3.0, ZoomStep = 0.25;
 
         private BorangPreviewWindow(byte[] pdf, IReadOnlyList<byte[]> pages, string folder, string fileName, string modelFile,
-                                    int issueCount, Func<IssueExportFormat, string> issuesExport, Action<string> setLanguage)
+                                    int issueCount, Func<IssueExportFormat, string> issuesExport)
         {
             _pdf = pdf;
             _folder = folder;
@@ -43,7 +42,6 @@ namespace RevitWebAppSync.UI.Jkr.Export
             _modelFile = string.IsNullOrEmpty(modelFile) ? fileName : modelFile;
             _issueCount = issueCount;
             _issuesExport = issuesExport;
-            _setLanguage = setLanguage;
             InitializeComponent();
 
             _pages = pages.Select(ToImage).ToList();
@@ -52,16 +50,12 @@ namespace RevitWebAppSync.UI.Jkr.Export
             ApplyText();
             ShowPage(0);
 
-            PaneLanguage.Changed += OnLanguageChanged;
-            Closed += (_, __) => PaneLanguage.Changed -= OnLanguageChanged;
             SizeChanged += (_, __) => FitCard();
             PreviewKeyDown += OnKey;
             Loaded += (_, __) => { FitCard(); Activate(); PdfBtn.Focus(); };
         }
 
-        private void OnLanguageChanged() => Dispatcher.BeginInvoke(new Action(ApplyText));
-
-        /// <summary>All the window's words, in the pane's language.</summary>
+        /// <summary>All the window's words.</summary>
         private void ApplyText()
         {
             TitleText.Text = PaneText.BorangPreviewTitle();
@@ -77,12 +71,10 @@ namespace RevitWebAppSync.UI.Jkr.Export
             ExcelCount.Text = CsvCount.Text = PaneText.IssueCount(_issueCount);
             PrevBtn.ToolTip = PaneText.PreviousPage();
             NextBtn.ToolTip = PaneText.NextPage();
-            CloseBtn.ToolTip = PaneLanguage.Pick("Tutup", "Close");
+            CloseBtn.ToolTip = "Close";
             System.Windows.Automation.AutomationProperties.SetName(PrevBtn, PaneText.PreviousPage());
             System.Windows.Automation.AutomationProperties.SetName(NextBtn, PaneText.NextPage());
             System.Windows.Automation.AutomationProperties.SetName(CloseBtn, CloseBtn.ToolTip as string);
-            BmBtn.IsChecked = !PaneLanguage.IsEn;
-            EnBtn.IsChecked = PaneLanguage.IsEn;
             PageText.Text = PaneText.PageOf(_index + 1, _pages.Count);
         }
 
@@ -153,14 +145,13 @@ namespace RevitWebAppSync.UI.Jkr.Export
         /// page images are made off the UI thread (same engine, same pages).
         /// <paramref name="issueCount"/> is how many issues the Excel / CSV export would
         /// write with its default options; <paramref name="issuesExport"/> opens that (and returns what it wrote, null if cancelled)
-        /// export with the chosen format; <paramref name="setLanguage"/> switches the pane's
-        /// language ("ms" / "en").</summary>
+        /// export with the chosen format.</summary>
         public static async Task<BorangPreviewWindow> OpenAsync(BorangDoc doc, FrameworkElement anchor, string folder,
                                                                  string fileName, int issueCount,
-                                                                 Func<IssueExportFormat, string> issuesExport, Action<string> setLanguage)
+                                                                 Func<IssueExportFormat, string> issuesExport)
         {
             var (pdf, pages) = await Task.Run(() => (BorangPdf.Pdf(doc), (IReadOnlyList<byte[]>)BorangPdf.Pages(doc, dpi: 200)));
-            var w = new BorangPreviewWindow(pdf, pages, folder, fileName, doc.Header?.File, issueCount, issuesExport, setLanguage);
+            var w = new BorangPreviewWindow(pdf, pages, folder, fileName, doc.Header?.File, issueCount, issuesExport);
             if (!RevitWindowCover.Cover(w, anchor)) RevitWindowCover.CenterOnRevit(w, anchor);
             RevitWindowCover.ReturnToOwnerOnClose(w);
             w.Show();
@@ -185,10 +176,10 @@ namespace RevitWebAppSync.UI.Jkr.Export
         {
             var dlg = new Microsoft.Win32.SaveFileDialog
             {
-                Title = PanelStrings.Get(PaneLanguage.Current, "exportPreview"),
+                Title = PanelStrings.Get("exportPreview"),
                 FileName = _fileName,
                 DefaultExt = ".pdf",
-                Filter = PaneLanguage.Pick("Fail PDF (*.pdf)|*.pdf", "PDF files (*.pdf)|*.pdf"),
+                Filter = "PDF files (*.pdf)|*.pdf",
             };
             try { if (!string.IsNullOrEmpty(_folder) && Directory.Exists(_folder)) dlg.InitialDirectory = _folder; } catch { }
             if (dlg.ShowDialog(this) != true) return;
@@ -213,15 +204,6 @@ namespace RevitWebAppSync.UI.Jkr.Export
 
         private void Prev_Click(object sender, RoutedEventArgs e) => ShowPage(_index - 1);
         private void Next_Click(object sender, RoutedEventArgs e) => ShowPage(_index + 1);
-
-        private void Bm_Click(object sender, RoutedEventArgs e) => SwitchLanguage(PanelStrings.Ms);
-        private void En_Click(object sender, RoutedEventArgs e) => SwitchLanguage(PanelStrings.En);
-
-        private void SwitchLanguage(string lang)
-        {
-            if (_setLanguage != null) _setLanguage(lang); else PaneLanguage.Set(lang);
-            ApplyText();
-        }
 
         private void Issues_Click(object sender, RoutedEventArgs e)
         {

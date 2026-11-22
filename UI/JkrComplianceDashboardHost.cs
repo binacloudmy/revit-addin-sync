@@ -43,8 +43,6 @@ namespace RevitWebAppSync.UI
                 // go back to the panel, which owns confirms, writes and the audit file.
                 var results = _shell.Results;
                 _panel.StateChanged += () => results.Load(_panel.CurrentIssues, _panel.CurrentSummary, _panel.CurrentSpecReport);
-                // BM / EN: re-read the issues so fix errors and element words switch too.
-                Jkr.Panel.Core.PaneLanguage.Changed += () => results.Load(_panel.CurrentIssues, _panel.CurrentSummary, _panel.CurrentSpecReport);
                 _panel.BusyChanged += label => results.BusyText = label;
                 _panel.BusyProgress += (done, total) => results.ReportProgress(done, total);
                 _panel.ToastChanged += message => _shell.ShowToast(message);
@@ -94,7 +92,6 @@ namespace RevitWebAppSync.UI
                         MarkStillFailing = (issues, reason) => _panel.MarkStillFailingAfterCopilot(issues, reason),    // AI-509
                         Remember = (req, issue) => _panel.RememberCopilotFix(req, issue),   // AI-496: so Undo can reopen the row
                         Toast = message => _shell.ShowToast(message),
-                        IsBm = () => !Jkr.Panel.Core.PaneLanguage.IsEn,
                     },
                     // AI-490 rework: the one confirm per check, ours (the merged engine never asks before a write).
                     content => _panel.ConfirmCopilotFix(content));
@@ -149,8 +146,7 @@ namespace RevitWebAppSync.UI
                 var model = System.IO.Path.GetFileNameWithoutExtension(doc.Header.File ?? "");
                 var name = "BIM010_" + (string.IsNullOrEmpty(model) ? "model" : model) + "_" + DateTime.Now.ToString("yyyyMMdd") + ".pdf";
                 var w = await Jkr.Export.BorangPreviewWindow.OpenAsync(doc, _shell, _panel.ModelFolder, name,
-                    _panel.IssueExportCount, f => _panel.OpenExport(f, _preview),
-                    lang => _shell.Model.SetLang(lang));
+                    _panel.IssueExportCount, f => _panel.OpenExport(f, _preview));
                 _preview = w;
                 w.Closed += (_, __) => { if (ReferenceEquals(_preview, w)) _preview = null; };
             }

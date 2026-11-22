@@ -110,25 +110,16 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             !needsPerson && !hasFix && !isPick && elementIdCount >= 1
             && IsListed(specCheckId) && IsAiClass(specCheckId) && !IsWallMaterial(specCheckId, revitCategory);
 
-        public static string Label(string lang = null) =>
-            IsEn(lang) ? "Fix via Copilot" : "Baiki melalui Copilot";
+        public static string Label() =>
+            "Fix via Copilot";
 
-        /// <summary>AI-509: the check header's button: "Fix all 46 elements via Copilot" / "Baiki semua 46 elemen melalui Copilot".</summary>
-        public static string FixAllLabel(int elements, string lang = null) => IsEn(lang)
-            ? $"Fix all {elements} element{(elements == 1 ? "" : "s")} via Copilot"
-            : $"Baiki semua {elements} elemen melalui Copilot";
+        /// <summary>AI-509: the check header's button: "Fix all 46 elements via Copilot".</summary>
+        public static string FixAllLabel(int elements) => $"Fix all {elements} element{(elements == 1 ? "" : "s")} via Copilot";
 
-        public static string FixAllTooltip(string lang = null) => IsEn(lang)
-            ? "Asks you to confirm once, then opens one new Copilot chat that applies the change to every element of this check (in parts of 50). The check is re-checked afterwards; you can Undo it from the Copilot chat. Da.1 / Dc.1: a type rename changes all instances of the type."
-            : "Meminta pengesahan anda sekali, kemudian membuka satu sembang Copilot baharu yang melaksanakan perubahan pada semua elemen semakan ini (bahagian 50). Semakan diulang selepas itu; anda boleh Undo dalam sembang Copilot. Da.1 / Dc.1: menukar nama type mengubah semua instance type itu.";
+        public static string FixAllTooltip() => "Asks you to confirm once, then opens one new Copilot chat that applies the change to every element of this check (in parts of 50). The check is re-checked afterwards; you can Undo it from the Copilot chat. Da.1 / Dc.1: a type rename changes all instances of the type.";
 
         /// <summary>What a click does: a confirm here first (nothing is sent on No), then a new Copilot chat that applies the change.</summary>
-        public static string Tooltip(string lang = null) => IsEn(lang)
-            ? "Asks you to confirm, then opens a new Copilot chat that applies the change to this item's elements. You can Undo it from the Copilot chat."
-            : "Meminta pengesahan anda, kemudian membuka sembang Copilot baharu yang melaksanakan perubahan pada elemen item ini. Anda boleh Undo dalam sembang Copilot.";
-
-        private static bool IsEn(string lang) =>
-            string.Equals(lang ?? PaneLanguage.Current, PanelStrings.En, StringComparison.OrdinalIgnoreCase);
+        public static string Tooltip() => "Asks you to confirm, then opens a new Copilot chat that applies the change to this item's elements. You can Undo it from the Copilot chat.";
 
         // ── the seam ──
 

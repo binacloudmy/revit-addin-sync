@@ -204,7 +204,6 @@
     <EmbeddedResource Include="..\Services\JkrSpec\data\jkr_ar_template_views.csv" LogicalName="jkr_ar_template_views.csv" Link="JkrSpec\jkr_ar_template_views.csv" />
     <Compile Include="..\UI\Jkr\Panel\Core\DetailScreenModel.cs" Link="Panel\DetailScreenModel.cs" />
     <Compile Include="..\UI\Jkr\Panel\Core\FixResultModel.cs" Link="Panel\FixResultModel.cs" />
-    <Compile Include="..\UI\Jkr\Panel\Core\PaneLanguage.cs" Link="Panel\PaneLanguage.cs" />
     <Compile Include="..\UI\Jkr\Panel\Core\PaneText.cs" Link="Panel\PaneText.cs" />
     <Compile Include="..\Services\JkrAuditStore.cs" Link="JkrAuditStore.cs" />
     <Compile Include="..\UI\Jkr\Export\BorangDoc.cs" Link="Export\BorangDoc.cs" />

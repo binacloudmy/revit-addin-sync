@@ -75,16 +75,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel
             Running.BackRequested += () => Core.Reset();
 
             Core.Changed += ShowStage;
-            PaneLanguage.Set(Model.Lang);
-            Core.SetLang(Model.Lang);
-            Model.PropertyChanged += (_, __) =>
-            {
-                Core.SetLang(Model.Lang);
-                // Toasts, dialogs, fix errors, steps and Locate messages follow it too.
-                PaneLanguage.Set(Model.Lang);
-                Running.SetLang(Model.Lang);
-                Start.FileLabel = Model.FileLabel;
-            };
+            Model.PropertyChanged += (_, __) => Start.FileLabel = Model.FileLabel;
 
             Model.Model = ActiveModelSource.Current;
             Start.FileLabel = Model.FileLabel;

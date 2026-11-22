@@ -63,21 +63,20 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             }
         }
 
-        public static string Name(SpecAspect a, string lang)
+        public static string Name(SpecAspect a)
         {
-            var en = string.Equals(lang, PanelStrings.En, StringComparison.OrdinalIgnoreCase);
             switch (a)
             {
-                case SpecAspect.Naming: return en ? "Naming" : "Penamaan";
-                case SpecAspect.Parameters: return en ? "Parameters and information" : "Parameter dan maklumat";
-                case SpecAspect.Geometry: return en ? "Design geometry" : "Geometri reka bentuk";
-                default: return en ? "Quality and integrity" : "Kualiti dan integriti";
+                case SpecAspect.Naming: return "Naming";
+                case SpecAspect.Parameters: return "Parameters and information";
+                case SpecAspect.Geometry: return "Design geometry";
+                default: return "Quality and integrity";
             }
         }
 
         /// <summary>The aspect rows N / P / Q / G (the "Aspects" view).</summary>
-        public static List<GroupRow> Rows(SpecReport r, string lang) =>
+        public static List<GroupRow> Rows(SpecReport r) =>
             r == null ? new List<GroupRow>()
-                : All.Select(a => SpecChecklist.Group(r, Letter(a), Letter(a), Name(a, lang), c => Of(c.Id) == a, lang)).ToList();
+                : All.Select(a => SpecChecklist.Group(r, Letter(a), Letter(a), Name(a), c => Of(c.Id) == a)).ToList();
     }
 }

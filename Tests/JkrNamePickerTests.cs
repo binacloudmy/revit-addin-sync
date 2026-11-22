@@ -228,7 +228,7 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void The_pane_card_is_a_pick_with_no_preselected_name_and_no_proposed_value()
         {
-            var item = ResultsAdapter.FromIssue(Of(Map(Json(WallNames, aiCode: WallNames[0])), 10), "en");
+            var item = ResultsAdapter.FromIssue(Of(Map(Json(WallNames, aiCode: WallNames[0])), 10));
             Assert.True(item.Pick);
             Assert.Equal(WallNames, item.Options);
             Assert.Equal("", item.PickCode);

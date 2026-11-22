@@ -65,8 +65,7 @@ namespace RevitWebAppSync.Tests
             var t = SpecChecklist.TallyOf(r);
             Assert.Equal(4, t.Unjudged);
             Assert.Equal(SpecChecklist.ReasonRule, t.UnjudgedReason);
-            Assert.Equal("4 tak dapat disemak — belum ada peraturan atau tidak dapat disahkan", SpecChecklist.UnjudgedLine(r, PanelStrings.Ms));
-            Assert.Equal("4 could not be checked — no rule yet, or could not verify", SpecChecklist.UnjudgedLine(r, PanelStrings.En));
+            Assert.Equal("4 could not be checked — no rule yet, or could not verify", SpecChecklist.UnjudgedLine(r));
         }
 
         [Fact]
@@ -74,7 +73,7 @@ namespace RevitWebAppSync.Tests
         {
             var r = SpecReport.Build(AiIds().Select(Pass).ToList());
             Assert.Equal((61, 61), SpecChecklist.Score(r));
-            Assert.Equal("", SpecChecklist.UnjudgedLine(r, PanelStrings.Ms));
+            Assert.Equal("", SpecChecklist.UnjudgedLine(r));
         }
 
         [Fact]
@@ -86,8 +85,7 @@ namespace RevitWebAppSync.Tests
             Assert.True(t.Unjudged > 0);
             Assert.Equal(SpecChecklist.ReasonMixed, t.UnjudgedReason);
             Assert.Equal(36, SpecChecklist.Pct(r));
-            Assert.Contains("some: backend unavailable", SpecChecklist.UnjudgedLine(r, PanelStrings.En));
-            Assert.Contains("sebahagian: backend tidak tersedia", SpecChecklist.UnjudgedLine(r, PanelStrings.Ms));
+            Assert.Contains("some: backend unavailable", SpecChecklist.UnjudgedLine(r));
         }
 
         [Fact]
@@ -99,7 +97,7 @@ namespace RevitWebAppSync.Tests
             var t = SpecChecklist.TallyOf(r);
             Assert.Equal(5, t.Unjudged);
             Assert.Equal(SpecChecklist.ReasonMixed, t.UnjudgedReason);
-            Assert.StartsWith("5 could not be checked — some:", SpecChecklist.UnjudgedLine(r, PanelStrings.En));
+            Assert.StartsWith("5 could not be checked — some:", SpecChecklist.UnjudgedLine(r));
         }
 
         [Fact]
@@ -128,9 +126,8 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(1, t.Partial);
             Assert.Equal(0, t.AiPass);
             Assert.Equal((22, 61), SpecChecklist.Score(r));
-            Assert.Equal("1 separa", SpecChecklist.PartialLine(r, PanelStrings.Ms));
-            Assert.Equal("1 partly checked", SpecChecklist.PartialLine(r, PanelStrings.En));
-            Assert.Equal("", SpecChecklist.PartialLine(SpecReport.Build(new SpecResult[0]), PanelStrings.En));
+            Assert.Equal("1 partly checked", SpecChecklist.PartialLine(r));
+            Assert.Equal("", SpecChecklist.PartialLine(SpecReport.Build(new SpecResult[0])));
         }
 
         [Fact]
@@ -157,8 +154,7 @@ namespace RevitWebAppSync.Tests
         public void The_results_label_counts_checks()
         {
             var r = SpecReport.Build(new SpecResult[0]);
-            Assert.Equal("22 / 61 semakan lulus\n(Senarai/manusia dikira lulus)", SpecChecklist.ResultsLabel(r, PanelStrings.Ms));
-            Assert.Equal("22 / 61 checks pass\n(List and Human count as pass)", SpecChecklist.ResultsLabel(r, PanelStrings.En));
+            Assert.Equal("22 / 61 checks pass\n(List and Human count as pass)", SpecChecklist.ResultsLabel(r));
         }
     }
 }

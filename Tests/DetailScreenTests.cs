@@ -39,7 +39,6 @@ namespace RevitWebAppSync.Tests
             var core = new PanelCore(new List<PanelItem>(), null, new ManualClock());
             var start = new StartScreenModel(core) { FileLabel = "jkrAR24.rvt" };
             core.SetLod("300");
-            core.SetLang(PanelStrings.En);
             core.BeginExternalRun();
             core.FinishExternalRun();
             var results = new ResultsScreenModel(core, start);
@@ -140,7 +139,7 @@ namespace RevitWebAppSync.Tests
             d.Open("1");
             var c = d.Card;
             Assert.True(c.IsManual);
-            Assert.Equal(("Semak manual", "man", "man"), (c.SvLabel, c.SvKind, c.ActKind));
+            Assert.Equal(("Manual review", "man", "man"), (c.SvLabel, c.SvKind, c.ActKind));
             Assert.Equal("Issue 1 of 1 in Manual", d.IdxLabel);
             Assert.False(c.CanMarkManual || c.CanReopen || c.HasApply);
             Assert.Equal("why 1", c.Reason);
@@ -230,9 +229,6 @@ namespace RevitWebAppSync.Tests
             Assert.Equal("Issue 1 of 2 open", d.IdxLabel);
             r.Load(new[] { Issue("1", "A1", st: IssueStatus.ManualFixNeeded, fixable: true), Issue("2", "A4") }, none);
             Assert.Equal("Issue 1 of 2 marked manual", d.IdxLabel);
-            core.SetLang(PanelStrings.Ms);
-            Assert.Equal("Isu 1 daripada 2 ditanda manual", d.IdxLabel);
-            core.SetLang(PanelStrings.En);
             r.Load(new[] { Issue("1", "A1", fixable: true), Issue("2", "A4") }, none);
             Assert.Equal("Issue 1 of 2 open", d.IdxLabel);                    // reopened
             r.Load(new[] { Issue("1", "A1", st: IssueStatus.Fixed, fixable: true), Issue("2", "A4") }, none);
@@ -322,8 +318,6 @@ namespace RevitWebAppSync.Tests
             var (d, _, core) = New(Issue("1", "A1"), Issue("2", "A4"));
             d.Open("1");
             Assert.Equal(("Element", "Required", "In model"), (d.ElementLabel, d.RequiredLabel, d.ActualLabel));
-            core.SetLang(PanelStrings.Ms);
-            Assert.Equal("Isu 1 daripada 2 terbuka", d.IdxLabel);
             Assert.Equal("Cara membaiki secara manual", d.HowToFixLabel);
         }
 
@@ -458,11 +452,7 @@ namespace RevitWebAppSync.Tests
             d.Open("1");
             Assert.Equal("You see every change again before anything is written.", d.SeeAgainNote);
             Assert.Equal("Source: Borang A5, x", d.SourceLine("Borang A5 · x"));
-            Assert.Equal("This item is not counted in the compliance % and not counted as a failure. It prints as “semak manual” on the Borang.", d.ManualNote);
-            core.SetLang(PanelStrings.Ms);
-            Assert.Equal("Guna pembaikan", d.Card.ApplyLabel);
-            Assert.Equal("Anda melihat setiap perubahan sekali lagi sebelum apa-apa ditulis.", d.SeeAgainNote);
-            Assert.Equal("Dicadangkan oleh pembaiki AI", d.AiProposedLabel);
+            Assert.Equal("This item is not counted in the compliance % and not counted as a failure. It prints as “manual review” on the Borang.", d.ManualNote);
             Assert.Equal("Tanda manual", d.MarkManualLabel);
             Assert.Equal("Sumber: Borang A5, x", d.SourceLine("Borang A5 · x"));
         }

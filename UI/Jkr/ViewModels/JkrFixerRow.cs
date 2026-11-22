@@ -64,21 +64,18 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// <param name="revitCategory">"Levels" / "Grids" use their own name pattern.</param>
         /// <param name="value">What the person typed or picked.</param>
         /// <param name="options">The reference set, or empty when the rule has none (free text).</param>
-        /// <param name="lang">"ms" or "en" for the error text.</param>
-        public static JkrManualFixPlan Plan(string rule, string revitCategory, string value,
-                                            IReadOnlyList<string> options = null, string lang = "en")
+        public static JkrManualFixPlan Plan(string rule, string revitCategory, string value, IReadOnlyList<string> options = null)
         {
-            var ms = string.Equals(lang, "ms", StringComparison.OrdinalIgnoreCase);
             var v = (value ?? "").Trim();
             var plan = new JkrManualFixPlan { Value = v };
             if (v.Length == 0)
             {
-                plan.Error = ms ? "Masukkan nilai." : "Enter a value.";
+                plan.Error = "Enter a value.";
                 return plan;
             }
             if (v.Length > MaxLength || v.Any(char.IsControl))
             {
-                plan.Error = ms ? "Nilai tidak sah (terlalu panjang atau ada aksara kawalan)." : "Not a valid value (too long, or has control characters).";
+                plan.Error = "Not a valid value (too long, or has control characters).";
                 return plan;
             }
 
@@ -91,7 +88,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 var hit = options.FirstOrDefault(o => string.Equals(o, v, StringComparison.OrdinalIgnoreCase));
                 if (hit == null)
                 {
-                    plan.Error = ms ? "Pilih salah satu nilai yang dibenarkan." : "Pick one of the allowed values.";
+                    plan.Error = "Pick one of the allowed values.";
                     return plan;
                 }
                 plan.Value = hit;
@@ -102,22 +99,22 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             {
                 // Bahan_* parameters take "(code) Description"; the rest are free text the re-check judges.
                 if (param.StartsWith("Bahan_", StringComparison.Ordinal) && !MaterialCode.IsMatch(v))
-                    plan.Error = ms ? "Bahan mesti dalam bentuk “(kod) Penerangan”, mis. “(kt) Konkrit”." : "A material must read “(code) Description”, e.g. “(kt) Konkrit”.";
+                    plan.Error = "A material must read “(code) Description”, e.g. “(kt) Konkrit”.";
                 return plan;
             }
 
             var cat = revitCategory ?? "";
             if (cat.Equals("Levels", StringComparison.OrdinalIgnoreCase))
             {
-                if (!LevelName.IsMatch(v)) plan.Error = ms ? "Nama Level mesti seperti “L02 +4.500”." : "A level name must look like “L02 +4.500”.";
+                if (!LevelName.IsMatch(v)) plan.Error = "A level name must look like “L02 +4.500”.";
             }
             else if (cat.Equals("Grids", StringComparison.OrdinalIgnoreCase))
             {
-                if (!GridName.IsMatch(v)) plan.Error = ms ? "Nama Grid: huruf (tanpa I/O), nombor, atau “B2”." : "A grid name is a letter (no I/O), a number, or “B2”.";
+                if (!GridName.IsMatch(v)) plan.Error = "A grid name is a letter (no I/O), a number, or “B2”.";
             }
             else if (!JkrName.IsMatch(v))
             {
-                plan.Error = ms ? "Nama mesti bermula dengan “jkr” + kod bidang, mis. “jkrAR_dor-k_(ky) Pintu Kayu”." : "A name must start with “jkr” + discipline code, e.g. “jkrAR_dor-k_(ky) Pintu Kayu”.";
+                plan.Error = "A name must start with “jkr” + discipline code, e.g. “jkrAR_dor-k_(ky) Pintu Kayu”.";
             }
             return plan;
         }
@@ -133,41 +130,24 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
     /// </summary>
     public sealed class JkrFixerRow : INotifyPropertyChanged
     {
-        private static readonly Dictionary<string, Dictionary<string, string>> T =
-            new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase)
-            {
-                ["ms"] = new Dictionary<string, string>
-                {
-                    ["none"] = "Belum ada cadangan.",
-                    ["noneAsked"] = "Pembaiki AI tiada cadangan untuk item ini.",
-                    ["ask"] = "Minta AI",
-                    ["accept"] = "Terima cadangan AI",
-                    ["manual"] = "Atau masukkan nilai sendiri",
-                    ["write"] = "Tulis nilai",
-                    ["pick"] = "Pilih nilai",
-                    ["aiBadge"] = "Dicadangkan AI",
-                    ["note"] = "Tiada apa-apa ditulis sehingga anda sahkan, dan item hanya selesai selepas peraturan lulus semula.",
-                },
-                ["en"] = new Dictionary<string, string>
-                {
-                    ["none"] = "No suggestion yet.",
-                    ["noneAsked"] = "The AI fixer has no suggestion for this item.",
-                    ["ask"] = "Ask AI",
-                    ["accept"] = "Accept AI suggestion",
-                    ["manual"] = "Or enter the value yourself",
-                    ["write"] = "Write value",
-                    ["pick"] = "Pick a value",
-                    ["aiBadge"] = "AI suggested",
-                    ["note"] = "Nothing is written until you confirm, and the item only resolves once the rule passes again.",
-                },
-            };
+        private static readonly Dictionary<string, string> T = new Dictionary<string, string>
+        {
+            ["none"] = "No suggestion yet.",
+            ["noneAsked"] = "The AI fixer has no suggestion for this item.",
+            ["ask"] = "Ask AI",
+            ["accept"] = "Accept AI suggestion",
+            ["manual"] = "Or enter the value yourself",
+            ["write"] = "Write value",
+            ["pick"] = "Pick a value",
+            ["aiBadge"] = "AI suggested",
+            ["note"] = "Nothing is written until you confirm, and the item only resolves once the rule passes again.",
+        };
 
         private readonly string _rule;
         private readonly string _category;
         private string _manual = "";
 
         public string IssueId { get; }
-        public string Lang { get; }
         public FixerAiState AiState { get; }
         /// <summary>The value the AI fixer proposed (state Suggested), else "".</summary>
         public string AiValue { get; }
@@ -176,9 +156,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// <summary>The reference set for this rule (e.g. material codes), else empty = free text.</summary>
         public IReadOnlyList<string> Options { get; }
 
-        public JkrFixerRow(string issueId, string rule, string revitCategory, FixerAiState state,
-                           string aiValue = "", string aiReason = "", IEnumerable<string> options = null, string lang = "en",
-                           bool isPick = false, string pickCode = "", string pickReason = "")
+        public JkrFixerRow(string issueId, string rule, string revitCategory, FixerAiState state, string aiValue = "", string aiReason = "", IEnumerable<string> options = null, bool isPick = false, string pickCode = "", string pickReason = "")
         {
             IssueId = issueId ?? "";
             _rule = rule ?? "";
@@ -187,7 +165,6 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             AiValue = state == FixerAiState.Suggested ? aiValue ?? "" : "";
             AiReason = state == FixerAiState.Suggested ? aiReason ?? "" : "";
             Options = (options ?? Enumerable.Empty<string>()).Where(o => !string.IsNullOrWhiteSpace(o)).ToList();
-            Lang = T.ContainsKey(lang ?? "") ? lang.ToLowerInvariant() : "en";
             // AI-434: a multi-valid-code picker. The dropdown starts on the AI's code when it gave one
             // (badged "AI suggested"), else on the first option; nothing is written until a person writes it.
             IsPick = isPick && Options.Count > 0;
@@ -217,7 +194,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// <summary>The person has chosen a value themselves (a rebuild of the row keeps it).</summary>
         public bool ManualTouched { get; private set; }
 
-        private string S(string k) => T[Lang][k];
+        private string S(string k) => T[k];
 
         /// <summary>The AI line: the explicit "no suggestion" text, or empty when a value is proposed.</summary>
         public string AiLine => IsPick ? "" : AiState == FixerAiState.NotAsked ? S("none")
@@ -253,7 +230,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         }
 
         /// <summary>The plan for the current value (validated against the rule).</summary>
-        public JkrManualFixPlan ManualPlan => JkrManualFix.Plan(_rule, _category, _manual, Options, Lang);
+        public JkrManualFixPlan ManualPlan => JkrManualFix.Plan(_rule, _category, _manual, Options);
 
         /// <summary>Inline validation text; empty until something is typed, so an empty box is not an error.</summary>
         public string ManualError => _manual.Trim().Length == 0 ? "" : ManualPlan.Error;

@@ -14,41 +14,6 @@
             </ResourceDictionary.MergedDictionaries>
             <BooleanToVisibilityConverter x:Key="B2V"/>
 
-            <!-- BM / EN half: 24 px; the active half white with ink text and a hairline shadow (Clear Sheet .lang) -->
-            <Style x:Key="LangSeg" TargetType="ToggleButton">
-                <Setter Property="Foreground" Value="{StaticResource Bz.Text2}"/>
-                <Setter Property="Background" Value="Transparent"/>
-                <Setter Property="FontSize" Value="11"/>
-                <Setter Property="FontWeight" Value="SemiBold"/>
-                <Setter Property="Height" Value="24"/>
-                <Setter Property="MinWidth" Value="30"/>
-                <Setter Property="Cursor" Value="Hand"/>
-                <Setter Property="FocusVisualStyle" Value="{StaticResource Bz.FocusRing}"/>
-                <Setter Property="Template">
-                    <Setter.Value>
-                        <ControlTemplate TargetType="ToggleButton">
-                            <Border x:Name="Bd" Background="{TemplateBinding Background}" CornerRadius="6" Padding="8,0,8,0" SnapsToDevicePixels="True">
-                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                            </Border>
-                            <ControlTemplate.Triggers>
-                                <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter Property="Foreground" Value="{StaticResource Bz.Text}"/>
-                                </Trigger>
-                                <Trigger Property="IsChecked" Value="True">
-                                    <Setter TargetName="Bd" Property="Background" Value="{StaticResource Bz.Surface}"/>
-                                    <Setter TargetName="Bd" Property="Effect">
-                                        <Setter.Value>
-                                            <DropShadowEffect Color="#15181D" BlurRadius="2" ShadowDepth="1" Direction="270" Opacity="0.14"/>
-                                        </Setter.Value>
-                                    </Setter>
-                                    <Setter Property="Foreground" Value="{StaticResource Bz.Text}"/>
-                                </Trigger>
-                            </ControlTemplate.Triggers>
-                        </ControlTemplate>
-                    </Setter.Value>
-                </Setter>
-            </Style>
-
             <!-- Edge-state icon tile: 52 px, 14 radius -->
             <Style x:Key="EdgeTile" TargetType="Border">
                 <Setter Property="Width" Value="52"/>
@@ -75,7 +40,6 @@
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <!-- The mark on a 30 px ink tile (Clear Sheet "edge states, refined" .tile): 18 px, white stroke, amber top step.
@@ -107,16 +71,7 @@
                         </TextBlock.Style>
                     </TextBlock>
                 </StackPanel>
-                <Border Grid.Column="2" Background="{StaticResource Bz.Sunken2}" CornerRadius="8" Padding="2" VerticalAlignment="Center"
-                        Margin="0,0,4,0" AutomationProperties.Name="Language">
-                    <StackPanel Orientation="Horizontal">
-                        <RadioButton x:Name="BmBtn" GroupName="PaneLang" Content="BM" Style="{StaticResource LangSeg}"
-                                     IsChecked="{Binding IsBm, Mode=TwoWay}"/>
-                        <RadioButton x:Name="EnBtn" GroupName="PaneLang" Content="EN" Style="{StaticResource LangSeg}"
-                                     IsChecked="{Binding IsEn, Mode=TwoWay}"/>
-                    </StackPanel>
-                </Border>
-                <Button x:Name="CloseBtn" Grid.Column="3" VerticalAlignment="Center" Width="32" Height="32"
+                <Button x:Name="CloseBtn" Grid.Column="2" VerticalAlignment="Center" Width="32" Height="32"
                         Style="{StaticResource Bz.ChromeIconButton}" Foreground="{StaticResource Bz.TextBody}" Click="Close_Click"
                         ToolTip="{Binding CloseLabel}" AutomationProperties.Name="{Binding CloseLabel}">
                     <Path Data="M4.5,4.5 L11.5,11.5 M11.5,4.5 L4.5,11.5" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"

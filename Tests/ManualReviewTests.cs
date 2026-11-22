@@ -121,7 +121,6 @@ namespace RevitWebAppSync.Tests
             var core = new PanelCore(new List<PanelItem>(), null, new ManualClock());
             var start = new StartScreenModel(core);
             core.SetLod("300");
-            core.SetLang(PanelStrings.En);
             core.BeginExternalRun();
             core.FinishExternalRun();
             var results = new ResultsScreenModel(core, start);
@@ -145,7 +144,7 @@ namespace RevitWebAppSync.Tests
             results.SelectTab(PanelTab.Manual);
             var row = results.Rows.Single();
             Assert.True(row.IsManual);
-            Assert.Equal("Semak manual", row.SvLabel);                    // never ✓ / ✗
+            Assert.Equal("Manual review", row.SvLabel);                    // never ✓ / ✗
             Assert.StartsWith("✓ Reviewed · ", row.Meta);
             Assert.Equal(pctBefore, results.HeadPctLabel);                 // the % does not move
             Assert.Equal(pendBefore, results.PendTotal);                   // still needs a person on the Borang

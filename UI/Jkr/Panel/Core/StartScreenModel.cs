@@ -8,7 +8,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
 {
     /// <summary>One choice in a Start-screen dropdown. The same objects live for
     /// the whole session; only the label changes with BM / EN, so the dropdown
-    /// never loses its selection on a language switch.</summary>
+    /// never loses its selection.</summary>
     public sealed class StartOption : INotifyPropertyChanged
     {
         private string _label;
@@ -90,35 +90,33 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public string DetectedDisc => _detectedDisc;
 
         // Strings the prototype does not have: a clearer LOD placeholder.
-        private static readonly Dictionary<string, (string Ms, string En)> Extra = new Dictionary<string, (string, string)>
+        private static readonly Dictionary<string, string> Extra = new Dictionary<string, string>
         {
-            ["lodPick"] = ("— Pilih tahap LOD —", "— Select LOD level —"),
-            ["setupTitle"] = ("Sediakan audit", "Set up the audit"),
-            ["setupLead"] = ("{0} semakan daripada spesifikasi JKR Model Audit, disusun mengikut lima seksyen Borang BIM010.",
-                             "{0} checks from the JKR Model Audit spec, laid out as the five sections of Borang BIM010."),
-            ["lodRequiredTag"] = ("Wajib", "Required"),
-            ["lodHint"] = ("Menetapkan parameter yang mesti ada pada setiap family. Tiada nilai lalai.",
-                           "Sets which parameters each family must carry. There is no default."),
-            ["discHint"] = ("Pratetap daripada nama fail ({0}).", "Preset from the file name ({0})."),
-            ["discOnlyAr"] = ("Hanya AR disokong buat masa ini.", "Only AR is supported for now."),
-            ["sectionsLabel"] = ("Seksyen Borang", "Borang sections"),
-            ["checksMany"] = ("{0} semakan", "{0} checks"),
-            ["checksOne"] = ("{0} semakan", "{0} check"),
-            ["readyHint"] = ("Pilih tahap LOD untuk menjalankan audit.", "Choose a level of development to run the audit."),
-            ["discAR"] = ("AR · Arkitek", "AR · Architect"),
+            ["lodPick"] = "— Select LOD level —",
+            ["setupTitle"] = "Set up the audit",
+            ["setupLead"] = "{0} checks from the JKR Model Audit spec, laid out as the five sections of Borang BIM010.",
+            ["lodRequiredTag"] = "Required",
+            ["lodHint"] = "Sets which parameters each family must carry. There is no default.",
+            ["discHint"] = "Preset from the file name ({0}).",
+            ["discOnlyAr"] = "Only AR is supported for now.",
+            ["sectionsLabel"] = "Borang sections",
+            ["checksMany"] = "{0} checks",
+            ["checksOne"] = "{0} check",
+            ["readyHint"] = "Choose a level of development to run the audit.",
+            ["discAR"] = "AR · Architect",
         };
 
         private string T(string key) =>
-            Extra.TryGetValue(key, out var p) ? (_core.Lang == PanelStrings.En ? p.En : p.Ms) : _core.T(key);
+            Extra.TryGetValue(key, out var p) ? p : _core.T(key);
 
         // ── dropdowns ──
-        /// <summary>"— Pilih —" / "— Select —" first (value ""), then LOD 100–500.</summary>
+        /// <summary>"— Select —" first (value ""), then LOD 100–500.</summary>
         public IReadOnlyList<StartOption> LodOptions { get { EnsureOptions(); return _lodOptions; } }
 
-        /// <summary>AR only for now: "AR · Arkitek" / "AR · Architect".</summary>
+        /// <summary>AR only for now: "AR · Architect".</summary>
         public IReadOnlyList<StartOption> DiscOptions { get { EnsureOptions(); return _discOptions; } }
 
-        // Built once; a language switch only renames them. Replacing the lists made
+        // Built once; a relabel only renames them. Replacing the lists made
         // the dropdown lose its selection (the Discipline box went blank).
         private IReadOnlyList<StartOption> _lodOptions, _discOptions;
 
@@ -129,16 +127,15 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         private readonly IReadOnlyList<StartSection> _sections =
             PanelCore.Secs.Select((l, i) => new StartSection(l, SectionChecks[i])).ToList();
 
-        /// <summary>The five Borang sections with their check counts (names follow BM / EN).</summary>
+        /// <summary>The five Borang sections with their check counts .</summary>
         public IReadOnlyList<StartSection> Sections { get { RelabelSections(); return _sections; } }
 
         private void RelabelSections()
         {
-            var en = _core.Lang == PanelStrings.En;
             foreach (var sec in _sections)
             {
                 var n = Bim010Form.SectionNames[sec.Letter];
-                sec.Name = en ? n.En : n.Ms;
+                sec.Name = n.En;
                 sec.CountLabel = string.Format(T(sec.Checks == 1 ? "checksOne" : "checksMany"), sec.Checks);
             }
         }
@@ -213,7 +210,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
 
         private void RaiseAll()
         {
-            EnsureOptions();   // relabel for the current language
+            EnsureOptions();
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(null));
         }
     }

@@ -34,7 +34,7 @@ namespace RevitWebAppSync.Tests
             var items = rows.Select(r => ResultsAdapter.FromIssue(r)).ToList();
             Assert.Equal(new long[] { 100, 101, 102 }, items[0].ElementIds);
             var spec = SpecReport.Build(rows.Select(r => { var x = SpecChecks.Fail("Da.1", "bad", r.RevitElementId, "d"); x.Source = SpecReport.Model; x.IssueId = r.Id; return x; }).ToList());
-            var h = SpecChecklist.CheckRow(spec.For("Da.1"), spec, items.ToDictionary(i => i.Id), PanelStrings.En, _ => true);
+            var h = SpecChecklist.CheckRow(spec.For("Da.1"), spec, items.ToDictionary(i => i.Id), _ => true);
             Assert.True(h.CanFixViaCopilot);
             Assert.Equal("Fix all 5 elements via Copilot", h.CopilotFixLabel);
         }
@@ -46,7 +46,7 @@ namespace RevitWebAppSync.Tests
             var r = Row("a", "Da.1", 100, 3);
             var items = new[] { ResultsAdapter.FromIssue(r) };
             var spec = SpecReport.Build(new[] { Fail("a", 100) });
-            Assert.False(SpecChecklist.CheckRow(spec.For("Da.1"), spec, items.ToDictionary(i => i.Id), PanelStrings.En, _ => true).CanFixViaCopilot);
+            Assert.False(SpecChecklist.CheckRow(spec.For("Da.1"), spec, items.ToDictionary(i => i.Id), _ => true).CanFixViaCopilot);
         }
 
         private static SpecResult Fail(string issueId, long el) { var x = SpecChecks.Fail("Da.1", "bad", el, "d"); x.Source = SpecReport.Model; x.IssueId = issueId; return x; }

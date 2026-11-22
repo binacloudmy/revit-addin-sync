@@ -69,15 +69,13 @@ namespace RevitWebAppSync.Tests
         public void Row_labels_match_the_prototype()
         {
             var m = new RunScreenModel(new ManualClock());
-            Assert.Equal("Integriti & kualiti model", m.Rows[0].Name);
-            m.SetLang("en");
             Assert.Equal(new[] { "Model integrity & quality", "Project information", "Project Browser", "Architectural families", "View templates" },
                          m.Rows.Select(r => r.Name));
             m.Rows[0].Pct = 91; m.Rows[0].Pend = 2;
             Assert.Equal("91%", m.Rows[0].PctLabel);
             Assert.Equal("+2 manual", m.Rows[0].PendLabel);
             Assert.Equal("Auditing model…", m.Title);
-            Assert.Equal("Semak manual collected · Human decides · not in %", m.LiveText);
+            Assert.Equal("Manual review items collected · Human decides · not in %", m.LiveText);
             Assert.Equal("The overall result appears when all five sections finish.", m.NoOverall);
         }
 
@@ -114,7 +112,6 @@ namespace RevitWebAppSync.Tests
         public void A_failed_scan_marks_unfinished_sections_and_offers_retry_and_back()
         {
             var m = new RunScreenModel(new ManualClock());
-            m.SetLang("en");
             m.Begin("300", "AR");
             m.Fail("Scan failed: 502 Bad Gateway");
             Assert.True(m.IsFailed);
@@ -169,15 +166,12 @@ namespace RevitWebAppSync.Tests
         {
             var clock = new ManualClock();
             var m = new RunScreenModel(clock);
-            m.SetLang("en");
             m.Begin("300", "AR");
             Assert.Equal(0, m.ChecksDone);
             m.Complete(Numbers());
             clock.AdvanceMs(1500);
             Assert.Equal(m.Rows[0].Checks + m.Rows[1].Checks, m.ChecksDone);
             Assert.Equal(m.ChecksDone + " of " + SpecCatalog.Checks.Count + " checks done", m.ChecksDoneLabel);
-            m.SetLang("ms");
-            Assert.Equal(m.ChecksDone + " daripada " + SpecCatalog.Checks.Count + " semakan selesai", m.ChecksDoneLabel);
         }
 
         [Fact]
@@ -185,7 +179,6 @@ namespace RevitWebAppSync.Tests
         {
             var clock = new ManualClock();
             var m = new RunScreenModel(clock);
-            m.SetLang("en");
             m.Begin("300", "AR");
             Assert.Equal("Auditing model…", m.Heading);
             Assert.Equal("Checking the five sections against LOD 300 for Architect.", m.Sub);
@@ -207,7 +200,6 @@ namespace RevitWebAppSync.Tests
         public void A_scan_error_without_a_section_says_the_audit_could_not_finish()
         {
             var m = new RunScreenModel(new ManualClock());
-            m.SetLang("en");
             m.Begin("300", "AR");                               // the production path: no Complete() before Fail()
             m.Fail("Scan failed: 502 Bad Gateway");
             Assert.Equal("F,F,F,F,F", States(m));
@@ -219,8 +211,6 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(0, m.ChecksDone);
             Assert.Equal("0 of " + SpecCatalog.Checks.Count + " checks done", m.ChecksDoneLabel);
             Assert.False(m.IsRunning);
-            m.SetLang("ms");
-            Assert.Equal("Audit tidak dapat diselesaikan.", m.FailHeading);
         }
 
         [Fact]
@@ -228,7 +218,6 @@ namespace RevitWebAppSync.Tests
         {
             var clock = new ManualClock();
             var m = new RunScreenModel(clock);
-            m.SetLang("en");
             m.Begin("300", "AR");
             m.Complete(Numbers());
             clock.AdvanceMs(1500);                              // A, B done, C checking
@@ -242,10 +231,6 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(new[] { false, false, false, true, true }, m.Rows.Select(r => r.IsNotRun));
             Assert.Equal(m.Rows[0].Checks + m.Rows[1].Checks, m.ChecksDone);
             Assert.Equal(("Stopped", "Not run"), (m.RowStoppedLabel, m.RowNotRunLabel));
-            m.SetLang("ms");
-            Assert.Equal("Audit terhenti di seksyen C", m.FailHeading);
-            Assert.Equal("Terhenti di C", m.StoppedIn);
-            Assert.Equal(("Terhenti", "Tidak dijalankan"), (m.RowStoppedLabel, m.RowNotRunLabel));
         }
 
         [Fact]

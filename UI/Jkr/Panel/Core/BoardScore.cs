@@ -209,32 +209,29 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// With no score (no spec report) only the board part; with an unchanged score and extra
         /// rows moved, says why the % did not move.
         /// </summary>
-        public static string Text(Snapshot before, Snapshot after, string lang = null)
+        public static string Text(Snapshot before, Snapshot after)
         {
             if (before == null || after == null) return "";
-            var en = PaneText.IsEn(lang);
-            string L(string ms, string e) => en ? e : ms;
-
             var moved = BoardMoved(before, after);
             var extra = ExtraMoved(before, after);
-            var board = L("Papan ", "Board ") + before.Open + " → " + after.Open + L(" terbuka", " open");
+            var board = "Board " + before.Open + " → " + after.Open + " open";
             if (moved > 0)
             {
-                board += " (" + moved + L(" dibaiki", " fixed");
+                board += " (" + moved + " fixed";
                 if (extra > 0)
-                    board += L(", " + extra + " daripadanya tambahan, di luar %", ", " + extra + " of them extra, outside the %");
+                    board += (", " + extra + " of them extra, outside the %");
                 board += ")";
             }
             if (before.Total <= 0 || after.Total <= 0 || !before.Pct.HasValue || !after.Pct.HasValue) return board;
 
             var d = ScoreMoved(before, after);
-            var score = L("Skor ", "Score ") + before.Pct + "%" + (before.Pct == after.Pct ? "" : " → " + after.Pct + "%");
+            var score = "Score " + before.Pct + "%" + (before.Pct == after.Pct ? "" : " → " + after.Pct + "%");
             if (d != 0)
-                score += " (" + (d > 0 ? "+" : "") + d + L(" semakan", Math.Abs(d) == 1 ? " check" : " checks") + ")";
+                score += " (" + (d > 0 ? "+" : "") + d + (Math.Abs(d) == 1 ? " check" : " checks") + ")";
             else if (extra > 0)
-                score += L(" (tiada perubahan: pembaikan tambahan tidak dikira dalam %)", " (unchanged: extra fixes are not in the %)");
+                score += " (unchanged: extra fixes are not in the %)";
             else if (moved > 0)
-                score += L(" (tiada perubahan: semakan itu belum lulus sepenuhnya)", " (unchanged: those checks do not pass yet)");
+                score += " (unchanged: those checks do not pass yet)";
             return board + " · " + score;
         }
     }
@@ -314,17 +311,16 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             return t;
         }
 
-        /// <summary>"943 terbuka + 54 semak manual = 997 dalam fail": what an export writes, by group.</summary>
-        public static string Line(Tally t, bool en)
+        /// <summary>"943 open + 54 manual review = 997 in the file": what an export writes, by group.</summary>
+        public static string Line(Tally t)
         {
             if (t == null) return "";
-            string L(string ms, string e) => en ? e : ms;
-            var parts = new List<string> { t.Open + L(" terbuka", " open") };
-            if (t.Manual > 0) parts.Add(t.Manual + L(" semak manual", " manual review"));
-            if (t.Ignored > 0) parts.Add(t.Ignored + L(" diabaikan", " ignored"));
-            if (t.Resolved > 0) parts.Add(t.Resolved + L(" selesai", " resolved"));
-            return string.Join(" + ", parts) + " = " + t.Total + L(" dalam fail", " in the file")
-                   + (t.Extra > 0 ? " (" + t.Extra + L(" terbuka ialah tambahan, di luar %)", " open are extra, outside the %)") : "");
+            var parts = new List<string> { t.Open + " open" };
+            if (t.Manual > 0) parts.Add(t.Manual + " manual review");
+            if (t.Ignored > 0) parts.Add(t.Ignored + " ignored");
+            if (t.Resolved > 0) parts.Add(t.Resolved + " resolved");
+            return string.Join(" + ", parts) + " = " + t.Total + " in the file"
+                   + (t.Extra > 0 ? " (" + t.Extra + " open are extra, outside the %)" : "");
         }
     }
 }
