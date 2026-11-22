@@ -37,7 +37,7 @@ Tags: **[read]** code or evidence file read, **[arith]** computed from the expor
 - Mapping: `SpecReport.MapBackend` (`:290`), lines `:308` (needs element id), `:324` (`missing …parameter:` or `empty …parameter:` → Db.1 Full), `:325` (`LOD n required parameters complete` → Db.1 Full). The same function sets `IssueVm.SpecCheckId` (`IssueMapper.cs:137`), so these rows are in the % and are **not** "Extra" (`IssueVm.IsExtra` needs an empty `SpecCheckId`, `IssueVm.cs:62`).
 - Aggregation: `res.Failed++` per fail result (`SpecReport.cs:579`); display "Failed: {Failed} of {Passed+Failed+Unjudged} results" (`SpecChecklist.cs:903-904`). State rule `StateOf` (`SpecReport.cs:740-752`): any fail = Fail.
 
-### 1.3 Numbers (model `jkrAR24_5a…`, LOD 300; evidence untrusted but internally consistent)
+### 1.3 Numbers (model `jkrAR24_5a…`, LOD 300; evidence untrusted; the sums below were re-added and agree with the 468)
 
 | Source | 22 Nov (pre AI-516) | 23 Nov b (board, after AI-516 r1) | In the 468? |
 |---|---|---|---|
@@ -74,8 +74,10 @@ Add-in Db.1, 22 Nov (61 type rows, 393 parameter mentions; Malay "tiada" = missi
 | Sistem / Sub_Sistem `_stt` | | 26 / 26 |
 | Kod_Komponen_jkr_stt | | 21 |
 | Kod_Jenis_jkr_stt | | 14 |
-| Others (≤ 4 each) | 5 | 14 |
+| Others (≤ 4 each) | 1 | 9 |
 | **Total** | **239 missing** | **154 empty** |
+
+(Table re-added after review: the missing column now sums to 239 and the empty column to 154. An earlier draft overstated "Others" as 5 missing / 14 empty.)
 
 Read: 61 of 61 failing types fail mainly on **missing** parameters; 112 of 393 mentions are just two parameters (Bidang, Nama_Komponen_Utama) that the project does not carry at all. Dedupe round 1 trimmed this to 167 missing + 91 empty on the board.
 
@@ -121,7 +123,7 @@ Only rows with a `fix_action`. The backend sets one only if `_infer_param_value`
 | Kod_Jenis / Sistem / Sub_Sistem `_stt` | only when the category has exactly one valid value; else picker (AI-426) | rarely |
 | everything else (Warna_Kelulusan_PBT, Coping, Kumai, Lebar/Panjang/Tinggi, Komponen Bomba/IBS, Kemasan, Lapisan_Kalis_Air, Kod_Tinggi, Kod_Komponen_Projek, Bingkai) | none | **no fix, never bound** |
 
-Of the 407 backend results, the parameters with a value rule total about 234 (Bidang 51 + Nama 51 + Kod_DAK 34 + Kod_Komponen 27 + LOD 59 + Kaedah 12) [arith on the board rows]. That matches the "230 expected" in AI-516. The board's "Fix all 310 changes" is higher because it also counts Level, Grid, JKR-code and other Extra rows (screenshot `issues-842-fixall-310.png` shows a Level row, "Extra · outside the %"). The 310 is **not** a Db.1 number [read].
+Of the 407 backend results, the parameters with a value rule total about 236 (22 Nov list: Bidang 51 + Nama 51 + Kod_DAK 36 + Kod_Komponen 27 + LOD 59 + Kaedah 12; the 23 Nov board has Kod_DAK 34, giving 234) [arith on the board rows]. That matches the "230 expected" in AI-516. The board's "Fix all 310 changes" is higher because it also counts Level, Grid, JKR-code and other Extra rows (screenshot `issues-842-fixall-310.png` shows a Level row, "Extra · outside the %"). The 310 is **not** a Db.1 number [read].
 
 The 61 add-in Db.1 rows have **no** deterministic fix: Fix All reads "0" for Db.1 (`test-round-20261122b/SUMMARY.md:41`). They go only to "Fix via Copilot", whose Db.1 prompt says fill **empty** parameters and use `set_parameters` (`JkrCopilotPrompt.cs:84-89`). `set_parameters` skips a missing parameter with "has no parameter '…'" and does not bind (`SetParametersTool.cs:129-137`). `Eligible` also hides the Copilot button on any row that has a deterministic fix (`JkrCopilotFix.cs:109-111`, `!hasFix`).
 
@@ -172,13 +174,19 @@ Output envelope (kind `write`): per (param, category): `bound` | `already_bound`
 ### 4.3 What it must refuse
 
 1. **No shared parameter file loaded, or the loaded file is not the JKR file** (match by the JKR group/GUIDs, not by "jkr" in the file name). Refuse with "Load the JKR shared parameter file (Manage > Shared Parameters)". Do **not** provision a private file as the legacy path does (`JkrFixApplicator.cs:407-445`): that creates definitions with new GUIDs which later clash with the official file (Revit rejects a same-name, different-GUID bind) [inferred].
-2. **A name not found in the file.** Never `Definitions.Create` (the legacy path does, `:490-510`). This also blocks the two suspect names in §1.5 (`Kod_Tinggi_jkr_jkr_stt`, case twins).
+2. **A name defined in the file under a different data type than its suffix implies** (for example a `_stt` text name defined as Number or Yes/No; suffix letters: t text, x multiline, y Yes/No, i integer, l length, a area, m material, c currency). Refuse and report both; never bind a parameter whose type would make `set_parameters` or Db.1 misjudge it.
+2b. **A name not found in the file.** Never `Definitions.Create` (the legacy path does, `:490-510`). This also blocks the two suspect names in §1.5 (`Kod_Tinggi_jkr_jkr_stt`, case twins).
 3. A name present in the project with a **different GUID** (or a project parameter): refuse, report both, a person decides.
 4. Material (`_stm`) parameters (legacy already refuses), and non-JKR names (no `_jkr_`).
 5. Categories that do not accept bound parameters (`AllowsBoundParameters`, `:523`), or any category not named in the call.
 6. Widening an existing binding to a category **without listing it**: ReInsert changes the project-wide binding for all elements of the category. Show category and element count in the plan.
 7. Binding kind change: never flip Instance to Type (or back) for an existing binding; keep what exists (legacy rule, `:538-546`).
-8. Worksharing: refuse a bind when the document is workshared and shared parameter changes are not allowed (not verified; needs the spike).
+8. **Shared-parameter file on a read-only path** (or locked / unreadable): the tool only reads the file and binds from it, so it returns `refused(file_read_only)` only if it would need to write (it must never write or create definitions, rule 2b); if the file cannot be opened at all it returns `refused(no_shared_file)` with the path and the Revit error text. It must not fall back to a private file.
+9. Worksharing: refuse a bind when the document is workshared and shared parameter changes are not allowed (not verified; needs the spike).
+
+**`dry_run` is a PLAN, not an executed bind.** Because bindings are not rolled back by a SubTransaction (JkrFixApplicator.cs:316-321), a dry run must never call `Insert`/`ReInsert` and undo it: it only reads the file and the existing bindings and returns what would be bound where.
+
+**Always-ask rule (gate):** any tool named `bind_parameters` is always asked by the gate (server question), whatever `confirmed_write` says, until a `(param, category)` + plan-hash scope exists. A test must land with the tool: a `confirmed_write` turn naming `bind_parameters` still produces the server question.
 
 ### 4.4 Values and re-check
 
@@ -196,8 +204,8 @@ This PR changes **no** gate or confirmation file. For WP-8 / WP-10 (to be said i
 ## 5. Recommendations
 
 1. **WP-8 scope:** bind-only tool, official file required, no create, dry-run plan, bind what Db.1 judges. Values via `set_parameters` / `from_table`. Extract one binder from `JkrFixApplicator.TryBindSharedParameter` (it is the JKR one; the `ParameterWriter` one is not) and delete the private-file provisioning for the JKR path.
-2. **New ticket (checker, not WP-8): one Db.1 source and one unit.** Today PB (per type) and Doc 09 (per element group) both count. Either the backend `missing …parameter:` results stop mapping to Db.1, or the add-in's rows are the only Db.1 results and the backend rows become "Extra". Without it the cell never reaches Pass, whatever WP-8 does.
-3. **New ticket: PB CSV spellings.** Normalise `Kod_Komponen_sumber`/`Sumber` and review `Kod_Tinggi_jkr_jkr_stt` against the official shared parameter file; compare names case-insensitively where Revit does (not verified). Likely removes about 7 + types of false fails.
+2. **New ticket (checker, NOT WP-8): one Db.1 source, one unit. This is the one that moves the %.** Today PB (per type) and Doc 09 (per element group) both count. Either the backend `missing …parameter:` results stop mapping to Db.1, or the add-in's rows are the only Db.1 results and the backend rows become "Extra". Without it the cell never reaches Pass, whatever WP-8 does: WP-8 alone (bind plus fill) cannot move the headline %.
+3. **New ticket: PB CSV spellings.** List and fix the inconsistent spellings in `Services/JkrSpec/data/jkr_pb_ar_parameters.csv`: `Kod_Komponen_sumber_jkr_stt` (lowercase s) at lines 36 (Casework), 459 (Generic Model), 512 (Planting) vs `Kod_Komponen_Sumber_jkr_stt` (capital S) at lines 243 (Door), 347 (Furniture), 402 (Furniture System), 552 (Plumbing Fixture), 767 (Specialty Equipment), 939 (Window); and review `Kod_Tinggi_jkr_jkr_stt` (lines 185 Curtain System, 887 Wall) against the official shared parameter file (line numbers as of 51eb54e6); compare names case-insensitively where Revit does (not verified). Likely removes about 7 + types of false fails.
 4. **New ticket: backend scan sends empty strings** (or an `empty` flag) so "bound but empty" stops reading as "Missing" (`JkrBuildingInfoExtractor.cs:375`).
 5. **Legacy fixer:** restore `SharedParametersFilename` after a provisioned run; do not create definitions (same hazard as above). Out of WP-8 unless Aiman agrees; it is JKR add-in code, not Copilot.
 6. **Data to unlock the breakdown** (Tester, one scan with `BINA_JKR_DEDUPE_DUMP=1`): the dump has category, family, type, rule, element id per row (`DedupeDump.cs`). Gives (category, parameter, missing vs empty) and which legacy results have a fix, which this spike could not get from the CSVs.
