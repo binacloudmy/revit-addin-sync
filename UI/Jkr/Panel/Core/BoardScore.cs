@@ -65,6 +65,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             /// covers. A spec row covers a type, so one row stands for many per-element backend rows.</summary>
             public IReadOnlyCollection<string> Params = new string[0];
             public IReadOnlyCollection<long> ElementIds = new long[0];
+            /// <summary>AI-516 (dump only): the row's title, raw rule, element label and fix action as the host knows them.</summary>
+            public string Title = "", RuleText = "", ElementLabel = "", FixAction = "";
         }
 
         /// <summary>The spec check whose spec rows list parameters per type (AI-506): a backend
@@ -74,6 +76,31 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// <summary>"Kod_Komponen_jkr_stt" and "Kod Komponen Jkr Stt" are the same parameter.</summary>
         public static string ParamKey(string name) =>
             string.Join("_", (name ?? "").Trim().ToLowerInvariant().Split(new[] { ' ', '_' }, StringSplitOptions.RemoveEmptyEntries));
+
+        /// <summary>AI-516. <see cref="ParamKey"/> without the trailing "_jkr_stt" / "_jkr_sit" / "_jkr_sty" ... suffix (any "jkr_s" + 2 letters):
+        /// "Bidang Kejuruteraan" and "Bidang_Kejuruteraan_jkr_stt" give "bidang_kejuruteraan". Two spec names that differ only by the suffix
+        /// (Coping_jkr_stm / Coping_jkr_stt) are DIFFERENT parameters: see <see cref="SameParam"/>.</summary>
+        public static string ParamBaseKey(string name)
+        {
+            var k = ParamKey(name);
+            var m = JkrSuffix.Match(k);
+            return m.Success ? m.Groups[1].Value : k;
+        }
+
+        private static readonly System.Text.RegularExpressions.Regex JkrSuffix = new System.Text.RegularExpressions.Regex(@"^(.*)_jkr_s[a-z]{2}$");
+
+        /// <summary>AI-516. Which of the spec row's parameters the row parameter <paramref name="rowKey"/> (a <see cref="ParamKey"/>) names, or null.
+        /// Equal key first. Else, only when the row's name has NO suffix (the prettified "Bidang Kejuruteraan") and exactly ONE spec parameter has that base.
+        /// A name with a suffix never matches another suffix, and an ambiguous base matches nothing (never guess).</summary>
+        public static string MatchSpecParam(IEnumerable<string> specParams, string rowKey)
+        {
+            if (string.IsNullOrEmpty(rowKey)) return null;
+            var keys = (specParams ?? new string[0]).Select(ParamKey).Where(k => k.Length > 0).Distinct().ToList();
+            if (keys.Contains(rowKey)) return rowKey;
+            if (JkrSuffix.IsMatch(rowKey)) return null;
+            var same = keys.Where(k => ParamBaseKey(k) == rowKey).ToList();
+            return same.Count == 1 ? same[0] : null;
+        }
 
         /// <summary>Where the parameter name starts in a backend rule: "Missing Type parameter: X", "Empty Instance parameter: X"
         /// and (AI-516) "Optional Type parameter missing: X". -1 = the rule names no parameter.</summary>
@@ -167,6 +194,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             public int[] Tier = new int[0];
             /// <summary>AI-516: per input row, the spec-row parameters a kept fixable row reports instead (null = none).</summary>
             public HashSet<string>[] Held = new HashSet<string>[0];
+            /// <summary>AI-516 (dump): per input row, why it was kept / dropped / trimmed ("" = no dedupe rule looked at it).</summary>
+            public string[] Reason = new string[0];
             public int Dropped => Keep.Count(k => !k);
         }
 
@@ -201,7 +230,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             var specIds = new HashSet<long>();                       // every element id any Db.1 spec row covers
             foreach (var si in specs) foreach (var e in rows[si].ElementIds ?? new long[0]) specIds.Add(e);
 
-            // (spec row, parameter) -> the instance ids / "the whole type" a kept fixable row holds
+            // (spec row, spec parameter) -> the instance ids / "the whole type" a kept fixable row holds
             var heldIds = new Dictionary<(int, string), HashSet<long>>();
             var heldType = new HashSet<(int, string)>();
             int dropped = 0, keptFixable = 0, unmatched = 0;
@@ -213,17 +242,32 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 if (!IsCheck(r, ParameterCheck) && !r.ParamRule) continue;
                 var key = ParamKey(r.Param);
                 if (key.Length == 0) continue;
-                var matched = specs.Where(si => Covers(rows[si], r, key, specIds)).ToList();
-                if (matched.Count == 0) { unmatched++; continue; }
-                if (!r.Fixable) { o.Keep[i] = false; dropped++; continue; }
+                var matched = new List<(int spec, string key, string why)>();
+                var misses = new List<string>();
+                foreach (var si in specs)
+                {
+                    var mk = MatchSpecParam(rows[si].Params, key);
+                    if (mk == null) { misses.Add("spec " + rows[si].Id + ": lists no '" + key + "'"); continue; }
+                    var why = CoverWhy(rows[si], r, mk, specIds);
+                    if (why.StartsWith("covered:")) matched.Add((si, mk, why)); else misses.Add("spec " + rows[si].Id + ": " + why);
+                }
+                if (matched.Count == 0)
+                {
+                    unmatched++;
+                    o.Reason[i] = "kept:not-covered | " + (misses.Count > 6 ? string.Join("; ", misses.Take(6)) + "; +" + (misses.Count - 6) + " more" : string.Join("; ", misses));
+                    continue;
+                }
+                var via = string.Join(",", matched.Select(m => rows[m.spec].Id + "=" + m.why).Take(3));
+                if (!r.Fixable) { o.Keep[i] = false; dropped++; o.Reason[i] = "dropped:covered-not-fixable (spec row wins) | " + via; continue; }
                 keptFixable++;
                 var typeRow = string.Equals(r.ParamKind, "type", StringComparison.OrdinalIgnoreCase);
-                foreach (var si in matched)
+                o.Reason[i] = "kept:fixable-holds-param (" + (typeRow ? "type row" : "instance row") + ") | " + via;
+                foreach (var m in matched)
                 {
-                    if (typeRow) heldType.Add((si, key));
+                    if (typeRow) heldType.Add((m.spec, m.key));
                     if (r.ElementId > 0)
                     {
-                        if (!heldIds.TryGetValue((si, key), out var set)) heldIds[(si, key)] = set = new HashSet<long>();
+                        if (!heldIds.TryGetValue((m.spec, m.key), out var set)) heldIds[(m.spec, m.key)] = set = new HashSet<long>();
                         set.Add(r.ElementId);
                     }
                 }
@@ -239,29 +283,31 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                     if (heldType.Contains((si, k))) { held.Add(k); continue; }
                     if (ids.Count > 0 && heldIds.TryGetValue((si, k), out var got) && ids.All(got.Contains)) held.Add(k);
                 }
-                if (held.Count == 0) continue;
-                if (held.Count == all.Count) o.Keep[si] = false; else o.Held[si] = held;
+                if (held.Count == 0) { o.Reason[si] = "kept:no-parameter-held (" + all.Count + " params, " + ids.Count + " ids)"; continue; }
+                if (held.Count == all.Count) { o.Keep[si] = false; o.Reason[si] = "dropped:all-" + all.Count + "-params-held-by-fixable-rows"; }
+                else { o.Held[si] = held; o.Reason[si] = "trimmed:held " + held.Count + " of " + all.Count + " (" + string.Join(",", held) + ")"; }
             }
             if (dropped + keptFixable > 0)
                 System.Diagnostics.Debug.WriteLine("[SpecDedupe] AI-516: parameter rows covered by a Db.1 row: " + dropped + " dropped, " + keptFixable + " fixable kept (spec row gives the parameter up); " + unmatched + " not covered");
         }
 
-        /// <summary>The backend / checker row <paramref name="r"/> (parameter <paramref name="key"/>) says what the spec row <paramref name="spec"/> says.</summary>
-        private static bool Covers(Row spec, Row r, string key, HashSet<long> specIds)
+        /// <summary>"covered:&lt;rule&gt;" or "no:&lt;why&gt;": the one matching function, with the reason for the dump.</summary>
+        private static string CoverWhy(Row spec, Row r, string key, HashSet<long> specIds)
         {
-            if (!(spec.Params ?? new string[0]).Any(p => ParamKey(p) == key)) return false;
+            if (!(spec.Params ?? new string[0]).Any(p => ParamKey(p) == key)) return "no:spec-lists-no-such-param";
             var ids = spec.ElementIds ?? new long[0];
-            if (r.ElementId > 0 && ids.Contains(r.ElementId)) return true;      // same element
-            if (r.ElementId > 0 && specIds.Contains(r.ElementId)) return false;  // a known element of ANOTHER spec row, or one this spec row lists no parameter for
+            if (r.ElementId > 0 && ids.Contains(r.ElementId)) return "covered:id-in-spec-list";
+            if (r.ElementId > 0 && specIds.Contains(r.ElementId)) return "no:id-" + r.ElementId + "-listed-by-another-spec-row";
             // The id says nothing. Never on the parameter alone: the category must match, and one of
             // (a) the row has no element, (b) it is a type id: its family and type name are the spec row's (a row with no family is not enough: types are often all "Normal"), (c) the spec row's id list was cut at the cap.
             var cat = CategoryKey(r.Category);
-            if (cat.Length == 0 || cat != CategoryKey(spec.Category)) return false;
+            if (cat.Length == 0) return "no:row-has-no-revit-category";
+            if (cat != CategoryKey(spec.Category)) return "no:category-differs (row '" + r.Category + "' spec '" + spec.Category + "')";
+            if (r.ElementId <= 0) return "covered:no-element-same-category";
             var type = CategoryKey(r.TypeName);
-            return r.ElementId <= 0
-                   || (type.Length > 0 && type == CategoryKey(spec.TypeName)
-                       && CategoryKey(r.Family).Length > 0 && CategoryKey(r.Family) == CategoryKey(spec.Family))
-                   || ids.Count >= InstanceIdCap;
+            if (type.Length > 0 && type == CategoryKey(spec.TypeName) && CategoryKey(r.Family).Length > 0 && CategoryKey(r.Family) == CategoryKey(spec.Family)) return "covered:same-family-and-type";
+            if (ids.Count >= InstanceIdCap) return "covered:spec-id-list-at-cap";
+            return "no:id-not-listed, type/family differ or unknown (row type '" + r.TypeName + "' family '" + r.Family + "', spec type '" + spec.TypeName + "' family '" + spec.Family + "')";
         }
 
         private static bool IsCheck(Row r, string id) => string.Equals((r.CheckId ?? "").Trim(), id, StringComparison.OrdinalIgnoreCase);
@@ -279,7 +325,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public static Outcome Resolve(IReadOnlyList<Row> rows)
         {
             rows = rows ?? new Row[0];
-            var o = new Outcome { Keep = Enumerable.Repeat(true, rows.Count).ToArray(), Tier = new int[rows.Count], Held = new HashSet<string>[rows.Count] };
+            var o = new Outcome { Keep = Enumerable.Repeat(true, rows.Count).ToArray(), Tier = new int[rows.Count], Held = new HashSet<string>[rows.Count], Reason = Enumerable.Repeat("", rows.Count).ToArray() };
             for (var i = 0; i < rows.Count; i++) o.Tier[i] = rows[i]?.Tier ?? 1;
 
             foreach (var id in OneProblemChecks)
@@ -293,7 +339,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 foreach (var i in group)
                 {
                     o.Tier[i] = tier;
-                    if (rows[i].Source != best && !rows[i].Fixable) o.Keep[i] = false;
+                    if (rows[i].Source != best && !rows[i].Fixable) { o.Keep[i] = false; o.Reason[i] = "dropped:one-problem-check " + id + " (source " + rows[i].Source + " lost to source " + best + ")"; }
+                    else o.Reason[i] = "kept:one-problem-check " + id + " (tier " + tier + ")";
                 }
             }
             DropCoveredParameterRows(rows, o);
@@ -392,11 +439,17 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public static List<SpecDedupe.Row> Merge(IEnumerable<SpecDedupe.Row> backend, IEnumerable<SpecDedupe.Row> audit, IEnumerable<SpecDedupe.Row> model)
         {
             var merged = new List<SpecDedupe.Row>();
+            var skipped = new List<(SpecDedupe.Row row, string why)>();
             var known = new HashSet<string>(StringComparer.Ordinal);
             // The backend's own rows are all kept (as before AI-506); the other two sources skip a known id.
             foreach (var r in (backend ?? new SpecDedupe.Row[0]).Where(x => x != null)) { merged.Add(r); known.Add(r.Id ?? ""); }
-            foreach (var r in (audit ?? new SpecDedupe.Row[0]).Where(x => x != null)) if (known.Add(r.Id ?? "")) merged.Add(r);
-            foreach (var r in (model ?? new SpecDedupe.Row[0]).Where(x => x != null && !string.IsNullOrEmpty(x.Id))) if (known.Add(r.Id)) merged.Add(r);
+            foreach (var r in (audit ?? new SpecDedupe.Row[0]).Where(x => x != null)) { if (known.Add(r.Id ?? "")) merged.Add(r); else skipped.Add((r, "skipped:id-already-taken")); }
+            foreach (var r in (model ?? new SpecDedupe.Row[0]).Where(x => x != null))
+            {
+                if (string.IsNullOrEmpty(r.Id)) skipped.Add((r, "skipped:no-id"));
+                else if (known.Add(r.Id)) merged.Add(r);
+                else skipped.Add((r, "skipped:id-already-taken"));
+            }
             var o = SpecDedupe.Resolve(merged);
             var kept = new List<SpecDedupe.Row>();
             for (var i = 0; i < merged.Count; i++)
@@ -406,6 +459,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 merged[i].HeldParams = o.Held[i] != null ? (IReadOnlyCollection<string>)o.Held[i] : new string[0];
                 kept.Add(merged[i]);
             }
+            DedupeDump.Remember(merged, o, skipped, kept);
             return kept;
         }
 
