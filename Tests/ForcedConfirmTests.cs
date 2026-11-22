@@ -1,7 +1,9 @@
 // AI-501: forced Ya/Tidak card for turns started from Fix via Copilot.
 // Pure logic — the VM wiring itself (WPF) is not unit-testable on the Mac harness.
 
+using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using RevitWebAppSync.Services;
 using Xunit;
@@ -82,6 +84,92 @@ namespace RevitAddinSync.Tests
             Assert.All(results, r => Assert.True(r.Ok));
             Assert.Equal(new[] { "a", "b" }, results.Select(r => r.ToolCallId));
             Assert.All(results, r => Assert.Equal("rejected", ((Dictionary<string, object>)r.Result)["status"]));
+        }
+
+        // Turn lifecycle: early-return, sign-in park and clarify resume (review fixes).
+        [Fact]
+        public void Take_arm_without_begin_does_not_start_a_turn()
+        {
+            ForcedConfirm.ArmForNextTurn();
+            var armed = ForcedConfirm.TakeArm();   // ChatSend took it, then hit an early return
+            Assert.True(armed);
+            Assert.False(ForcedConfirm.IsArmed);
+            Assert.False(ForcedConfirm.IsActive);
+        }
+
+        [Fact]
+        public void Parked_prompt_rearms_and_the_resent_turn_is_forced()
+        {
+            ForcedConfirm.ArmForNextTurn();
+            bool forcedPayload = ForcedConfirm.TakeArm();   // stored on the PromptPayload at the sign-in park
+            ForcedConfirm.EndTurn();
+            if (forcedPayload) ForcedConfirm.ArmForNextTurn();   // OnSessionChanged re-send
+            ForcedConfirm.BeginTurn();
+            Assert.True(ForcedConfirm.IsActive);
+        }
+
+        [Fact]
+        public void Clarify_pause_keeps_the_turn_forced_for_the_answer()
+        {
+            ForcedConfirm.ArmForNextTurn();
+            ForcedConfirm.BeginTurn();
+            ForcedConfirm.PauseForAnswer();   // RenderRouteResult on a clarify result
+            ForcedConfirm.BeginTurn();        // the user's answer through ChatSend, no arm
+            Assert.True(ForcedConfirm.IsActive);
+            ForcedConfirm.BeginTurn();        // the next, unrelated message
+            Assert.False(ForcedConfirm.IsActive);
+        }
+
+        [Fact]
+        public void Cancel_during_a_clarify_pause_ends_the_forced_turn()
+        {
+            ForcedConfirm.ArmForNextTurn();
+            ForcedConfirm.BeginTurn();
+            ForcedConfirm.PauseForAnswer();
+            ForcedConfirm.EndTurn();
+            ForcedConfirm.BeginTurn();
+            Assert.False(ForcedConfirm.IsActive);
+        }
+
+        [Fact]
+        public void Pause_without_a_forced_turn_changes_nothing()
+        {
+            ForcedConfirm.PauseForAnswer();
+            ForcedConfirm.BeginTurn();
+            Assert.False(ForcedConfirm.IsActive);
+        }
+
+        // Source guard: every code read of AutoApproveWrites outside the settings UI must sit next to a
+        // ForcedConfirm call, so a new auto-approve path (e.g. PR #307's engine-mode gate) cannot skip the flag.
+        [Fact]
+        public void Every_AutoApproveWrites_read_goes_through_ForcedConfirm()
+        {
+            var dir = new DirectoryInfo(AppContext.BaseDirectory);
+            while (dir != null && !File.Exists(Path.Combine(dir.FullName, "RevitWebAppSync.csproj"))) dir = dir.Parent;
+            Assert.NotNull(dir);
+            var allowed = new[] { "CopilotPrefs.cs", "SettingsView.xaml.cs", "PromptBar.xaml.cs", "ForcedConfirm.cs" };
+            var offenders = new List<string>();
+            foreach (var top in new[] { "UI", "Services", "BinaVibe" })
+            {
+                var root = Path.Combine(dir!.FullName, top);
+                if (!Directory.Exists(root)) continue;
+                foreach (var f in Directory.EnumerateFiles(root, "*.cs", SearchOption.AllDirectories))
+                {
+                    if (f.Contains(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar)
+                        || f.Contains(Path.DirectorySeparatorChar + "bin" + Path.DirectorySeparatorChar)) continue;
+                    if (Array.IndexOf(allowed, Path.GetFileName(f)) >= 0) continue;
+                    var lines = File.ReadAllLines(f);
+                    for (int i = 0; i < lines.Length; i++)
+                    {
+                        if (!lines[i].Contains("AutoApproveWrites") || lines[i].TrimStart().StartsWith("//")) continue;
+                        bool near = false;
+                        for (int j = Math.Max(0, i - 3); j <= Math.Min(lines.Length - 1, i + 3); j++)
+                            if (lines[j].Contains("ForcedConfirm")) near = true;
+                        if (!near) offenders.Add(Path.GetFileName(f) + ":" + (i + 1));
+                    }
+                }
+            }
+            Assert.True(offenders.Count == 0, "AutoApproveWrites read without ForcedConfirm nearby: " + string.Join(", ", offenders));
         }
     }
 }

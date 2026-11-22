@@ -516,7 +516,7 @@ namespace RevitWebAppSync.UI.Copilot
                     if (Thread[i].Kind == CpMsgKind.SignIn) Thread.RemoveAt(i);
                 var pending = _pendingAfterSignIn; _pendingAfterSignIn = null;
                 var slash = _pendingSlashAfterSignIn; _pendingSlashAfterSignIn = null;
-                if (pending != null) ChatSend(pending.Text, pending.ImagesBase64, pending.Files, slash);
+                if (pending != null) { if (pending.ForceConfirm) RevitWebAppSync.Services.ForcedConfirm.ArmForNextTurn(); ChatSend(pending.Text, pending.ImagesBase64, pending.Files, slash); }
             }));
         }
 
@@ -561,7 +561,7 @@ namespace RevitWebAppSync.UI.Copilot
             card.PrimaryAction = primary ?? (() =>
             {
                 var pending = _pendingAfterSignIn; _pendingAfterSignIn = null;
-                if (pending != null) ChatSend(pending.Text, pending.ImagesBase64, pending.Files, _pendingSlashAfterSignIn);
+                if (pending != null) { if (pending.ForceConfirm) RevitWebAppSync.Services.ForcedConfirm.ArmForNextTurn(); ChatSend(pending.Text, pending.ImagesBase64, pending.Files, _pendingSlashAfterSignIn); }
             });
             return card;
         }
@@ -589,7 +589,7 @@ namespace RevitWebAppSync.UI.Copilot
             if (e.IndexOf("credit limit", StringComparison.OrdinalIgnoreCase) >= 0)
                 return AttentionCard("AI credit limit reached for this period", "Your plan's credits are used up. Upgrade, or wait for the next period.",
                     "gateway · 402 insufficient_quota", primaryLabel: "See plans", primary: () => UpgradeRequested?.Invoke(), secondaryLabel: "Try again",
-                    secondary: () => { if (retry != null) ChatSend(retry.Text, retry.ImagesBase64, retry.Files); });
+                    secondary: () => { if (retry != null) { if (retry.ForceConfirm) RevitWebAppSync.Services.ForcedConfirm.ArmForNextTurn(); ChatSend(retry.Text, retry.ImagesBase64, retry.Files); } });
             if (e.IndexOf("Unknown model error", StringComparison.OrdinalIgnoreCase) >= 0
                 || e.IndexOf("stream connect failed", StringComparison.OrdinalIgnoreCase) >= 0)
             { _pendingAfterSignIn = retry; return AttentionCard("The Copilot couldn't reach its model", "Check the network and try again. Nothing was changed in the model.", "engine · " + e.Trim()); }
@@ -835,10 +835,10 @@ namespace RevitWebAppSync.UI.Copilot
             SlashTool slashChip = null, Dictionary<string, object> commandArgs = null)
         {
             text = (text ?? "").Trim();
-            RevitWebAppSync.Services.ForcedConfirm.BeginTurn();   // AI-501: armed -> this turn, else reset
+            bool armedForThis = RevitWebAppSync.Services.ForcedConfirm.TakeArm();   // AI-501: begins the turn only once it can start (below)
             // A slash command may carry no typed args (a bare "/level-builder"),
             // so an empty text is valid when a command chip is attached.
-            if (text.Length == 0 && slashChip == null) return;
+            if (text.Length == 0 && slashChip == null) { RevitWebAppSync.Services.ForcedConfirm.EndTurn(); return; }
             LastPrompt = text;   // key for 👍/👎 feedback on the resulting response
             if (IsIndexing)
             {
@@ -847,6 +847,7 @@ namespace RevitWebAppSync.UI.Copilot
                     Role = "ai", Kind = CpMsgKind.AiReply,
                     Text = "Indexing your model — give me a couple seconds, then ask again.",
                 });
+                RevitWebAppSync.Services.ForcedConfirm.EndTurn();
                 return;
             }
             // Lifetime prompt counter feeds the rating nudge threshold.
@@ -891,7 +892,8 @@ namespace RevitWebAppSync.UI.Copilot
                 // re-sent after sign-in (OnSessionChanged). The old bubble here
                 // named "BINA Cloud → Login" - the CDE sign-in, which never mints
                 // the engine token - and had nothing to click.
-                _pendingAfterSignIn = new PromptPayload { Text = text, ImagesBase64 = images, Files = files };
+                _pendingAfterSignIn = new PromptPayload { Text = text, ImagesBase64 = images, Files = files, ForceConfirm = armedForThis };
+                RevitWebAppSync.Services.ForcedConfirm.EndTurn();   // parked, no turn yet; the re-send re-arms from ForceConfirm
                 _pendingSlashAfterSignIn = slashChip;
                 Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = text, SlashCommand = slashChip });
                 Thread.Add(SignInCard());   // locks the composer; "Not now" or sign-in unlocks
@@ -910,6 +912,7 @@ namespace RevitWebAppSync.UI.Copilot
             //     return;
             // }
 
+            RevitWebAppSync.Services.ForcedConfirm.BeginTurn(armedForThis);   // AI-501: past every early return; a turn really starts
             _lastSteps = null;
             _lastReasoning = null;
             _lastBlocks = null;
@@ -1317,7 +1320,8 @@ namespace RevitWebAppSync.UI.Copilot
             // Attention) instead of a reply bubble carrying the raw reason.
             if (rr != null && rr.Failed)
             {
-                var card = CardForFailure(rr.Reply, new PromptPayload { Text = routeText });
+                bool wasForced = RevitWebAppSync.Services.ForcedConfirm.IsActive;
+                var card = CardForFailure(rr.Reply, new PromptPayload { Text = routeText, ForceConfirm = wasForced });
                 if (card != null) { RevitWebAppSync.Services.ForcedConfirm.EndTurn(); ReplaceLastThinking(card); return; }
             }
 
@@ -1472,7 +1476,9 @@ namespace RevitWebAppSync.UI.Copilot
             // AI-501 forced-confirm turn: stays active while parked on a card
             // (Ya/Tidak resumes the same turn); any other result ends it.
             bool forcedConfirm = RevitWebAppSync.Services.ForcedConfirm.IsActive;
-            if (rr == null || !rr.NeedsActionConfirmation)
+            if (rr != null && rr.NeedsClarification)
+                RevitWebAppSync.Services.ForcedConfirm.PauseForAnswer();   // the user's answer resumes the SAME run: stay forced
+            else if (rr == null || !rr.NeedsActionConfirmation)
                 RevitWebAppSync.Services.ForcedConfirm.EndTurn();
             // HITL clarify pause: the agent needs an answer before acting. Render
             // the question as a Clarify card; the user's NEXT message is routed

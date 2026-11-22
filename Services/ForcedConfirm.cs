@@ -19,6 +19,10 @@ namespace RevitWebAppSync.Services
     {
         private static volatile bool _armed;
         private static volatile bool _active;
+        private static volatile bool _resume;
+
+        /// <summary>Armed, waiting for the next ChatSend (tests/diagnostics).</summary>
+        public static bool IsArmed => _armed;
 
         /// <summary>True while the current turn must show the card.</summary>
         public static bool IsActive => _active;
@@ -26,19 +30,33 @@ namespace RevitWebAppSync.Services
         /// <summary>Launcher call: the NEXT ChatSend is a forced-confirm turn.</summary>
         public static void ArmForNextTurn() { _armed = true; }
 
-        /// <summary>Called at the start of every ChatSend. Consumes the arm:
-        /// the turn is forced only if it was armed; a normal message resets.</summary>
-        public static void BeginTurn()
+        /// <summary>Consume the arm without starting a turn (ChatSend takes it first, begins the turn
+        /// only after its early returns).</summary>
+        public static bool TakeArm() { var a = _armed; _armed = false; return a; }
+
+        /// <summary>The run parked on a clarify question: keep the turn forced for the user's answer
+        /// (it resumes the same run through ChatSend with no arm).</summary>
+        public static void PauseForAnswer() { _resume = _active; }
+
+        /// <summary>A turn starts. Forced if armed; an answer to a paused forced run keeps it; any other
+        /// message resets it.</summary>
+        public static void BeginTurn(bool armed)
         {
-            _active = _armed;
+            if (armed) _active = true;
+            else if (!_resume) _active = false;
+            _resume = false;
             _armed = false;
         }
+
+        /// <summary>Test/diagnostic shortcut: take the arm and begin.</summary>
+        public static void BeginTurn() => BeginTurn(TakeArm());
 
         /// <summary>Turn is over (final reply, cancel, clear, failure).</summary>
         public static void EndTurn()
         {
             _active = false;
             _armed = false;
+            _resume = false;
         }
 
         /// <summary>Auto mode may skip the card only when the batch opted out
