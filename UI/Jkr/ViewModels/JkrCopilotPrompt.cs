@@ -427,7 +427,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         }
 
         /// <summary>AI-513: the JKR pane is English-only; every check's prompt pins the reply language.</summary>
-        public const string EnglishOnlyLine = "Write every ask_user question and your reply in English, even when view names are Malay.";
+        public const string EnglishOnlyLine = "Write every question you ask me and your reply in English, even when view names are Malay.";
 
         private static string BuildOne(CopilotPromptFacts f, List<long> ids, int part, int parts)
         {

@@ -13,11 +13,11 @@ namespace RevitWebAppSync.Tests
         [InlineData("C1.6.3")]
         public void Prompt_pins_english(string check)
         {
-            var facts = new CopilotPromptFacts { CheckId = check, Title = "t", ElementIds = new List<long> { 101 } };
+            var facts = new CopilotPromptFacts { CheckId = check, Title = "t", ElementIds = new List<long> { 101 }, Sets = new Dictionary<long, string> { { 101, "BOMBA" } } };
             var prompts = JkrCopilotPrompt.Build(facts);
             Assert.NotEmpty(prompts);
             foreach (var p in prompts)
-                Assert.Contains("Write every ask_user question and your reply in English, even when view names are Malay.", p);
+                Assert.Contains("Write every question you ask me and your reply in English, even when view names are Malay.", p);
         }
     }
 }
