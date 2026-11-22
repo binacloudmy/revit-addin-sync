@@ -584,31 +584,30 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void Dewan_A6_2_fails_the_three_slabs_and_the_apron_passes_floors_inside_rooms_and_lists_the_pads()
+        public void Dewan_A6_2_lists_the_three_slabs_and_the_apron_never_fails_and_passes_floors_inside_rooms()
         {
+            // AI-504 (Q5): the 50 % share, the 1 m² pad rule and the 1500 mm slack are gone. A slab with
+            // no room is listed for a person, whatever its size; a slab with a room on it complies.
             var r = Of(Dewan(), "A6.2");
-            var fails = r.Where(x => x.Status == "fail").ToList();
-            Assert.Equal(new long[] { 827925, 828016, 828043, 900149 }, fails.Select(f => f.ElementId).OrderBy(x => x));
-            Assert.Equal("Aras 01 | grid 10/B: lantai 827925 (" + Svs + ") tiada room", fails.Single(f => f.ElementId == 827925).Note);
-            var apron = fails.Single(f => f.ElementId == 900149);
+            Assert.DoesNotContain(r, x => x.Status == "fail");
+            var listed = r.Where(x => x.Coverage == SpecCoverage.Context).ToList();
+            foreach (var id in new long[] { 827925, 828016, 828043, 900149 })
+                Assert.Contains(listed, f => f.ElementId == id);
+            Assert.StartsWith("Aras 01 | grid 10/B: lantai 827925 (" + Svs + ") tiada room", listed.Single(f => f.ElementId == 827925).Note);
+            var apron = listed.Single(f => f.ElementId == 900149);
             Assert.StartsWith("Aras 01 | grid ", apron.Note);
-            Assert.EndsWith(" | apron: lantai 900149 (" + Apron + ") tiada room", apron.Note);
-            Assert.All(fails, f => Assert.Equal(SpecCoverage.Full, f.Coverage));
-            // The floor finishes the bounding-box rule failed are inside their rooms now.
+            Assert.Contains(" | apron: lantai 900149 (" + Apron + ") tiada room", apron.Note);
+            Assert.All(listed, f => Assert.NotEqual("", f.IssueId));
+            // The floor finishes the bounding-box rule failed are inside their rooms.
             foreach (var id in StageSide.Select(s => s.Floor).Append(828071L))
-                Assert.DoesNotContain(fails, f => f.ElementId == id);
-            // 16 stage-side finishes, 828071, the hall, the two Anjung toilets, the two Anjung
-            // floors and the Aras 02 slab.
+                Assert.DoesNotContain(listed, f => f.ElementId == id);
+            // The pads are slabs like any other: each with no room is listed, none is skipped.
+            foreach (var id in PadIds) Assert.Contains(listed, f => f.ElementId == id);
             var pass = Assert.Single(r, x => x.Status == "pass" && x.Coverage == SpecCoverage.Full);
-            Assert.Equal("23 lantai: ≥ 50% luas di bawah room", pass.Note);
-            Assert.Equal(23, pass.ElementCount);
-            // The pads: one context line, never a fail.
-            Assert.DoesNotContain(fails, f => PadIds.Contains(f.ElementId));
-            var pads = Assert.Single(r, x => x.Coverage == SpecCoverage.Context);
-            Assert.Equal("22 pad kecil (< 1 m²) bukan slab — tidak disemak: Aras Tanah 22 (930585, 930892, 930900, 930908, 930916, 930924, …)", pads.Note);
-            Assert.Equal("22 small pads (< 1 m²) are not slabs — not checked: Level Aras Tanah 22 (930585, 930892, 930900, 930908, 930916, 930924, …)", pads.NoteEn);
-            Assert.Equal("pass", pads.Status);                    // no issue of its own
-            Assert.Equal(SpecState.Fail, SpecReport.Build(SpecChecks.Run(Dewan())).For("A6.2").State);
+            Assert.Equal(22, pass.ElementCount);
+            Assert.DoesNotContain("%", pass.Note);
+            // Nothing judged except passes and rows for a person: the check stays Pass.
+            Assert.Equal(SpecState.Pass, SpecReport.Build(SpecChecks.Run(Dewan())).For("A6.2").State);
         }
     }
 }

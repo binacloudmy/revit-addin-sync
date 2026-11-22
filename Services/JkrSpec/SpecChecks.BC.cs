@@ -1067,19 +1067,22 @@ namespace RevitWebAppSync.Services.JkrSpec
         private static bool IsDetailOf(KeyValuePair<string, string> v, string bm, string en) =>
             (Same(v.Key, "Detail") || Same(v.Key, "DraftingView")) && (Has(v.Value, bm) || Has(v.Value, en));
 
-        /// <summary>A sheet named as the door / window details ("bPT02 Butiran Pintu", "Door
-        /// Details") that holds at least one view. JKR drawing sets put the door and window
-        /// legends there rather than detail views (real Dewan model, 16 Nov: sheets "Butiran
-        /// Pintu" / "Butiran Tingkap" carry the legends, and C4.1.2 said no door detail).</summary>
-        private static bool DetailSheet(SpecModel m, string bm, string en) =>
-            m.Sheets.Any(s => s.ViewKinds.Count > 0
-                              && ((Has(s.Name, "butiran") && Has(s.Name, bm)) || (Has(s.Name, en) && Has(s.Name, "detail"))));
+        /// <summary>The sheets named as the door / window details ("bPT02 Butiran Pintu", "Door
+        /// Details") that hold at least one view. JKR drawing sets put the door and window legends
+        /// there rather than detail views (real Dewan model, 16 Nov). AI-504 (spec #10): whether such
+        /// a sheet counts as the door / window detail is not in any JKR document, so it is only
+        /// listed for a person, never counted by the check.</summary>
+        private static List<string> DetailSheets(SpecModel m, string bm, string en) =>
+            m.Sheets.Where(s => s.ViewKinds.Count > 0
+                                && ((Has(s.Name, "butiran") && Has(s.Name, bm)) || (Has(s.Name, en) && Has(s.Name, "detail"))))
+                    .Select(s => s.Name).ToList();
 
         /// <summary>
         /// C4.1.2 — across all sheets there is a floor plan, a ceiling plan, an elevation, a
         /// section, a door detail and a window detail (detail = a Detail or Drafting view whose
-        /// name holds pintu/door or tingkap/window, or a sheet named "Butiran Pintu" / "Door
-        /// Detail" that holds a view). One fail per kind missing from every sheet.
+        /// name holds pintu/door or tingkap/window). One fail per kind missing from every sheet,
+        /// except where the only candidate is a sheet named "Butiran Pintu" / "Door Detail" that
+        /// holds a view: that sheet is listed for a person (spec #10), neither counted nor failed.
         /// </summary>
         internal static IEnumerable<SpecResult> C4_1_2(SpecModel m)
         {
@@ -1089,22 +1092,31 @@ namespace RevitWebAppSync.Services.JkrSpec
             var placed = PlacedViews(m);
             var items = new[]
             {
-                new { Bm = "floor plan", En = "floor plan", Ok = placed.Any(v => Same(v.Key, "FloorPlan")) },
-                new { Bm = "ceiling plan", En = "ceiling plan", Ok = placed.Any(v => Same(v.Key, "CeilingPlan")) },
-                new { Bm = "elevation", En = "elevation", Ok = placed.Any(v => Same(v.Key, "Elevation")) },
-                new { Bm = "section", En = "section", Ok = placed.Any(v => Same(v.Key, "Section")) },
-                new { Bm = "detail pintu", En = "door detail", Ok = placed.Any(v => IsDetailOf(v, "pintu", "door")) || DetailSheet(m, "pintu", "door") },
-                new { Bm = "detail tingkap", En = "window detail", Ok = placed.Any(v => IsDetailOf(v, "tingkap", "window")) || DetailSheet(m, "tingkap", "window") },
+                new { Bm = "floor plan", En = "floor plan", Ok = placed.Any(v => Same(v.Key, "FloorPlan")), Sheets = new List<string>() },
+                new { Bm = "ceiling plan", En = "ceiling plan", Ok = placed.Any(v => Same(v.Key, "CeilingPlan")), Sheets = new List<string>() },
+                new { Bm = "elevation", En = "elevation", Ok = placed.Any(v => Same(v.Key, "Elevation")), Sheets = new List<string>() },
+                new { Bm = "section", En = "section", Ok = placed.Any(v => Same(v.Key, "Section")), Sheets = new List<string>() },
+                new { Bm = "detail pintu", En = "door detail", Ok = placed.Any(v => IsDetailOf(v, "pintu", "door")), Sheets = DetailSheets(m, "pintu", "door") },
+                new { Bm = "detail tingkap", En = "window detail", Ok = placed.Any(v => IsDetailOf(v, "tingkap", "window")), Sheets = DetailSheets(m, "tingkap", "window") },
             };
-            var list = string.Join(" | ", items.Select(x => x.Bm + " " + Tick(x.Ok)));
-            var listEn = string.Join(" | ", items.Select(x => x.En + " " + Tick(x.Ok)));
-            foreach (var x in items.Where(x => !x.Ok))
+            string Mark(bool ok, int sheets) => ok ? Tick(true) : sheets > 0 ? "(sheet: manusia)" : Tick(false);
+            string MarkEn(bool ok, int sheets) => ok ? Tick(true) : sheets > 0 ? "(sheet: a person)" : Tick(false);
+            var list = string.Join(" | ", items.Select(x => x.Bm + " " + Mark(x.Ok, x.Sheets.Count)));
+            var listEn = string.Join(" | ", items.Select(x => x.En + " " + MarkEn(x.Ok, x.Sheets.Count)));
+            foreach (var x in items.Where(x => !x.Ok && x.Sheets.Count > 0))
+            {
+                var shown = string.Join(", ", x.Sheets.Take(3)) + (x.Sheets.Count > 3 ? ", …" : "");
+                yield return SpecChecks.Context(id, $"Tiada {x.Bm} (view Detail / Drafting) tetapi ada sheet: {shown} — JKR tidak menyatakan sama ada sheet sedemikian dikira {x.Bm}; manusia putuskan",
+                        key: "sheet:" + x.En)
+                    .En($"No {x.En} (Detail / Drafting view) but there is a sheet: {shown} — no JKR document says whether such a sheet counts as the {x.En}; a person decides");
+            }
+            foreach (var x in items.Where(x => !x.Ok && x.Sheets.Count == 0))
             {
                 yield return SpecChecks.Fail(id, "Tiada " + x.Bm + " dalam mana-mana sheet (" + list + ")", actual: "tiada " + x.Bm,
                         required: "floor plan, ceiling plan, elevation, section, detail pintu, detail tingkap", key: x.En)
                     .En("No " + x.En + " on any sheet (" + listEn + ")");
             }
-            if (items.All(x => x.Ok))
+            if (items.All(x => x.Ok || x.Sheets.Count > 0))
                 yield return SpecChecks.Pass(id, list + " (" + m.Sheets.Count + " sheet)", m.Sheets.Count).En(listEn + " (" + m.Sheets.Count + " sheets)");
         }
 
