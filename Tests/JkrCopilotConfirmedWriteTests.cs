@@ -82,7 +82,7 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(f.ElementIds.OrderBy(x => x), parts.SelectMany(p => p.Ids).OrderBy(x => x));
             Assert.All(parts, p => Assert.InRange(p.Ids.Count, 1, ConfirmedWriteDto.MaxIds));
             // and they are the ids each prompt lists
-            var prompts = JkrCopilotPrompt.Build(f, false);
+            var prompts = JkrCopilotPrompt.Build(f);
             for (var i = 0; i < 3; i++)
                 foreach (var id in parts[i].Ids) Assert.Contains("- " + id + " ", prompts[i]);
         }
@@ -108,8 +108,7 @@ namespace RevitWebAppSync.Tests
                 var v = JkrCopilotPrompt.VariantFor(id);
                 foreach (var p in v.Params)
                 {
-                    Assert.Contains(p, v.HowMs);
-                    Assert.Contains(p, v.HowEn);
+                    Assert.Contains(p, v.How);
                 }
             }
         }
@@ -117,18 +116,16 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void The_prompt_tells_copilot_to_target_ids_never_a_filter_and_a_type_family_to_read_its_ids_first()
         {
-            foreach (var bm in new[] { false, true })
             {
-                var inst = JkrCopilotPrompt.Build(Facts("Db.2", 3), bm)[0];
-                Assert.Contains(bm ? "sasaran id sahaja" : "ids only as the target", inst);
-                Assert.DoesNotContain(bm ? "baca dahulu id ini" : "Read these ids first", inst);
-                var type = JkrCopilotPrompt.Build(Facts("Da.1", 3), bm)[0];
-                Assert.Contains(bm ? "sasaran id sahaja" : "ids only as the target", type);
-                Assert.Contains(bm ? "baca dahulu id ini" : "Read these ids first", type);
-                Assert.Contains(bm ? "kumpulan mengikut type" : "grouped by type", type);
-                Assert.Contains(bm ? "dengan inspect DAN jalankan find_elements" : "with inspect AND run find_elements", type);
+                var inst = JkrCopilotPrompt.Build(Facts("Db.2", 3))[0];
+                Assert.Contains("ids only as the target", inst);
+                Assert.DoesNotContain("Read these ids first", inst);
+                var type = JkrCopilotPrompt.Build(Facts("Da.1", 3))[0];
+                Assert.Contains("ids only as the target", type);
+                Assert.Contains("Read these ids first", type);
+                Assert.Contains("grouped by type", type);
+                Assert.Contains("with inspect AND run find_elements", type);
                 Assert.DoesNotContain(" or find_elements", type);
-                Assert.DoesNotContain(", atau find_elements", type);
             }
         }
 

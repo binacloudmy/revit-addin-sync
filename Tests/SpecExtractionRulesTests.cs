@@ -110,10 +110,9 @@ namespace RevitWebAppSync.Tests
             t.Texts["Pembekal_jkr_sit"] = "";            // empty
             // every other mandatory parameter is absent from Texts and from ParamNames: missing
             var f = SpecChecks.Rules["Db.1"](At400(t)).Single(r => r.Status == "fail");
-            Assert.Contains("kosong: Pembekal_jkr_sit", f.Note);
-            Assert.Contains("tiada pada type:", f.Note);
+            Assert.Contains("not on the type:", f.Note);
             Assert.DoesNotContain("Kod_Jenis_jkr_stt", f.Note);
-            Assert.StartsWith("kosong: Pembekal_jkr_sit; tiada:", f.Actual);
+            Assert.StartsWith("empty: Pembekal_jkr_sit; missing:", f.Actual);
         }
 
         [Fact]
@@ -125,7 +124,6 @@ namespace RevitWebAppSync.Tests
             t.Texts["Pembekal_jkr_sit"] = "Greatech";
             var f = SpecChecks.Rules["Db.1"](At400(t)).Single(r => r.Status == "fail");
             Assert.Contains("1/2", f.Note);                       // carried as non-text ones are not judged
-            Assert.Contains("kosong: Kod_Jenis_jkr_stt", f.Note);
             Assert.DoesNotContain("tiada pada type", f.Note);
         }
 

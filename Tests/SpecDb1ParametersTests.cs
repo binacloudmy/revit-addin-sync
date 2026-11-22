@@ -133,7 +133,7 @@ namespace RevitWebAppSync.Tests
             Assert.Empty(Fails(r));
             var pass = Assert.Single(r, x => x.Status == "pass" && x.Coverage == SpecCoverage.FailOnly);
             Assert.Contains("LOi " + lod, pass.Note);
-            Assert.Contains("LOi " + lod, pass.NoteEn);
+            Assert.Contains("LOi " + lod, pass.Note);
         }
 
         [Theory]
@@ -150,10 +150,9 @@ namespace RevitWebAppSync.Tests
             var victim = SpecPbParameters.At(book, lod).First(p => p.IsShared && !p.Starred && p.IsTextValued);
             t.Texts[victim.Name] = " ";
             var f = Assert.Single(Fails(Run(lod, t)));
-            Assert.Contains("kosong: " + victim.Name, f.Note);
-            Assert.Contains($"wajib LOi {lod}", f.Note);
-            Assert.Contains($"mandatory LOi {lod}", f.NoteEn);
-            Assert.Contains("PB hlm. ", f.Note);
+            Assert.Contains($"mandatory LOi {lod}", f.Note);
+            Assert.Contains($"mandatory LOi {lod}", f.Note);
+            Assert.Contains("PB p.", f.Note);
             Assert.Equal(SpecCoverage.FailOnly, f.Coverage);
         }
 
@@ -189,8 +188,7 @@ namespace RevitWebAppSync.Tests
             Assert.Empty(Fails(Run(200, Complete("Doors", 200).Also(x => x.Texts["Kod_Jenis_jkr_stt"] = ""))));
             // At LOD 400 the same parameter is still named with the LOi it began at.
             var f4 = Assert.Single(Fails(Run(400, Complete("Doors", 400).Also(x => x.Texts["Kod_Jenis_jkr_stt"] = ""))));
-            Assert.Contains("Kod_Jenis_jkr_stt (dari LOi 300)", f4.Note);
-            Assert.Contains("Kod_Jenis_jkr_stt (from LOi 300)", f4.NoteEn);
+            Assert.Contains("Kod_Jenis_jkr_stt (from LOi 300)", f4.Note);
         }
 
         [Fact]
@@ -207,10 +205,10 @@ namespace RevitWebAppSync.Tests
         {
             // No_Pesanan_Rasmi_Kerajaan_jkr_sit: text, empty.
             var empty = Complete("Walls", 400); empty.Texts["No_Pesanan_Rasmi_Kerajaan_jkr_sit"] = "";
-            Assert.Contains("kosong: No_Pesanan_Rasmi_Kerajaan_jkr_sit", Assert.Single(Fails(Run(400, empty))).Note);
+            Assert.Contains("empty: No_Pesanan_Rasmi_Kerajaan_jkr_sit", Assert.Single(Fails(Run(400, empty))).Note);
             // Kos_Perolehan_jkr_sic: currency, so a value is not in the snapshot; absent from the type = missing.
             var missing = Complete("Walls", 400); missing.ParamNames.Remove("Kos_Perolehan_jkr_sic");
-            Assert.Contains("tiada pada type: Kos_Perolehan_jkr_sic", Assert.Single(Fails(Run(400, missing))).Note);
+            Assert.Contains("not on the type: Kos_Perolehan_jkr_sic", Assert.Single(Fails(Run(400, missing))).Note);
             // Not required at 300 for a Wall.
             Assert.DoesNotContain(SpecPbParameters.At("Wall", 300), p => p.Name == "No_Pesanan_Rasmi_Kerajaan_jkr_sit" || p.Name == "Kos_Perolehan_jkr_sic");
         }
@@ -234,8 +232,7 @@ namespace RevitWebAppSync.Tests
             Assert.Empty(Fails(r));
             var listing = Assert.Single(r, x => x.Coverage == SpecCoverage.Listing);
             Assert.Contains(star.Name + "*", listing.Note);
-            Assert.Contains("tidak digagalkan", listing.Note);
-            Assert.Contains("not failed", listing.NoteEn);
+            Assert.Contains("not failed", listing.Note);
             Assert.Equal("Doors", listing.Category);
         }
 

@@ -29,10 +29,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public string RowKey = "";
         /// <summary>Audit: the Borang row label ("Doors" for D10).</summary>
         public string RowLabel = "";
-        /// <summary>The checker's remark or the backend's reason (BM for model results).</summary>
+        /// <summary>The checker's remark or the backend's reason (English; AI-513).</summary>
         public string Note = "";
-        /// <summary>English note (model results); "" = show <see cref="Note"/> in both languages.</summary>
-        public string NoteEn = "";
         /// <summary>Audit: nothing of this kind in the model (category not modelled).</summary>
         public bool NotApplicable;
 
@@ -44,8 +42,6 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public SpecCoverage? Coverage;
         /// <summary>Model: what the model has ("850 mm") — shown on the issue.</summary>
         public string Actual = "";
-        /// <summary>Model: <see cref="Actual"/> in English ("" = same as BM).</summary>
-        public string ActualEn = "";
         /// <summary>Model: what the spec requires ("≥ 900 mm").</summary>
         public string Required = "";
         /// <summary>Model: element label ("Doors · PT1p_850x2100").</summary>
@@ -117,15 +113,15 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// <summary>Distinct elements among the failed and unjudged results.</summary>
         public int Elements;
         /// <summary>Remarks for the Borang (failures first, at most <see cref="SpecReport.MaxNotes"/>,
-        /// or <see cref="SpecReport.MaxListNotes"/> for a list-only check), BM.</summary>
+        /// or <see cref="SpecReport.MaxListNotes"/> for a list-only check).</summary>
         public List<string> Notes = new List<string>();
-        /// <summary>The same remarks in English (a remark with no English text repeats the BM one).</summary>
-        public List<string> NotesEn = new List<string>();
-        /// <summary>Every remark, uncapped, in the order of <see cref="Notes"/> (BM): the
-        /// Checklist lists them all and the pane puts every issue's text in both languages.</summary>
+        /// <summary>Same list as <see cref="Notes"/> (the remarks are English only since AI-513; kept
+        /// so the pane models that read the English list still compile).</summary>
+        public List<string> NotesEn => Notes;
+        /// <summary>Every remark, uncapped, in the order of <see cref="Notes"/>: the Checklist lists them all.</summary>
         public List<string> AllNotes = new List<string>();
-        /// <summary><see cref="AllNotes"/> in English (a remark with no English text repeats the BM one).</summary>
-        public List<string> AllNotesEn = new List<string>();
+        /// <summary>Same list as <see cref="AllNotes"/> (see <see cref="NotesEn"/>).</summary>
+        public List<string> AllNotesEn => AllNotes;
         /// <summary>The rules that answered it (what was actually tested).</summary>
         public List<string> Rules = new List<string>();
         /// <summary>Backend results mapped here that do not count because the add-in's own
@@ -404,8 +400,6 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             var otherNotes = byId.Keys.ToDictionary(k => k, k => new List<string>());
             // Checks a model or checker result answered (not the backend).
             var local = new HashSet<string>(StringComparer.Ordinal);
-            // BM note → EN note, for the remarks that have both.
-            var en = new Dictionary<string, string>(StringComparer.Ordinal);
             var others = new Dictionary<string, OtherResult>();
             var seen = new HashSet<string>(StringComparer.Ordinal);
             // BackendOneResultChecks: the backend results gathered into one (see below).
@@ -545,15 +539,12 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 if (source != Backend) local.Add(id);
 
                 var note = Clean(r.Note);
-                var noteEn = Clean(r.NoteEn);
                 // Data, never a verdict: a list-only row, a check a person decides, or a
-                // listing / context result keeps what was found and drops "— patuh".
+                // listing / context result keeps what was found and drops "— compliant".
                 if (cov == SpecCoverage.Listing || cov == SpecCoverage.Context || res.Check.Class != SpecCellClass.Ai)
                 {
                     note = StripVerdict(note);
-                    noteEn = StripVerdict(noteEn);
                 }
-                if (note.Length > 0 && noteEn.Length > 0 && !en.ContainsKey(note)) en[note] = noteEn;
                 if (na && !audit)
                 {
                     res.NotApplicableHits++;
@@ -607,14 +598,13 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 else if (g.Partly) res.PartlyPassed = true;
             }
 
-            var errBm = "";
+            var errNote = "";
             if (report.BackendUnavailable)
             {
                 var err = report.BackendError.Length > MaxErrorInNote
                     ? report.BackendError.Substring(0, MaxErrorInNote).TrimEnd() + "…"
                     : report.BackendError;
-                errBm = "Backend tidak tersedia: " + err;
-                en[errBm] = "Backend unavailable: " + err;
+                errNote = "Backend unavailable: " + err;
             }
 
             foreach (var check in SpecCatalog.Checks)
@@ -633,15 +623,13 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 {
                     // Only the backend answers it, and the backend did not: not checked, never passed.
                     res.State = SpecState.NotChecked;
-                    notes = new[] { errBm }.Concat(notes.Where(n => n != errBm)).ToList();
+                    notes = new[] { errNote }.Concat(notes.Where(n => n != errNote)).ToList();
                 }
                 // Notes (the Borang's remarks) are capped; AllNotes keeps every one, so the
-                // pane never shows fewer than the run found, nor loses a remark's English.
+                // pane never shows fewer than the run found.
                 res.AllNotes = notes.ToList();
-                res.AllNotesEn = res.AllNotes.Select(n => en.TryGetValue(n, out var e) ? e : n).ToList();
                 var cap = check.Class == SpecCellClass.List ? MaxListNotes : MaxNotes;
                 res.Notes = res.AllNotes.Take(cap).ToList();
-                res.NotesEn = res.AllNotesEn.Take(cap).ToList();
                 report.Checks.Add(res);
             }
 
@@ -690,7 +678,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             var ids = r.ElementIds == null ? "" : string.Join(",", r.ElementIds);
             return string.Join("\u0001", source, r.Source ?? "", r.IssueId ?? "", r.CheckId ?? "", r.Category ?? "", r.Rule ?? "",
                 Norm(r.Status), r.ElementId.ToString(), ids, r.ElementCount.ToString(), r.CheckerId ?? "", r.RowKey ?? "",
-                r.RowLabel ?? "", r.Note ?? "", r.NoteEn ?? "", r.NotApplicable ? "1" : "0", r.Coverage?.ToString() ?? "");
+                r.RowLabel ?? "", r.Note ?? "", r.NotApplicable ? "1" : "0", r.Coverage?.ToString() ?? "");
         }
 
         // ─── fill_audit records → results ───
@@ -736,7 +724,6 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                     RowKey = row.Key,
                     RowLabel = row.Description ?? "",
                     Note = r.Remark ?? "",
-                    NoteEn = PaneText.AuditRemarkEn(r.Remark) ?? "",
                     NotApplicable = na,
                 });
             }
@@ -768,23 +755,23 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             string.Join(" ", (s ?? "").Split((char[])null, StringSplitOptions.RemoveEmptyEntries)).Trim();
 
         private const string VerdictWords =
-            @"(?:tidak\s+patuh|patuh|does\s+not\s+comply|do\s+not\s+comply|not\s+compliant|non-compliant|compliant|complies|comply)";
-        /// <summary>A verdict closing a clause: "… — patuh." / "… – compliant" / "…, does not comply."
+            @"(?:does\s+not\s+comply|do\s+not\s+comply|not\s+compliant|non-compliant|compliant|complies|comply)";
+        /// <summary>A verdict closing a clause: "… — compliant." / "… – compliant" / "…, does not comply."
         /// (followed by the sentence's end, the note's end or a bracket).</summary>
         private static readonly Regex VerdictTail = new Regex(
-            @"\s*(?:[—–]|\s-\s|[,;])\s*(?:semua\s+|all\s+|it\s+)?" + VerdictWords + @"\s*(?=[.!]|$|\()",
+            @"\s*(?:[—–]|\s-\s|[,;])\s*(?:all\s+|it\s+)?" + VerdictWords + @"\s*(?=[.!]|$|\()",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
-        /// <summary>A sentence that is only a verdict: "Patuh." / "Compliant".</summary>
+        /// <summary>A sentence that is only a verdict: "Compliant.".</summary>
         private static readonly Regex VerdictSentence = new Regex(
             @"(?<=(?:^|[.!;])\s*)" + VerdictWords + @"\s*(?:[.!]|$)",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         /// <summary>
-        /// The remark without its verdict ("Dijumpai 1 view (cth: …) — patuh." → "Dijumpai 1
-        /// view (cth: …)."), for rows that never carry one: list-only checks, checks a person
+        /// The remark without its verdict ("Found 1 view (e.g. …) — compliant." → "Found 1
+        /// view (e.g. …)."), for rows that never carry one: list-only checks, checks a person
         /// decides, listing / context results. The BIM010 checkers end their remarks with a
         /// verdict whatever the spec says of the row. Words that describe the data
-        /// ("1/6 jenis tidak patuh") are kept: only a verdict closing a clause after a dash,
+        /// ("1/6 types not compliant") are kept: only a verdict closing a clause after a dash,
         /// comma or semicolon, or a sentence of its own, is dropped.
         /// </summary>
         public static string StripVerdict(string note)
@@ -840,7 +827,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public static string CheckIdOf(SpecResult r) =>
             CheckIdPrefix + (SpecReport.ResolveCheckId(r?.CheckId) ?? (r?.CheckId ?? "").Trim());
 
-        /// <summary>"A1.2 · Saiz pintu: …" in the language; the id alone when it is not in the catalog.</summary>
+        /// <summary>"A1.2 · Door size (NS §5.8.5)"; the id alone when it is not in the catalog.</summary>
         public static string Title(SpecResult r, string lang)
         {
             var id = SpecReport.ResolveCheckId(r?.CheckId);
@@ -852,16 +839,11 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 if (raw.Length == 0) return rule;
                 return rule.Length == 0 || rule == raw ? raw : raw + " · " + rule;
             }
-            return check.Id + " · " + (check.Title?.In(lang) ?? "");
+            return check.Id + " · " + (check.Title?.En ?? "");
         }
 
-        /// <summary>The result's note in the language (English when it has one, else the BM note).</summary>
-        public static string Note(SpecResult r, string lang)
-        {
-            if (r == null) return "";
-            var en = string.Equals(lang, PanelStrings.En, StringComparison.OrdinalIgnoreCase);
-            return SpecReport.Clean(en && !string.IsNullOrWhiteSpace(r.NoteEn) ? r.NoteEn : r.Note);
-        }
+        /// <summary>The result's note. <paramref name="lang"/> is ignored: English only (AI-513).</summary>
+        public static string Note(SpecResult r, string lang = null) => r == null ? "" : SpecReport.Clean(r.Note);
 
         /// <summary>Element ids behind the result: ElementIds, else ElementId (positive, distinct, in order).</summary>
         public static List<long> ElementIdsOf(SpecResult r)
@@ -874,49 +856,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             return ids;
         }
 
-        /// <summary>What the model has (<see cref="SpecResult.Actual"/>) in the pane's language:
-        /// the evaluator's English when it gave one, else <see cref="ActualToEnglish"/>.</summary>
-        public static string ActualIn(SpecResult r, string lang)
-        {
-            if (r == null) return "";
-            if (!string.Equals(lang, PanelStrings.En, StringComparison.OrdinalIgnoreCase)) return r.Actual ?? "";
-            return !string.IsNullOrEmpty(r.ActualEn) ? r.ActualEn : ActualToEnglish(r.Actual);
-        }
-
-        private static readonly (System.Text.RegularExpressions.Regex Rx, string En)[] ActualPhrases =
-        {
-            (Rx(@"^tiada$"), "none"),
-            (Rx(@"^(\d+) kolum tiada$"), "$1 columns missing"),
-            (Rx(@"^(\d+) kolum kosong$"), "$1 columns empty"),
-            (Rx(@"^(\d+) field kosong$"), "$1 fields empty"),
-            (Rx(@"^(\d+) elemen, tiada schedule$"), "$1 elements, no schedule"),
-            (Rx(@"^(\d+) segmen$"), "$1 segments"),
-            (Rx(@"^(\d+)% di bawah room$"), "$1% under a room"),
-            (Rx(@"^(\d+) view (\S+)$"), "$1 $2 views"),
-            (Rx(@"^tiada dalam jadual$"), "not in the schedule"),
-            (Rx(@"^3D view di luar set Dokumen: "), "3D view outside the Dokumen set: "),
-            (Rx(@"^kosong: "), "empty: "),
-            (Rx(@"^tiada jadual ruang$"), "no room schedule"),
-            (Rx(@"^tiada 3D view Dokumen$"), "no Dokumen 3D view"),
-            (Rx(@"^tiada schedule kategori (.+)$"), "no $1 schedule"),
-            (Rx(@"^tiada detail pintu$"), "no door detail"),
-            (Rx(@"^tiada detail tingkap$"), "no window detail"),
-            (Rx(@"^tiada (.+)$"), "no $1"),
-        };
-
-        private static System.Text.RegularExpressions.Regex Rx(string p) =>
-            new System.Text.RegularExpressions.Regex(p, System.Text.RegularExpressions.RegexOptions.CultureInvariant);
-
-        /// <summary>The BM "what the model has" values the evaluators write ("tiada room",
-        /// "6 kolum tiada", "kosong: …") in English; anything else (numbers, names) as is.
-        /// Real Dewan model, 16 Nov: these stayed BM in an EN pane.</summary>
-        public static string ActualToEnglish(string bm)
-        {
-            var s = (bm ?? "").Trim();
-            foreach (var (rx, en) in ActualPhrases)
-                if (rx.IsMatch(s)) return rx.Replace(s, en, 1);
-            return bm ?? "";
-        }
+        /// <summary>What the model has (<see cref="SpecResult.Actual"/>). <paramref name="lang"/> is
+        /// ignored: the pane is English only (AI-513).</summary>
+        public static string ActualIn(SpecResult r, string lang = null) => r?.Actual ?? "";
 
         /// <summary>
         /// The issue text: the note; then what the model has against what the spec
@@ -926,25 +868,24 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public static string Description(SpecResult r, string lang)
         {
             if (r == null) return "";
-            var en = string.Equals(lang, PanelStrings.En, StringComparison.OrdinalIgnoreCase);
             var parts = new List<string>();
             var note = Note(r, lang);
             if (note.Length > 0) parts.Add(note);
-            var actual = SpecReport.Clean(en ? ActualIn(r, PanelStrings.En) : r.Actual);
+            var actual = SpecReport.Clean(r.Actual);
             var required = SpecReport.Clean(r.Required);
             if (!IsAiVerdict(r) && (actual.Length > 0 || required.Length > 0))
             {
                 var pair = new List<string>();
                 if (actual.Length > 0) pair.Add("Model: " + actual);
-                if (required.Length > 0) pair.Add((en ? "Required: " : "Keperluan: ") + required);
+                if (required.Length > 0) pair.Add("Required: " + required);
                 parts.Add(string.Join(" · ", pair));
             }
             var ids = ElementIdsOf(r);
             if (ids.Count > 1)
             {
                 var shown = string.Join(", ", ids.Take(MaxIdsListed));
-                if (ids.Count > MaxIdsListed) shown += en ? $" … ({ids.Count} in all)" : $" … ({ids.Count} kesemuanya)";
-                parts.Add((en ? "Elements: " : "Elemen: ") + shown);
+                if (ids.Count > MaxIdsListed) shown += $" … ({ids.Count} in all)";
+                parts.Add("Elements: " + shown);
             }
             return string.Join("\n", parts);
         }
@@ -994,7 +935,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// (category, element name, then note), else "".</summary>
         private static string SetOf(SpecResult r)
         {
-            foreach (var text in new[] { r?.Category, r?.ElementName, r?.Note, r?.NoteEn })
+            foreach (var text in new[] { r?.Category, r?.ElementName, r?.Note })
             {
                 var t = (text ?? "").ToUpperInvariant();
                 var bomba = t.Contains("BOMBA");

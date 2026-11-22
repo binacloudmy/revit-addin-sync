@@ -525,7 +525,7 @@ namespace RevitWebAppSync.Tests
             var r = SpecReport.Build(new[]
             {
                 new SpecResult { Source = SpecReport.Model, CheckId = "A1.2", Status = "fail", IssueId = "SPEC-A1.2-1", ElementId = 204511,
-                                 Note = "Pintu Door 1: lebar 850 mm < 900 mm", NoteEn = "Door Door 1: width 850 mm < 900 mm" },
+                                 Note = "Door Door 1: width 850 mm < 900 mm" },
             });
             Assert.Equal("Pintu Door 1: lebar 850 mm < 900 mm", Row(r, "A1.2", PanelStrings.Ms).Notes);
             Assert.Equal("Door Door 1: width 850 mm < 900 mm", Row(r, "A1.2", PanelStrings.En).Notes);
@@ -541,7 +541,7 @@ namespace RevitWebAppSync.Tests
             var r = SpecReport.Build(new[]
             {
                 new SpecResult { Source = SpecReport.Model, CheckId = "A3.2", Status = "pass", NotApplicable = true,
-                                 Note = "Model tunggal (W00) — tiada pecahan untuk di-link.", NoteEn = "Single model (W00) — no parts to link." },
+                                 Note = "Single model (W00) — no parts to link." },
             });
             Assert.Equal(SpecState.NotApplicable, r.For("A3.2").State);
             var en = Row(r, "A3.2", PanelStrings.En);
@@ -742,8 +742,7 @@ namespace RevitWebAppSync.Tests
         {
             Source = SpecReport.Model, CheckId = "A7.2", Status = "warning", Coverage = SpecCoverage.Context, IssueId = id,
             Actual = material, Required = "jkrXX_…_(kod) nama",
-            Note = $"Material \"{material}\", {n} elemen: bukan naming JKR",
-            NoteEn = $"Material \"{material}\", {n} elements: not JKR naming",
+            Note = $"Material \"{material}\", {n} elements: not JKR naming",
         };
 
         /// <summary>The pane issue IssueMapper.FromModelResults makes of it, written in <paramref name="lang"/>.</summary>
@@ -872,7 +871,7 @@ namespace RevitWebAppSync.Tests
             {
                 Source = SpecReport.Model, CheckId = "A6.2", Status = "fail", Coverage = SpecCoverage.FailOnly, IssueId = "SPEC-A6.2-" + i,
                 ElementId = 1000 + i, ElementIds = new List<long> { 1000 + i }, ElementName = "Floors · Floor " + i,
-                Note = $"Aras 01 | grid 1/E: lantai {1000 + i} tiada room", NoteEn = $"Level 01 | grid 1/E: floor {1000 + i} has no room",
+                Note = $"Level 01 | grid 1/E: floor {1000 + i} has no room",
             }).ToList();
             var issues = spec.Select(x => new IssueVm
             {
@@ -947,7 +946,7 @@ namespace RevitWebAppSync.Tests
         public void A_spec_issue_title_follows_the_pane_language()
         {
             var res = new SpecResult { Source = SpecReport.Model, CheckId = "A1.2", Status = "fail", IssueId = "SPEC-A1.2-1", ElementId = 204511,
-                                       Note = "Pintu Door 1: lebar 850 mm < 900 mm", NoteEn = "Door Door 1: width 850 mm < 900 mm" };
+                                       Note = "Door Door 1: width 850 mm < 900 mm" };
             var vm = new IssueVm
             {
                 Id = res.IssueId, CheckId = "SPEC-A1.2", Title = SpecModelIssues.Title(res, PanelStrings.Ms),   // fixed at scan time, in BM
@@ -1012,11 +1011,11 @@ namespace RevitWebAppSync.Tests
             var results = new List<SpecResult>
             {
                 new SpecResult { Source = SpecReport.Model, CheckId = "C1.2.1", Status = "pass", Coverage = SpecCoverage.Listing,
-                                 Note = "12 view WIP — untuk semakan manusia", NoteEn = "12 WIP views — for a person to review" },
+                                 Note = "12 WIP views — for a person to review" },
             };
             for (var i = 0; i < 12; i++)
                 results.Add(new SpecResult { Source = SpecReport.Model, CheckId = "C1.2.1", Status = "pass", Coverage = SpecCoverage.Listing,
-                                             Note = $"Pelan lantai | Aras {i:00} | WIP - Pelan Aras {i:00}", NoteEn = $"Floor plan | Aras {i:00} | WIP - Pelan Aras {i:00}" });
+                                             Note = $"Floor plan | Aras {i:00} | WIP - Pelan Aras {i:00}" });
             var (r, core) = ResultsOf(results, Enumerable.Empty<IssueVm>());
             r.SelectSection("C");
             var row = CheckIn(r, "C1.2.1");

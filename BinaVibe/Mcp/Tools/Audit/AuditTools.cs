@@ -96,7 +96,7 @@ namespace BinaVibe.Mcp.Tools.Audit
                 if (match == null)
                 {
                     // No checker — still surface whatever inventory the row's own
-                    // wording points at, so "semak manual" comes with the facts a
+                    // wording points at, so "check manually" comes with the facts a
                     // human would look up first. Context, never a verdict.
                     var (evidence, note) = AuditCheckers.UnmatchedContext(ctx, row);
                     rec.Evidence = evidence;
@@ -107,14 +107,14 @@ namespace BinaVibe.Mcp.Tools.Audit
                         rec.Evidence ??= new Dictionary<string, object?>();
                         rec.Evidence["section_header"] = true;
                         rec.Remark = note.Length > 0
-                            ? "Tajuk seksyen — tiada kriteria untuk diskor. " + note + " Lihat baris di bawah."
-                            : "Tajuk seksyen — tiada kriteria untuk diskor. Lihat baris di bawah.";
+                            ? "Section heading — no criterion to score. " + note + " See the rows below."
+                            : "Section heading — no criterion to score. See the rows below.";
                     }
                     else
                     {
                         rec.Remark = note.Length > 0
-                            ? "Tiada semakan automatik untuk baris ini. " + note + " Semak manual."
-                            : "Tiada semakan automatik untuk baris ini — semak manual.";
+                            ? "No automatic check for this row. " + note + " Check manually."
+                            : "No automatic check for this row — check manually.";
                     }
                 }
                 else
@@ -140,7 +140,7 @@ namespace BinaVibe.Mcp.Tools.Audit
                         // not fake a verdict either.
                         rec.Compliance = "not_verifiable";
                         rec.Evidence = new Dictionary<string, object?> { ["checker_error"] = ex.Message };
-                        rec.Remark = "Semakan automatik gagal (" + checker.Id + ") — semak manual.";
+                        rec.Remark = "The automatic check failed (" + checker.Id + ") — check manually.";
                     }
                 }
                 records.Add(rec);

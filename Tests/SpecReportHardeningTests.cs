@@ -34,7 +34,7 @@ namespace RevitWebAppSync.Tests
         private static SpecResult AllNull() => new SpecResult
         {
             Source = null, IssueId = null, Category = null, Rule = null, Status = null, CheckerId = null, RowKey = null,
-            RowLabel = null, Note = null, NoteEn = null, CheckId = null, Coverage = null, Actual = null, Required = null,
+            RowLabel = null, Note = null, CheckId = null, Coverage = null, Actual = null, Required = null,
             ElementName = null, ElementIds = null,
         };
 
@@ -437,7 +437,7 @@ namespace RevitWebAppSync.Tests
             {
                 var c = r.For(id);
                 Assert.Equal(SpecState.NotChecked, c.State);
-                Assert.Equal("Backend tidak tersedia: Server error: 503 ServiceUnavailable", c.Notes[0]);
+                Assert.Equal("Backend unavailable: Server error: 503 ServiceUnavailable", c.Notes[0]);
                 Assert.Equal("Backend unavailable: Server error: 503 ServiceUnavailable", c.NotesEn[0]);
             }
             Assert.Empty(r.For("A5.2").Notes);   // checks the backend never answers get no backend note
@@ -455,7 +455,7 @@ namespace RevitWebAppSync.Tests
                 Model(SpecChecks.Fail("Db.1", "Kod_Jenis kosong", elementId: 9)),
             }, "The JKR check server did not answer within 180 s (timed out).");
             Assert.Equal(SpecState.NotChecked, r.For("A4.1").State);
-            Assert.StartsWith("Backend tidak tersedia: ", r.For("A4.1").Notes[0]);
+            Assert.StartsWith("Backend unavailable: ", r.For("A4.1").Notes[0]);
             Assert.Equal(SpecState.Pass, r.For("A2.1").State);
             Assert.DoesNotContain(r.For("A2.1").Notes, n => n.StartsWith("Backend"));
             Assert.Equal(SpecState.Fail, r.For("B1.1").State);
@@ -487,7 +487,7 @@ namespace RevitWebAppSync.Tests
             foreach (var id in new[] { "Db.1", "Db.2", "Dd.1" })
             {
                 Assert.Equal(SpecState.NotChecked, r.For(id).State);
-                Assert.StartsWith("Backend tidak tersedia", r.For(id).Notes[0]);
+                Assert.StartsWith("Backend unavailable", r.For(id).Notes[0]);
             }
         }
 
@@ -622,12 +622,12 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void Issue_title_check_id_and_text_follow_the_language()
         {
-            var r = SpecChecks.Fail("A1.2", "Pintu 850 mm", elementId: 11, elementName: "Doors · PT1p_850x2100",
-                                    actual: "850 mm", required: "≥ 900 mm").En("Door 850 mm");
+            var r = SpecChecks.Fail("A1.2", "Door 850 mm", elementId: 11, elementName: "Doors · PT1p_850x2100",
+                                    actual: "850 mm", required: "≥ 900 mm");
             Assert.Equal("SPEC-A1.2", SpecModelIssues.CheckIdOf(r));
             Assert.Equal("A1.2 · " + SpecCatalog.Find("A1.2").Title.Ms, SpecModelIssues.Title(r, PanelStrings.Ms));
             Assert.Equal("A1.2 · " + SpecCatalog.Find("A1.2").Title.En, SpecModelIssues.Title(r, PanelStrings.En));
-            Assert.Equal("Pintu 850 mm", SpecModelIssues.Description(r, PanelStrings.Ms));   // AI verdict: actual/required on the row line
+            Assert.Equal("Door 850 mm", SpecModelIssues.Description(r, PanelStrings.Ms));   // AI verdict: actual/required on the row line
             Assert.Equal("Door 850 mm", SpecModelIssues.Description(r, PanelStrings.En));
             Assert.Equal("Doors", SpecModelIssues.RevitCategoryOf(r));
             Assert.Equal(new long[] { 11 }, SpecModelIssues.ElementIdsOf(r));
@@ -646,14 +646,13 @@ namespace RevitWebAppSync.Tests
             var ids = Enumerable.Range(1, 12).Select(i => (long)i).ToList();
             var r = new SpecResult
             {
-                CheckId = "A1.1", Status = "cannot_verify", Note = "Siling tidak dibaca", Actual = "?", Required = "≥ 3000 mm",
+                CheckId = "A1.1", Status = "cannot_verify", Note = "Ceiling not read", Actual = "?", Required = "≥ 3000 mm",
                 ElementIds = ids.Concat(new long[] { 3, 0, -1 }).ToList(), IssueId = "SPEC-A1.1-z",
             };
             var d = SpecModelIssues.Description(r, PanelStrings.En);
-            Assert.Contains("Siling tidak dibaca", d);
+            Assert.Contains("Ceiling not read", d);
             Assert.Contains("Model: ? · Required: ≥ 3000 mm", d);
             Assert.Contains("Elements: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 … (12 in all)", d);
-            Assert.Contains("Keperluan: ≥ 3000 mm", SpecModelIssues.Description(r, PanelStrings.Ms));
             Assert.Equal(ids, SpecModelIssues.ElementIdsOf(r));
         }
 
@@ -675,8 +674,8 @@ namespace RevitWebAppSync.Tests
         public void C4_1_3_counts_the_four_empty_sheets_once_not_again_with_the_checker_record()
         {
             var sheets = new[] { (349093L, "jkrAR16-01k"), (349119L, "jkrAR16-02b"), (349132L, "jkrAR16-02p"), (349145L, "jkrAR16-02j") };
-            var results = sheets.Select(s => Model(SpecChecks.Fail("C4.1.3", "Sheet " + s.Item2 + " Pelan Aras 1 tiada view", s.Item1,
-                    "Sheet " + s.Item2, actual: "0 view", required: "sekurang-kurangnya satu view").En("Sheet " + s.Item2 + " has no view")))
+            var results = sheets.Select(s => Model(SpecChecks.Fail("C4.1.3", "Sheet " + s.Item2 + " has no view", s.Item1,
+                    "Sheet " + s.Item2, actual: "0 view", required: "sekurang-kurangnya satu view")))
                 .ToList();
             var bim = AuditN("sheets_contents", "C4.1", "fail", 4, "BIM010-C4.1",
                 "Peraturan: setiap Sheet mengandungi sekurang-kurangnya satu view. 4/25 sheet kosong (cth: jkrAR16-01k). Susun view pada sheet berkenaan.");
@@ -839,22 +838,22 @@ namespace RevitWebAppSync.Tests
         // ── list-only and context rows never carry a verdict ──
 
         [Theory]
-        [InlineData("Peraturan: sekurang-kurangnya satu view dengan 'WIP' dalam namanya. Dijumpai 1 view (cth: 01 Butiran Kemaskini (01w_WIP)) — patuh.",
-                    "Peraturan: sekurang-kurangnya satu view dengan 'WIP' dalam namanya. Dijumpai 1 view (cth: 01 Butiran Kemaskini (01w_WIP)).")]
-        [InlineData("Dijumpai 2 view (cth: ABC01 Barat (07d_Dokumen - Data Ruang), ABC02 Barat (07d_Dokumen - Data Ruang)) — patuh.",
-                    "Dijumpai 2 view (cth: ABC01 Barat (07d_Dokumen - Data Ruang), ABC02 Barat (07d_Dokumen - Data Ruang)).")]
-        [InlineData("Semua 54 bilik yang diletakkan ada Number dan Name — patuh. (Kualiti/maklumat/geometri: semak manual.)",
-                    "Semua 54 bilik yang diletakkan ada Number dan Name. (Kualiti/maklumat/geometri: semak manual.)")]
-        [InlineData("Dijumpai 3 view — tidak patuh.", "Dijumpai 3 view.")]
-        [InlineData("24 grid, 12 aras. Patuh.", "24 grid, 12 aras.")]
+        [InlineData("Rule: at least one view with 'WIP' in its name. Found 1 view (e.g. 01 Details Updated (01w_WIP)) — compliant.",
+                    "Rule: at least one view with 'WIP' in its name. Found 1 view (e.g. 01 Details Updated (01w_WIP)).")]
+        [InlineData("Found 2 views (e.g. ABC01 West (07d_Dokumen - Data Ruang), ABC02 West (07d_Dokumen - Data Ruang)) — compliant.",
+                    "Found 2 views (e.g. ABC01 West (07d_Dokumen - Data Ruang), ABC02 West (07d_Dokumen - Data Ruang)).")]
+        [InlineData("All 54 placed rooms have a Number and Name — compliant. (Quality/information/geometry: manual check.)",
+                    "All 54 placed rooms have a Number and Name. (Quality/information/geometry: manual check.)")]
+        [InlineData("Found 3 views — not compliant.", "Found 3 views.")]
+        [InlineData("24 grids, 12 levels. Compliant.", "24 grids, 12 levels.")]
         [InlineData("Found 2 views — compliant.", "Found 2 views.")]
         [InlineData("3 sheets are empty – does not comply", "3 sheets are empty")]
         [InlineData("12 levels, all named, complies.", "12 levels, all named.")]
-        [InlineData("1/6 jenis yang digunakan tidak patuh, meliputi 1/32 elemen", "1/6 jenis yang digunakan tidak patuh, meliputi 1/32 elemen")]
-        [InlineData("Furniture System: tidak dimodelkan — tidak berkenaan", "Furniture System: tidak dimodelkan — tidak berkenaan")]
-        [InlineData("Patuh kepada garis panduan JKR bila view wujud", "Patuh kepada garis panduan JKR bila view wujud")]
+        [InlineData("1/6 used types not compliant, covering 1/32 elements", "1/6 used types not compliant, covering 1/32 elements")]
+        [InlineData("Furniture System: not modelled — not applicable", "Furniture System: not modelled — not applicable")]
+        [InlineData("Compliant with the JKR guideline when the view exists", "Compliant with the JKR guideline when the view exists")]
         [InlineData("PTBR_Aras 01 | floor plan – · ceiling plan – · section – (set)", "PTBR_Aras 01 | floor plan – · ceiling plan – · section – (set)")]
-        [InlineData("Patuh.", "")]
+        [InlineData("Compliant.", "")]
         [InlineData(null, "")]
         public void A_verdict_is_stripped_and_the_data_kept(string note, string expected)
         {
@@ -866,13 +865,13 @@ namespace RevitWebAppSync.Tests
         {
             var r = SpecReport.Build(new[]
             {
-                Audit("grids_levels", "A5", "pass", note: "Peraturan: grid > 0 dan aras > 0. Dijumpai 24 grid (1 huruf, 4 nombor), 12 aras, semua bernama unik; semua 9 pelan lantai terikat pada aras — patuh."),
-                Model(SpecChecks.Listing("A5.1", "24 grid, 12 aras — grid: 1,2,3,4 | B", 36)),
-                Audit("views_wip", "C1.2", "pass", note: "Peraturan: sekurang-kurangnya satu view dengan 'WIP' dalam namanya. Dijumpai 1 view (cth: 01 Butiran Kemaskini (01w_WIP)) — patuh."),
-                Model(SpecChecks.Listing("C1.2.1", "PTBR_Aras 01 | floor plan – · ceiling plan – · section – (set)").En("PTBR_Aras 01 | floor plan – · ceiling plan – · section – (set) — compliant.")),
-                Audit("views_dokumen", "C1.5", "pass", note: "Dijumpai 2 view (cth: ABC01 Barat (07d_Dokumen - Data Ruang)) — patuh."),
-                Audit("family_category", "D8", "pass", note: "Peraturan: setiap bilik (Room) yang diletakkan ada Number dan Name. Semua 54 bilik yang diletakkan ada Number dan Name — patuh. (Kualiti/maklumat/geometri: semak manual.)"),
-                Model(SpecChecks.Listing("A3.4", "Model pecah (WX01) dengan 6 link — patuh").En("Split model (WX01) with 6 links — compliant")),
+                Audit("grids_levels", "A5", "pass", note: "Rule: grids > 0 and levels > 0. Found 24 grids (1 letters, 4 numbers), 12 levels, all uniquely named; all 9 floor plans are bound to a level — compliant."),
+                Model(SpecChecks.Listing("A5.1", "24 grids, 12 levels — grids: 1,2,3,4 | B", 36)),
+                Audit("views_wip", "C1.2", "pass", note: "Rule: at least one view with 'WIP' in its name. Found 1 views (e.g. 01 Details Updated (01w_WIP)) — compliant."),
+                Model(SpecChecks.Listing("C1.2.1", "PTBR_Aras 01 | floor plan – · ceiling plan – · section – (set) — compliant.")),
+                Audit("views_dokumen", "C1.5", "pass", note: "Found 2 views (e.g. ABC01 West (07d_Dokumen - Data Ruang)) — compliant."),
+                Audit("family_category", "D8", "pass", note: "Rule: every placed room (Room) has a Number and a Name. All 54 placed rooms have a Number and a Name — compliant. (Quality / information / geometry: check manually.)"),
+                Model(SpecChecks.Listing("A3.4", "Split model (WX01) with 6 links — compliant")),
             });
             var verdict = new System.Text.RegularExpressions.Regex(@"\b(?:patuh|compliant|complies|comply)\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
             foreach (var id in new[] { "A5.1", "C1.2.1", "C1.5.1", "De.1", "A3.4" })
@@ -887,14 +886,14 @@ namespace RevitWebAppSync.Tests
                 }
             }
             // No local result for C1.5.1 / De.1 here: the checker remark stays, without its verdict.
-            Assert.Contains("Dijumpai 2 view (cth: ABC01 Barat (07d_Dokumen - Data Ruang)).", Row(r, "C1.5.1", PanelStrings.Ms).Notes);
-            Assert.Contains(r.For("De.1").Notes, n => n.EndsWith("ada Number dan Name. (Kualiti/maklumat/geometri: semak manual.)"));
+            Assert.Contains("Found 2 views (e.g. ABC01 West (07d_Dokumen - Data Ruang)).", Row(r, "C1.5.1", PanelStrings.En).Notes);
+            Assert.Contains(r.For("De.1").Notes, n => n.EndsWith("have a Number and a Name. (Quality / information / geometry: check manually.)"));
             // A local listing for A5.1 / C1.2.1: the checker remark is dropped.
-            Assert.DoesNotContain(r.For("A5.1").Notes, n => n.StartsWith("Peraturan"));
-            Assert.DoesNotContain(r.For("C1.2.1").Notes, n => n.StartsWith("Peraturan"));
+            Assert.DoesNotContain(r.For("A5.1").Notes, n => n.StartsWith("Rule"));
+            Assert.DoesNotContain(r.For("C1.2.1").Notes, n => n.StartsWith("Rule"));
             // An AI check keeps its verdict words: that is what it was judged on.
-            var ai = SpecReport.Build(new[] { Model(SpecChecks.Fail("A2.2", "Kod model tiada dalam nama fail — tidak patuh", key: "k")) });
-            Assert.Contains("Kod model tiada dalam nama fail — tidak patuh", ai.For("A2.2").Notes);
+            var ai = SpecReport.Build(new[] { Model(SpecChecks.Fail("A2.2", "Model code missing from the file name — not compliant", key: "k")) });
+            Assert.Contains("Model code missing from the file name — not compliant", ai.For("A2.2").Notes);
         }
 
         [Fact]
@@ -903,13 +902,11 @@ namespace RevitWebAppSync.Tests
             // The views_wip checker finds WIP views by name ("1 view"); the evaluator reads the
             // Project Browser folders (15 WIP views on the real model). Its remark would contradict.
             var wip = Audit("views_wip", "C1.2", "pass",
-                note: "Peraturan: sekurang-kurangnya satu view dengan 'WIP' dalam namanya. Dijumpai 1 view (cth: 01 Butiran Kemaskini (01w_WIP)) — patuh.");
+                note: "Rule: at least one view with 'WIP' in its name. Found 1 view (e.g. 01 Details Updated (01w_WIP)) — compliant.");
             var local = new[]
             {
-                Model(SpecChecks.Listing("C1.2.1", "PTBR_Aras Tanah | floor plan ✓ · ceiling plan ✓ · section – (set)")
-                    .En("PTBR_Aras Tanah | floor plan ✓ · ceiling plan ✓ · section – (set)")),
-                Model(SpecChecks.Listing("C1.2.1", "PTBR_Aras 01 | floor plan ✓ · ceiling plan – · section – (set)")
-                    .En("PTBR_Aras 01 | floor plan ✓ · ceiling plan – · section – (set)")),
+                Model(SpecChecks.Listing("C1.2.1", "PTBR_Aras Tanah | floor plan ✓ · ceiling plan ✓ · section – (set)")),
+                Model(SpecChecks.Listing("C1.2.1", "PTBR_Aras 01 | floor plan ✓ · ceiling plan – · section – (set)")),
             };
             var r = SpecReport.Build(new[] { wip }.Concat(local));
             var c = r.For("C1.2.1");
@@ -923,15 +920,15 @@ namespace RevitWebAppSync.Tests
                 var row = Row(r, "C1.2.1", lang);
                 Assert.Equal("", row.Notes);
                 Assert.Equal(new[] { "PTBR_Aras Tanah", "PTBR_Aras 01" }, row.ListRows.Select(x => x.Lead));
-                Assert.DoesNotContain("WIP' dalam namanya", (row.Tested ?? "") + row.Notes);
+                Assert.DoesNotContain("'WIP' in its name", (row.Tested ?? "") + row.Notes);
             }
 
             // The snapshot could not be read (the evaluator's "could not be judged"): the
             // checker remark is all there is, so it stays — without its verdict.
-            var unread = Model(new SpecResult { CheckId = "C1.2.1", Status = "cannot_verify", Coverage = SpecCoverage.Full, Note = "View tidak dibaca", IssueId = "SPEC-C1.2.1-u" });
+            var unread = Model(new SpecResult { CheckId = "C1.2.1", Status = "cannot_verify", Coverage = SpecCoverage.Full, Note = "Views could not be read", IssueId = "SPEC-C1.2.1-u" });
             c = SpecReport.Build(new[] { wip, unread }).For("C1.2.1");
-            Assert.Contains("Peraturan: sekurang-kurangnya satu view dengan 'WIP' dalam namanya. Dijumpai 1 view (cth: 01 Butiran Kemaskini (01w_WIP)).", c.Notes);
-            Assert.DoesNotContain(c.Notes, n => n.Contains("patuh"));
+            Assert.Contains("Rule: at least one view with 'WIP' in its name. Found 1 view (e.g. 01 Details Updated (01w_WIP)).", c.Notes);
+            Assert.DoesNotContain(c.Notes, n => n.Contains("compliant"));
         }
 
         // ── headline ──
@@ -961,9 +958,8 @@ namespace RevitWebAppSync.Tests
         /// add-in's evaluator and ResultsAdapter make them (an AI verdict per element).</summary>
         private static (SpecReport Report, Dictionary<string, PanelItem> Items, List<SpecResult> Results) SlabsWithoutRoom(int n)
         {
-            var results = Enumerable.Range(1, n).Select(i => Model(SpecChecks.Fail("A6.2", $"Aras 01 | grid 1/E: lantai {1000 + i} (Floor) tiada room",
-                                                                                   1000 + i, "Floors · Floor", coverage: SpecCoverage.FailOnly)
-                                                                    .En($"Level 01 | grid 1/E: floor {1000 + i} (Floor) has no room"))).ToList();
+            var results = Enumerable.Range(1, n).Select(i => Model(SpecChecks.Fail("A6.2", $"Level 01 | grid 1/E: floor {1000 + i} (Floor) has no room",
+                                                                                   1000 + i, "Floors · Floor", coverage: SpecCoverage.FailOnly))).ToList();
             var items = results.ToDictionary(r => r.IssueId, r => new PanelItem
             {
                 Id = r.IssueId, Sec = "A", Row = "A6", V = Verify.Ai, Title = ResultsTitle("A6.2"),
@@ -1001,7 +997,7 @@ namespace RevitWebAppSync.Tests
             // Three remarks (table rows: "Level 01 | grid 1/E: …"), then a line that says how
             // many there are and where the rest are.
             Assert.Equal(SpecReport.MaxNotes, all.ListRows.Count);
-            Assert.Equal(lang == "en" ? "Level 01" : "Aras 01", all.ListRows[0].Lead);
+            Assert.Equal(lang == "en" ? "Level 01" : "Level 01", all.ListRows[0].Lead);
             Assert.Equal(lang == "en" ? "Showing 3 of 56 remarks — every element is listed below."
                                       : "Menunjukkan 3 daripada 56 catatan — setiap elemen disenaraikan di bawah.", all.ListCutLabel);
             Assert.False(all.HasListMore);                                   // the remarks have no "Show all" of their own
@@ -1026,8 +1022,7 @@ namespace RevitWebAppSync.Tests
         public void A_list_longer_than_the_borang_keeps_is_listed_whole_under_show_all()
         {
             var n = SpecReport.MaxListNotes + 20;
-            var results = Enumerable.Range(1, n).Select(i => Model(SpecChecks.Listing("C1.2.1", $"Pelan lantai | Aras {i:000} | WIP - Pelan Aras {i:000}")
-                                                                    .En($"Floor plan | Level {i:000} | WIP - Plan {i:000}"))).ToList();
+            var results = Enumerable.Range(1, n).Select(i => Model(SpecChecks.Listing("C1.2.1", $"Floor plan | Level {i:000} | WIP - Plan {i:000}"))).ToList();
             var r = SpecReport.Build(results);
             var c = r.For("C1.2.1");
             Assert.Equal(SpecReport.MaxListNotes, c.Notes.Count);            // the Borang's cap is unchanged
@@ -1055,8 +1050,7 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void A_check_with_more_remarks_than_it_shows_and_no_elements_says_so()
         {
-            var results = Enumerable.Range(1, 9).Select(i => Model(SpecChecks.Fail("A6.2", "Aras " + i + ": lantai tiada room", key: "lv" + i)
-                                                                    .En("Level " + i + ": floor has no room"))).ToList();
+            var results = Enumerable.Range(1, 9).Select(i => Model(SpecChecks.Fail("A6.2", "Level " + i + ": floor has no room", key: "lv" + i))).ToList();
             var r = SpecReport.Build(results);
             var row = SpecChecklist.CheckRow(r.For("A6.2"), r, new Dictionary<string, PanelItem>(), PanelStrings.En, id => true);
             Assert.Equal("Showing 3 of 9 remarks.", row.Notes.Split('\n').Last());
@@ -1080,8 +1074,7 @@ namespace RevitWebAppSync.Tests
         {
             var results = Enumerable.Range(1, 12).Select(i =>
             {
-                var r = Model(SpecChecks.Context("A7.2", $"AMARAN: Material \"Mat {i}\" (Ceilings), {i} elemen: bukan naming JKR", key: "mat:" + i)
-                              .En($"WARNING: Material \"Mat {i}\" (Ceilings), {i} elements: not JKR naming"));
+                var r = Model(SpecChecks.Context("A7.2", $"WARNING: Material \"Mat {i}\" (Ceilings), {i} elements: not JKR naming", key: "mat:" + i));
                 r.Actual = "Mat " + i;
                 return r;
             }).ToList();
@@ -1106,9 +1099,6 @@ namespace RevitWebAppSync.Tests
             Assert.False(en.HasNotes);                                       // each remark is on its row, once
             // Collapsed (4 rows), the hidden rows' remarks are not printed as notes either.
             Assert.False(SpecChecklist.CheckRow(r.For("A7.2"), r, items, PanelStrings.En, id => false).HasNotes);
-            // And in BM, every row is BM.
-            var ms = SpecChecklist.CheckRow(r.For("A7.2"), r, items, PanelStrings.Ms, id => true);
-            Assert.All(ms.Elements, e => Assert.StartsWith("AMARAN:", e.Detail));
         }
 
         [Fact]
@@ -1117,10 +1107,8 @@ namespace RevitWebAppSync.Tests
             var (_, slabItems, slabs) = SlabsWithoutRoom(56);
             var (_, warningItems, warnings) = TwelveWarnings();
             var unjudged = Enumerable.Range(1, 6).Select(i => Model(SpecChecks.Unjudged("Dc.1",
-                    $"Ceilings: type 'T{i}' — nilai Thickness tidak dibaca dari model; tidak dapat dibanding dengan nama", key: "t" + i)
-                .En($"Ceilings: type 'T{i}' — Thickness was not read from the model; cannot compare with the name"))).ToList();
-            var list = Enumerable.Range(1, 80).Select(i => Model(SpecChecks.Listing("C1.2.1", $"Pelan lantai | Aras {i} | WIP")
-                .En($"Floor plan | Level {i} | WIP"))).ToList();
+                    $"Ceilings: type 'T{i}' — Thickness was not read from the model; cannot compare with the name", key: "t" + i))).ToList();
+            var list = Enumerable.Range(1, 80).Select(i => Model(SpecChecks.Listing("C1.2.1", $"Floor plan | Level {i} | WIP"))).ToList();
             var r = SpecReport.Build(slabs.Concat(warnings).Concat(unjudged).Concat(list));
             var items = slabItems.Concat(warningItems).ToDictionary(k => k.Key, k => k.Value);
             foreach (var u in unjudged)
@@ -1141,28 +1129,6 @@ namespace RevitWebAppSync.Tests
             Assert.All(shown.SelectMany(RunTexts), t => Assert.False(BmWords.IsMatch(t), t));
         }
 
-        [Theory]
-        [InlineData("tiada room", "no room")]
-        [InlineData("tiada", "none")]
-        [InlineData("6 kolum tiada", "6 columns missing")]
-        [InlineData("13 kolum kosong", "13 columns empty")]
-        [InlineData("3 elemen, tiada schedule", "3 elements, no schedule")]
-        [InlineData("25% di bawah room", "25% under a room")]
-        [InlineData("3D view di luar set Dokumen: PTBR_ISOMETRIK ARAS 1", "3D view outside the Dokumen set: PTBR_ISOMETRIK ARAS 1")]
-        [InlineData("tiada 3D view Dokumen", "no Dokumen 3D view")]
-        [InlineData("tiada detail pintu", "no door detail")]
-        [InlineData("kosong: Arkitek_jkr_sit", "empty: Arkitek_jkr_sit")]
-        [InlineData("2500 mm", "2500 mm")]
-        public void What_the_model_has_shows_in_English(string bm, string en)
-        {
-            Assert.Equal(en, SpecModelIssues.ActualToEnglish(bm));
-            var r = new SpecResult { CheckId = "A6.2", Actual = bm };
-            Assert.Equal(en, SpecModelIssues.ActualIn(r, PanelStrings.En));
-            Assert.Equal(bm, SpecModelIssues.ActualIn(r, PanelStrings.Ms));
-            r.ActualEn = "given";
-            Assert.Equal("given", SpecModelIssues.ActualIn(r, PanelStrings.En));
-        }
-    
         // ── live test F3: "· n elements" is every element behind the failing results ──
 
         [Fact]

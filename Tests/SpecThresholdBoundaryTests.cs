@@ -171,8 +171,8 @@ namespace RevitWebAppSync.Tests
             var f = Run(m, "Db.1").Single(r => r.Status == "fail");
             Assert.Contains("LOi 400", f.Note);
             Assert.DoesNotContain("LOi 450", f.Note);
-            Assert.Contains("LOi 400", f.NoteEn);
-            Assert.DoesNotContain("LOi 450", f.NoteEn);
+            Assert.Contains("LOi 400", f.Note);
+            Assert.DoesNotContain("LOi 450", f.Note);
         }
 
         // ── Dc.1 name number vs parameter: equal within ±1 mm ──

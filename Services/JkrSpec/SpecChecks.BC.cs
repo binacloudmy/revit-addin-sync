@@ -170,30 +170,29 @@ namespace RevitWebAppSync.Services.JkrSpec
         internal static List<SpecView> Views(SpecModel m, string set) =>
             m.Views.Where(v => Of(v).In(set)).ToList();
 
-        /// <summary>"ikut folder Project Browser (View_jkr_pit)" / "by browser folder View_jkr_pit".</summary>
-        internal static string SourceText(ViewSetSource source, string by, bool en)
+        /// <summary>"by browser folder View_jkr_pit".</summary>
+        internal static string SourceText(ViewSetSource source, string by)
         {
             switch (source)
             {
                 case ViewSetSource.Folder:
-                    return en ? "by browser folder" + (by.Length > 0 ? " " + by : "")
-                              : "ikut folder Project Browser" + (by.Length > 0 ? " (" + by + ")" : "");
+                    return "by browser folder" + (by.Length > 0 ? " " + by : "");
                 case ViewSetSource.Parameter:
-                    return en ? "by parameter " + by : "ikut parameter " + by;
+                    return "by parameter " + by;
                 case ViewSetSource.Template:
-                    return en ? "by template name" : "ikut nama template";
+                    return "by template name";
                 case ViewSetSource.Name:
-                    return en ? "by name" : "ikut nama view";
+                    return "by name";
                 default:
-                    return en ? "in no set" : "tiada set";
+                    return "in no set";
             }
         }
 
-        /// <summary>How the views of a set were found, most first: "ikut folder Project Browser
-        /// (View_jkr_pit) 15, ikut nama view 1"; "" for no views.</summary>
-        internal static string HowFound(IEnumerable<SpecView> views, bool en)
+        /// <summary>How the views of a set were found, most first: "by browser folder View_jkr_pit 15,
+        /// by name 1"; "" for no views.</summary>
+        internal static string HowFound(IEnumerable<SpecView> views)
         {
-            var groups = views.Select(v => Of(v)).GroupBy(h => SourceText(h.Source, h.By, en))
+            var groups = views.Select(v => Of(v)).GroupBy(h => SourceText(h.Source, h.By))
                 .OrderByDescending(g => g.Count()).ThenBy(g => g.Key, StringComparer.Ordinal).ToList();
             return string.Join(", ", groups.Select(g => g.Key + " " + g.Count()));
         }
@@ -251,7 +250,7 @@ namespace RevitWebAppSync.Services.JkrSpec
 
         private static bool IsKind(SpecView v, string kind) => Same(v.Kind, kind);
 
-        private static string KindBm(string kind)
+        private static string KindEn(string kind)
         {
             switch ((kind ?? "").Trim())
             {
@@ -264,11 +263,9 @@ namespace RevitWebAppSync.Services.JkrSpec
                 case "Detail": return "detail";
                 case "Legend": return "legend";
                 case "AreaPlan": return "area plan";
-                default: return string.IsNullOrWhiteSpace(kind) ? "lain-lain" : kind.Trim();
+                default: return string.IsNullOrWhiteSpace(kind) ? "other" : kind.Trim();
             }
         }
-
-        private static string KindEn(string kind) => KindBm(kind) == "lain-lain" ? "other" : KindBm(kind);
 
         private static string Tick(bool ok) => ok ? "✓" : "✗";
 
@@ -276,8 +273,8 @@ namespace RevitWebAppSync.Services.JkrSpec
         private static SpecResult ViewsUnread(SpecModel m, string id)
         {
             var err = ReadError(m, "Views", "View");
-            if (err != null) return SpecChecks.Unjudged(id, "View tidak dapat dibaca: " + err).En("Views could not be read: " + err);
-            if (m.Views.Count == 0) return SpecChecks.Unjudged(id, "Tiada view dibaca daripada model").En("No views were read from the model");
+            if (err != null) return SpecChecks.Unjudged(id, "Views could not be read: " + err);
+            if (m.Views.Count == 0) return SpecChecks.Unjudged(id, "No views were read from the model");
             return null;
         }
 
@@ -291,14 +288,14 @@ namespace RevitWebAppSync.Services.JkrSpec
             "Building Name", "Organization Name", "Organization Description",
         };
 
-        /// <summary>"" = filled; "kosong" = empty or no such parameter; "nilai lalai Revit" = a Revit placeholder.</summary>
-        private static string FieldStatus(bool found, string param, string value, out string en)
+        /// <summary>"" = filled; else why not: no such parameter, empty, or a Revit placeholder.</summary>
+        private static string FieldStatus(bool found, string param, string value)
         {
             var v = (value ?? "").Trim();
-            if (!found) { en = "no such parameter"; return "tiada parameter"; }
-            if (v.Length == 0) { en = "empty"; return "kosong"; }
-            if (RevitDefaults.Contains(v) || Same(v, param)) { en = "Revit default value"; return "nilai lalai Revit"; }
-            en = ""; return "";
+            if (!found) return "no such parameter";
+            if (v.Length == 0) return "empty";
+            if (RevitDefaults.Contains(v) || Same(v, param)) return "Revit default value";
+            return "";
         }
 
         private sealed class PiRow
@@ -306,7 +303,6 @@ namespace RevitWebAppSync.Services.JkrSpec
             public PbField Field;
             public string Value = "";
             public string Status = "";     // "" = filled
-            public string StatusEn = "";
             public bool Filled => Status.Length == 0;
         }
 
@@ -330,15 +326,13 @@ namespace RevitWebAppSync.Services.JkrSpec
             var err = ReadError(m, "ProjectInfo", "Project Information");
             if (err != null || m.ProjectInfo.Count == 0)
             {
-                c.Unjudged = SpecChecks.Unjudged(id, "Project Information tidak dibaca" + (err != null ? ": " + err : ""))
-                    .En("Project Information was not read" + (err != null ? ": " + err : ""));
+                c.Unjudged = SpecChecks.Unjudged(id, "Project Information was not read" + (err != null ? ": " + err : ""));
                 return c;
             }
             var fields = SpecPbData.ProjectInfoFor(m.Discipline);
             if (fields == null)
             {
-                c.Unjudged = SpecChecks.Unjudged(id, "Buku Parameter tiada senarai Project Information untuk disiplin " + m.Discipline)
-                    .En("The Buku Parameter has no Project Information list for discipline " + m.Discipline);
+                c.Unjudged = SpecChecks.Unjudged(id, "The Buku Parameter has no Project Information list for discipline " + m.Discipline);
                 return c;
             }
             c.Pages = SpecPbData.ProjectInfoPages(m.Discipline);
@@ -348,13 +342,12 @@ namespace RevitWebAppSync.Services.JkrSpec
             foreach (var f in required)
             {
                 var found = SpecPbData.TryFind(m.ProjectInfo, f.Name, out var pname, out var value);
-                var status = FieldStatus(found, found ? pname : f.Name, value, out var en);
-                c.Rows.Add(new PiRow { Field = f, Value = value ?? "", Status = status, StatusEn = en });
+                var status = FieldStatus(found, found ? pname : f.Name, value);
+                c.Rows.Add(new PiRow { Field = f, Value = value ?? "", Status = status });
             }
             return c;
         }
 
-        private static string LoiBm(PiCheck c) => c.Loi > 0 ? "LOi " + c.Loi : "semua LOi (LOD projek tidak diketahui)";
         private static string LoiEn(PiCheck c) => c.Loi > 0 ? "LOi " + c.Loi : "every LOi (project LOD unknown)";
 
         /// <summary>
@@ -373,17 +366,15 @@ namespace RevitWebAppSync.Services.JkrSpec
             foreach (var r in bad)
             {
                 yield return SpecChecks.Fail(id,
-                        r.Field.Name + " | wajib LOi " + r.Field.LoiRange + " | " + Show(r.Value) + " | " + r.Status,
+                        r.Field.Name + " | mandatory at LOi " + r.Field.LoiRange + " | " + Show(r.Value) + " | " + r.Status,
                         elementName: "Project Information · " + r.Field.Name, actual: Show(r.Value),
-                        required: "diisi (wajib LOi " + r.Field.LoiRange + ", PB p." + r.Field.Page + ")",
-                        key: r.Field.Name, coverage: cov)
-                    .En(r.Field.Name + " | mandatory at LOi " + r.Field.LoiRange + " | " + Show(r.Value) + " | " + r.StatusEn);
+                        required: "filled (mandatory at LOi " + r.Field.LoiRange + ", PB p." + r.Field.Page + ")",
+                        key: r.Field.Name, coverage: cov);
             }
             if (bad.Count == 0)
             {
                 yield return SpecChecks.Pass(id,
-                        c.Rows.Count + "/" + c.Rows.Count + " field wajib " + LoiBm(c) + " diisi (" + c.Pages + ")", c.Rows.Count, cov)
-                    .En(c.Rows.Count + "/" + c.Rows.Count + " fields mandatory at " + LoiEn(c) + " filled (" + c.Pages + ")");
+                        c.Rows.Count + "/" + c.Rows.Count + " fields mandatory at " + LoiEn(c) + " filled (" + c.Pages + ")", c.Rows.Count, cov);
             }
         }
 
@@ -398,8 +389,7 @@ namespace RevitWebAppSync.Services.JkrSpec
             var d = m.Discipline;
             if (d != "ST" && d != "ME" && d != "EL")
             {
-                yield return SpecChecks.NotApplicable(id, "Model " + d + " — B1.2 hanya untuk model ST / ME / EL")
-                    .En(d + " model — B1.2 applies to ST / ME / EL models only");
+                yield return SpecChecks.NotApplicable(id, d + " model — B1.2 applies to ST / ME / EL models only");
                 yield break;
             }
             var c = ProjectInfo(m, id);
@@ -409,15 +399,13 @@ namespace RevitWebAppSync.Services.JkrSpec
             if (bad.Count > 0)
             {
                 yield return SpecChecks.Fail(id,
-                        d + ": Tidak patuh — " + bad.Count + " field belum diisi: " + string.Join(", ", bad),
-                        elementName: "Project Information (" + d + ")", actual: bad.Count + " field kosong",
-                        required: "field wajib " + LoiBm(c) + " (" + c.Pages + ") diisi", key: d, coverage: cov)
-                    .En(d + ": Not compliant — " + bad.Count + " fields not filled: " + string.Join(", ", bad));
+                        d + ": Not compliant — " + bad.Count + " fields not filled: " + string.Join(", ", bad),
+                        elementName: "Project Information (" + d + ")", actual: bad.Count + " fields empty",
+                        required: "filled: mandatory fields at " + LoiEn(c) + " (" + c.Pages + ")", key: d, coverage: cov);
             }
             else
             {
-                yield return SpecChecks.Pass(id, d + ": semua " + c.Rows.Count + " field wajib " + LoiBm(c) + " diisi", c.Rows.Count, cov)
-                    .En(d + ": all " + c.Rows.Count + " fields mandatory at " + LoiEn(c) + " filled");
+                yield return SpecChecks.Pass(id, d + ": all " + c.Rows.Count + " fields mandatory at " + LoiEn(c) + " filled", c.Rows.Count, cov);
             }
         }
 
@@ -430,8 +418,7 @@ namespace RevitWebAppSync.Services.JkrSpec
             var n = c.Rows.Count(r => r.Filled);
             var total = c.Rows.Count;
             var pct = total == 0 ? 0 : (int)Math.Round(100.0 * n / total, MidpointRounding.AwayFromZero);
-            yield return SpecChecks.Listing(id, n + "/" + total + " field diisi (" + pct + "%) — wajib " + LoiBm(c) + ", " + c.Pages, total)
-                .En(n + "/" + total + " fields filled (" + pct + "%) — mandatory at " + LoiEn(c) + ", " + c.Pages);
+            yield return SpecChecks.Listing(id, n + "/" + total + " fields filled (" + pct + "%) — mandatory at " + LoiEn(c) + ", " + c.Pages, total);
         }
 
         // ═══════════════════════ C1 — Views ═══════════════════════
@@ -439,8 +426,7 @@ namespace RevitWebAppSync.Services.JkrSpec
         /// <summary>C1.0.1 — parent row of C1.1–C1.6: nothing is checked here (list only).</summary>
         internal static IEnumerable<SpecResult> C1_0_1(SpecModel m)
         {
-            yield return SpecChecks.Listing("C1.0.1", "Tiada semakan — baris induk; lihat C1.1–C1.6")
-                .En("Not checked — parent row; see C1.1–C1.6");
+            yield return SpecChecks.Listing("C1.0.1", "Not checked — parent row; see C1.1–C1.6");
         }
 
         /// <summary>The view kinds in the order a person reads them; other kinds follow by name.</summary>
@@ -455,15 +441,15 @@ namespace RevitWebAppSync.Services.JkrSpec
 
         /// <summary>"floor plan (2): A, B; 3D (1): C" — the views grouped by kind, at most
         /// <paramref name="perKind"/> names per kind.</summary>
-        private static string ViewsByKind(IEnumerable<SpecView> views, bool en, int perKind = 8)
+        private static string ViewsByKind(IEnumerable<SpecView> views, int perKind = 8)
         {
             var groups = views.GroupBy(v => (v.Kind ?? "").Trim(), StringComparer.OrdinalIgnoreCase)
                 .OrderBy(g => KindRank(g.Key)).ThenBy(g => g.Key, StringComparer.OrdinalIgnoreCase).ToList();
-            if (groups.Count == 0) return en ? "none" : "tiada";
+            if (groups.Count == 0) return "none";
             return string.Join("; ", groups.Select(g =>
             {
                 var names = g.Select(v => Show(v.Name)).ToList();
-                return (en ? KindEn(g.Key) : KindBm(g.Key)) + " (" + names.Count + "): "
+                return KindEn(g.Key) + " (" + names.Count + "): "
                        + string.Join(", ", names.Take(perKind)) + (names.Count > perKind ? " …" : "");
             }));
         }
@@ -506,10 +492,9 @@ namespace RevitWebAppSync.Services.JkrSpec
         private static SpecResult TemplatesUnread(SpecModel m, string id)
         {
             var err = ReadError(m, "Views", "View");
-            if (err != null) return SpecChecks.Unjudged(id, "View tidak dapat dibaca: " + err).En("Views could not be read: " + err);
+            if (err != null) return SpecChecks.Unjudged(id, "Views could not be read: " + err);
             if (!m.ViewTemplates.Any(t => !string.IsNullOrWhiteSpace(t)))
-                return SpecChecks.Unjudged(id, "Tiada view template dibaca: sama ada tiada dalam model ini atau tidak dapat dibaca — tidak dapat dibandingkan dengan template JKR AR")
-                    .En("No view templates read; either none in this model or not readable — cannot compare with the JKR AR template");
+                return SpecChecks.Unjudged(id, "No view templates read; either none in this model or not readable — cannot compare with the JKR AR template");
             return null;
         }
 
@@ -534,12 +519,9 @@ namespace RevitWebAppSync.Services.JkrSpec
             if (t.Missing.Count == 0)
             {
                 var skipped = SpecTemplateViews.NotJudged.Count;
-                yield return SpecChecks.Pass(id, "Semua " + t.Expected + " view template JKR AR wujud dalam projek"
-                        + (t.Renamed.Count > 0 ? " (" + t.Renamed.Count + " ditukar nama sedikit — lihat C1.1.2)" : "")
-                        + "; " + skipped + " nama default Revit dalam fail template JKR tidak disemak", t.Expected)
-                    .En("All " + t.Expected + " JKR AR view templates exist in the project"
+                yield return SpecChecks.Pass(id, "All " + t.Expected + " JKR AR view templates exist in the project"
                         + (t.Renamed.Count > 0 ? " (" + t.Renamed.Count + " renamed slightly — see C1.1.2)" : "")
-                        + "; " + skipped + " Revit default names in the JKR template file are not checked");
+                        + "; " + skipped + " Revit default names in the JKR template file are not checked", t.Expected);
                 yield break;
             }
             var list = Names(t.Missing, 12);
@@ -547,29 +529,24 @@ namespace RevitWebAppSync.Services.JkrSpec
             {
                 // Nothing else in the project could be a renamed one: clearly just absent.
                 yield return SpecChecks.Fail(id,
-                        t.Missing.Count + " view template JKR AR tiada daripada " + t.Expected + ": " + list,
-                        actual: t.Missing.Count + " tiada", required: string.Join(" | ", t.Missing), key: "tv:missing")
-                    .EnAct(t.Missing.Count + " missing")
-                    .En(t.Missing.Count + " of " + t.Expected + " JKR AR view templates missing: " + list);
+                        t.Missing.Count + " of " + t.Expected + " JKR AR view templates missing: " + list,
+                        actual: t.Missing.Count + " missing", required: string.Join(" | ", t.Missing), key: "tv:missing");
                 yield break;
             }
             // The project holds view templates that match no JKR name: some may be renamed ones. Nothing in a JKR
             // document says a rename is wrong (D3), so a person decides (AI-504: undocumented judgement is not failed).
             var r = SpecChecks.Context(id,
-                    t.Missing.Count + " view template JKR AR tiada daripada " + t.Expected + ": " + list
-                    + "; " + t.Extra.Count + " view template lain dalam projek (mungkin ditukar nama, orang semak): " + Names(t.Extra),
+                    t.Missing.Count + " of " + t.Expected + " JKR AR view templates missing: " + list
+                    + "; " + t.Extra.Count + " other view templates in the project (possibly renamed, a person checks): " + Names(t.Extra),
                     key: "tv:missing", elementName: t.Missing.Count + " view template");
-            r.Actual = t.Missing.Count + " tiada"; r.Required = string.Join(" | ", t.Missing);
-            r.ActualEn = t.Missing.Count + " missing";
-            r.NoteEn = t.Missing.Count + " of " + t.Expected + " JKR AR view templates missing: " + list
-                       + "; " + t.Extra.Count + " other view templates in the project (possibly renamed, a person checks): " + Names(t.Extra);
+            r.Actual = t.Missing.Count + " missing"; r.Required = string.Join(" | ", t.Missing);
             yield return r;
         }
 
         /// <summary>
         /// C1.1.2 — a JKR AR view template that exists under a changed name. Researcher D3 (21 Nov): no JKR document says a
         /// rename is acceptable or wrong, so it is a WARNING (status "warning": scored as a pass, still an issue), one per
-        /// template, "tidak disahkan oleh dokumen JKR". Only a rename that differs in case, spaces or punctuation is seen;
+        /// template, "not confirmed by a JKR document". Only a rename that differs in case, spaces or punctuation is seen;
         /// any other new name looks like a missing template (C1.1.1 lists it, with the unmatched project templates).
         /// </summary>
         internal static IEnumerable<SpecResult> C1_1_2(SpecModel m)
@@ -580,10 +557,8 @@ namespace RevitWebAppSync.Services.JkrSpec
             var t = MatchTemplates(m);
             if (t.Renamed.Count == 0)
             {
-                yield return SpecChecks.Pass(id, t.Intact.Count + " view template JKR AR kekal nama asal"
-                        + (t.Missing.Count > 0 ? "; " + t.Missing.Count + " tiada (lihat C1.1.1)" : ""), Math.Max(1, t.Intact.Count))
-                    .En(t.Intact.Count + " JKR AR view templates keep their original name"
-                        + (t.Missing.Count > 0 ? "; " + t.Missing.Count + " missing (see C1.1.1)" : ""));
+                yield return SpecChecks.Pass(id, t.Intact.Count + " JKR AR view templates keep their original name"
+                        + (t.Missing.Count > 0 ? "; " + t.Missing.Count + " missing (see C1.1.1)" : ""), Math.Max(1, t.Intact.Count));
                 yield break;
             }
             var pairs = string.Join("; ", t.Renamed.Take(12).Select(kv => "\"" + kv.Key + "\" → \"" + kv.Value + "\""))
@@ -591,10 +566,9 @@ namespace RevitWebAppSync.Services.JkrSpec
             yield return new SpecResult
             {
                 CheckId = id, Status = "warning", Coverage = SpecCoverage.Full, Rule = id, ElementCount = 1,
-                ElementName = t.Renamed.Count + " view template", Actual = t.Renamed.Count + " ditukar nama",
-                Required = string.Join(" | ", t.Renamed.Select(kv => kv.Key)), ActualEn = t.Renamed.Count + " renamed",
-                Note = "AMARAN: " + t.Renamed.Count + " view template JKR AR ditukar nama: " + pairs + " — tidak disahkan oleh dokumen JKR",
-                NoteEn = "WARNING: " + t.Renamed.Count + " JKR AR view templates renamed: " + pairs + " — not confirmed by a JKR document",
+                ElementName = t.Renamed.Count + " view template", Actual = t.Renamed.Count + " renamed",
+                Required = string.Join(" | ", t.Renamed.Select(kv => kv.Key)),
+                Note = "WARNING: " + t.Renamed.Count + " JKR AR view templates renamed: " + pairs + " — not confirmed by a JKR document",
                 IssueId = SpecChecks.StableId(id, "rn"),
             };
         }
@@ -649,25 +623,19 @@ namespace RevitWebAppSync.Services.JkrSpec
             var other = m.Levels.Count - story.Count;
             var names = story.Count == 0 ? "—" : string.Join(", ", story.Select(l => l.Name));
             yield return SpecChecks.Context(id,
-                    story.Count + " aras dikesan (" + names + ")" + (other > 0 ? " + " + other + " aras bukan building story" : "") + " — manusia sahkan cukup atau tidak")
-                .En(story.Count + " levels found (" + names + ")" + (other > 0 ? " + " + other + " non-story levels" : "") + " — a person confirms whether that is enough");
+                    story.Count + " levels found (" + names + ")" + (other > 0 ? " + " + other + " non-story levels" : "") + " — a person confirms whether that is enough");
         }
 
         /// <summary>The views of a set, decided by <see cref="SpecViewSets.Of"/> (browser folder /
         /// View_jkr_pit, then template name, then view name).</summary>
         private static List<SpecView> SetViews(SpecModel m, string set) => SpecViewSets.Views(m, set);
 
-        /// <summary>"; set dikenal pasti ikut folder Project Browser (View_jkr_pit) 15" — how the
+        /// <summary>"; set found by browser folder View_jkr_pit 15" — how the
         /// views of a set were found, for the note a person reads.</summary>
-        private static string FoundBm(List<SpecView> views) =>
-            views.Count == 0
-                ? "; tiada view dijumpai ikut folder Project Browser, " + SpecViewSets.SetParam + ", nama template atau nama view"
-                : "; set dikenal pasti " + SpecViewSets.HowFound(views, false);
-
         private static string FoundEn(List<SpecView> views) =>
             views.Count == 0
                 ? "; no view found by browser folder, " + SpecViewSets.SetParam + ", template name or view name"
-                : "; set found " + SpecViewSets.HowFound(views, true);
+                : "; set found " + SpecViewSets.HowFound(views);
 
         private static string TickOrDash(bool ok) => ok ? "✓" : "–";
 
@@ -686,18 +654,15 @@ namespace RevitWebAppSync.Services.JkrSpec
             var levels = ReadError(m, "Levels", "Level") != null ? new List<SpecLevel>() : StoryLevels(m);
             var sections = views.Count(v => IsKind(v, "Section"));
             var elevations = views.Count(v => IsKind(v, "Elevation"));
-            yield return SpecChecks.Listing(id, views.Count + " view WIP — untuk semakan manusia" + FoundBm(views), views.Count)
-                .En(views.Count + " WIP views — for a person to review" + FoundEn(views));
+            yield return SpecChecks.Listing(id, views.Count + " WIP views — for a person to review" + FoundEn(views), views.Count);
             foreach (var lv in levels)
             {
                 var fp = views.Any(v => IsKind(v, "FloorPlan") && Same(v.LevelName, lv.Name));
                 var cp = views.Any(v => IsKind(v, "CeilingPlan") && Same(v.LevelName, lv.Name));
-                yield return SpecChecks.Listing(id, lv.Name + " | floor plan " + TickOrDash(fp) + " | ceiling plan " + TickOrDash(cp) + " | section " + TickOrDash(sections > 0) + " (set)", 1)
-                    .En(lv.Name + " | floor plan " + TickOrDash(fp) + " | ceiling plan " + TickOrDash(cp) + " | section " + TickOrDash(sections > 0) + " (set)");
+                yield return SpecChecks.Listing(id, lv.Name + " | floor plan " + TickOrDash(fp) + " | ceiling plan " + TickOrDash(cp) + " | section " + TickOrDash(sections > 0) + " (set)", 1);
             }
             yield return SpecChecks.Listing(id,
-                    "Set WIP: " + sections + " section, " + elevations + " elevation (tiada aras — dikira bagi set, bukan bagi aras)", sections + elevations)
-                .En("WIP set: " + sections + " sections, " + elevations + " elevations (no level — counted for the set, not per level)");
+                    "WIP set: " + sections + " sections, " + elevations + " elevations (no level — counted for the set, not per level)", sections + elevations);
 
             var rank = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             for (var i = 0; i < levels.Count; i++) rank[levels[i].Name.Trim()] = i;
@@ -708,8 +673,7 @@ namespace RevitWebAppSync.Services.JkrSpec
             };
             foreach (var v in views.OrderBy(levelRank).ThenBy(v => (v.LevelName ?? "").Trim(), StringComparer.OrdinalIgnoreCase)
                          .ThenBy(v => KindRank(v.Kind)).ThenBy(v => v.Name, StringComparer.OrdinalIgnoreCase))
-                yield return SpecChecks.Listing(id, KindBm(v.Kind) + " | " + Show(v.LevelName) + " | " + v.Name, 1)
-                    .En(KindEn(v.Kind) + " | " + Show(v.LevelName) + " | " + v.Name);
+                yield return SpecChecks.Listing(id, KindEn(v.Kind) + " | " + Show(v.LevelName) + " | " + v.Name, 1);
         }
 
         /// <summary>Checklist of required view kinds in a named set; one fail per kind missing.</summary>
@@ -719,18 +683,15 @@ namespace RevitWebAppSync.Services.JkrSpec
             if (unread != null) { yield return unread; yield break; }
             var views = SetViews(m, set);
             var have = kinds.ToDictionary(k => k, k => views.Any(v => IsKind(v, k)));
-            var list = string.Join(" | ", kinds.Select(k => KindBm(k) + " " + Tick(have[k])));
             var listEn = string.Join(" | ", kinds.Select(k => KindEn(k) + " " + Tick(have[k])));
             foreach (var k in kinds.Where(k => !have[k]))
             {
-                yield return SpecChecks.Fail(id, "Set " + set + ": tiada " + KindBm(k) + " (" + list + ")" + FoundBm(views),
-                        elementName: "Set " + set, actual: views.Count + " view " + set, required: string.Join(", ", kinds.Select(KindBm)),
-                        key: set + "|" + k)
-                    .En(set + " set: no " + KindEn(k) + " (" + listEn + ")" + FoundEn(views));
+                yield return SpecChecks.Fail(id, set + " set: no " + KindEn(k) + " (" + listEn + ")" + FoundEn(views),
+                        elementName: "Set " + set, actual: views.Count + " view " + set, required: string.Join(", ", kinds.Select(KindEn)),
+                        key: set + "|" + k);
             }
             if (have.Values.All(x => x))
-                yield return SpecChecks.Pass(id, "Set " + set + ": " + list + " (" + views.Count + " view" + FoundBm(views) + ")", views.Count)
-                    .En(set + " set: " + listEn + " (" + views.Count + " views" + FoundEn(views) + ")");
+                yield return SpecChecks.Pass(id, set + " set: " + listEn + " (" + views.Count + " views" + FoundEn(views) + ")", views.Count);
         }
 
         /// <summary>C1.3.1 — the PBT set (SpecViewSets: folder 06p_PBT, template, else name) has a floor plan, an elevation and a section.</summary>
@@ -751,16 +712,14 @@ namespace RevitWebAppSync.Services.JkrSpec
             if (ViewsUnread(m, id) != null) yield break;
             var views = SetViews(m, "Dokumen");
             var onSheet = views.Count(v => v.OnSheet);
-            yield return SpecChecks.Listing(id, views.Count + " view Dokumen, " + onSheet + " dalam sheet (biru)" + FoundBm(views), views.Count)
-                .En(views.Count + " Dokumen views, " + onSheet + " on a sheet (blue)" + FoundEn(views));
+            yield return SpecChecks.Listing(id, views.Count + " Dokumen views, " + onSheet + " on a sheet (blue)" + FoundEn(views), views.Count);
             foreach (var v in views)
-                yield return SpecChecks.Listing(id, v.Name + " | " + KindBm(v.Kind) + " | " + Show(v.LevelName) + " | dalam sheet " + Tick(v.OnSheet) + (v.OnSheet && v.SheetNumber.Length > 0 ? " (" + v.SheetNumber + ")" : ""), 1)
-                    .En(v.Name + " | " + KindEn(v.Kind) + " | " + Show(v.LevelName) + " | on sheet " + Tick(v.OnSheet) + (v.OnSheet && v.SheetNumber.Length > 0 ? " (" + v.SheetNumber + ")" : ""));
+                yield return SpecChecks.Listing(id, v.Name + " | " + KindEn(v.Kind) + " | " + Show(v.LevelName) + " | on sheet " + Tick(v.OnSheet) + (v.OnSheet && v.SheetNumber.Length > 0 ? " (" + v.SheetNumber + ")" : ""), 1);
         }
 
         /// <summary>
         /// C1.5.2 — the Dokumen view set (SpecViewSets) has a 3D view for every story
-        /// level (every level ticked Building Story, beam / roof levels included). One fail per level without one: "3D view setiap aras: 3/4 ✗ (Aras 03 tiada)".
+        /// level (every level ticked Building Story, beam / roof levels included). One fail per level without one: "3D view for every level: 3/4 ✗ (Level 03 missing)".
         /// A 3D view of that level outside the Dokumen set does not count (the rule is about the
         /// set), and the note names it. No story levels or no views read → unjudged.
         /// </summary>
@@ -774,8 +733,7 @@ namespace RevitWebAppSync.Services.JkrSpec
             if (levels.Count == 0)
             {
                 var why = levelErr != null ? ": " + levelErr : "";
-                yield return SpecChecks.Unjudged(id, "Tiada aras (building story) dibaca" + why + " — 3D view setiap aras tidak dapat disemak")
-                    .En("No story levels were read" + why + " — 3D view for every level cannot be checked");
+                yield return SpecChecks.Unjudged(id, "No story levels were read" + why + " — 3D view for every level cannot be checked");
                 yield break;
             }
             var dok = SetViews(m, "Dokumen");
@@ -786,33 +744,25 @@ namespace RevitWebAppSync.Services.JkrSpec
             foreach (var lv in missing)
             {
                 var outside = Find3DFor(others, lv);
-                var bm = "3D view setiap aras: " + have + "/" + levels.Count + " ✗ (" + lv.Name + " tiada)";
                 var en = "3D view for every level: " + have + "/" + levels.Count + " ✗ (" + lv.Name + " missing)";
                 if (outside != null)
                 {
                     var oh = SpecViewSets.Of(outside);
                     var where = oh.Sets.Count > 0
-                        ? "dalam set " + string.Join("/", oh.Sets) + ", " + SpecViewSets.SourceText(oh.Source, oh.By, false)
-                        : oh.Source == ViewSetSource.None ? "folder, template dan nama tiada 'Dokumen'" : SpecViewSets.SourceText(oh.Source, oh.By, false) + ": bukan Dokumen";
-                    var whereEn = oh.Sets.Count > 0
-                        ? "in the " + string.Join("/", oh.Sets) + " set, " + SpecViewSets.SourceText(oh.Source, oh.By, true)
-                        : oh.Source == ViewSetSource.None ? "no 'Dokumen' in its folder, template or name" : SpecViewSets.SourceText(oh.Source, oh.By, true) + ": not Dokumen";
-                    bm += " — ada 3D view '" + outside.Name + "' di luar set Dokumen (" + where + "), tidak dikira";
-                    en += " — 3D view '" + outside.Name + "' exists outside the Dokumen set (" + whereEn + "), not counted";
+                        ? "in the " + string.Join("/", oh.Sets) + " set, " + SpecViewSets.SourceText(oh.Source, oh.By)
+                        : oh.Source == ViewSetSource.None ? "no 'Dokumen' in its folder, template or name" : SpecViewSets.SourceText(oh.Source, oh.By) + ": not Dokumen";
+                    en += " — 3D view '" + outside.Name + "' exists outside the Dokumen set (" + where + "), not counted";
                 }
                 else if (noDok3D)
                 {
-                    bm += " — tiada 3D view dalam set Dokumen";
                     en += " — no 3D view in the Dokumen set";
                 }
-                yield return SpecChecks.Fail(id, bm, lv.Id, lv.Name,
-                        actual: outside != null ? "3D view di luar set Dokumen: " + outside.Name : "tiada 3D view Dokumen",
-                        required: "3D view Dokumen bagi setiap aras", key: lv.Name)
-                    .En(en);
+                yield return SpecChecks.Fail(id, en, lv.Id, lv.Name,
+                        actual: outside != null ? "3D view outside the Dokumen set: " + outside.Name : "no Dokumen 3D view",
+                        required: "a Dokumen 3D view for every level", key: lv.Name);
             }
             if (missing.Count == 0)
-                yield return SpecChecks.Pass(id, "3D view setiap aras: " + have + "/" + levels.Count + " ✓ (set Dokumen)", have)
-                    .En("3D view for every level: " + have + "/" + levels.Count + " ✓ (Dokumen set)");
+                yield return SpecChecks.Pass(id, "3D view for every level: " + have + "/" + levels.Count + " ✓ (Dokumen set)", have);
         }
 
         // ─── C1.6 — room schedule ───
@@ -823,20 +773,20 @@ namespace RevitWebAppSync.Services.JkrSpec
         private static SpecResult SchedulesUnread(SpecModel m, string id)
         {
             var err = ReadError(m, "Schedules", "Schedule");
-            return err == null ? null : SpecChecks.Unjudged(id, "Schedule tidak dapat dibaca: " + err).En("Schedules could not be read: " + err);
+            return err == null ? null : SpecChecks.Unjudged(id, "Schedules could not be read: " + err);
         }
 
         private static SpecResult RoomsUnread(SpecModel m, string id)
         {
             var err = ReadError(m, "Rooms", "Room");
-            if (err != null) return SpecChecks.Unjudged(id, "Room tidak dapat dibaca: " + err).En("Rooms could not be read: " + err);
+            if (err != null) return SpecChecks.Unjudged(id, "Rooms could not be read: " + err);
             if (!m.Rooms.Any(r => r.Area > 0))
-                return SpecChecks.Unjudged(id, "Tiada room diletakkan dalam model — tidak dapat disemak").En("No placed rooms in the model — cannot be checked");
+                return SpecChecks.Unjudged(id, "No placed rooms in the model — cannot be checked");
             return null;
         }
 
         private static string RoomLabel(SpecRoom r) =>
-            (r.Number.Length > 0 ? r.Number + " " : "") + (r.Name.Length > 0 ? r.Name : "(tiada nama)");
+            (r.Number.Length > 0 ? r.Number + " " : "") + (r.Name.Length > 0 ? r.Name : "(no name)");
 
         /// <summary>
         /// C1.6.1 — a room schedule / schedule of accommodation exists (a schedule of category
@@ -850,13 +800,11 @@ namespace RevitWebAppSync.Services.JkrSpec
             var rs = RoomSchedules(m);
             if (rs.Count == 0)
             {
-                yield return SpecChecks.Fail(id, "Tiada jadual ruang (room schedule)",
-                        actual: "tiada schedule kategori Rooms", required: "room schedule / schedule of accommodation", key: "none")
-                    .En("No room schedule");
+                yield return SpecChecks.Fail(id, "No room schedule",
+                        actual: "no Rooms schedule", required: "room schedule / schedule of accommodation", key: "none");
                 yield break;
             }
-            yield return SpecChecks.Pass(id, "Jadual ruang wujud: " + string.Join(", ", rs.Select(s => s.Name)), rs.Count)
-                .En("Room schedule exists: " + string.Join(", ", rs.Select(s => s.Name)));
+            yield return SpecChecks.Pass(id, "Room schedule exists: " + string.Join(", ", rs.Select(s => s.Name)), rs.Count);
         }
 
         /// <summary>C1.6.2 — every placed room is a row of a room schedule; one fail per room missing.</summary>
@@ -871,14 +819,12 @@ namespace RevitWebAppSync.Services.JkrSpec
             var missing = placed.Where(r => !rows.Contains(r.Id)).ToList();
             foreach (var r in missing)
             {
-                yield return SpecChecks.Fail(id, "Room " + RoomLabel(r) + (r.LevelName.Length > 0 ? " (" + r.LevelName + ")" : "") + " tiada dalam jadual ruang",
-                        r.Id, "Rooms · " + RoomLabel(r), actual: rs.Count == 0 ? "tiada jadual ruang" : "tiada dalam jadual",
-                        required: "hadir dalam jadual ruang")
-                    .En("Room " + RoomLabel(r) + (r.LevelName.Length > 0 ? " (" + r.LevelName + ")" : "") + " is not in the room schedule");
+                yield return SpecChecks.Fail(id, "Room " + RoomLabel(r) + (r.LevelName.Length > 0 ? " (" + r.LevelName + ")" : "") + " is not in the room schedule",
+                        r.Id, "Rooms · " + RoomLabel(r), actual: rs.Count == 0 ? "no room schedule" : "not in the schedule",
+                        required: "present in the room schedule");
             }
             if (missing.Count == 0)
-                yield return SpecChecks.Pass(id, placed.Count + "/" + placed.Count + " room hadir dalam jadual ruang", placed.Count)
-                    .En(placed.Count + "/" + placed.Count + " rooms are in the room schedule");
+                yield return SpecChecks.Pass(id, placed.Count + "/" + placed.Count + " rooms are in the room schedule", placed.Count);
         }
 
         /// <summary>Schedule fields that are not room parameters and are never "empty".</summary>
@@ -900,7 +846,7 @@ namespace RevitWebAppSync.Services.JkrSpec
         /// <summary>
         /// C1.6.3 — every room schedule column has a value for every placed room: the schedules'
         /// visible fields, plus the Room columns the Buku Parameter marks at the project LOi
-        /// (PB p.37). One fail per room (`Room | Kolum kosong`), and one per schedule missing a
+        /// (PB p.37). One fail per room (`Room | Empty column`), and one per schedule missing a
         /// PB column. Placed areas are judged too: each needs the PB p.36 Area columns marked at the LOi
         /// (AI-475). Fail-only when the LOi is unknown (PB columns not known) or when the model has
         /// areas the snapshot did not read.
@@ -913,9 +859,8 @@ namespace RevitWebAppSync.Services.JkrSpec
             var rs = RoomSchedules(m);
             if (rs.Count == 0)
             {
-                yield return SpecChecks.Fail(id, "Tiada jadual ruang — kolum tidak dapat diisi", actual: "tiada jadual ruang",
-                        required: "jadual ruang lengkap", key: "none")
-                    .En("No room schedule — its columns cannot be filled");
+                yield return SpecChecks.Fail(id, "No room schedule — its columns cannot be filled", actual: "no room schedule",
+                        required: "a complete room schedule", key: "none");
                 yield break;
             }
             var loi = SpecPbData.LoiOf(m.Lod);
@@ -931,10 +876,9 @@ namespace RevitWebAppSync.Services.JkrSpec
                 var absent = pb.Where(f => !s.Fields.Any(x => SpecPbData.Key(x) == SpecPbData.Key(f))).ToList();
                 if (absent.Count == 0) continue;
                 fails++;
-                yield return SpecChecks.Fail(id, "Jadual '" + s.Name + "' tiada kolum wajib LOi " + loi + " (PB p.37): " + string.Join(", ", absent),
-                        s.Id, "Schedule · " + s.Name, actual: absent.Count + " kolum tiada", required: "kolum PB p.37", key: "schedule|" + s.Id + "|" + s.Name,
-                        coverage: cov)
-                    .En("Schedule '" + s.Name + "' lacks the columns mandatory at LOi " + loi + " (PB p.37): " + string.Join(", ", absent));
+                yield return SpecChecks.Fail(id, "Schedule '" + s.Name + "' lacks the columns mandatory at LOi " + loi + " (PB p.37): " + string.Join(", ", absent),
+                        s.Id, "Schedule · " + s.Name, actual: absent.Count + " columns missing", required: "PB p.37 columns", key: "schedule|" + s.Id + "|" + s.Name,
+                        coverage: cov);
             }
 
             var columns = rs.SelectMany(s => s.Fields).Concat(pb)
@@ -956,8 +900,7 @@ namespace RevitWebAppSync.Services.JkrSpec
                 if (empty.Count == 0) continue;
                 fails++;
                 yield return SpecChecks.Fail(id, RoomLabel(r) + " | " + string.Join(", ", empty), r.Id, "Rooms · " + RoomLabel(r),
-                        actual: empty.Count + " kolum kosong", required: "setiap kolum berisi", coverage: cov)
-                    .En(RoomLabel(r) + " | " + string.Join(", ", empty));
+                        actual: empty.Count + " columns empty", required: "every column filled", coverage: cov);
             }
             // PB p.36: each placed area carries the Area columns marked at the LOi.
             var placedAreas = m.AreasRead ? m.Areas.Where(x => x.Area > 0).ToList() : new List<SpecArea>();
@@ -975,19 +918,17 @@ namespace RevitWebAppSync.Services.JkrSpec
                 var label = (ar.Name.Length > 0 ? ar.Name : "Area " + ar.Id) + (ar.LevelName.Length > 0 ? " (" + ar.LevelName + ")" : "");
                 fails++;
                 yield return SpecChecks.Fail(id, "Area " + label + " | " + string.Join(", ", empty), ar.Id, "Areas · " + label,
-                        actual: empty.Count + " kolum kosong", required: "setiap kolum Area PB p.36 berisi", coverage: cov, key: "area|" + ar.Id)
-                    .En("Area " + label + " | " + string.Join(", ", empty));
+                        actual: empty.Count + " columns empty", required: "every PB p.36 Area column filled", coverage: cov, key: "area|" + ar.Id);
             }
             if (fails == 0)
-                yield return SpecChecks.Pass(id, placed.Count + " room × " + columns.Count + " kolum berisi" + (pb.Count > 0 ? " (termasuk kolum wajib LOi " + loi + ", PB p.37)" : ""), placed.Count, cov)
-                    .En(placed.Count + " rooms × " + columns.Count + " columns filled" + (pb.Count > 0 ? " (including the columns mandatory at LOi " + loi + ", PB p.37)" : ""));
+                yield return SpecChecks.Pass(id, placed.Count + " rooms × " + columns.Count + " columns filled" + (pb.Count > 0 ? " (including the columns mandatory at LOi " + loi + ", PB p.37)" : ""), placed.Count, cov);
         }
 
         // ═══════════════════════ C2 — Legends ═══════════════════════
 
         /// <summary>
         /// C2.1.1 — at least one legend exists (pass), none (fail). The note lists the legends as
-        /// `Nama legend | Jenis | Dalam lukisan?` for a person to review.
+        /// `Legend name | Type | On a drawing?` for a person to review.
         /// </summary>
         internal static IEnumerable<SpecResult> C2_1_1(SpecModel m)
         {
@@ -997,14 +938,11 @@ namespace RevitWebAppSync.Services.JkrSpec
             var legends = m.Views.Where(v => IsKind(v, "Legend")).ToList();
             if (legends.Count == 0)
             {
-                yield return SpecChecks.Fail(id, "Tiada legend dalam model", actual: "0 legend", required: "sekurang-kurangnya satu legend", key: "none")
-                    .En("No legend in the model");
+                yield return SpecChecks.Fail(id, "No legend in the model", actual: "0 legend", required: "at least one legend", key: "none");
                 yield break;
             }
-            var bm = string.Join("; ", legends.Select(v => v.Name + " | legend | dalam lukisan " + Tick(v.OnSheet)));
             var en = string.Join("; ", legends.Select(v => v.Name + " | legend | on a drawing " + Tick(v.OnSheet)));
-            yield return SpecChecks.Pass(id, legends.Count + " legend (" + legends.Count(v => v.OnSheet) + " dalam lukisan): " + bm, legends.Count)
-                .En(legends.Count + " legends (" + legends.Count(v => v.OnSheet) + " on a drawing): " + en);
+            yield return SpecChecks.Pass(id, legends.Count + " legends (" + legends.Count(v => v.OnSheet) + " on a drawing): " + en, legends.Count);
         }
 
         // ═══════════════════════ C3 — Schedules ═══════════════════════
@@ -1020,8 +958,8 @@ namespace RevitWebAppSync.Services.JkrSpec
         private static SpecResult CountsUnread(SpecModel m, string id)
         {
             var err = ReadError(m, "CategoryCounts", "Category");
-            if (err != null) return SpecChecks.Unjudged(id, "Bilangan elemen per kategori tidak dapat dibaca: " + err).En("Element counts per category could not be read: " + err);
-            if (m.CategoryCounts.Count == 0) return SpecChecks.Unjudged(id, "Bilangan elemen per kategori tidak dibaca").En("Element counts per category were not read");
+            if (err != null) return SpecChecks.Unjudged(id, "Element counts per category could not be read: " + err);
+            if (m.CategoryCounts.Count == 0) return SpecChecks.Unjudged(id, "Element counts per category were not read");
             return null;
         }
 
@@ -1036,9 +974,6 @@ namespace RevitWebAppSync.Services.JkrSpec
             return m.Types.Where(t => c.Matches(t.Category)).Any(t => (t.InstanceIds ?? new List<long>()).Any(set.Contains));
         }
 
-        private static string ScheduleKindBm(SpecSchedule s) =>
-            s.IsMaterialTakeoff ? "material takeoff" : string.IsNullOrWhiteSpace(s.Category) ? "schedule pelbagai kategori" : "schedule " + s.Category;
-
         private static string ScheduleKindEn(SpecSchedule s) =>
             s.IsMaterialTakeoff ? "material takeoff" : string.IsNullOrWhiteSpace(s.Category) ? "multi-category schedule" : s.Category + " schedule";
 
@@ -1046,9 +981,9 @@ namespace RevitWebAppSync.Services.JkrSpec
         /// C3.1.1 — every AR category of the Buku Parameter list (PB p.36–99) that is modelled
         /// (placed elements &gt; 0) has a schedule of that category, or is listed by a
         /// multi-category schedule or a material takeoff (its rows hold elements of that
-        /// category). One fail per category without: "Railing: 5 elemen, tiada schedule".
+        /// category). One fail per category without: "Railing: 5 elements, no schedule".
         /// Real model, 16 Nov 2026: 3 ramps scheduled only in multi-category schedules /
-        /// material takeoffs were reported "tiada schedule".
+        /// material takeoffs were reported "no schedule".
         /// </summary>
         internal static IEnumerable<SpecResult> C3_1_1(SpecModel m)
         {
@@ -1058,7 +993,6 @@ namespace RevitWebAppSync.Services.JkrSpec
             var schedules = m.Schedules.Where(s => !s.IsTemplate).ToList();
             var modelled = 0;
             var fails = 0;
-            var viaBm = new List<string>();
             var viaEn = new List<string>();
             foreach (var c in SpecPbData.ArCategories)
             {
@@ -1069,23 +1003,18 @@ namespace RevitWebAppSync.Services.JkrSpec
                 var listing = schedules.Where(s => ListsCategory(m, s, c)).ToList();
                 if (listing.Count > 0)
                 {
-                    viaBm.Add(c.Name + " dalam " + string.Join(", ", listing.Take(4).Select(s => ScheduleKindBm(s) + " '" + s.Name + "'")) + (listing.Count > 4 ? " …" : ""));
                     viaEn.Add(c.Name + " in " + string.Join(", ", listing.Take(4).Select(s => ScheduleKindEn(s) + " '" + s.Name + "'")) + (listing.Count > 4 ? " …" : ""));
                     continue;
                 }
                 fails++;
-                yield return SpecChecks.Fail(id, c.Name + ": " + n + " elemen, tiada schedule", elementName: c.Name + " (PB p." + c.Page + ")",
-                        actual: n + " elemen, tiada schedule", required: "schedule kategori " + c.RevitCategories[0], key: c.Name)
-                    .En(c.Name + ": " + n + " elements, no schedule");
+                yield return SpecChecks.Fail(id, c.Name + ": " + n + " elements, no schedule", elementName: c.Name + " (PB p." + c.Page + ")",
+                        actual: n + " elements, no schedule", required: "a schedule of category " + c.RevitCategories[0], key: c.Name);
             }
-            var via = viaBm.Count == 0 ? "" : " (" + string.Join("; ", viaBm) + ")";
-            var viaE = viaEn.Count == 0 ? "" : " (" + string.Join("; ", viaEn) + ")";
+            var via = viaEn.Count == 0 ? "" : " (" + string.Join("; ", viaEn) + ")";
             if (fails == 0)
-                yield return SpecChecks.Pass(id, modelled + " kategori PB dimodelkan, semua ada schedule" + via, modelled)
-                    .En(modelled + " Buku Parameter categories modelled, all have a schedule" + viaE);
+                yield return SpecChecks.Pass(id, modelled + " Buku Parameter categories modelled, all have a schedule" + via, modelled);
             else if (via.Length > 0)
-                yield return SpecChecks.Listing(id, "Ada schedule melalui schedule pelbagai kategori / material takeoff" + via, viaBm.Count)
-                    .En("Scheduled through a multi-category schedule / material takeoff" + viaE);
+                yield return SpecChecks.Listing(id, "Scheduled through a multi-category schedule / material takeoff" + via, viaEn.Count);
         }
 
         /// <summary>C3.1.2 — list only: the Buku Parameter AR categories not modelled, marked "n/a" (not a shortfall).</summary>
@@ -1095,8 +1024,7 @@ namespace RevitWebAppSync.Services.JkrSpec
             if (CountsUnread(m, id) != null) yield break;
             var none = SpecPbData.ArCategories.Where(c => Modelled(m, c) <= 0).Select(c => c.Name).ToList();
             yield return SpecChecks.Listing(id,
-                    none.Count == 0 ? "Semua kategori PB dimodelkan — tiada n/a" : "n/a (tidak dimodelkan, bukan kekurangan): " + string.Join(", ", none), none.Count)
-                .En(none.Count == 0 ? "Every Buku Parameter category is modelled — none n/a" : "n/a (not modelled, not a shortfall): " + string.Join(", ", none));
+                    none.Count == 0 ? "Every Buku Parameter category is modelled — none n/a" : "n/a (not modelled, not a shortfall): " + string.Join(", ", none), none.Count);
         }
 
         // ═══════════════════════ C4 — Sheets ═══════════════════════
@@ -1104,31 +1032,29 @@ namespace RevitWebAppSync.Services.JkrSpec
         private static SpecResult SheetsUnread(SpecModel m, string id, bool emptyIsUnjudged)
         {
             var err = ReadError(m, "Sheets", "Sheet");
-            if (err != null) return SpecChecks.Unjudged(id, "Sheet tidak dapat dibaca: " + err).En("Sheets could not be read: " + err);
+            if (err != null) return SpecChecks.Unjudged(id, "Sheets could not be read: " + err);
             if (emptyIsUnjudged && m.Sheets.Count == 0)
-                return SpecChecks.Unjudged(id, "Tiada sheet dalam model — tidak dapat disemak").En("No sheets in the model — cannot be checked");
+                return SpecChecks.Unjudged(id, "No sheets in the model — cannot be checked");
             return null;
         }
 
         private static string SheetLabel(SpecSheet s) =>
-            (s.Number.Length > 0 ? s.Number : "(tiada no.)") + (s.Name.Length > 0 ? " " + s.Name : "");
+            (s.Number.Length > 0 ? s.Number : "(no number)") + (s.Name.Length > 0 ? " " + s.Name : "");
 
         private static bool IsEmptySheet(SpecSheet s) =>
             !s.ViewNames.Any(n => !string.IsNullOrWhiteSpace(n)) && !s.ViewKinds.Any(k => !string.IsNullOrWhiteSpace(k));
 
-        /// <summary>C4.1.1 — list only: every sheet as `No. sheet | Nama | Bil. view | Jenis kandungan`.</summary>
+        /// <summary>C4.1.1 — list only: every sheet as `Sheet no. | Name | View count | Content kinds`.</summary>
         internal static IEnumerable<SpecResult> C4_1_1(SpecModel m)
         {
             const string id = "C4.1.1";
             if (SheetsUnread(m, id, false) != null) yield break;
-            yield return SpecChecks.Listing(id, m.Sheets.Count + " sheet — manusia semak (sheet kadang digabung)", m.Sheets.Count)
-                .En(m.Sheets.Count + " sheets — for a person to review (sheets are sometimes combined)");
+            yield return SpecChecks.Listing(id, m.Sheets.Count + " sheets — for a person to review (sheets are sometimes combined)", m.Sheets.Count);
             foreach (var s in m.Sheets)
             {
                 var n = Math.Max(s.ViewNames.Count(x => !string.IsNullOrWhiteSpace(x)), s.ViewKinds.Count(x => !string.IsNullOrWhiteSpace(x)));
                 var kinds = s.ViewKinds.Where(k => !string.IsNullOrWhiteSpace(k)).Select(k => k.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-                yield return SpecChecks.Listing(id, Show(s.Number) + " | " + Show(s.Name) + " | " + n + " view | " + (kinds.Count == 0 ? "—" : string.Join(", ", kinds.Select(KindBm))), 1)
-                    .En(Show(s.Number) + " | " + Show(s.Name) + " | " + n + " views | " + (kinds.Count == 0 ? "—" : string.Join(", ", kinds.Select(KindEn))));
+                yield return SpecChecks.Listing(id, Show(s.Number) + " | " + Show(s.Name) + " | " + n + " views | " + (kinds.Count == 0 ? "—" : string.Join(", ", kinds.Select(KindEn))), 1);
             }
         }
 
@@ -1182,32 +1108,28 @@ namespace RevitWebAppSync.Services.JkrSpec
             var placed = PlacedViews(m);
             var items = new[]
             {
-                new { Bm = "floor plan", En = "floor plan", Ok = placed.Any(v => Same(v.Key, "FloorPlan")), Sheets = new List<string>() },
-                new { Bm = "ceiling plan", En = "ceiling plan", Ok = placed.Any(v => Same(v.Key, "CeilingPlan")), Sheets = new List<string>() },
-                new { Bm = "elevation", En = "elevation", Ok = placed.Any(v => Same(v.Key, "Elevation")), Sheets = new List<string>() },
-                new { Bm = "section", En = "section", Ok = placed.Any(v => Same(v.Key, "Section")), Sheets = new List<string>() },
-                new { Bm = "detail pintu", En = "door detail", Ok = placed.Any(v => IsDetailOf(v, "pintu", "door")), Sheets = DetailSheets(m, "pintu", "door") },
-                new { Bm = "detail tingkap", En = "window detail", Ok = placed.Any(v => IsDetailOf(v, "tingkap", "window")), Sheets = DetailSheets(m, "tingkap", "window") },
+                new { En = "floor plan", Ok = placed.Any(v => Same(v.Key, "FloorPlan")), Sheets = new List<string>() },
+                new { En = "ceiling plan", Ok = placed.Any(v => Same(v.Key, "CeilingPlan")), Sheets = new List<string>() },
+                new { En = "elevation", Ok = placed.Any(v => Same(v.Key, "Elevation")), Sheets = new List<string>() },
+                new { En = "section", Ok = placed.Any(v => Same(v.Key, "Section")), Sheets = new List<string>() },
+                new { En = "door detail", Ok = placed.Any(v => IsDetailOf(v, "pintu", "door")), Sheets = DetailSheets(m, "pintu", "door") },
+                new { En = "window detail", Ok = placed.Any(v => IsDetailOf(v, "tingkap", "window")), Sheets = DetailSheets(m, "tingkap", "window") },
             };
-            string Mark(bool ok, int sheets) => ok ? Tick(true) : sheets > 0 ? "(sheet: manusia)" : Tick(false);
             string MarkEn(bool ok, int sheets) => ok ? Tick(true) : sheets > 0 ? "(sheet: a person)" : Tick(false);
-            var list = string.Join(" | ", items.Select(x => x.Bm + " " + Mark(x.Ok, x.Sheets.Count)));
             var listEn = string.Join(" | ", items.Select(x => x.En + " " + MarkEn(x.Ok, x.Sheets.Count)));
             foreach (var x in items.Where(x => !x.Ok && x.Sheets.Count > 0))
             {
                 var shown = string.Join(", ", x.Sheets.Take(3)) + (x.Sheets.Count > 3 ? ", …" : "");
-                yield return SpecChecks.Context(id, $"Tiada {x.Bm} (view Detail / Drafting) tetapi ada sheet: {shown} — JKR tidak menyatakan sama ada sheet sedemikian dikira {x.Bm}; manusia putuskan",
-                        key: "sheet:" + x.En)
-                    .En($"No {x.En} (Detail / Drafting view) but there is a sheet: {shown} — no JKR document says whether such a sheet counts as the {x.En}; a person decides");
+                yield return SpecChecks.Context(id, $"No {x.En} (Detail / Drafting view) but there is a sheet: {shown} — no JKR document says whether such a sheet counts as the {x.En}; a person decides",
+                        key: "sheet:" + x.En);
             }
             foreach (var x in items.Where(x => !x.Ok && x.Sheets.Count == 0))
             {
-                yield return SpecChecks.Fail(id, "Tiada " + x.Bm + " dalam mana-mana sheet (" + list + ")", actual: "tiada " + x.Bm,
-                        required: "floor plan, ceiling plan, elevation, section, detail pintu, detail tingkap", key: x.En)
-                    .En("No " + x.En + " on any sheet (" + listEn + ")");
+                yield return SpecChecks.Fail(id, "No " + x.En + " on any sheet (" + listEn + ")", actual: "no " + x.En,
+                        required: "floor plan, ceiling plan, elevation, section, door detail, window detail", key: x.En);
             }
             if (items.All(x => x.Ok || x.Sheets.Count > 0))
-                yield return SpecChecks.Pass(id, list + " (" + m.Sheets.Count + " sheet)", m.Sheets.Count).En(listEn + " (" + m.Sheets.Count + " sheets)");
+                yield return SpecChecks.Pass(id, listEn + " (" + m.Sheets.Count + " sheets)", m.Sheets.Count);
         }
 
         /// <summary>C4.1.3 — every sheet holds at least one view; one fail per empty sheet.</summary>
@@ -1218,12 +1140,10 @@ namespace RevitWebAppSync.Services.JkrSpec
             if (unread != null) { yield return unread; yield break; }
             var empty = m.Sheets.Where(IsEmptySheet).ToList();
             foreach (var s in empty)
-                yield return SpecChecks.Fail(id, "Sheet " + SheetLabel(s) + " tiada view", s.Id, "Sheet " + SheetLabel(s),
-                        actual: "0 view", required: "sekurang-kurangnya satu view", key: s.Id > 0 ? null : s.Number + "|" + s.Name)
-                    .En("Sheet " + SheetLabel(s) + " has no view");
+                yield return SpecChecks.Fail(id, "Sheet " + SheetLabel(s) + " has no view", s.Id, "Sheet " + SheetLabel(s),
+                        actual: "0 views", required: "at least one view", key: s.Id > 0 ? null : s.Number + "|" + s.Name);
             if (empty.Count == 0)
-                yield return SpecChecks.Pass(id, m.Sheets.Count + "/" + m.Sheets.Count + " sheet ada view", m.Sheets.Count)
-                    .En(m.Sheets.Count + "/" + m.Sheets.Count + " sheets have a view");
+                yield return SpecChecks.Pass(id, m.Sheets.Count + "/" + m.Sheets.Count + " sheets have a view", m.Sheets.Count);
         }
 
         /// <summary>C4.2.1 — every sheet's title block is a JKR one (family / type holds "JKR"); one fail per sheet that is not or has none.</summary>
@@ -1239,22 +1159,20 @@ namespace RevitWebAppSync.Services.JkrSpec
                 fails++;
                 var none = string.IsNullOrWhiteSpace(s.TitleBlock);
                 yield return SpecChecks.Fail(id,
-                        "Sheet " + SheetLabel(s) + (none ? ": tiada title block" : ": title block '" + s.TitleBlock + "' bukan JKR"),
-                        s.Id, "Sheet " + SheetLabel(s), actual: none ? "tiada title block" : s.TitleBlock, required: "title block JKR",
-                        key: s.Id > 0 ? null : s.Number + "|" + s.Name)
-                    .En("Sheet " + SheetLabel(s) + (none ? ": no title block" : ": title block '" + s.TitleBlock + "' is not a JKR one"));
+                        "Sheet " + SheetLabel(s) + (none ? ": no title block" : ": title block '" + s.TitleBlock + "' is not a JKR one"),
+                        s.Id, "Sheet " + SheetLabel(s), actual: none ? "no title block" : s.TitleBlock, required: "JKR title block",
+                        key: s.Id > 0 ? null : s.Number + "|" + s.Name);
             }
             if (fails == 0)
             {
                 var tbs = m.Sheets.Select(s => s.TitleBlock.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-                yield return SpecChecks.Pass(id, m.Sheets.Count + " sheet guna title block JKR (" + string.Join(", ", tbs) + ")", m.Sheets.Count)
-                    .En(m.Sheets.Count + " sheets use a JKR title block (" + string.Join(", ", tbs) + ")");
+                yield return SpecChecks.Pass(id, m.Sheets.Count + " sheets use a JKR title block (" + string.Join(", ", tbs) + ")", m.Sheets.Count);
             }
         }
 
         private sealed class TbField
         {
-            public string Bm, En;
+            public string En;
             public string[] Keys;
         }
 
@@ -1262,10 +1180,10 @@ namespace RevitWebAppSync.Services.JkrSpec
         /// (Revit's own and the JKR ones, PB p.103).</summary>
         private static readonly TbField[] TitleBlockFields =
         {
-            new TbField { Bm = "tajuk projek", En = "project title", Keys = new[] { "Project Name", "Tajuk_Projek", "Tajuk Projek", "Project Title" } },
-            new TbField { Bm = "tajuk lukisan", En = "drawing title", Keys = new[] { "Sheet Name", "Tajuk_Lukisan", "Tajuk Lukisan", "Drawing Title" } },
-            new TbField { Bm = "dimodelkan oleh", En = "modelled by", Keys = new[] { "Drawn By", "Dimodel_Oleh", "Dimodelkan Oleh", "Modelled By", "Modeled By", "Dilukis Oleh" } },
-            new TbField { Bm = "timestamp", En = "timestamp", Keys = new[] { "Sheet Issue Date", "Date/Time Stamp", "Timestamp", "Time Stamp", "Tarikh", "Issue Date" } },
+            new TbField { En = "project title", Keys = new[] { "Project Name", "Tajuk_Projek", "Tajuk Projek", "Project Title" } },
+            new TbField { En = "drawing title", Keys = new[] { "Sheet Name", "Tajuk_Lukisan", "Tajuk Lukisan", "Drawing Title" } },
+            new TbField { En = "modelled by", Keys = new[] { "Drawn By", "Dimodel_Oleh", "Dimodelkan Oleh", "Modelled By", "Modeled By", "Dilukis Oleh" } },
+            new TbField { En = "timestamp", Keys = new[] { "Sheet Issue Date", "Date/Time Stamp", "Timestamp", "Time Stamp", "Tarikh", "Issue Date" } },
         };
 
         /// <summary>The field's value on the sheet: the first of its parameters the sheet has with a
@@ -1278,7 +1196,7 @@ namespace RevitWebAppSync.Services.JkrSpec
             {
                 if (!SpecPbData.TryFind(s.Params, k, out var p, out var v)) continue;
                 if (!found) { param = p; value = v; found = true; }
-                if (FieldStatus(true, p, v, out _).Length == 0) { param = p; value = v; return true; }
+                if (FieldStatus(true, p, v).Length == 0) { param = p; value = v; return true; }
             }
             if (found) return true;
             if (f.Keys[0] == "Project Name" && SpecPbData.TryFind(m.ProjectInfo, "Project Name", out var pp, out var pv)) { param = pp; value = pv; return true; }
@@ -1302,27 +1220,24 @@ namespace RevitWebAppSync.Services.JkrSpec
             {
                 if (s.Params.Count == 0)
                 {
-                    yield return SpecChecks.Unjudged(id, "Sheet " + SheetLabel(s) + ": parameter title block tidak dibaca", s.Id, "Sheet " + SheetLabel(s),
-                            key: s.Id > 0 ? null : s.Number + "|" + s.Name)
-                        .En("Sheet " + SheetLabel(s) + ": title-block parameters were not read");
+                    yield return SpecChecks.Unjudged(id, "Sheet " + SheetLabel(s) + ": title-block parameters were not read", s.Id, "Sheet " + SheetLabel(s),
+                            key: s.Id > 0 ? null : s.Number + "|" + s.Name);
                     continue;
                 }
                 judged++;
                 foreach (var f in TitleBlockFields)
                 {
                     var found = TitleBlockValue(m, s, f, out var param, out var value);
-                    var st = FieldStatus(found, found ? param : f.Keys[0], value, out var stEn);
+                    var st = FieldStatus(found, found ? param : f.Keys[0], value);
                     if (st.Length == 0) continue;
                     fails++;
-                    yield return SpecChecks.Fail(id, "Sheet " + SheetLabel(s) + ": " + f.Bm + (found ? " (" + param + ")" : "") + " " + st,
-                            s.Id, "Sheet " + SheetLabel(s), actual: Show(value), required: f.Bm + " diisi",
-                            key: (s.Id > 0 ? s.Id.ToString(CultureInfo.InvariantCulture) : s.Number + "|" + s.Name) + "|" + f.En)
-                        .En("Sheet " + SheetLabel(s) + ": " + f.En + (found ? " (" + param + ")" : "") + " " + stEn);
+                    yield return SpecChecks.Fail(id, "Sheet " + SheetLabel(s) + ": " + f.En + (found ? " (" + param + ")" : "") + " " + st,
+                            s.Id, "Sheet " + SheetLabel(s), actual: Show(value), required: f.En + " filled",
+                            key: (s.Id > 0 ? s.Id.ToString(CultureInfo.InvariantCulture) : s.Number + "|" + s.Name) + "|" + f.En);
                 }
             }
             if (fails == 0 && judged > 0)
-                yield return SpecChecks.Pass(id, judged + " sheet: tajuk projek, tajuk lukisan, dimodelkan oleh, timestamp diisi", judged)
-                    .En(judged + " sheets: project title, drawing title, modelled by, timestamp filled");
+                yield return SpecChecks.Pass(id, judged + " sheets: project title, drawing title, modelled by, timestamp filled", judged);
         }
 
         /// <summary>
@@ -1339,10 +1254,8 @@ namespace RevitWebAppSync.Services.JkrSpec
                 var ok = TitleBlockValue(m, s, TitleBlockFields[3], out _, out var v);
                 stamps.Add(Show(s.Number) + " = " + (ok ? Show(v) : "—"));
             }
-            var shown = stamps.Count == 0 ? "tiada sheet" : string.Join(", ", stamps.Take(10)) + (stamps.Count > 10 ? " …" : "");
             var shownEn = stamps.Count == 0 ? "no sheets" : string.Join(", ", stamps.Take(10)) + (stamps.Count > 10 ? " …" : "");
-            yield return SpecChecks.Context(id, "Timestamp softcopy: " + shown + " — padanan dengan hardcopy SEMAK MANUAL")
-                .En("Softcopy timestamps: " + shownEn + " — matching the hardcopy is a MANUAL check");
+            yield return SpecChecks.Context(id, "Softcopy timestamps: " + shownEn + " — matching the hardcopy is a MANUAL check");
         }
 
         // ═══════════════════════ C5 — Links ═══════════════════════
@@ -1369,7 +1282,7 @@ namespace RevitWebAppSync.Services.JkrSpec
         private static SpecResult LinksUnread(SpecModel m, string id)
         {
             var err = ReadError(m, "Links", "Link");
-            return err == null ? null : SpecChecks.Unjudged(id, "Link tidak dapat dibaca: " + err).En("Links could not be read: " + err);
+            return err == null ? null : SpecChecks.Unjudged(id, "Links could not be read: " + err);
         }
 
         /// <summary>
@@ -1390,41 +1303,35 @@ namespace RevitWebAppSync.Services.JkrSpec
                 if (links.Count == 0)
                 {
                     fails++;
-                    yield return SpecChecks.Fail(id, "KRITIKAL: tiada link " + d, elementName: "Link " + d, actual: "tiada link",
-                            required: "link " + d + " berstatus Loaded", key: d)
-                        .En("CRITICAL: no " + d + " link");
+                    yield return SpecChecks.Fail(id, "CRITICAL: no " + d + " link", elementName: "Link " + d, actual: "no link",
+                            required: "link " + d + " with status Loaded", key: d);
                     continue;
                 }
                 var notLoaded = links.Where(l => !l.IsLoaded).ToList();
                 foreach (var l in notLoaded)
                 {
                     fails++;
-                    yield return SpecChecks.Fail(id, "KRITIKAL: link " + d + " '" + l.Name + "' " + Show(l.Status), elementName: "Link " + l.Name,
-                            actual: Show(l.Status), required: "Loaded", key: d + "|" + l.Name)
-                        .En("CRITICAL: " + d + " link '" + l.Name + "' " + Show(l.Status));
+                    yield return SpecChecks.Fail(id, "CRITICAL: " + d + " link '" + l.Name + "' " + Show(l.Status), elementName: "Link " + l.Name,
+                            actual: Show(l.Status), required: "Loaded", key: d + "|" + l.Name);
                 }
                 if (notLoaded.Count == 0) ok.Add(d + " (" + string.Join(", ", links.Select(l => l.Name)) + ")");
             }
             if (fails == 0)
-                yield return SpecChecks.Pass(id, "Link Loaded: " + string.Join("; ", ok), ok.Count)
-                    .En("Links Loaded: " + string.Join("; ", ok));
+                yield return SpecChecks.Pass(id, "Links Loaded: " + string.Join("; ", ok), ok.Count);
         }
 
         /// <summary>C5.1.2 — link file names against the BPEP list: the BPEP is backend data, so unjudged here.</summary>
         internal static IEnumerable<SpecResult> C5_1_2(SpecModel m)
         {
             var names = m.Links.Select(l => l.Name).Where(n => !string.IsNullOrWhiteSpace(n)).ToList();
-            var list = names.Count == 0 ? "tiada link" : string.Join(", ", names);
-            yield return SpecChecks.Unjudged("C5.1.2", "BPEP tidak tersedia → tidak dapat disemak (link: " + list + ")")
-                .En("No BPEP available → cannot be checked (links: " + (names.Count == 0 ? "none" : string.Join(", ", names)) + ")");
+            yield return SpecChecks.Unjudged("C5.1.2", "No BPEP available → cannot be checked (links: " + (names.Count == 0 ? "none" : string.Join(", ", names)) + ")");
         }
 
         /// <summary>C5.1.3 — human decides, always: the add-in has no CDE / sync access to know the latest version.</summary>
         internal static IEnumerable<SpecResult> C5_1_3(SpecModel m)
         {
             var names = m.Links.Select(l => l.Name).Where(n => !string.IsNullOrWhiteSpace(n)).ToList();
-            yield return SpecChecks.Context("C5.1.3", "Kena semak versi terkini secara manual (" + names.Count + " link" + (names.Count > 0 ? ": " + string.Join(", ", names) : "") + ")")
-                .En("The latest version must be checked manually (" + names.Count + " links" + (names.Count > 0 ? ": " + string.Join(", ", names) : "") + ")");
+            yield return SpecChecks.Context("C5.1.3", "The latest version must be checked manually (" + names.Count + " links" + (names.Count > 0 ? ": " + string.Join(", ", names) : "") + ")");
         }
     }
 }

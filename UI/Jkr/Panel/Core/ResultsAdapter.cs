@@ -42,8 +42,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 Desc = desc,
                 El = ElementLabel(i, lang),
                 Req = i.Required ?? "",
-                Act = string.IsNullOrEmpty(actual) ? Text.Same("—")
-                    : new Text(actual, !string.IsNullOrEmpty(i.ActualEn) && actual == i.Actual ? i.ActualEn : actual),
+                Act = Text.Same(string.IsNullOrEmpty(actual) ? "—" : actual),
                 Prop = !human && i.AutoFixable && !string.IsNullOrEmpty(i.FixValue) ? i.FixValue
                      : !human && i.AiFixCandidate && i.AiProposal != null && !string.IsNullOrEmpty(i.AiProposal.Value) ? i.AiProposal.Value
                      : null,

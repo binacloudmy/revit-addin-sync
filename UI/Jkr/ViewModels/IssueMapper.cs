@@ -247,7 +247,6 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public static List<IssueVm> FromModelResults(
             IEnumerable<RevitWebAppSync.UI.Jkr.Panel.Core.SpecResult> results, string lang = null)
         {
-            lang = lang ?? RevitWebAppSync.UI.Jkr.Panel.Core.PaneLanguage.Current;
             var list = new List<IssueVm>();
             var byId = new Dictionary<string, IssueVm>(StringComparer.Ordinal);
             foreach (var r in results ?? Enumerable.Empty<RevitWebAppSync.UI.Jkr.Panel.Core.SpecResult>())
@@ -283,7 +282,6 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     Title = RevitWebAppSync.UI.Jkr.Panel.Core.SpecModelIssues.Title(r, lang),
                     Description = description,
                     Actual = r.Actual ?? "",
-                    ActualEn = RevitWebAppSync.UI.Jkr.Panel.Core.SpecModelIssues.ActualIn(r, RevitWebAppSync.UI.Jkr.Panel.Core.PanelStrings.En),
                     Required = r.Required ?? "",
                     AutoFixable = false,
                     Verification = ai ? IssueVerification.Ai : IssueVerification.Human,

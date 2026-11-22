@@ -13,7 +13,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
     public static class JkrCopilotFixInstaller
     {
         /// <summary>The prompt builder of the protocol-3 rework (set_parameters wording; see JkrCopilotPrompt).</summary>
-        public static Func<IssueVm, bool, IReadOnlyList<string>> DefaultPromptBuilder { get; } = (issue, bm) => JkrCopilotPrompt.Build(issue, bm);
+        public static Func<IssueVm, bool, IReadOnlyList<string>> DefaultPromptBuilder { get; } = (issue, bm) => JkrCopilotPrompt.Build(issue);
 
         /// <summary>The prompt parts for a row, in the pane language (<c>bm</c>), none over the element-id cap. Default: the
         /// protocol-3 builder. Null hides the button for every row.</summary>
@@ -32,7 +32,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             {
                 var rows = req.Rows.Select(issueById).Where(i => i != null).ToList();
                 if (rows.Count == 0) throw new InvalidOperationException("the row is no longer in the list");
-                return JkrCopilotPrompt.FactsOfRows(rows, !PaneLanguage.IsEn);
+                return JkrCopilotPrompt.FactsOfRows(rows);
             };
             JkrCopilotFix.Launcher = new JkrCopilotFixLauncher(
                 session,
@@ -42,7 +42,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     if (req.IsCheckWide)
                     {
                         if (!ReferenceEquals(build, DefaultPromptBuilder)) throw new InvalidOperationException("the prompt builder has no check-wide form");
-                        return JkrCopilotPrompt.Build(factsOf(req), !PaneLanguage.IsEn);
+                        return JkrCopilotPrompt.Build(factsOf(req));
                     }
                     var issue = issueById(req.IssueId) ?? throw new InvalidOperationException("the row is no longer in the list");
                     return build(issue, !PaneLanguage.IsEn);

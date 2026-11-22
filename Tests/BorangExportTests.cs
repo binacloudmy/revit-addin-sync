@@ -272,7 +272,7 @@ namespace RevitWebAppSync.Tests
         public void A_spec_X_lists_its_failing_issues_with_their_state_and_a_tick_has_no_remark()
         {
             var s = SpecBorangTests.Summary(
-                new SpecResult { Source = SpecReport.Model, CheckId = "E.1", Status = "fail", Category = "PBT", IssueId = "pbt-1", Note = "x", NoteEn = "PBT view X has no view template" },
+                new SpecResult { Source = SpecReport.Model, CheckId = "E.1", Status = "fail", Category = "PBT", IssueId = "pbt-1", Note = "PBT view X has no view template" },
                 new SpecResult { Source = SpecReport.Model, CheckId = "E.1", Status = "pass", Category = "BOMBA" });
             var doc = BorangDoc.Build(s, new[]
             {

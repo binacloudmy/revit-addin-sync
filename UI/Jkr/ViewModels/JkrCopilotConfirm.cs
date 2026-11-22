@@ -56,13 +56,13 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             var body = new StringBuilder();
             if (typeLevel)
             {
-                body.Append(variant.Change(bm)).Append(bm
+                body.Append(variant.Change).Append(bm
                     ? $" pada TYPE bagi elemen yang disenaraikan di bawah (satu id bagi setiap type). Perubahan ini terpakai pada SEMUA {(atLeast ? "sekurang-kurangnya " : "")}{instances} instance type itu, yang disenaraikan atau tidak. Kategori: {Cat(facts)}. Tiada apa dipadam. "
                     : $" on the TYPE of each element listed below (one id per type). The change applies to ALL {(atLeast ? "at least " : "")}{instances} instance{(instanceNo == 1 && !atLeast ? "" : "s")} of those types, listed or not. Category: {Cat(facts)}. Nothing is deleted. ");
             }
             else
             {
-                body.Append(variant.Change(bm)).Append(bm ? " pada elemen yang disenaraikan di bawah sahaja. " : " on the elements listed below only. ");
+                body.Append(variant.Change).Append(bm ? " pada elemen yang disenaraikan di bawah sahaja. " : " on the elements listed below only. ");
                 if (level == CopilotWriteLevel.Either)
                     body.Append(bm
                         ? "Jika parameter itu ialah parameter type, ia mengubah type elemen itu dan SEMUA instancenya, yang disenaraikan atau tidak. "

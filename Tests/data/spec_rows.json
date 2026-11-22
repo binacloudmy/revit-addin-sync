@@ -2,32 +2,32 @@
   {
     "id": "A1.1",
     "class": "Ai",
-    "comply_text": "Setiap aras: floor-to-ceiling >= 3000 mm; basement >= 2500 mm",
-    "not_comply_text": "Mana-mana aras < 3000 mm (atau basement < 2500 mm) — senaraikan aras + nilai sebenar"
+    "comply_text": "Every level: floor-to-ceiling >= 3000 mm; basement >= 2500 mm",
+    "not_comply_text": "Any level < 3000 mm (or basement < 2500 mm) — list the level + the actual value"
   },
   {
     "id": "A1.2",
     "class": "Ai",
-    "comply_text": "Pintu single leaf >= 900 mm; double >= 1500 mm; tinggi clear >= 2100 mm",
-    "not_comply_text": "Mana-mana type pintu bawah nilai minimum — senaraikan `Type | lebar | tinggi`"
+    "comply_text": "Single-leaf door >= 900 mm; double >= 1500 mm; clear height >= 2100 mm",
+    "not_comply_text": "Any door type below the minimum — list `Type | width | height`"
   },
   {
     "id": "A1.3",
     "class": "Ai",
-    "comply_text": "Pintu utama: solid core dan ketebalan >= 40 mm (parameter thickness terisi)",
-    "not_comply_text": "Ketebalan < 40 mm, atau parameter tidak wujud pada pintu utama"
+    "comply_text": "Main door: solid core and thickness >= 40 mm (thickness parameter filled)",
+    "not_comply_text": "Thickness < 40 mm, or the parameter does not exist on the main door"
   },
   {
     "id": "A1.4",
     "class": "Ai",
-    "comply_text": "Tiada RC flat roof; ATAU ada flat roof DAN elemen waterproofing/double roofing wujud dalam model",
-    "not_comply_text": "Bumbung RC tanpa lapisan/material waterproofing — DISENARAIKAN untuk manusia (JKR tiada takrif flat roof), bukan ✗ automatik"
+    "comply_text": "No RC flat roof; OR a flat roof AND a waterproofing / double-roofing element exists in the model",
+    "not_comply_text": "An RC roof without a waterproofing layer or material — LISTED for a person (JKR gives no flat-roof definition), not an automatic ✗"
   },
   {
     "id": "A1.5",
     "class": "Ai",
-    "comply_text": "Tinggi pagar hiasan >= 2400 mm",
-    "not_comply_text": "Tinggi < 2400 mm"
+    "comply_text": "Decorative fence height >= 2400 mm",
+    "not_comply_text": "Height < 2400 mm"
   },
   {
     "id": "A1.6",
@@ -44,32 +44,32 @@
   {
     "id": "A2.1",
     "class": "Ai",
-    "comply_text": "Nama fail mengandungi semua segmen wajib (>=3 segmen mengikut garis panduan)",
-    "not_comply_text": "Segmen tidak lengkap / format salah — papar pecahan segmen yang dikesan"
+    "comply_text": "The file name has every required segment (>= 3 segments as the guidelines set)",
+    "not_comply_text": "Segments incomplete / wrong format — show the segments detected"
   },
   {
     "id": "A2.2",
     "class": "Ai",
-    "comply_text": "Kod dikesan: W00 (model tunggal) atau WXnn (model pecah) — dibawa ke A3",
-    "not_comply_text": "Kod tidak dapat dibaca dari nama fail"
+    "comply_text": "Code detected: W00 (single model) or WXnn (split model) — carried to A3",
+    "not_comply_text": "The code cannot be read from the file name"
   },
   {
     "id": "A3.1",
     "class": "Ai",
-    "comply_text": "Kod = W00 → TERUS COMPLY (model satu seketul, cth dewan)",
+    "comply_text": "Code = W00 → COMPLIES DIRECTLY (a one-piece model, e.g. a hall)",
     "not_comply_text": "—"
   },
   {
     "id": "A3.2",
     "class": "Ai",
-    "comply_text": "Setiap fail pecahan (WX01, WX02…) hadir sebagai link dalam model",
-    "not_comply_text": "Ada pecahan yang tidak di-link — senaraikan fail yang hilang"
+    "comply_text": "Every part file (WX01, WX02…) is present as a link in the model",
+    "not_comply_text": "A part is not linked — list the missing files"
   },
   {
     "id": "A3.3",
     "class": "Ai",
-    "comply_text": "Semua fail model yang disenaraikan dalam BPEP dijumpai sebagai link",
-    "not_comply_text": "Ada fail dalam BPEP tiada dalam model (atau sebaliknya)"
+    "comply_text": "Every model file listed in the BPEP is found as a link",
+    "not_comply_text": "A file in the BPEP is not in the model (or the other way round)"
   },
   {
     "id": "A3.4",
@@ -86,8 +86,8 @@
   {
     "id": "A4.1",
     "class": "Ai",
-    "comply_text": "Project Base Point tepat pada Grid A/1 (0 mm)",
-    "not_comply_text": "Sisihan bukan 0 mm — papar sisihan dalam mm (X/Y); JKR tiada had sisihan, manusia putuskan"
+    "comply_text": "Project Base Point exactly at Grid A/1 (0 mm)",
+    "not_comply_text": "Offset is not 0 mm — show the offset in mm (X/Y); JKR gives no offset limit, a person decides"
   },
   {
     "id": "A5.1",
@@ -98,14 +98,14 @@
   {
     "id": "A5.2",
     "class": "Ai",
-    "comply_text": "Grid tersusun tanpa lompat: nombor 1,2,3,4… dan huruf A,B,C… (arah kiri→kanan atau terbalik, atas→bawah atau bawah→atas — semua diterima)",
-    "not_comply_text": "Ada lompatan dalam urutan (cth 1,2,3 → 11) — senaraikan jurang"
+    "comply_text": "Grids in order with no jumps: numbers 1,2,3,4… and letters A,B,C… (left→right or reversed, top→bottom or bottom→top — all accepted)",
+    "not_comply_text": "A jump in the sequence (e.g. 1,2,3 → 11) — list the gaps"
   },
   {
     "id": "A5.3",
     "class": "Ai",
-    "comply_text": "Pola sub-grid sah: 1A,1B,1C atau A1,A2,A3 — disenaraikan di bawah grid induk",
-    "not_comply_text": "— (sub-grid TIDAK dikira salah)"
+    "comply_text": "A valid sub-grid pattern: 1A,1B,1C or A1,A2,A3 — listed under the main grid",
+    "not_comply_text": "— (sub-grids are NOT counted as wrong)"
   },
   {
     "id": "A6.1",
@@ -116,20 +116,20 @@
   {
     "id": "A6.2",
     "class": "Ai",
-    "comply_text": "Setiap kawasan berslab mempunyai room yang didefinisikan (termasuk lif, tangga, apron)",
-    "not_comply_text": "Ada slab tanpa room — senaraikan `Aras | Lokasi grid | Jenis (lif/tangga/apron)`. Manusia putuskan sama ada slab itu pengecualian (lif, tangga, apron)"
+    "comply_text": "Every slab area has a defined room (lifts, stairs and aprons included)",
+    "not_comply_text": "A slab without a room — list `Level | Grid location | Type (lift/stair/apron)`. A person decides whether it is an exception (lift, stair, apron)"
   },
   {
     "id": "A6.3",
     "class": "Human",
-    "comply_text": "Department terisi (jika jenis projek memerlukan: hospital/pejabat)",
-    "not_comply_text": "— (JANGAN flag MAJOR semata-mata Department kosong)"
+    "comply_text": "Department filled (if the project type needs it: hospital / office)",
+    "not_comply_text": "— (DO NOT flag MAJOR just because Department is empty)"
   },
   {
     "id": "A7.1",
     "class": "Ai",
-    "comply_text": "Semua elemen dalam semua kategori mempunyai material (tidak kosong)",
-    "not_comply_text": "Elemen tanpa material — senaraikan `Kategori | Type name | Bil. elemen`"
+    "comply_text": "Every element in every category has a material (not empty)",
+    "not_comply_text": "Elements without a material — list `Category | Type name | No. of elements`"
   },
   {
     "id": "A7.2",
@@ -146,14 +146,14 @@
   {
     "id": "B1.1",
     "class": "Ai",
-    "comply_text": "Semua field yang bertanda wajib pada LOi projek (PB p.30–34) terisi dengan nilai sebenar",
-    "not_comply_text": "Field wajib kosong ATAU masih nilai lalai Revit — senaraikan `Parameter | Wajib pada LOi | Nilai | Status`"
+    "comply_text": "Every field marked mandatory at the project LOI (PB p.30–34) is filled with a real value",
+    "not_comply_text": "A mandatory field is empty OR still a Revit default — list `Parameter | Mandatory at LOI | Value | Status`"
   },
   {
     "id": "B1.2",
     "class": "Ai",
     "comply_text": "—",
-    "not_comply_text": "Satu baris 'Tidak patuh' setiap disiplin + senarai field yang belum diisi sahaja"
+    "not_comply_text": "One 'Not compliant' row per discipline + a list of the unfilled fields only"
   },
   {
     "id": "B1.3",
@@ -170,14 +170,14 @@
   {
     "id": "C1.1.1",
     "class": "Ai",
-    "comply_text": "Setiap view dalam template JKR AR wujud dalam projek (dibanding dengan template, bukan dengan projek)",
-    "not_comply_text": "View template yang dipadam — senaraikan view yang tiada"
+    "comply_text": "Every view of the JKR AR template exists in the project (compared with the template, not with the project)",
+    "not_comply_text": "A template view was deleted — list the missing views"
   },
   {
     "id": "C1.1.2",
     "class": "Ai",
-    "comply_text": "Semua view template kekal dengan nama asal",
-    "not_comply_text": "Nama view template ditukar (ditukar nama = SALAH; jarang berlaku)"
+    "comply_text": "Every template view keeps its original name",
+    "not_comply_text": "A template view was renamed (renamed = WRONG; rare)"
   },
   {
     "id": "C1.1.3",
@@ -194,14 +194,14 @@
   {
     "id": "C1.3.1",
     "class": "Ai",
-    "comply_text": "Ketiga-tiga jenis wajib hadir dalam set PBT",
-    "not_comply_text": "Mana-mana jenis tiada — checklist `floor plan ✓ | elevation ✓ | section ✗`"
+    "comply_text": "All three required types are present in the PBT set",
+    "not_comply_text": "Any type missing — checklist `floor plan ✓ | elevation ✓ | section ✗`"
   },
   {
     "id": "C1.4.1",
     "class": "Ai",
-    "comply_text": "Ketiga-tiga jenis wajib hadir dalam set BOMBA",
-    "not_comply_text": "Mana-mana jenis tiada — checklist"
+    "comply_text": "All three required types are present in the BOMBA set",
+    "not_comply_text": "Any type missing — checklist"
   },
   {
     "id": "C1.5.1",
@@ -212,38 +212,38 @@
   {
     "id": "C1.5.2",
     "class": "Ai",
-    "comply_text": "Set view Dokumen ada satu 3D view bagi setiap aras",
-    "not_comply_text": "Aras tanpa 3D view Dokumen — cth '3D view setiap aras: 3/4 ✗ (Aras 03 tiada)'; nyatakan sebab"
+    "comply_text": "The Dokumen view set has one 3D view for every level",
+    "not_comply_text": "A level without a Dokumen 3D view — e.g. '3D view for every level: 3/4 ✗ (Aras 03 missing)'; state the reason"
   },
   {
     "id": "C1.6.1",
     "class": "Ai",
-    "comply_text": "Room schedule / Schedule of Accommodation wujud dalam projek",
-    "not_comply_text": "Tiada jadual ruang → ✗ (tawarkan 'Jana jadual ruang' — berbayar)"
+    "comply_text": "A room schedule / Schedule of Accommodation exists in the project",
+    "not_comply_text": "No room schedule → ✗"
   },
   {
     "id": "C1.6.2",
     "class": "Ai",
-    "comply_text": "Semua room dalam model hadir dalam jadual ruang",
-    "not_comply_text": "Room dalam model tiada dalam jadual — senaraikan"
+    "comply_text": "Every room in the model is in the room schedule",
+    "not_comply_text": "A room in the model is not in the schedule — list them"
   },
   {
     "id": "C1.6.3",
     "class": "Ai",
-    "comply_text": "Setiap kolum wajib (PB p.36 Area / p.37 Room) ada nilai bagi setiap room",
-    "not_comply_text": "Ada kolum kosong — senaraikan `Room | Kolum kosong` (cth 'Bilik Mesyuarat 1 | Kemasan lantai, Kemasan dinding'). Tidak lengkap = JKR reject"
+    "comply_text": "Every mandatory column (PB p.36 Area / p.37 Room) has a value for every room",
+    "not_comply_text": "An empty column — list `Room | Empty column` (e.g. 'Meeting Room 1 | Floor finish, Wall finish'). Incomplete = JKR rejects"
   },
   {
     "id": "C2.1.1",
     "class": "Ai",
-    "comply_text": "Sekurang-kurangnya satu legend wujud → ✓",
-    "not_comply_text": "Tiada legend langsung"
+    "comply_text": "At least one legend exists → ✓",
+    "not_comply_text": "No legend at all"
   },
   {
     "id": "C3.1.1",
     "class": "Ai",
-    "comply_text": "Setiap kategori AR (senarai PB p.36–103) yang DIMODELKAN mempunyai schedule",
-    "not_comply_text": "Dimodelkan tetapi tiada schedule — senaraikan (cth 'Railing: 5 elemen, tiada schedule')"
+    "comply_text": "Every AR category (PB p.36–103 list) that is MODELLED has a schedule",
+    "not_comply_text": "Modelled but no schedule — list them (e.g. 'Railing: 5 elements, no schedule')"
   },
   {
     "id": "C3.1.2",
@@ -260,26 +260,26 @@
   {
     "id": "C4.1.2",
     "class": "Ai",
-    "comply_text": "Kesemua hadir merentas set sheet: floor plan, ceiling plan, elevation, section, detail pintu, detail tingkap",
-    "not_comply_text": "Mana-mana jenis tiada langsung dalam semua sheet"
+    "comply_text": "All present across the sheet set: floor plan, ceiling plan, elevation, section, door detail, window detail",
+    "not_comply_text": "Any type missing from every sheet"
   },
   {
     "id": "C4.1.3",
     "class": "Ai",
-    "comply_text": "Setiap sheet mengandungi sekurang-kurangnya satu view",
-    "not_comply_text": "Sheet tanpa view → ✗"
+    "comply_text": "Every sheet holds at least one view",
+    "not_comply_text": "A sheet without a view → ✗"
   },
   {
     "id": "C4.2.1",
     "class": "Ai",
-    "comply_text": "Family title block yang digunakan ialah title block JKR",
-    "not_comply_text": "Title block bukan JKR / tiada"
+    "comply_text": "The title block family used is the JKR title block",
+    "not_comply_text": "Title block not JKR / none"
   },
   {
     "id": "C4.2.2",
     "class": "Ai",
-    "comply_text": "Semua terisi: tajuk projek, tajuk lukisan, dimodelkan oleh, timestamp",
-    "not_comply_text": "Mana-mana sel kosong → ✗ pada sel berkenaan"
+    "comply_text": "All filled: project title, drawing title, modelled by, timestamp",
+    "not_comply_text": "Any empty cell → ✗ on that cell"
   },
   {
     "id": "C4.2.3",
@@ -290,14 +290,14 @@
   {
     "id": "C5.1.1",
     "class": "Ai",
-    "comply_text": "Ketiga-tiga disiplin hadir sebagai link dan berstatus Loaded",
-    "not_comply_text": "Disiplin wajib tiada link ATAU status Unloaded → ✗ KRITIKAL"
+    "comply_text": "All three disciplines are present as links with status Loaded",
+    "not_comply_text": "A required discipline has no link OR status Unloaded → ✗ CRITICAL"
   },
   {
     "id": "C5.1.2",
     "class": "Ai",
-    "comply_text": "Nama fail link padan dengan senarai fail dalam BPEP",
-    "not_comply_text": "Nama tidak padan / fail BPEP tiada dalam model"
+    "comply_text": "Link file names match the file list in the BPEP",
+    "not_comply_text": "Names do not match / a BPEP file is not in the model"
   },
   {
     "id": "C5.1.3",
@@ -308,32 +308,32 @@
   {
     "id": "Da.1",
     "class": "Ai",
-    "comply_text": "Type name padan dengan pola coding JKR (cth `(PT2p600a) 900 x 2325 a`)",
-    "not_comply_text": "Nama generik ('Door 1', 'Basic Wall', 'door bla bla') → ✗ TERUS. Papar `Type name | Bil. | Cadangan nama`"
+    "comply_text": "The type name matches the JKR coding pattern (e.g. `(PT2p600a) 900 x 2325 a`)",
+    "not_comply_text": "A generic name ('Door 1', 'Basic Wall', 'door bla bla') → ✗ DIRECTLY. Show `Type name | Count | Suggested name`"
   },
   {
     "id": "Db.1",
     "class": "Ai",
-    "comply_text": "Semua parameter wajib pada LOi projek bagi kategori itu terisi (PB: Door p.51, Window p.99, Wall p.95, Floor p.55, Ceiling p.42, Roof p.83, Stair p.91, Railing p.80, Ramp p.76, Curtain p.48, Casework p.38, Plumbing p.72, Generic p.67, Column p.45)",
-    "not_comply_text": "Parameter wajib kosong — ringkasan 'Door: 9/12 parameter LOi 300 terisi'"
+    "comply_text": "Every parameter mandatory at the project LOI for that category is filled (PB: Door p.51, Window p.99, Wall p.95, Floor p.55, Ceiling p.42, Roof p.83, Stair p.91, Railing p.80, Ramp p.76, Curtain p.48, Casework p.38, Plumbing p.72, Generic p.67, Column p.45)",
+    "not_comply_text": "A mandatory parameter is empty — summary 'Door: 9/12 LOI 300 parameters filled'"
   },
   {
     "id": "Db.2",
     "class": "Ai",
-    "comply_text": "Material terisi DAN mengikut coding JKR",
-    "not_comply_text": "Material kosong atau tidak ikut coding JKR"
+    "comply_text": "Material filled AND follows JKR coding",
+    "not_comply_text": "Material empty or not JKR-coded"
   },
   {
     "id": "Dc.1",
     "class": "Ai",
-    "comply_text": "Nombor dalam type name (dianggap mm) sama dengan nilai parameter sebenar (cth `Wall 146` → Width = 146)",
-    "not_comply_text": "Tidak padan — senaraikan `Type name | Nilai dalam nama | Parameter | Nilai sebenar` (cth 'Wall 146 | 146 | Width | 150 ✗')"
+    "comply_text": "The number in the type name (taken as mm) equals the actual parameter value (e.g. `Wall 146` → Width = 146)",
+    "not_comply_text": "No match — list `Type name | Value in name | Parameter | Actual value` (e.g. 'Wall 146 | 146 | Width | 150 ✗')"
   },
   {
     "id": "Dd.1",
     "class": "Ai",
-    "comply_text": "Kategori Revit padan dengan kategori yang dijangka dari nama (floor dalam kategori Floor, tingkap bukan dalam kategori Door)",
-    "not_comply_text": "Tidak padan — paparkan yang tidak padan SAHAJA"
+    "comply_text": "The Revit category matches the category the name implies (a floor in the Floor category, a window not in the Door category)",
+    "not_comply_text": "No match — show ONLY the mismatches"
   },
   {
     "id": "Dd.2",
@@ -362,7 +362,7 @@
   {
     "id": "E.1",
     "class": "Ai",
-    "comply_text": "Setiap view guna template setnya sendiri: BOMBA→template Bomba, PBT→template PBT, Dokumen→template Dokumen",
-    "not_comply_text": "Tiada view template LANGSUNG, ATAU template dari set yang SALAH — papar `Set | Nama view | Template dipakai | Template dijangka | Padan?`"
+    "comply_text": "Every view uses its own set's template: BOMBA→Bomba template, PBT→PBT template, Dokumen→Dokumen template",
+    "not_comply_text": "No view template AT ALL, OR a template from the WRONG set — show `Set | View name | Template used | Template expected | Match?`"
   }
 ]

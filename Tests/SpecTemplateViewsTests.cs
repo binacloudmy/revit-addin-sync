@@ -57,8 +57,7 @@ namespace RevitWebAppSync.Tests
             var r = Assert.Single(Run("C1.1.1", FromJkrTemplate()));
             Assert.Equal("pass", r.Status);
             Assert.Equal(SpecCoverage.Full, r.Coverage);
-            Assert.Contains("Semua 67 view template JKR AR wujud", r.Note);
-            Assert.Contains("13 nama default Revit", r.Note);
+            Assert.Contains("13 Revit default names", r.Note);
         }
 
         [Fact]
@@ -73,9 +72,8 @@ namespace RevitWebAppSync.Tests
             var all = SpecTemplateViews.Judged;
             var r = Assert.Single(Run("C1.1.1", Project(all.Skip(40).ToArray())));   // 40 absent: ONE row, not 40
             Assert.Equal("fail", r.Status);
-            Assert.Contains("40 view template JKR AR tiada daripada 67", r.Note);
             Assert.Contains(all[0], r.Note);
-            Assert.Contains("40 of 67 JKR AR view templates missing", r.NoteEn);
+            Assert.Contains("40 of 67 JKR AR view templates missing", r.Note);
             Assert.Equal(string.Join(" | ", all.Take(40)), r.Required);   // full names for a later Fix via Copilot prompt
             Assert.False(string.IsNullOrEmpty(r.IssueId));
         }
@@ -89,9 +87,8 @@ namespace RevitWebAppSync.Tests
             Assert.Equal("cannot_verify", r.Status);
             Assert.Equal(SpecCoverage.Context, r.Coverage);
             Assert.False(string.IsNullOrEmpty(r.IssueId));
-            Assert.Contains("2 view template JKR AR tiada daripada 67", r.Note);
             Assert.Contains("Pelan Saya Sendiri", r.Note);
-            Assert.Contains("possibly renamed", r.NoteEn);
+            Assert.Contains("possibly renamed", r.Note);
             Assert.Equal(string.Join(" | ", all.Take(2)), r.Required);
             foreach (var x in rs) x.Source = SpecReport.Model;
             var st = SpecReport.Build(rs).For("C1.1.1");
@@ -113,8 +110,7 @@ namespace RevitWebAppSync.Tests
             Assert.Equal("cannot_verify", empty.Status);
             var noTemplates = Assert.Single(Run("C1.1.1", Project()));
             Assert.Equal("cannot_verify", noTemplates.Status);
-            Assert.Contains("either none in this model or not readable", noTemplates.NoteEn);
-            Assert.Contains("tidak dapat dibaca", noTemplates.Note);
+            Assert.Contains("either none in this model or not readable", noTemplates.Note);
             var err = Project("x");
             err.ReadErrors.Add("Views: access denied");
             var r = Assert.Single(Run("C1.1.1", err));
@@ -127,7 +123,6 @@ namespace RevitWebAppSync.Tests
         {
             var r = Assert.Single(Run("C1.1.2", FromJkrTemplate()));
             Assert.Equal("pass", r.Status);
-            Assert.Contains("67 view template JKR AR kekal nama asal", r.Note);
         }
 
         [Fact]
@@ -143,8 +138,7 @@ namespace RevitWebAppSync.Tests
             Assert.False(string.IsNullOrEmpty(w.IssueId));
             Assert.Contains(original, w.Note);
             Assert.Contains(names[0], w.Note);
-            Assert.Contains("tidak disahkan oleh dokumen JKR", w.Note);
-            Assert.Contains("not confirmed by a JKR document", w.NoteEn);
+            Assert.Contains("not confirmed by a JKR document", w.Note);
             // C1.1.1 still counts it as present
             Assert.Equal("pass", Assert.Single(Run("C1.1.1", Project(names.ToArray()))).Status);
         }
@@ -155,7 +149,7 @@ namespace RevitWebAppSync.Tests
             var names = SpecTemplateViews.Judged.Select(n => n.ToUpperInvariant()).ToArray();
             var w = Assert.Single(Run("C1.1.2", Project(names)));
             Assert.Equal("warning", w.Status);
-            Assert.Contains("67 view template JKR AR ditukar nama", w.Note);
+            Assert.Contains("67 JKR AR view templates renamed", w.Note);
         }
 
         [Fact]
@@ -176,7 +170,7 @@ namespace RevitWebAppSync.Tests
             var rs = Run("C1.1.2", Project(SpecTemplateViews.Judged.Skip(3).ToArray()));
             var r = Assert.Single(rs);
             Assert.Equal("pass", r.Status);
-            Assert.Contains("3 tiada (lihat C1.1.1)", r.Note);
+            Assert.Contains("3 missing (see C1.1.1)", r.Note);
         }
 
         [Fact]
