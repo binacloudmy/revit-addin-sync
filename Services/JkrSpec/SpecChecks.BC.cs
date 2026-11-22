@@ -508,8 +508,8 @@ namespace RevitWebAppSync.Services.JkrSpec
             var err = ReadError(m, "Views", "View");
             if (err != null) return SpecChecks.Unjudged(id, "View tidak dapat dibaca: " + err).En("Views could not be read: " + err);
             if (!m.ViewTemplates.Any(t => !string.IsNullOrWhiteSpace(t)))
-                return SpecChecks.Unjudged(id, "Tiada view template dibaca daripada model — tidak dapat dibandingkan dengan template JKR AR")
-                    .En("No view templates were read from the model — cannot compare with the JKR AR template");
+                return SpecChecks.Unjudged(id, "Tiada view template dibaca: sama ada tiada dalam model ini atau tidak dapat dibaca — tidak dapat dibandingkan dengan template JKR AR")
+                    .En("No view templates read; either none in this model or not readable — cannot compare with the JKR AR template");
             return null;
         }
 
@@ -542,14 +542,28 @@ namespace RevitWebAppSync.Services.JkrSpec
                         + "; " + skipped + " Revit default names in the JKR template file are not checked");
                 yield break;
             }
-            var extraBm = t.Extra.Count > 0 ? "; view template lain dalam projek (mungkin ditukar nama, orang semak): " + Names(t.Extra) : "";
-            var extraEn = t.Extra.Count > 0 ? "; other view templates in the project (possibly renamed, a person checks): " + Names(t.Extra) : "";
-            foreach (var name in t.Missing)
+            var list = Names(t.Missing, 12);
+            if (t.Extra.Count == 0)
+            {
+                // Nothing else in the project could be a renamed one: clearly just absent.
                 yield return SpecChecks.Fail(id,
-                        "View template JKR AR \"" + name + "\" tiada dalam projek (" + t.Missing.Count + " daripada " + t.Expected + " tiada)" + extraBm,
-                        elementName: name, actual: "tiada", required: name, key: "tv:" + name)
-                    .EnAct("missing")
-                    .En("JKR AR view template \"" + name + "\" is not in the project (" + t.Missing.Count + " of " + t.Expected + " missing)" + extraEn);
+                        t.Missing.Count + " view template JKR AR tiada daripada " + t.Expected + ": " + list,
+                        actual: t.Missing.Count + " tiada", required: string.Join(" | ", t.Missing), key: "tv:missing")
+                    .EnAct(t.Missing.Count + " missing")
+                    .En(t.Missing.Count + " of " + t.Expected + " JKR AR view templates missing: " + list);
+                yield break;
+            }
+            // The project holds view templates that match no JKR name: some may be renamed ones. Nothing in a JKR
+            // document says a rename is wrong (D3), so a person decides (AI-504: undocumented judgement is not failed).
+            var r = SpecChecks.Context(id,
+                    t.Missing.Count + " view template JKR AR tiada daripada " + t.Expected + ": " + list
+                    + "; " + t.Extra.Count + " view template lain dalam projek (mungkin ditukar nama, orang semak): " + Names(t.Extra),
+                    key: "tv:missing", elementName: t.Missing.Count + " view template");
+            r.Actual = t.Missing.Count + " tiada"; r.Required = string.Join(" | ", t.Missing);
+            r.ActualEn = t.Missing.Count + " missing";
+            r.NoteEn = t.Missing.Count + " of " + t.Expected + " JKR AR view templates missing: " + list
+                       + "; " + t.Extra.Count + " other view templates in the project (possibly renamed, a person checks): " + Names(t.Extra);
+            yield return r;
         }
 
         /// <summary>
@@ -572,15 +586,17 @@ namespace RevitWebAppSync.Services.JkrSpec
                         + (t.Missing.Count > 0 ? "; " + t.Missing.Count + " missing (see C1.1.1)" : ""));
                 yield break;
             }
-            foreach (var kv in t.Renamed)
-                yield return new SpecResult
-                {
-                    CheckId = id, Status = "warning", Coverage = SpecCoverage.Full, Rule = id, ElementCount = 1,
-                    ElementName = kv.Value, Actual = kv.Value, Required = kv.Key,
-                    Note = "AMARAN: view template \"" + kv.Key + "\" ditukar nama kepada \"" + kv.Value + "\" — tidak disahkan oleh dokumen JKR",
-                    NoteEn = "WARNING: view template \"" + kv.Key + "\" was renamed to \"" + kv.Value + "\" — not confirmed by a JKR document",
-                    IssueId = SpecChecks.StableId(id, "rn:" + kv.Key),
-                };
+            var pairs = string.Join("; ", t.Renamed.Take(12).Select(kv => "\"" + kv.Key + "\" → \"" + kv.Value + "\""))
+                        + (t.Renamed.Count > 12 ? "; … (+" + (t.Renamed.Count - 12) + ")" : "");
+            yield return new SpecResult
+            {
+                CheckId = id, Status = "warning", Coverage = SpecCoverage.Full, Rule = id, ElementCount = 1,
+                ElementName = t.Renamed.Count + " view template", Actual = t.Renamed.Count + " ditukar nama",
+                Required = string.Join(" | ", t.Renamed.Select(kv => kv.Key)), ActualEn = t.Renamed.Count + " renamed",
+                Note = "AMARAN: " + t.Renamed.Count + " view template JKR AR ditukar nama: " + pairs + " — tidak disahkan oleh dokumen JKR",
+                NoteEn = "WARNING: " + t.Renamed.Count + " JKR AR view templates renamed: " + pairs + " — not confirmed by a JKR document",
+                IssueId = SpecChecks.StableId(id, "rn"),
+            };
         }
 
         /// <summary>

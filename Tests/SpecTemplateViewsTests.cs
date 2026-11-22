@@ -68,18 +68,34 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void C1_1_1_fails_one_per_missing_template_and_lists_unmatched_project_templates()
+        public void C1_1_1_absent_with_nothing_else_in_the_project_is_one_aggregate_fail()
         {
             var all = SpecTemplateViews.Judged;
-            var m = Project(all.Skip(2).Concat(new[] { "Pelan Saya Sendiri" }).ToArray());
-            var rs = Run("C1.1.1", m);
-            Assert.Equal(2, rs.Count);
-            Assert.All(rs, r => Assert.Equal("fail", r.Status));
-            Assert.Equal(all.Take(2), rs.Select(r => r.ElementName));
-            Assert.Contains("2 daripada 67 tiada", rs[0].Note);
-            Assert.Contains("Pelan Saya Sendiri", rs[0].Note);
-            Assert.Contains("possibly renamed", rs[0].NoteEn);
-            Assert.Equal(2, rs.Select(r => r.IssueId).Distinct().Count());
+            var r = Assert.Single(Run("C1.1.1", Project(all.Skip(40).ToArray())));   // 40 absent: ONE row, not 40
+            Assert.Equal("fail", r.Status);
+            Assert.Contains("40 view template JKR AR tiada daripada 67", r.Note);
+            Assert.Contains(all[0], r.Note);
+            Assert.Contains("40 of 67 JKR AR view templates missing", r.NoteEn);
+            Assert.Equal(string.Join(" | ", all.Take(40)), r.Required);   // full names for a later Fix via Copilot prompt
+            Assert.False(string.IsNullOrEmpty(r.IssueId));
+        }
+
+        [Fact]
+        public void C1_1_1_missing_beside_unmatched_project_templates_is_listed_for_a_person_not_failed()
+        {
+            var all = SpecTemplateViews.Judged;
+            var rs = Run("C1.1.1", Project(all.Skip(2).Concat(new[] { "Pelan Saya Sendiri" }).ToArray()));
+            var r = Assert.Single(rs);
+            Assert.Equal("cannot_verify", r.Status);
+            Assert.Equal(SpecCoverage.Context, r.Coverage);
+            Assert.False(string.IsNullOrEmpty(r.IssueId));
+            Assert.Contains("2 view template JKR AR tiada daripada 67", r.Note);
+            Assert.Contains("Pelan Saya Sendiri", r.Note);
+            Assert.Contains("possibly renamed", r.NoteEn);
+            Assert.Equal(string.Join(" | ", all.Take(2)), r.Required);
+            foreach (var x in rs) x.Source = SpecReport.Model;
+            var st = SpecReport.Build(rs).For("C1.1.1");
+            Assert.Equal(0, st.Failed);
         }
 
         [Fact]
@@ -97,6 +113,8 @@ namespace RevitWebAppSync.Tests
             Assert.Equal("cannot_verify", empty.Status);
             var noTemplates = Assert.Single(Run("C1.1.1", Project()));
             Assert.Equal("cannot_verify", noTemplates.Status);
+            Assert.Contains("either none in this model or not readable", noTemplates.NoteEn);
+            Assert.Contains("tidak dapat dibaca", noTemplates.Note);
             var err = Project("x");
             err.ReadErrors.Add("Views: access denied");
             var r = Assert.Single(Run("C1.1.1", err));
@@ -129,6 +147,15 @@ namespace RevitWebAppSync.Tests
             Assert.Contains("not confirmed by a JKR document", w.NoteEn);
             // C1.1.1 still counts it as present
             Assert.Equal("pass", Assert.Single(Run("C1.1.1", Project(names.ToArray()))).Status);
+        }
+
+        [Fact]
+        public void C1_1_2_many_renames_are_one_warning_row()
+        {
+            var names = SpecTemplateViews.Judged.Select(n => n.ToUpperInvariant()).ToArray();
+            var w = Assert.Single(Run("C1.1.2", Project(names)));
+            Assert.Equal("warning", w.Status);
+            Assert.Contains("67 view template JKR AR ditukar nama", w.Note);
         }
 
         [Fact]
