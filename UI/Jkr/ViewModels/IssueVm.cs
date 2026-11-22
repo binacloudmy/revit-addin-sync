@@ -218,6 +218,20 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// Locate goes to the first). 1 for a single-element issue.</summary>
         public int LocateCount { get; set; } = 1;
 
+        /// <summary>AI-491: every element id behind the row (a spec row can cover 46 doors), in Locate order;
+        /// empty for a model-level row. When filled, Count == <see cref="LocateCount"/>.</summary>
+        public List<long> ElementIds { get; set; } = new List<long>();
+
+        /// <summary>AI-491: label per id in <see cref="ElementIds"/> ("Doors · PT1p_850x2100"); an id with no label is absent.</summary>
+        public Dictionary<long, string> ElementLabels { get; set; } = new Dictionary<long, string>();
+
+        /// <summary>AI-491: add element ids (positive, new ones only) with one label for them, and keep
+        /// <see cref="LocateCount"/> equal to the id count. A label already set for an id is kept.</summary>
+        public void AddElements(IEnumerable<long> ids, string label)
+        {
+            if (IssueElementIds.Add(ElementIds, ElementLabels, ids, label) > 0) LocateCount = ElementIds.Count;
+        }
+
         /// <summary>The row can ask the backend AI fixer (/jkr-autofix) for this issue (never Fix all; AI-435):
         /// AI-judged, no ready-made fix, a real element and a backend check id. Not the
         /// local BIM010 rows, the add-in's own spec checks ("SPEC-") or test-fixture
