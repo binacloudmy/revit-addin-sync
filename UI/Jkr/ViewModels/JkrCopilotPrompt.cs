@@ -61,6 +61,10 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// <summary>WP-6: the new names come from the facts (the add-in derived them): the prompt and the confirm list "id: old -> new" and only
         /// ids that have one. The model never derives a name.</summary>
         public bool NamesFromFacts { get; set; }
+        /// <summary>WP-4/5: the family is done by a stored playbook run (<c>run_revit_code</c> with <c>playbook</c> and inputs), not by
+        /// <c>set_parameters</c>: the ids are only used to read names (the playbook takes names), and the confirm says what the playbook
+        /// does. Null for a <c>set_parameters</c> family. The name of the playbook in bina-ai <c>data/copilot/playbooks</c>.</summary>
+        public string Playbook { get; set; }
     }
 
     /// <summary>
@@ -116,6 +120,14 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     "Change the rooms below by filling every empty mandatory room-schedule column (Room parameters). Set only values you can derive from the model.",
                     "Find the empty columns with inspect, then use set_parameters for each column on the room ids below. If a value cannot be taken from the model or from lookup, ask me once with ask_user; never guess.",
                     "Fill empty room parameters"),
+                ["C4.1.3"] = new CopilotPromptVariant(
+                    "Place a view on each empty sheet below, so that no sheet is empty. Add the view only; never change the sheet.",
+                    "Read each id's sheet number and name with inspect. Then use run_revit_code with playbook \"place-view-on-sheet\" and no code: inputs sheets = those sheet numbers. If the result has ASK lines, ask me once with ask_user which view goes on each sheet, offering only the view names it lists, then run it again with viewFor from my answer. Never choose a view yourself and never create a view. Pass expected {adds: N}, N = the number of sheets that get a view. Never delete a sheet, even an empty one: a person decides that.",
+                    "Place a view on each empty sheet", CopilotWriteLevel.Instance) { Playbook = "place-view-on-sheet" },
+                ["E.1"] = new CopilotPromptVariant(
+                    "Apply the view template of its own set (BOMBA, PBT or Dokumen) to each view below. Change the view template only.",
+                    "Read each id's view name with inspect. Then use run_revit_code with playbook \"apply-view-template\" and no code: inputs views = those names, without template on the first run; each ASK line of the result lists the view templates that fit that view. Take the template whose name carries the view's own set only when exactly one name does; otherwise ask me once with ask_user. Then run it again with template, or templateFor when the views differ, and expected {modifies: N}, N = the number of views. Never create, duplicate or change a view template. If the result says a template is not in this project, leave that view as it is and say so: the template views are copied in by check C1.1.1.",
+                    "Apply the view template to the views", CopilotWriteLevel.Instance) { Playbook = "apply-view-template" },
                 ["C4.2.2"] = new CopilotPromptVariant(
                     "Change the sheets below by filling the empty title block cells: drawing title (Sheet Name) and Drawn By. Set only values you know.",
                     "Use set_parameters with type_param false on the sheets' own parameters 'Sheet Name' (the drawing title) and 'Drawn By' for the sheet ids below; a sheet has no type, so never send type_param true. A sheet still called 'Unnamed' needs a real title: if you do not know it, ask me once with ask_user (never write 'Unnamed' again). Project-level values (Project Information) and title block type parameters are out of scope: do not change them and say which cells stay empty. If a value is not known, ask me once with ask_user.",
@@ -293,6 +305,9 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             sb.AppendLine(variant.How);
             // AI-490: the engine skips its own question only for a write it can tie to the ids the dialog confirmed: ids as the target
             // (never a filter), and, for a type write, ids it has already read in this turn (so it knows each type and category).
+            if (variant.Playbook != null)
+                sb.AppendLine("Use the ids above only to read names with inspect; never use a filter to find elements.");
+            else
             sb.AppendLine("Use the ids above as ids only as the target; never use a filter." + (variant.Level == CopilotWriteLevel.Type
                 ? " Read these ids first, in this turn, before set_parameters: read them with inspect AND run find_elements for their category grouped by type (both), so each type, its category and its instance count are known."
                 : ""));
