@@ -15,7 +15,7 @@ orchestrator, in both repos in the same change, and check with
 |---|---|
 | `envelope.schema.json` | What every add-in tool returns, including the four invariants below |
 | `protocol3.schema.json` | Turn/results request bodies, SSE event data, the 426 body, the add-in-side shape of rewritten args; `x-routes` lists the four routes |
-| `tools.json` | The 10 tools exactly as the loop sends them to the model: `[{name, kind, description, parameters}]` |
+| `tools.json` | The 11 tools exactly as the loop sends them to the model: `[{name, kind, description, parameters}]` |
 | `snapshot.schema.json` | The Revit context snapshot sent with every request |
 | `ruleset.schema.json` | `check` rule sets, plus `$defs/check_result` (the `data` of a check envelope) |
 | `playbook.schema.json` | Playbook YAML front-matter; `x-body-headings` and `x-max-bytes` for the body |
@@ -23,7 +23,7 @@ orchestrator, in both repos in the same change, and check with
 
 Implementations: `BinaVibe/Copilot/Contracts/` (C#, System.Text.Json) and
 `app/services/assistant/contracts.py` (pydantic v2). Their tests check every
-example, the enums against these schemas, and the 10-tool / 600-character
+example, the enums against these schemas, and the 11-tool / 600-character
 limits.
 
 ## Conventions
@@ -59,9 +59,11 @@ limits.
 `POST /copilot/turns/{turn_id}/results` (idempotent by `request_id`) opens the
 next stream. `GET /copilot/turns/{turn_id}/events?after=<seq>` replays a
 dropped stream; `seq` starts at 1 and increases within a turn. Read requests
-never carry `set_parameters`; write requests carry only `set_parameters` and
-`run_revit_code`, so every write reaches Revit's confirm card. Writes apply to
-the host model only: a `set_parameters` filter has no `source`.
+never carry `set_parameters` or `load_link`; write requests carry only
+`set_parameters`, `run_revit_code` and `load_link`. Writes apply to the host
+model only: a `set_parameters` filter has no `source`. `load_link` is the one
+write that runs outside a transaction (Revit clears its Undo list when a link
+loads), so it makes no Undo entry.
 
 ## Turn result
 

@@ -3,7 +3,7 @@
 // contracts/copilot/examples must round-trip through the add-in's
 // System.Text.Json contract types without losing or inventing a key, must
 // satisfy the §2.1 envelope invariants, and tools.json must hold exactly the
-// 10 model-facing tools with descriptions of at most 600 characters. The
+// 11 model-facing tools with descriptions of at most 600 characters. The
 // CopilotToolHost tests pin which calls may reach the read executor and the
 // write runner.
 //
@@ -255,11 +255,11 @@ namespace RevitAddinSync.Tests
         // ------------------------------------------------------------------
 
         [Fact]
-        public void ToolsJson_HasExactlyTenTools_DescriptionsUnder600()
+        public void ToolsJson_HasExactlyElevenTools_DescriptionsUnder600()
         {
             var tools = Parse(Read("tools.json")).EnumerateArray().ToList();
 
-            Assert.Equal(10, tools.Count);
+            Assert.Equal(11, tools.Count);
             Assert.Equal(ToolNames.All, tools.Select(t => t.GetProperty("name").GetString()!).ToArray());
             foreach (var tool in tools)
             {
@@ -357,6 +357,7 @@ namespace RevitAddinSync.Tests
             ("set_parameters", "3a03eb49bb8c9934dae7b60a0c71cad8d6ddf0a2eba1b132116deaadb499ec80"),
             ("look", "f45ba7a0b671a17e1f2d3f80257405e4af52208d5bb50dfea1ce74b2fb2eb701"),
             ("run_revit_code", "1f902b3245aef8cd92f4425be20bcf79627bf84817564bb7817216fdb61a23f3"),
+            ("load_link", "0dc14f002d59c8bea18eb1949b725365e27a925b05d3107884ac440d050c686e"),
             ("lookup", "a6f953c7394d76c2fa829142cea7580a85174c7449bab0b1b2bad317ba717745"),
             ("ask_user", "610b6edeb31d573df542dfba745e811d107bf1de7c496e7eede8a60f1c0f2841"),
             ("report", "59670aedb3e09bba8eeaeab58c352df2bbfec84d90f6a06ea40c2438434f0525"),
@@ -434,9 +435,9 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void ToolNames_AddInToolsAreTheSevenNonCloudTools()
+        public void ToolNames_AddInToolsAreTheEightNonCloudTools()
         {
-            Assert.Equal(7, ToolNames.AddIn.Count);
+            Assert.Equal(8, ToolNames.AddIn.Count);
             Assert.Equal(ToolNames.All.Where(n => ToolNames.KindOf(n) is "read" or "write" or "code"), ToolNames.AddIn);
             Assert.Equal("server", ToolNames.KindOf(ToolNames.Lookup));
             Assert.Equal("pane", ToolNames.KindOf(ToolNames.AskUser));
@@ -663,6 +664,49 @@ namespace RevitAddinSync.Tests
             Assert.Same(snapshot, writes.Got.Snapshot);
             Assert.Equal(ErrorCodes.NotAllowed, results[1].Error!.Code);
             Assert.Equal(new[] { "ran set_parameters", "ran run_revit_code" }, new[] { results[0], results[2] }.Select(e => e.Summary));
+        }
+
+        [Fact]
+        public async Task Host_LoadLinkRunsInAWriteRequestAndIsRefusedInARead_AI529()
+        {
+            var writes = new FakeWrites();
+            var reads = new FakeReads();
+            var host = new CopilotToolHost { WriteRunner = writes, ReadExecutor = reads };
+
+            var asRead = await host.RunReadsAsync("turn", Calls("load_link"), new SnapshotModel(), CancellationToken.None);
+            Assert.Empty(reads.Seen);
+            Assert.Equal(ErrorCodes.NotAllowed, asRead.Single().Error!.Code);
+
+            var asWrite = await host.RunWritesAsync(new WriteBatchRequest { TurnId = "turn", RequestId = "req_03", Calls = Calls("load_link") }, CancellationToken.None);
+            Assert.Equal(new[] { "load_link" }, writes.Got!.Calls.Select(c => c.Tool));
+            Assert.Equal("ran load_link", asWrite.Single().Summary);
+        }
+
+        [Fact]
+        public void ToolsJson_LoadLinkIsAClosedWriteToolWithLinksAndPathOnly_AI529()
+        {
+            var tool = Parse(Read("tools.json")).EnumerateArray().Single(t => t.GetProperty("name").GetString() == ToolNames.LoadLink);
+            Assert.Equal("write", tool.GetProperty("kind").GetString());
+            var p = tool.GetProperty("parameters");
+            Assert.False(p.TryGetProperty("required", out _));   // links or path: enforced by LoadLinkArgs (invalid_args), not by a combinator
+            Assert.Equal(new[] { "links", "path" }, p.GetProperty("properties").EnumerateObject().Select(x => x.Name).ToArray());
+            var links = p.GetProperty("properties").GetProperty("links");
+            Assert.Equal(LoadLinkArgs.MaxLinks, links.GetProperty("maxItems").GetInt32());
+            Assert.Equal(1, links.GetProperty("minItems").GetInt32());
+            Assert.Equal("string", links.GetProperty("items").GetProperty("type").GetString());
+        }
+
+        [Fact]
+        public void ProtocolSchema_LoadLinkIsAnAddInWriteToolAndNeverInARead_AI529()
+        {
+            var request = Parse(Read("protocol3.schema.json")).GetProperty("$defs").GetProperty("event_tool_request").GetProperty("allOf");
+            JsonElement ToolRule(string kind)
+            {
+                var rule = request.EnumerateArray().Single(r => r.GetProperty("if").GetProperty("properties").GetProperty("kind").GetProperty("const").GetString() == kind);
+                return rule.GetProperty("then").GetProperty("properties").GetProperty("calls").GetProperty("items").GetProperty("properties").GetProperty("tool");
+            }
+            Assert.Equal(new[] { "set_parameters", "run_revit_code", "load_link" }, ToolRule("write").GetProperty("enum").EnumerateArray().Select(x => x.GetString()).ToArray());
+            Assert.Equal(new[] { "set_parameters", "load_link" }, ToolRule("read").GetProperty("not").GetProperty("enum").EnumerateArray().Select(x => x.GetString()).ToArray());
         }
 
         [Fact]

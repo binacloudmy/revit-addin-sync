@@ -340,6 +340,8 @@ namespace RevitWebAppSync.Services.JkrSpec
 
     public sealed class SpecLink
     {
+        /// <summary>The link type's element id (AI-529: the C5.1.1 row carries it, so Fix via Copilot can load it).</summary>
+        public long Id;
         /// <summary>Linked file name ("jkrST24_….rvt").</summary>
         public string Name = "";
         /// <summary>Loaded | Unloaded | NotFound.</summary>

@@ -892,6 +892,23 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(3, Fails(Run("C5.1.1", new SpecModel())).Count);
         }
 
+        [Fact]
+        public void C5_1_1_a_link_that_is_not_loaded_carries_its_link_type_id_and_a_missing_discipline_has_none_AI529()
+        {
+            var m = Compliant();
+            var me = m.Links.Single(l => l.Name.StartsWith("jkrME"));
+            me.Status = "Unloaded";
+            me.Id = 4711;
+            m.Links.RemoveAll(l => l.Name.StartsWith("jkrEL"));
+            var fails = Fails(Run("C5.1.1", m));
+            var unloaded = Assert.Single(fails, f => f.Note.StartsWith("CRITICAL: ME link"));
+            Assert.Equal(4711, unloaded.ElementId);
+            Assert.Equal(new long[] { 4711 }, unloaded.ElementIds);
+            var missing = Assert.Single(fails, f => f.Note == "CRITICAL: no EL link");
+            Assert.Equal(0, missing.ElementId);          // nothing to load: Fix via Copilot stays hidden for it
+            Assert.Empty(missing.ElementIds);
+        }
+
         [Theory]
         [InlineData("jkrST24_5a_x.rvt", "ST", true)]
         [InlineData("Projek_ST_Blok A.rvt", "ST", true)]
