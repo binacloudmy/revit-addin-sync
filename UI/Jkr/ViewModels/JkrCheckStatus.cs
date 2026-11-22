@@ -72,6 +72,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             {
                 if (!o.Keep[k]) continue;
                 if ((int)issues[k].Priority != o.Tier[k]) issues[k].Priority = (IssuePriority)o.Tier[k];
+                if (o.Held[k] != null) issues[k].Actual = Panel.Core.SpecDedupe.ActualWithout(issues[k].Actual, o.Held[k]);
                 kept.Add(issues[k]);
             }
             var dropped = issues.Count - kept.Count;
@@ -92,6 +93,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             {
                 var vm = (IssueVm)r.Tag;
                 if ((int)vm.Priority != r.Tier) vm.Priority = (IssuePriority)r.Tier;
+                if (r.HeldParams.Count > 0) vm.Actual = SpecDedupe.ActualWithout(vm.Actual, r.HeldParams);   // AI-516
                 list.Add(vm);
             }
             return list;
@@ -133,6 +135,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             Param = SpecDedupe.ParamOfRule(i.RawRule, i.Required),
             ElementId = i.RevitElementId,
             ParamRule = SpecDedupe.RuleNamesParameter(i.RawRule),
+            ParamKind = SpecDedupe.ParamKindOfRule(i.RawRule),
             Category = i.RevitCategory ?? "",
             TypeName = TypeNameOf(i),
             Params = SpecDedupe.ParamsOfActual(i.Actual),

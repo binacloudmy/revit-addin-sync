@@ -47,6 +47,12 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             /// <summary>AI-506b. The row's rule text names the parameter ("Missing Type Parameter: X"), whatever its spec id
             /// says: a backend row with no element id has no spec id, and still says the same thing as a Db.1 spec row.</summary>
             public bool ParamRule;
+            /// <summary>AI-516. "type" / "instance" / "" (unknown), from the rule text ("Missing Type parameter: X"). A fixable row
+            /// of a TYPE parameter stands for the whole type, so it can hold the spec row's parameter; an instance row only holds it for its own element.</summary>
+            public string ParamKind = "";
+            /// <summary>AI-516 (output of <see cref="SpecDedupe.Resolve"/>, spec rows only): parameters of this row another kept, fixable row already reports.
+            /// The host removes them from the shown text (<see cref="SpecDedupe.ActualWithout"/>).</summary>
+            public IReadOnlyCollection<string> HeldParams = new string[0];
             /// <summary>AI-506b. Revit category of the row's element ("Doors"), "" when unknown. A backend parameter row whose
             /// id is of another kind than the spec row's (a TYPE id against INSTANCE ids) matches by (category, parameter).</summary>
             public string Category = "";
@@ -66,25 +72,65 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public static string ParamKey(string name) =>
             string.Join("_", (name ?? "").Trim().ToLowerInvariant().Split(new[] { ' ', '_' }, StringSplitOptions.RemoveEmptyEntries));
 
-        /// <summary>The parameter a backend rule names: "Missing Type Parameter: X" (its raw rule is
-        /// "missing type parameter: X"), else the row's Required text. "" when none.</summary>
+        /// <summary>Where the parameter name starts in a backend rule: "Missing Type parameter: X", "Empty Instance parameter: X"
+        /// and (AI-516) "Optional Type parameter missing: X". -1 = the rule names no parameter.</summary>
+        private static int ParamNameStart(string rule)
+        {
+            var r = (rule ?? "").Trim();
+            var low = r.ToLowerInvariant();
+            if (low.StartsWith("missing ") || low.StartsWith("empty "))
+            {
+                var k = low.IndexOf(" parameter:", StringComparison.Ordinal);
+                return k > 0 ? k + " parameter:".Length : -1;
+            }
+            if (low.StartsWith("optional "))
+            {
+                var k = low.IndexOf(" parameter missing:", StringComparison.Ordinal);
+                return k > 0 ? k + " parameter missing:".Length : -1;
+            }
+            return -1;
+        }
+
+        /// <summary>The parameter a backend rule names (its raw rule is "missing type parameter: X"), else the row's Required text. "" when none.</summary>
         public static string ParamOfRule(string rawRule, string required)
         {
             var r = (rawRule ?? "").Trim();
-            var k = r.IndexOf(" parameter:", StringComparison.OrdinalIgnoreCase);
-            var low = r.ToLowerInvariant();
-            if (k > 0 && (low.StartsWith("missing ") || low.StartsWith("empty ")))
-                return r.Substring(k + " parameter:".Length).Trim();
-            return (required ?? "").Trim();
+            var at = ParamNameStart(r);
+            return at > 0 ? r.Substring(at).Trim() : (required ?? "").Trim();
         }
 
-        /// <summary>The rule text says "Missing/Empty ... Parameter: X".</summary>
-        public static bool RuleNamesParameter(string rawRule)
+        /// <summary>The rule text says "Missing/Empty ... Parameter: X" (or "Optional ... parameter missing: X").</summary>
+        public static bool RuleNamesParameter(string rawRule) => ParamNameStart(rawRule) > 0;
+
+        /// <summary>AI-516. "type" or "instance" from a parameter rule's text; "" when it says neither.</summary>
+        public static string ParamKindOfRule(string rawRule)
         {
-            var r = (rawRule ?? "").Trim();
-            var k = r.IndexOf(" parameter:", StringComparison.OrdinalIgnoreCase);
-            var low = r.ToLowerInvariant();
-            return k > 0 && (low.StartsWith("missing ") || low.StartsWith("empty "));
+            if (!RuleNamesParameter(rawRule)) return "";
+            var words = (rawRule ?? "").ToLowerInvariant().Split(new[] { ' ', ':' }, StringSplitOptions.RemoveEmptyEntries);
+            foreach (var w in words)
+            {
+                if (w == "type") return "type";
+                if (w == "instance") return "instance";
+                if (w == "parameter") break;
+            }
+            return "";
+        }
+
+        /// <summary>AI-516. The shown "empty: A, B; missing: C" text without the parameters in <paramref name="held"/> (compared as
+        /// <see cref="ParamKey"/>). A part left with no parameter is dropped. Text with no ":" parts is returned unchanged.</summary>
+        public static string ActualWithout(string actual, IEnumerable<string> held)
+        {
+            var drop = new HashSet<string>((held ?? new string[0]).Select(ParamKey));
+            if (drop.Count == 0) return actual ?? "";
+            var parts = new List<string>();
+            foreach (var part in (actual ?? "").Split(';'))
+            {
+                var c = part.IndexOf(':');
+                if (c < 0) { if (part.Trim().Length > 0) parts.Add(part.Trim()); continue; }
+                var names = part.Substring(c + 1).Split(',').Select(n => n.Trim()).Where(n => n.Length > 0 && !drop.Contains(ParamKey(n))).ToList();
+                if (names.Count > 0) parts.Add(part.Substring(0, c).Trim() + ": " + string.Join(", ", names));
+            }
+            return string.Join("; ", parts);
         }
 
         /// <summary>Mirrors SpecModelReader.InstanceIdCap: a spec row lists at most this many instance ids per type.</summary>
@@ -116,71 +162,102 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             public bool[] Keep = new bool[0];
             /// <summary>Per input row: the tier to show (the most severe of its check's rows).</summary>
             public int[] Tier = new int[0];
+            /// <summary>AI-516: per input row, the spec-row parameters a kept fixable row reports instead (null = none).</summary>
+            public HashSet<string>[] Held = new HashSet<string>[0];
             public int Dropped => Keep.Count(k => !k);
         }
 
         /// <summary>
         /// AI-506: a Db.1 spec row (one per type) lists the parameters that type lacks or leaves empty,
-        /// and the backend reports each of them again per element ("Missing Type Parameter: X"). Drop
-        /// the backend / checker row when a spec row names the same parameter on the same element.
-        /// AI-506b: a row whose id no spec row lists matches by (category, parameter) only when the row has no
-        /// element, or its type name is a type a spec row lists for the parameter (a TYPE id against INSTANCE
-        /// ids), or the spec rows' id lists hit the reader's cap; never without a category. Names compare as
-        /// <see cref="ParamKey"/>. A row whose id a spec row lists, but not for this parameter, stays.
-        /// A fixable row stays (AI-479 rule); a row no spec row covers stays (never hide a problem).
-        /// Order of the input does not change the result.
+        /// and the backend reports each of them again per element ("Missing Type Parameter: X"). One
+        /// parameter on one element or type is ONE row. A backend / checker row names the same parameter as
+        /// a spec row when (<see cref="Covers"/>): its element is in the spec row's id list, or it is not
+        /// (a TYPE id, or none) and the category matches and one of: it has no element, its type name is the
+        /// spec row's type, the spec row's id list hit the reader's cap. Names compare as <see cref="ParamKey"/>.
+        /// A row whose id a spec row lists, but not for this parameter, is another problem and stays.
+        ///
+        /// Which row stays (AI-516): a row that is not fixable is dropped, the spec row wins (it counts in the %).
+        /// A fixable row (AI-479: never dropped; it holds the set_parameter write that Fix all makes and counts)
+        /// stays, and the spec row gives the parameter up instead: the parameter is removed from the spec row's
+        /// shown text (<see cref="Outcome.Held"/>), and the spec row is dropped when nothing is left. The % is
+        /// the spec report's and does not read board rows. A fixable row holds a parameter only when it stands
+        /// for every element the spec row lists: a TYPE-parameter row (one fix writes the type) or instance rows
+        /// that together cover all of the spec row's ids. Otherwise the spec row keeps the parameter.
+        /// A row no spec row covers stays (never hide a problem). Order of the input does not change the result.
         /// </summary>
         private static void DropCoveredParameterRows(IReadOnlyList<Row> rows, Outcome o)
         {
-            var byElement = new HashSet<(string, long)>();           // (parameter, element id) a spec row lists
-            var specIds = new HashSet<long>();                        // every element id any Db.1 spec row covers
-            var byCategory = new HashSet<(string, string)>();         // (parameter, category) a spec row lists
-            var cappedCategory = new HashSet<(string, string)>();     // ... where that spec row's id list hit the reader's cap
-            var byType = new HashSet<(string, string, string)>();     // (parameter, category, type name) a spec row lists
-            var any = false;
+            var specs = new List<int>();
             for (var i = 0; i < rows.Count; i++)
             {
                 var r = rows[i];
                 if (r == null || r.Source != FromModel || !IsCheck(r, ParameterCheck)) continue;
-                foreach (var e in r.ElementIds ?? new long[0]) specIds.Add(e);
-                var cat = CategoryKey(r.Category);
-                var type = CategoryKey(r.TypeName);
-                var capped = (r.ElementIds?.Count ?? 0) >= InstanceIdCap;
-                foreach (var p in r.Params ?? new string[0])
-                {
-                    var k = ParamKey(p);
-                    any = true;
-                    byCategory.Add((k, cat));
-                    if (capped) cappedCategory.Add((k, cat));
-                    if (type.Length > 0) byType.Add((k, cat, type));
-                    foreach (var e in r.ElementIds ?? new long[0]) byElement.Add((k, e));
-                }
+                if ((r.Params ?? new string[0]).Any(p => ParamKey(p).Length > 0)) specs.Add(i);
             }
-            if (!any) return;
-            var byFallback = 0;
+            if (specs.Count == 0) return;
+            var specIds = new HashSet<long>();                       // every element id any Db.1 spec row covers
+            foreach (var si in specs) foreach (var e in rows[si].ElementIds ?? new long[0]) specIds.Add(e);
+
+            // (spec row, parameter) -> the instance ids / "the whole type" a kept fixable row holds
+            var heldIds = new Dictionary<(int, string), HashSet<long>>();
+            var heldType = new HashSet<(int, string)>();
+            int dropped = 0, keptFixable = 0, unmatched = 0;
+
             for (var i = 0; i < rows.Count; i++)
             {
                 var r = rows[i];
-                if (r == null || r.Source == FromModel || r.Fixable || string.IsNullOrEmpty(r.Param)) continue;
+                if (r == null || r.Source == FromModel || string.IsNullOrEmpty(r.Param)) continue;
                 if (!IsCheck(r, ParameterCheck) && !r.ParamRule) continue;
                 var key = ParamKey(r.Param);
                 if (key.Length == 0) continue;
-                if (r.ElementId > 0 && byElement.Contains((key, r.ElementId))) { o.Keep[i] = false; continue; }
-                if (r.ElementId > 0 && specIds.Contains(r.ElementId)) continue;   // a known element the spec row does NOT list this parameter for
-                // The id says nothing. Never hide a row on the parameter alone: the category must match, and one of
-                // (a) the row has no element, (b) it is a type id: its type name is a type a spec row lists for this
-                // parameter, (c) the spec rows' id lists were cut at the cap, so the id may be one that was left out.
-                var cat = CategoryKey(r.Category);
-                if (cat.Length == 0 || !byCategory.Contains((key, cat))) continue;
-                var type = CategoryKey(r.TypeName);
-                var covered = r.ElementId <= 0
-                              || (type.Length > 0 && byType.Contains((key, cat, type)))
-                              || cappedCategory.Contains((key, cat));
-                if (!covered) continue;
-                o.Keep[i] = false; byFallback++;
+                var matched = specs.Where(si => Covers(rows[si], r, key, specIds)).ToList();
+                if (matched.Count == 0) { unmatched++; continue; }
+                if (!r.Fixable) { o.Keep[i] = false; dropped++; continue; }
+                keptFixable++;
+                var typeRow = string.Equals(r.ParamKind, "type", StringComparison.OrdinalIgnoreCase);
+                foreach (var si in matched)
+                {
+                    if (typeRow) heldType.Add((si, key));
+                    if (r.ElementId > 0)
+                    {
+                        if (!heldIds.TryGetValue((si, key), out var set)) heldIds[(si, key)] = set = new HashSet<long>();
+                        set.Add(r.ElementId);
+                    }
+                }
             }
-            if (byFallback > 0)
-                System.Diagnostics.Debug.WriteLine("[SpecDedupe] AI-506b: " + byFallback + " parameter row(s) hidden by the (category, parameter) fallback");
+
+            foreach (var si in specs)
+            {
+                var all = rows[si].Params.Select(ParamKey).Where(k => k.Length > 0).Distinct().ToList();
+                var ids = (rows[si].ElementIds ?? new long[0]).Where(e => e > 0).ToList();
+                var held = new HashSet<string>();
+                foreach (var k in all)
+                {
+                    if (heldType.Contains((si, k))) { held.Add(k); continue; }
+                    if (ids.Count > 0 && heldIds.TryGetValue((si, k), out var got) && ids.All(got.Contains)) held.Add(k);
+                }
+                if (held.Count == 0) continue;
+                if (held.Count == all.Count) o.Keep[si] = false; else o.Held[si] = held;
+            }
+            if (dropped + keptFixable > 0)
+                System.Diagnostics.Debug.WriteLine("[SpecDedupe] AI-516: parameter rows covered by a Db.1 row: " + dropped + " dropped, " + keptFixable + " fixable kept (spec row gives the parameter up); " + unmatched + " not covered");
+        }
+
+        /// <summary>The backend / checker row <paramref name="r"/> (parameter <paramref name="key"/>) says what the spec row <paramref name="spec"/> says.</summary>
+        private static bool Covers(Row spec, Row r, string key, HashSet<long> specIds)
+        {
+            if (!(spec.Params ?? new string[0]).Any(p => ParamKey(p) == key)) return false;
+            var ids = spec.ElementIds ?? new long[0];
+            if (r.ElementId > 0 && ids.Contains(r.ElementId)) return true;      // same element
+            if (r.ElementId > 0 && specIds.Contains(r.ElementId)) return false;  // a known element of ANOTHER spec row, or one this spec row lists no parameter for
+            // The id says nothing. Never on the parameter alone: the category must match, and one of
+            // (a) the row has no element, (b) it is a type id: its type name is the spec row's type, (c) the spec row's id list was cut at the cap.
+            var cat = CategoryKey(r.Category);
+            if (cat.Length == 0 || cat != CategoryKey(spec.Category)) return false;
+            var type = CategoryKey(r.TypeName);
+            return r.ElementId <= 0
+                   || (type.Length > 0 && type == CategoryKey(spec.TypeName))
+                   || ids.Count >= InstanceIdCap;
         }
 
         private static bool IsCheck(Row r, string id) => string.Equals((r.CheckId ?? "").Trim(), id, StringComparison.OrdinalIgnoreCase);
@@ -198,7 +275,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public static Outcome Resolve(IReadOnlyList<Row> rows)
         {
             rows = rows ?? new Row[0];
-            var o = new Outcome { Keep = Enumerable.Repeat(true, rows.Count).ToArray(), Tier = new int[rows.Count] };
+            var o = new Outcome { Keep = Enumerable.Repeat(true, rows.Count).ToArray(), Tier = new int[rows.Count], Held = new HashSet<string>[rows.Count] };
             for (var i = 0; i < rows.Count; i++) o.Tier[i] = rows[i]?.Tier ?? 1;
 
             foreach (var id in OneProblemChecks)
@@ -322,6 +399,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             {
                 if (!o.Keep[i]) continue;
                 merged[i].Tier = o.Tier[i];
+                merged[i].HeldParams = o.Held[i] != null ? (IReadOnlyCollection<string>)o.Held[i] : new string[0];
                 kept.Add(merged[i]);
             }
             return kept;

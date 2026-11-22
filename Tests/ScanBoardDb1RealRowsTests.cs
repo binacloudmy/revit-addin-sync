@@ -156,7 +156,8 @@ namespace RevitWebAppSync.Tests
                 SpecDedupe.ParamKey(SpecDedupe.ParamOfRule("Missing Type Parameter: Bidang Kejuruteraan Jkr Stt", "")));
             Assert.Equal("Bidang_Kejuruteraan_jkr_stt", SpecDedupe.ParamOfRule("Something else", "Bidang_Kejuruteraan_jkr_stt"));
             Assert.True(SpecDedupe.RuleNamesParameter("Missing Instance Parameter: LOD Jkr Sit"));
-            Assert.False(SpecDedupe.RuleNamesParameter("Optional Type Parameter Missing: Kod Ruang Berkaitan Jkr Stt"));
+            Assert.True(SpecDedupe.RuleNamesParameter("Optional Type Parameter Missing: Kod Ruang Berkaitan Jkr Stt"));   // AI-516: it names a parameter too
+            Assert.False(SpecDedupe.RuleNamesParameter("Naming Convention"));
         }
 
         [Fact]
