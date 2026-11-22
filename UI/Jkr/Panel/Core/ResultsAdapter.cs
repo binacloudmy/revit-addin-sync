@@ -55,6 +55,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 Reason = human ? desc : null,
                 FixError = PaneText.FixReason(i.FixError ?? "", lang),
                 AiFix = i.AiFixCandidate,
+                CopilotFixable = !human && i.CopilotFixable,
                 AiAsked = i.AiAsked,
                 AiReason = i.IsPick && !string.IsNullOrWhiteSpace(i.AiSuggestionReason) ? Text.Same(i.AiSuggestionReason.Trim())
                          : i.AiFixCandidate && !string.IsNullOrWhiteSpace(i.AiProposal?.Reason) ? Text.Same(i.AiProposal.Reason.Trim()) : null,

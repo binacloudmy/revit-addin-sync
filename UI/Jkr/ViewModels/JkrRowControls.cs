@@ -39,16 +39,17 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public static bool AiStillOffers(bool aiFixCandidate, bool aiAsked, bool hasProposal) =>
             aiFixCandidate && (!aiAsked || hasProposal);
 
-        /// <summary>A row can be fixed or answered by a button other than Locate / Mark manual.</summary>
-        public static bool HasFixControl(bool autoFixable, bool aiFixCandidate, bool isPick) =>
-            autoFixable || aiFixCandidate || isPick;
+        /// <summary>A row can be fixed or answered by a button other than Locate / Mark manual. A CopilotFixable row counts
+        /// (<paramref name="copilotButton"/>) only when it really shows the "Fix via Copilot" button (AI-492).</summary>
+        public static bool HasFixControl(bool autoFixable, bool aiFixCandidate, bool isPick, bool copilotButton = false) =>
+            autoFixable || aiFixCandidate || isPick || copilotButton;
 
         /// <summary>Mark manual: the tier allows it (<see cref="JkrTierMap.CanMarkManual"/>), or the row has no fix control at all.</summary>
         public static bool CanMarkManual(bool tierAllows, bool hasFixControl) =>
             tierAllows || !hasFixControl;
 
         /// <summary>A failing row's controls, as the pane offers them.</summary>
-        public static bool HasAnyControl(bool autoFixable, bool aiFixCandidate, bool isPick, bool locatable, bool canMarkManual) =>
-            autoFixable || aiFixCandidate || isPick || locatable || canMarkManual;
+        public static bool HasAnyControl(bool autoFixable, bool aiFixCandidate, bool isPick, bool locatable, bool canMarkManual, bool copilotButton = false) =>
+            autoFixable || aiFixCandidate || isPick || locatable || canMarkManual || copilotButton;
     }
 }

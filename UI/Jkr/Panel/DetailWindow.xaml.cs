@@ -187,6 +187,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel
         private void Ignore_Click(object sender, RoutedEventArgs e) => _model.Ignore();
         private void Review_Click(object sender, RoutedEventArgs e) => _model.ToggleReviewed();
         private void MarkManual_Click(object sender, RoutedEventArgs e) => _model.MarkManual();
+        private void CopilotFix_Click(object sender, RoutedEventArgs e) => _model.FixViaCopilot();
         private void Reopen_Click(object sender, RoutedEventArgs e) => _model.Reopen();
         private void Locate_Click(object sender, RoutedEventArgs e) => _model.Locate();
         private void Source_Click(object sender, MouseButtonEventArgs e) => _model.OpenSource();

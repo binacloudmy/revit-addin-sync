@@ -138,6 +138,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public event Action<List<string>> IgnoreRequested;
         /// <summary>Mark one open AI item as handled by hand (stays open, still a fail).</summary>
         public event Action<string> MarkManualRequested;
+        /// <summary>AI-492: "Fix via Copilot" on one row (id). The host hands the issue to the Copilot launcher
+        /// (<c>JkrCopilotFix.Request</c>); until AI-494 wires it, nothing happens.</summary>
+        public event Action<string> CopilotFixRequested;
         /// <summary>Put an ignored or marked item back to Open.</summary>
         public event Action<string> ReopenRequested;
         /// <summary>Fix the issues behind one spec check: its ready-made fixes (never the AI fixer's rows); the host confirms and writes.</summary>
@@ -882,6 +885,15 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             var x = _core.Issues.FirstOrDefault(i => i.Id == id);
             if (x == null || x.IsHuman || x.Passed || x.Status != ItemStatus.Open || x.MarkedManual || !x.CanMarkManual) return;
             MarkManualRequested?.Invoke(id);
+        }
+
+        /// <summary>AI-492: "Fix via Copilot" on one open row that offers it.</summary>
+        public void FixViaCopilot(string id)
+        {
+            if (!CanAct) return;
+            var x = _core.Issues.FirstOrDefault(i => i.Id == id);
+            if (x == null || x.IsHuman || x.Passed || x.Status != ItemStatus.Open || x.MarkedManual || !x.CopilotFixable) return;
+            CopilotFixRequested?.Invoke(id);
         }
 
         /// <summary>Reopen an ignored or manually marked item.</summary>
