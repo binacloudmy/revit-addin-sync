@@ -518,6 +518,28 @@
     }
   },
   {
+    "name": "load_link",
+    "kind": "write",
+    "description": "Load Revit links that are not loaded. links: link names or ids from model_overview(links). When a stored file is missing, Revit's file picker opens for the drafter; give path only when the drafter named the file. With no links and a path, that file is added as a new link. Host model only, at most 10 links per call. It runs at once. Revit clears its Undo list when a link loads, so this change cannot be undone with Undo and earlier Undo entries are lost: say so. It never unloads or edits links, and run_revit_code cannot load links.",
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "links": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 10,
+          "items": { "type": "string" },
+          "description": "Names or ids of Revit link types in the open model (model_overview sections [\"links\"]). Give links or path."
+        },
+        "path": {
+          "type": "string",
+          "description": "Full path of a .rvt file on this computer. With one link: load that link from this file. With no links: add the file as a new link. Leave out to use the stored path, or the file picker when it is missing."
+        }
+      }
+    }
+  },
+  {
     "name": "lookup",
     "kind": "server",
     "description": "Look things up instead of guessing. knowledge: JKR spec, JKR parameter rules, naming segments, Revit API members and fixes for Revit warnings, with citations. playbook: a step-by-step procedure with known traps for a job in the playbook list. rules: rule set ids for check. Meanings of JKR codes, parameters and naming must come from here, never from memory.",

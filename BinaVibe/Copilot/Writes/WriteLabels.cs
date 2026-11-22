@@ -33,6 +33,8 @@ namespace BinaVibe.Copilot.Writes
                     return "Set parameter " + Trim(Text(args, "param") ?? "value", ParamChars);
                 case ToolNames.RunRevitCode:
                     return "Revit code";
+                case ToolNames.LoadLink:
+                    return "Load link";
                 default:
                     return string.IsNullOrEmpty(plan.Tool) ? "change" : plan.Tool;
             }

@@ -1311,7 +1311,7 @@ namespace RevitWebAppSync.Services.JkrSpec
                 foreach (var l in notLoaded)
                 {
                     fails++;
-                    yield return SpecChecks.Fail(id, "CRITICAL: " + d + " link '" + l.Name + "' " + Show(l.Status), elementName: "Link " + l.Name,
+                    yield return SpecChecks.Fail(id, "CRITICAL: " + d + " link '" + l.Name + "' " + Show(l.Status), elementId: l.Id, elementName: "Link " + l.Name,
                             actual: Show(l.Status), required: "Loaded", key: d + "|" + l.Name);
                 }
                 if (notLoaded.Count == 0) ok.Add(d + " (" + string.Join(", ", links.Select(l => l.Name)) + ")");

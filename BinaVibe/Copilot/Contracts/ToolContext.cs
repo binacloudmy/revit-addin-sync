@@ -43,4 +43,12 @@ namespace BinaVibe.Copilot.Contracts
         WritePlan Plan(ToolContext ctx, JsonElement args);
         Envelope Execute(ToolContext ctx, JsonElement args, WritePlan plan, WritePhase phase);
     }
+
+    /// <summary>AI-529: a write tool Revit cannot preview or group: its own API call (a link load) must run with NO transaction or
+    /// group open and clears Revit's Undo list. The batch runner therefore plans it, skips the rolled-back preview (the card is
+    /// estimate-only), runs <see cref="IWriteTool.Execute"/> once at commit outside any group, makes no Undo entry, and refuses to
+    /// batch it with other writes. Execute opens a Transaction itself for any model change it makes after Revit's call.</summary>
+    public interface IDirectWriteTool : IWriteTool
+    {
+    }
 }

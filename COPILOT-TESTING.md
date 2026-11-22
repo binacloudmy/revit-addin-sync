@@ -841,3 +841,16 @@ Note: the local backend honours the addin's `X-Tenant-Id` header (dev posture) â
 Compile errors, runtime errors, the statements-only wrapper, mode classification, preview/undo and logging are unchanged.
 Set `BINA_COPILOT_SAFETY=1` (or `true`/`on`/`yes`) in the environment of the Revit process to restore today's behaviour. Read once at start-up.
 The test assembly runs with the flag on (module initializer in `Tests/CopilotSafetySwitchTests.cs`); that file pins both states per policy via `new CodePolicySet(data, enforce: bool)`.
+
+## load_link (AI-529, WP-7): Revit test-box checklist
+
+`load_link` loads Revit links that are not loaded. It runs outside the code sandbox and outside any transaction (Revit's own `Load`/`LoadFrom`/`Create` clear the whole Undo list and cannot run in a group), so it has no preview and no Undo entry. Revit-free logic is covered by `Tests/LoadLinkTests.cs`; everything below needs Revit.
+
+On a model whose ST/ME/EL links are Unloaded (the test model has 6):
+- [ ] Ask Copilot "load the ME link" with the stored file in place: the link shows Loaded, no file dialog, the envelope says `verified: exists`, Revit's Undo list is empty, the pane shows no Undo chip.
+- [ ] Rename/move the linked file, ask again: Windows' file dialog opens once (not twice: the commit re-plan reuses the pick), choose the file, the link loads from it.
+- [ ] Cancel the dialog: refusal "No file was chosen ...", nothing loaded, no crash.
+- [ ] `path` given in the call for one link: loads from that file, no dialog. `path` with no `links`: a new link and instance appear.
+- [ ] 11 links in one call: refused `invalid_args`. `load_link` plus `set_parameters` in one message: refused, nothing changed.
+- [ ] JKR pane: C5.1.1 row of an unloaded link shows "Fix via Copilot"; the confirm says loading a link clears Revit's Undo history; after the turn the row re-checks to Pass. A discipline with no link at all has no button.
+- [ ] Not verified yet (record here): a workshared host, a linked file saved in another Revit version, a closed workset, a nested link, Revit Server / cloud paths, the `WorksetConfiguration` argument on a non-workshared link.
