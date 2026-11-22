@@ -93,6 +93,17 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
+        public void Recheck_waits_while_the_chip_undo_is_running_then_runs()
+        {
+            var running = true;
+            var u = new JkrCopilotUndo<Row>(new JkrCopilotUndoHost<Row> { UndoInProgress = () => running });
+            Assert.True(u.ShouldDefer());
+            running = false;
+            Assert.False(u.ShouldDefer());
+            Assert.False(new JkrCopilotUndo<Row>(new JkrCopilotUndoHost<Row>()).ShouldDefer());   // no probe: never defer
+        }
+
+        [Fact]
         public async Task Chip_completion_after_the_DocumentChanged_run_does_not_toast_twice()
         {
             var p = new Pane();

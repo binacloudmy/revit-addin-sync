@@ -1674,6 +1674,7 @@ namespace RevitWebAppSync.UI
                 {
                     _undoTimer.Stop();
                     if (_vm.Scanning) { _undoTimer.Start(); return; }   // wait out a running scan
+                    if (_copilotUndo.ShouldDefer()) { _undoTimer.Start(); return; }   // AI-508: the chip is still posting its undo steps
                     var undone = _undoIds.ToList();
                     _undoIds.Clear();
                     var all = _undoAllLedger;
@@ -1691,6 +1692,8 @@ namespace RevitWebAppSync.UI
         private JkrCopilotUndo<IssueVm> _copilotUndo => _copilotUndoField ?? (_copilotUndoField = new JkrCopilotUndo<IssueVm>(new JkrCopilotUndoHost<IssueVm>
         {
             Issue = id => FindIssue(id),
+            // Any turn id: UndoService answers InProgress for every turn while its job runs.
+            UndoInProgress = () => BinaVibe.Copilot.Undo.UndoService.WhyNotUndoKind("") == BinaVibe.Copilot.Undo.UndoBlock.InProgress,
             RowElementIds = () => new HashSet<long>(_vm.Issues.Select(i => i.RevitElementId)),
             Recheck = async ids =>
             {

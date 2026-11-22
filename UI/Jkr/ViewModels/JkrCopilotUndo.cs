@@ -69,6 +69,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public Func<IReadOnlyList<T>, Task<IReadOnlyDictionary<string, bool?>>> RecheckByScan { get; set; }
         /// <summary>Reopen a Fixed row directly (status Open, score and board together, audit entry dropped).</summary>
         public Action<T> Reopen { get; set; }
+        /// <summary>AI-508: Copilot's Undo job is still posting its steps; the re-check waits until it settles (one run, not one per step).</summary>
+        public Func<bool> UndoInProgress { get; set; }
         /// <summary>Show the "fix undone" toast for this many rows.</summary>
         public Action<int> ToastUndone { get; set; }
     }
@@ -96,6 +98,12 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         }
 
         /// <summary>Is there something to do for an Undo that reported <paramref name="undone"/> (may be empty: undoing a creation reports no ids)?</summary>
+        /// <summary>AI-508: true while the chip's Undo is still running: the caller restarts its debounce instead of running.</summary>
+        public bool ShouldDefer()
+        {
+            try { return _host.UndoInProgress?.Invoke() == true; } catch (Exception) { return false; }
+        }
+
         /// <summary>AI-508: does the Copilot Undo chip's completion matter (any Copilot-fixed row on the document)?</summary>
         public bool HasRows(string docPath) => Ledger.ForDoc(docPath).Count > 0;
 
