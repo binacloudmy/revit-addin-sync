@@ -1,5 +1,5 @@
 #nullable enable
-// The 8 tools the add-in runs (plan §4 Task 0.2; owned by W0; load_link: AI-529). lookup runs in
+// The 9 tools the add-in runs (plan §4 Task 0.2; owned by W0; load_link: AI-529). lookup runs in
 // the cloud and ask_user in the pane, so they are not here. Nothing outside
 // this list may run from a protocol-3 tool_request (CopilotToolHost enforces).
 
@@ -24,6 +24,7 @@ namespace BinaVibe.Copilot
             new LookTool(),
             new RunRevitCodeTool(),
             new LoadLinkTool(),
+            new BindParametersTool(),
         };
 
         /// <summary>The catalogued tool with this exact name, or null.</summary>

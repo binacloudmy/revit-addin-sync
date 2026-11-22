@@ -461,7 +461,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// read that failed or was blocked never shows as "0/1 done, 1 failed".</summary>
         internal static bool IsWrite(ToolRequestDto request, ToolCallDto call, Envelope env)
         {
-            if (call.Tool == ToolNames.SetParameters || call.Tool == ToolNames.LoadLink) return true;   // AI-529: a link load is a write that makes no rows
+            if (call.Tool == ToolNames.SetParameters || call.Tool == ToolNames.LoadLink || call.Tool == ToolNames.BindParameters) return true;   // AI-529/530: a link load and a binding change are writes that make no rows
             if (call.Tool != ToolNames.RunRevitCode) return false;
             var mode = ToolResults.Mode(env);
             if (mode == EnvelopeCodeMode.Write) return true;

@@ -35,6 +35,8 @@ namespace BinaVibe.Copilot.Writes
                     return "Revit code";
                 case ToolNames.LoadLink:
                     return "Load link";
+                case ToolNames.BindParameters:
+                    return "Bind parameters";
                 default:
                     return string.IsNullOrEmpty(plan.Tool) ? "change" : plan.Tool;
             }

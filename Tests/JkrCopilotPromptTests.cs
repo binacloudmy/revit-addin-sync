@@ -15,7 +15,7 @@ namespace RevitWebAppSync.Tests
     public class JkrCopilotPromptTests
     {
         // The tools of the merged engine (bina-ai contracts/copilot/tools.json): the only names a prompt may use.
-        private static readonly string[] EngineTools = { "model_overview", "find_elements", "inspect", "check", "set_parameters", "look", "run_revit_code", "load_link", "lookup", "ask_user", "report" };
+        private static readonly string[] EngineTools = { "model_overview", "find_elements", "inspect", "check", "set_parameters", "look", "run_revit_code", "load_link", "bind_parameters", "lookup", "ask_user", "report" };
         // Tool names and phrases of the removed MCP-era engine / the old propose-and-wait protocol.
         private static readonly string[] OldNames =
         {
@@ -479,6 +479,16 @@ namespace RevitWebAppSync.Tests
             var a3 = Assert.Single(JkrCopilotPrompt.Build(Facts("A3.1", 1)));
             Assert.DoesNotContain("Does not comply when", a3);
             Assert.Contains("Complies when", a3);
+        }
+
+        [Fact]
+        public void Db1_binds_missing_parameters_with_bind_parameters_first_and_never_creates_one_AI530()
+        {
+            var how = JkrCopilotPrompt.VariantFor("Db.1").How;
+            Assert.Contains("bind_parameters", how);
+            Assert.Contains("never creates one", how);
+            Assert.Contains("set_parameters", how);
+            Assert.True(how.IndexOf("bind_parameters", StringComparison.Ordinal) < how.LastIndexOf("set_parameters", StringComparison.Ordinal), "bind first, then fill");
         }
 
         [Fact]

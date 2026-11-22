@@ -409,6 +409,10 @@ namespace BinaVibe.Copilot.Writes
                         changedPerCall[i] = run.Changed;
                         if (run.Changes != null && run.Changes.Added.Count + run.Changes.Modified.Count + run.Changes.Deleted.Count > 0)
                             anyChange = true;
+                        // AI-530: a binding change may record no element at all (ReInsert edits a parameter's binding, not an element), so the
+                        // tool's own report decides: a non-noop result of bind_parameters is a change, and the group must be kept.
+                        if (string.Equals(batch.Calls[i].Tool, ToolNames.BindParameters, StringComparison.Ordinal) && envelopes[i].Status != EnvelopeStatus.Noop)
+                            anyChange = true;
                     }
 
                     var shape = builder.Build(id => Describe(doc!, id, builder.AddedIds));

@@ -243,7 +243,7 @@
           "description": "Stable across retries of the same call; the add-in ledger keys commits on it."
         },
         "tool": {
-          "enum": ["model_overview", "find_elements", "inspect", "check", "set_parameters", "look", "run_revit_code", "load_link"]
+          "enum": ["model_overview", "find_elements", "inspect", "check", "set_parameters", "look", "run_revit_code", "load_link", "bind_parameters"]
         },
         "args": {
           "type": "object",
@@ -325,7 +325,7 @@
       }
     },
     "event_tool_request": {
-      "description": "Read requests never carry set_parameters or load_link; write requests carry only set_parameters, run_revit_code and load_link.",
+      "description": "Read requests never carry set_parameters, load_link or bind_parameters; write requests carry only set_parameters, run_revit_code, load_link and bind_parameters.",
       "type": "object",
       "additionalProperties": false,
       "required": ["seq", "request_id", "kind", "calls"],
@@ -348,7 +348,7 @@
           "if": { "required": ["kind"], "properties": { "kind": { "const": "read" } } },
           "then": {
             "properties": {
-              "calls": { "items": { "properties": { "tool": { "not": { "enum": ["set_parameters", "load_link"] } } } } }
+              "calls": { "items": { "properties": { "tool": { "not": { "enum": ["set_parameters", "load_link", "bind_parameters"] } } } } }
             }
           }
         },
@@ -356,7 +356,7 @@
           "if": { "required": ["kind"], "properties": { "kind": { "const": "write" } } },
           "then": {
             "properties": {
-              "calls": { "items": { "properties": { "tool": { "enum": ["set_parameters", "run_revit_code", "load_link"] } } } }
+              "calls": { "items": { "properties": { "tool": { "enum": ["set_parameters", "run_revit_code", "load_link", "bind_parameters"] } } } }
             }
           }
         }
