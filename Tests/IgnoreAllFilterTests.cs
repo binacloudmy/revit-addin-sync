@@ -112,7 +112,7 @@ namespace RevitWebAppSync.Tests
             r.FixAll();                                   // no search: the whole section, as before
             Assert.Equal(new[] { "all" }, all);
             r.Query = "Da.1";
-            Assert.Equal(3, r.FixableN);                  // High rows can be fixed (JkrTierMap.CanAutoFix)
+            Assert.Equal(1, r.FixableN);                  // counted in changes: the 3 rows ask for the same write (AI-442)
             r.FixAll();
             Assert.Equal(new[] { "all" }, all);           // not the section-wide request
             Assert.Equal(new[] { "d1", "d2", "d3" }, Assert.Single(ids));
