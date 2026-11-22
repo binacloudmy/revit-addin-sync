@@ -9,6 +9,9 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
     /// no question word). <see cref="ProposeMs"/>/<see cref="ProposeEn"/> say which names and scope Copilot must
     /// propose, because those need the person's intent. <see cref="ScopeMs"/>/<see cref="ScopeEn"/> say what may be
     /// created, and only that.</summary>
+    // Tool names and args were checked against bina-ai ai-423-test app/agents/revit/copilot/tools.py on 2026-11-22:
+    // create_views_for_levels (plan views only), create_3d_view(name), set_section_box(level), create_schedule(dry_run),
+    // place_view_on_sheet. Re-check if tools.py changes.
     internal sealed class CreateTypeSpec
     {
         public CreateTypeSpec(CopilotPromptVariant variant, string proposeMs, string proposeEn, string scopeMs, string scopeEn)
@@ -51,8 +54,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     "new views of the missing types only"),
                 ["C1.5.2"] = new CreateTypeSpec(
                     new CopilotPromptVariant(
-                        "Buat 3D view bagi setiap aras yang belum ada dalam set Dokumen. Guna create_3d_view sekali bagi setiap aras itu, dengan nama.",
-                        "Create a 3D view for every level that has none in the Dokumen set. Use create_3d_view once for each such level, giving each a name."),
+                        "Buat 3D view bagi setiap aras yang belum ada dalam set Dokumen. Guna create_3d_view bagi setiap aras itu, dengan nama (ia hanya membuat satu 3D view seluruh model), kemudian set_section_box(level) pada setiap view baharu itu; view mestilah 3D view yang aktif semasa itu. Tunjukkan kedua-dua langkah bagi setiap view dalam pratonton.",
+                        "Create a 3D view for every level that has none in the Dokumen set. Use create_3d_view for each such level, giving each a name (it makes one whole-model 3D view), then set_section_box(level) on each new view while it is the active 3D view. Show both steps for each view in the preview."),
                     "aras yang tiada 3D view, dan nama setiap 3D view",
                     "which levels have no 3D view, and the name of each 3D view",
                     "satu 3D view baharu bagi setiap aras yang tiada sahaja",

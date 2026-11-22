@@ -288,7 +288,14 @@ namespace RevitWebAppSync.Tests
                     Assert.Contains(bm ? "Jangan ganti dengan floor plan" : "Never substitute floor plans", t);
                     Assert.Contains(bm ? "tidak boleh buat" : "cannot create", t);
                 }
+            // Tool names/args checked against bina-ai ai-423-test tools.py on 2026-11-22 (create_views_for_levels,
+            // create_3d_view, set_section_box, create_schedule, place_view_on_sheet).
             Assert.DoesNotContain("create_views_for_levels", JkrCopilotPrompt.VariantFor("C1.5.2").Task(false));
+            Assert.Contains("set_section_box(level)", JkrCopilotPrompt.VariantFor("C1.5.2").Task(false));
+            Assert.Contains("set_section_box(level)", JkrCopilotPrompt.VariantFor("C1.5.2").Task(true));
+            Assert.Contains("one whole-model 3D view", JkrCopilotPrompt.VariantFor("C1.5.2").Task(false));
+            Assert.Contains("Show both steps for each view in the preview", JkrCopilotPrompt.VariantFor("C1.5.2").Task(false));
+            Assert.Contains("pratonton", JkrCopilotPrompt.VariantFor("C1.5.2").Task(true));
             Assert.Contains("create_3d_view", JkrCopilotPrompt.VariantFor("C1.5.2").Task(false));
             Assert.Contains("create_3d_view", JkrCopilotPrompt.VariantFor("C1.5.2").Task(true));
             foreach (var id in new[] { "C1.6.1", "C3.1.1" })
