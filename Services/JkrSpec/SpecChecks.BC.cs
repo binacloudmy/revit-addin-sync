@@ -856,14 +856,6 @@ namespace RevitWebAppSync.Services.JkrSpec
             return false;
         }
 
-        /// <summary>
-        /// C1.6.3 — every room schedule column has a value for every placed room: the schedules'
-        /// visible fields, plus the Room columns the Buku Parameter marks at the project LOi
-        /// (PB p.37). One fail per room (`Room | Empty column`), and one per schedule missing a
-        /// PB column. Placed areas are judged too: each needs the PB p.36 Area columns marked at the LOi
-        /// (AI-475). Fail-only when the LOi is unknown (PB columns not known) or when the model has
-        /// areas the snapshot did not read.
-        /// </summary>
         private const string LacksMid = "' lacks the columns mandatory at LOi ";
         private const string LacksEnd = " (PB p.37): ";
 
@@ -889,6 +881,14 @@ namespace RevitWebAppSync.Services.JkrSpec
             return false;
         }
 
+        /// <summary>
+        /// C1.6.3 — every room schedule column has a value for every placed room: the schedules'
+        /// visible fields, plus the Room columns the Buku Parameter marks at the project LOi
+        /// (PB p.37). One fail per room (`Room | Empty column`), and one per schedule missing a
+        /// PB column. Placed areas are judged too: each needs the PB p.36 Area columns marked at the LOi
+        /// (AI-475). Fail-only when the LOi is unknown (PB columns not known) or when the model has
+        /// areas the snapshot did not read.
+        /// </summary>
         internal static IEnumerable<SpecResult> C1_6_3(SpecModel m)
         {
             const string id = "C1.6.3";

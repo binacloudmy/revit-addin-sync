@@ -85,7 +85,7 @@ namespace RevitWebAppSync.Tests
             Assert.Contains("Add the mandatory columns to the 1 room schedule listed below with the stored playbook edit-schedule", c.Body);
             Assert.Contains("fill empty values on the 2 rooms", c.Body);
             Assert.Contains("no schedule is made, filtered or deleted", c.Body);
-            Assert.Contains("you can Undo", c.Body);
+            Assert.Contains("You can Undo from the Copilot chat", c.Body);
             Assert.Contains("900 — schedule \"Room Finishes\" — add columns: Occupancy, Department, Kod_Ruang_AR_jkr_stt", c.Details);
             Assert.Contains("101 — Rooms · Pejabat", c.Details);
         }
