@@ -279,13 +279,31 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void Create_type_tools_are_named_where_a_tool_exists()
         {
-            foreach (var id in new[] { "C1.3.1", "C1.4.1", "C1.5.2" })
-                Assert.Contains("create_views_for_levels", JkrCopilotPrompt.VariantFor(id).Task(false));
+            // create_views_for_levels = plan views only (view_type floor|ceiling); no tool makes elevations/sections/drafting views.
+            foreach (var id in new[] { "C1.3.1", "C1.4.1" })
+                foreach (var bm in new[] { true, false })
+                {
+                    var t = JkrCopilotPrompt.VariantFor(id).Task(bm);
+                    Assert.Contains("create_views_for_levels (view_type floor)", t);
+                    Assert.Contains(bm ? "Jangan ganti dengan floor plan" : "Never substitute floor plans", t);
+                    Assert.Contains(bm ? "tidak boleh buat" : "cannot create", t);
+                }
+            Assert.DoesNotContain("create_views_for_levels", JkrCopilotPrompt.VariantFor("C1.5.2").Task(false));
+            Assert.Contains("create_3d_view", JkrCopilotPrompt.VariantFor("C1.5.2").Task(false));
+            Assert.Contains("create_3d_view", JkrCopilotPrompt.VariantFor("C1.5.2").Task(true));
             foreach (var id in new[] { "C1.6.1", "C3.1.1" })
-                Assert.Contains("create_schedule", JkrCopilotPrompt.VariantFor(id).Task(false));
+                foreach (var bm in new[] { true, false })
+                {
+                    var t = JkrCopilotPrompt.VariantFor(id).Task(bm);
+                    Assert.Contains("create_schedule", t);
+                    Assert.Contains("dry_run=true", t);
+                }
+            Assert.Contains("at most 10 schedules per confirmation", JkrCopilotPrompt.VariantFor("C3.1.1").Task(false));
+            Assert.Contains("paling banyak 10 schedule", JkrCopilotPrompt.VariantFor("C3.1.1").Task(true));
+            Assert.Contains("propose first", JkrCopilotPrompt.VariantFor("C3.1.1").Task(false));
             Assert.Contains("place_view_on_sheet", JkrCopilotPrompt.VariantFor("C4.1.3").Task(false));
             // legend: no known tool; the prompt must not invent one and must say what to do if none works
-            Assert.Contains("If no tool can create a legend", JkrCopilotPrompt.VariantFor("C2.1.1").Task(false));
+            Assert.Contains("if no tool can create a legend", JkrCopilotPrompt.VariantFor("C2.1.1").Task(false));
         }
 
         [Fact]
@@ -303,6 +321,22 @@ namespace RevitWebAppSync.Tests
             Assert.Contains("- 1001 — Doors · T1001", p);
             Assert.Contains("create new items only", p);
             Assert.False(ReadIntent(p));
+        }
+
+        [Theory]
+        [MemberData(nameof(CreateTypeIds))]
+        public void Create_type_with_many_ids_is_one_prompt_never_chunked(string id)
+        {
+            foreach (var bm in new[] { true, false })
+            {
+                var p = Assert.Single(JkrCopilotPrompt.Build(Facts(id, 120), bm));
+                Assert.DoesNotContain("part 1 of", p);
+                Assert.DoesNotContain("bahagian", p);
+                Assert.Equal(50, Regex.Matches(p, @"^- \d+", RegexOptions.Multiline).Count);
+                Assert.Contains(bm ? "(120, ikut id Revit)" : "(120, by Revit id)", p);
+                Assert.Contains(bm ? "dan 70 lagi" : "and 70 more", p);
+                Assert.False(ReadIntent(p));
+            }
         }
 
         [Fact]

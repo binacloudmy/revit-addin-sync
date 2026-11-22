@@ -109,12 +109,15 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             if (facts == null) throw new ArgumentNullException(nameof(facts));
             var ids = (facts.ElementIds ?? new List<long>()).Where(i => i > 0).Distinct().ToList();
             var prompts = new List<string>();
-            if (ids.Count == 0)
+            if (IsCreateType((facts.CheckId ?? "").Trim()))
             {
-                // A model-level create-type check (AI-498) has nothing to point at: its prompt states what is missing.
-                if (IsCreateType((facts.CheckId ?? "").Trim())) prompts.Add(BuildOne(facts, bm, ids, 1, 1));
+                // AI-498: one prompt only, never chunked: a second approved part could create the same things twice.
+                // The listed ids are capped; the rest are a count.
+                prompts.Add(BuildCreateType(facts, bm, ids.Take(MaxIdsPerPrompt).ToList(), ids.Count,
+                    SpecCatalog.Find((facts.CheckId ?? "").Trim()), CreateTitle(facts, bm), CreateTypeVariants[(facts.CheckId ?? "").Trim()]));
                 return prompts;
             }
+            if (ids.Count == 0) return prompts;
             var parts = (ids.Count + MaxIdsPerPrompt - 1) / MaxIdsPerPrompt;
             for (var p = 0; p < parts; p++)
                 prompts.Add(BuildOne(facts, bm, ids.Skip(p * MaxIdsPerPrompt).Take(MaxIdsPerPrompt).ToList(), p + 1, parts));
@@ -128,7 +131,6 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             var lang = bm ? PanelStrings.Ms : PanelStrings.En;
             var title = spec != null ? spec.Title.In(lang) : (f.Title ?? "");
             var variant = VariantFor(checkId);
-            if (IsCreateType(checkId)) return BuildCreateType(f, bm, ids, part, parts, spec, title, CreateTypeVariants[checkId]);
             var sb = new StringBuilder();
 
             sb.Append(variant.Task(bm)).Append(' ')

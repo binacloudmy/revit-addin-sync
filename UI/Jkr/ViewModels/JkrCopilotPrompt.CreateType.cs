@@ -25,7 +25,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
     /// families: the row usually has no element id, so the prompt states what is missing and what to create; the scope
     /// is "create only, never modify or delete what exists" (AI-455/463); names and scope need the person's intent, so
     /// Copilot proposes and waits (AI-455); and a failed or unsupported request must not leave a stray object (AI-461,
-    /// a failed request once left an unrequested schedule). C5.1.1 (links) is AI-499, not here.
+    /// a failed request once left an unrequested schedule). C2.1.1 (legend) keeps its wording but has no create tool, so
+    /// it is not on the zero-id button list. C5.1.1 (links) is AI-499, not here.
     /// </summary>
     public static partial class JkrCopilotPrompt
     {
@@ -34,48 +35,48 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             {
                 ["C1.3.1"] = new CreateTypeSpec(
                     new CopilotPromptVariant(
-                        "Buat view PBT yang tiada (floor plan, elevation, section) supaya set PBT lengkap. Guna create_views_for_levels untuk view setiap aras.",
-                        "Create the missing PBT views (floor plan, elevation, section) so the PBT set is complete. Use create_views_for_levels for the per-level views."),
+                        "Buat view PBT yang tiada (floor plan, elevation, section) supaya set PBT lengkap. Guna create_views_for_levels (view_type floor) untuk floor plan sahaja, satu bagi setiap aras. Tiada tool untuk elevation atau section: nyatakan jenis view yang anda tidak boleh buat, kemudian berhenti bagi jenis itu. Jangan ganti dengan floor plan.",
+                        "Create the missing PBT views (floor plan, elevation, section) so the PBT set is complete. Use create_views_for_levels (view_type floor) for floor plans only, one per level. No tool creates elevations or sections: name the view types you cannot create, then stop on those. Never substitute floor plans for them."),
                     "jenis view yang tiada, aras atau arah bagi setiap view, dan nama setiap view",
                     "which view types are missing, the level or direction of each view, and the name of each view",
                     "view baharu bagi jenis yang tiada sahaja",
                     "new views of the missing types only"),
                 ["C1.4.1"] = new CreateTypeSpec(
                     new CopilotPromptVariant(
-                        "Buat view BOMBA yang tiada (floor plan, section, drafting view) supaya set BOMBA lengkap. Guna create_views_for_levels untuk view setiap aras.",
-                        "Create the missing BOMBA views (floor plan, section, drafting view) so the BOMBA set is complete. Use create_views_for_levels for the per-level views."),
+                        "Buat view BOMBA yang tiada (floor plan, section, drafting view) supaya set BOMBA lengkap. Guna create_views_for_levels (view_type floor) untuk floor plan sahaja, satu bagi setiap aras. Tiada tool untuk section atau drafting view: nyatakan jenis view yang anda tidak boleh buat, kemudian berhenti bagi jenis itu. Jangan ganti dengan floor plan.",
+                        "Create the missing BOMBA views (floor plan, section, drafting view) so the BOMBA set is complete. Use create_views_for_levels (view_type floor) for floor plans only, one per level. No tool creates sections or drafting views: name the view types you cannot create, then stop on those. Never substitute floor plans for them."),
                     "jenis view yang tiada, aras bagi setiap view, dan nama setiap view",
                     "which view types are missing, the level of each view, and the name of each view",
                     "view baharu bagi jenis yang tiada sahaja",
                     "new views of the missing types only"),
                 ["C1.5.2"] = new CreateTypeSpec(
                     new CopilotPromptVariant(
-                        "Buat 3D view bagi setiap aras yang belum ada dalam set Dokumen. Guna create_views_for_levels.",
-                        "Create a 3D view for every level that has none in the Dokumen set. Use create_views_for_levels."),
+                        "Buat 3D view bagi setiap aras yang belum ada dalam set Dokumen. Guna create_3d_view sekali bagi setiap aras itu, dengan nama.",
+                        "Create a 3D view for every level that has none in the Dokumen set. Use create_3d_view once for each such level, giving each a name."),
                     "aras yang tiada 3D view, dan nama setiap 3D view",
                     "which levels have no 3D view, and the name of each 3D view",
                     "satu 3D view baharu bagi setiap aras yang tiada sahaja",
                     "one new 3D view for each level that has none, and nothing else"),
                 ["C1.6.1"] = new CreateTypeSpec(
                     new CopilotPromptVariant(
-                        "Buat jadual ruang (room schedule / Schedule of Accommodation) kerana projek belum ada. Guna create_schedule.",
-                        "Create a room schedule (Schedule of Accommodation) because the project has none. Use create_schedule."),
+                        "Buat jadual ruang (room schedule / Schedule of Accommodation) kerana projek belum ada. Guna create_schedule dengan dry_run=true dahulu dan tunjukkan medan yang selesai dan tidak selesai; cipta sebenar selepas saya sahkan.",
+                        "Create a room schedule (Schedule of Accommodation) because the project has none. Use create_schedule with dry_run=true first and show the resolved and unresolved fields; create it for real only after I confirm."),
                     "nama jadual dan medan (kolum) yang dimasukkan",
                     "the schedule name and the fields (columns) it holds",
                     "satu jadual ruang baharu sahaja",
                     "one new room schedule only"),
                 ["C2.1.1"] = new CreateTypeSpec(
                     new CopilotPromptVariant(
-                        "Buat sekurang-kurangnya satu legend dalam projek kerana belum ada. Jika tiada tool boleh membuat legend, beritahu saya dan jangan buat apa-apa.",
-                        "Create at least one legend in the project because it has none. If no tool can create a legend, tell me and do not create anything."),
+                        "Buat sekurang-kurangnya satu legend dalam projek kerana belum ada. Tiada tool create_legend wujud: jika tiada tool boleh membuat legend, beritahu saya dan jangan buat apa-apa.",
+                        "Create at least one legend in the project because it has none. No create_legend tool exists: if no tool can create a legend, tell me and do not create anything."),
                     "nama legend dan kandungannya (cth simbol atau status yang dipaparkan)",
                     "the legend name and what it shows (for example the symbols or statuses)",
                     "satu legend baharu sahaja; jangan letak pada sheet melainkan saya minta",
                     "one new legend only; do not place it on a sheet unless I ask"),
                 ["C3.1.1"] = new CreateTypeSpec(
                     new CopilotPromptVariant(
-                        "Buat schedule bagi kategori yang dimodelkan tetapi belum ada schedule. Guna create_schedule.",
-                        "Create a schedule for each modelled category that has none. Use create_schedule."),
+                        "Buat schedule bagi kategori yang dimodelkan tetapi belum ada schedule. Namakan kategori itu dan cadangkan dahulu. Guna create_schedule dengan dry_run=true dahulu bagi setiap satu dan tunjukkan medan yang selesai dan tidak selesai. Cipta paling banyak 10 schedule bagi setiap pengesahan; tanya saya untuk selebihnya.",
+                        "Create a schedule for each modelled category that has none. Name those categories and propose first. Use create_schedule with dry_run=true first for each and show the resolved and unresolved fields. Create at most 10 schedules per confirmation; ask me before doing the rest."),
                     "kategori yang tiada schedule, nama dan medan setiap schedule",
                     "which categories have no schedule, and the name and fields of each schedule",
                     "satu schedule baharu bagi setiap kategori yang tiada sahaja",
@@ -93,7 +94,13 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// <summary>The check is a create-type family of AI-498 (its prompt states what is missing and what to create).</summary>
         public static bool IsCreateType(string checkId) => CreateTypeVariants.ContainsKey((checkId ?? "").Trim());
 
-        private static string BuildCreateType(CopilotPromptFacts f, bool bm, List<long> ids, int part, int parts,
+        private static string CreateTitle(CopilotPromptFacts f, bool bm)
+        {
+            var spec = SpecCatalog.Find((f.CheckId ?? "").Trim());
+            return spec != null ? spec.Title.In(bm ? PanelStrings.Ms : PanelStrings.En) : (f.Title ?? "");
+        }
+
+        private static string BuildCreateType(CopilotPromptFacts f, bool bm, List<long> ids, int totalIds,
             SpecCheck spec, string title, CreateTypeSpec c)
         {
             var checkId = (f.CheckId ?? "").Trim();
@@ -102,8 +109,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
 
             sb.Append(c.Variant.Task(bm)).Append(' ').Append(bm ? "Semakan JKR " : "JKR check ").Append(checkId);
             if (title.Length > 0) sb.Append(" — ").Append(title);
-            if (parts > 1) sb.Append(bm ? $" (bahagian {part} daripada {parts})." : $" (part {part} of {parts}).");
-            else sb.Append('.');
+            sb.Append('.');
             sb.AppendLine().AppendLine();
 
             Line(sb, bm ? "Kategori" : "Category", CleanLabel(f.Category));
@@ -121,7 +127,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
 
             if (ids.Count > 0)
             {
-                sb.AppendLine(bm ? $"Item sedia ada berkaitan ({ids.Count}, ikut id Revit):" : $"Existing items this row concerns ({ids.Count}, by Revit id):");
+                sb.AppendLine(bm ? $"Item sedia ada berkaitan ({totalIds}, ikut id Revit):" : $"Existing items this row concerns ({totalIds}, by Revit id):");
                 foreach (var id in ids)
                 {
                     string label = null;
@@ -131,6 +137,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     if (label.Length > 0) sb.Append(" — ").Append(label);
                     sb.AppendLine();
                 }
+                if (totalIds > ids.Count)
+                    sb.AppendLine(bm ? $"... dan {totalIds - ids.Count} lagi (tidak disenaraikan)." : $"... and {totalIds - ids.Count} more (not listed).");
                 sb.AppendLine();
             }
             else

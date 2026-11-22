@@ -84,13 +84,13 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             (specCheckId ?? "").Trim() == "Db.2" && string.Equals((revitCategory ?? "").Trim(), "Walls", StringComparison.OrdinalIgnoreCase);
 
         /// <summary>AI-498: create-type checks whose row says "something is missing" and so usually has no element id
-        /// (no PBT view, no 3D view for a level, no room schedule, no legend, no category schedule, no sheet with a view).
-        /// Only these may show the button with zero ids; every other id still needs at least one. C5.1.1 (links, AI-499)
+        /// (no PBT view, no 3D view for a level, no room schedule, no category schedule, no sheet with a view).
+        /// Only these may show the button with zero ids; every other id still needs at least one. C2.1.1 (legend: no create tool exists, so a button could only end "cannot"), C5.1.1 (links, AI-499)
         /// and C1.1.1 / C1.1.2 / C1.6.2 / C5.1.2 are deliberately not here.</summary>
         public static IReadOnlyCollection<string> ModelLevel => ModelLevelSet;
         private static readonly HashSet<string> ModelLevelSet = new HashSet<string>(StringComparer.Ordinal)
         {
-            "C1.3.1", "C1.4.1", "C1.5.2", "C1.6.1", "C2.1.1", "C3.1.1", "C4.1.3",
+            "C1.3.1", "C1.4.1", "C1.5.2", "C1.6.1", "C3.1.1", "C4.1.3",
         };
 
         /// <summary>The check may offer the button with no element id (a model-level create-type check).</summary>
