@@ -79,8 +79,7 @@ namespace RevitWebAppSync.Services.JkrSpec
             var list = new List<SpecResult>();
             if (m.Ceilings.Count == 0)
             {
-                list.Add(Unjudged(id, "Tiada siling dimodelkan — ketinggian siling tidak dapat disemak", key: "no-ceilings")
-                    .En("No ceilings modelled — ceiling height cannot be checked"));
+                list.Add(Unjudged(id, "No ceilings modelled — ceiling height cannot be checked", key: "no-ceilings"));
                 return list;
             }
             var levels = K.LevelMap(m);
@@ -169,9 +168,8 @@ namespace RevitWebAppSync.Services.JkrSpec
             {
                 var nm = K.LevelLabel(g.Key);
                 var ids = string.Join(", ", g.Take(6).Select(x => x.Ceiling.Id.ToString(K.Inv))) + (g.Count() > 6 ? ", …" : "");
-                list.Add(Context(id, $"{Aras(nm)}: {g.Count()} siling ({ids}) ada lebih daripada satu lantai di bawahnya (atau lantai tidak boleh dipadankan dengan aras) — JKR tiada peraturan memilih lantai; ketinggian tidak dinilai, manusia putuskan",
-                                 g.First().Ceiling.Id, Aras(nm), key: "ambiguous:" + g.Key, elementIds: g.Select(x => x.Ceiling.Id))
-                    .En($"Level {nm}: {g.Count()} ceilings ({ids}) have more than one floor under them (or a floor that cannot be matched to a level) — JKR gives no rule to pick the floor; height not judged, a person decides"));
+                list.Add(Context(id, $"Level {nm}: {g.Count()} ceilings ({ids}) have more than one floor under them (or a floor that cannot be matched to a level) — JKR gives no rule to pick the floor; height not judged, a person decides",
+                                 g.First().Ceiling.Id, Aras(nm), key: "ambiguous:" + g.Key, elementIds: g.Select(x => x.Ceiling.Id)));
             }
             var passed = 0;
             var withCeiling = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -188,8 +186,7 @@ namespace RevitWebAppSync.Services.JkrSpec
                 var valid = g.Where(x => x.Height > 0).ToList();
                 if (valid.Count == 0)
                 {
-                    list.Add(Unjudged(id, $"{Aras(name)}: ketinggian siling tidak dibaca", g.First().Ceiling.Id, Aras(name), key: "level-unread:" + g.Key)
-                        .En($"Level {name}: ceiling height not read"));
+                    list.Add(Unjudged(id, $"Level {name}: ceiling height not read", g.First().Ceiling.Id, Aras(name), key: "level-unread:" + g.Key));
                     continue;
                 }
                 // Lowest first, so the element shown and located is the one with the reported height.
@@ -201,30 +198,26 @@ namespace RevitWebAppSync.Services.JkrSpec
                 if (low.Count > 0)
                 {
                     var min = low[0].Height;
-                    var (spaces, spacesEn) = A11Spaces(low);
-                    list.Add(Fail(id, $"{Aras(name)}{tag}: siling {K.Mm(min)} mm < {K.Mm(req)} mm{spaces}", elementName: Aras(name),
+                    var spaces = A11Spaces(low);
+                    list.Add(Fail(id, $"Level {name}{tag}: ceiling {K.Mm(min)} mm < {K.Mm(req)} mm{spaces}", elementName: Aras(name),
                                   actual: K.Mm(min) + " mm", required: "≥ " + K.Mm(req) + " mm", key: "level:" + g.Key,
-                                  elementIds: low.Select(x => x.Ceiling.Id))
-                        .En($"Level {name}{tag}: ceiling {K.Mm(min)} mm < {K.Mm(req)} mm{spacesEn}"));
+                                  elementIds: low.Select(x => x.Ceiling.Id)));
                 }
                 if (edge.Count > 0)
                 {
                     var low1 = edge[0].Height.ToString("0.###", K.Inv);
-                    list.Add(Context(id, $"{Aras(name)}{tag}: siling {low1} mm — di bawah {K.Mm(req)} mm tetapi dipaparkan sebagai {K.Mm(req)} mm selepas pembundaran; JKR tiada peraturan pembundaran — manusia putuskan",
-                                     edge[0].Ceiling.Id, Aras(name), key: "edge:" + g.Key, elementIds: edge.Select(x => x.Ceiling.Id))
-                        .En($"Level {name}{tag}: ceiling {low1} mm — below {K.Mm(req)} mm but reads as {K.Mm(req)} mm when rounded; JKR gives no rounding rule — a person decides"));
+                    list.Add(Context(id, $"Level {name}{tag}: ceiling {low1} mm — below {K.Mm(req)} mm but reads as {K.Mm(req)} mm when rounded; JKR gives no rounding rule — a person decides",
+                                     edge[0].Ceiling.Id, Aras(name), key: "edge:" + g.Key, elementIds: edge.Select(x => x.Ceiling.Id)));
                 }
             }
             foreach (var lv in m.Rooms.Where(r => r.Area > 0).Select(r => r.LevelName.Trim()).Where(n => n.Length > 0)
                                        .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(n => K.LevelElevation(levels, n)))
             {
                 if (withCeiling.Contains(lv)) continue;
-                list.Add(Unjudged(id, $"{Aras(lv)}: ada room tetapi tiada siling dimodelkan — ketinggian tidak dapat disemak", key: "level-noceiling:" + lv)
-                    .En($"Level {lv}: has rooms but no ceiling modelled — height cannot be checked"));
+                list.Add(Unjudged(id, $"Level {lv}: has rooms but no ceiling modelled — height cannot be checked", key: "level-noceiling:" + lv));
             }
             if (passed > 0)
-                list.Add(Pass(id, $"{passed} aras: siling ≥ 3000 mm (basement ≥ 2500 mm)", passed)
-                    .En($"{passed} levels: ceiling ≥ 3000 mm (basement ≥ 2500 mm)"));
+                list.Add(Pass(id, $"{passed} levels: ceiling ≥ 3000 mm (basement ≥ 2500 mm)", passed));
             return list;
         }
 
@@ -248,26 +241,26 @@ namespace RevitWebAppSync.Services.JkrSpec
             public SpecRoom Room;
         }
 
-        /// <summary>" — UM07 Tandas Perempuan 2250 mm, siling 927649 2550 mm": every room (or
+        /// <summary>" — UM07 Ladies Toilet 2250 mm, ceiling 927649 2550 mm": every room (or
         /// ceiling with no room) below the minimum, lowest first, once each. Empty when no
         /// ceiling was measured from a floor and none has a room (the old level-only reading).</summary>
-        private static (string Bm, string En) A11Spaces(List<A11Measure> low)
+        private static string A11Spaces(List<A11Measure> low)
         {
-            if (!low.Any(x => x.FromFloor || x.Room != null)) return ("", "");
+            if (!low.Any(x => x.FromFloor || x.Room != null)) return "";
             string Key(A11Measure x) => x.Room != null ? "room:" + x.Room.Id : "clg:" + x.Ceiling.Id;
             var items = low.GroupBy(Key).Select(g => g.OrderBy(x => x.Height).First()).OrderBy(x => x.Height).ToList();
             string RoomName(SpecRoom r) => (r.Number.Trim() + " " + r.Name.Trim()).Trim();
-            var bm = items.Take(A11MaxSpacesListed).Select(x => (x.Room != null ? RoomName(x.Room) : "siling " + x.Ceiling.Id) + " " + K.Mm(x.Height) + " mm");
             var en = items.Take(A11MaxSpacesListed).Select(x => (x.Room != null ? RoomName(x.Room) : "ceiling " + x.Ceiling.Id) + " " + K.Mm(x.Height) + " mm");
             var more = items.Count > A11MaxSpacesListed ? $", … +{items.Count - A11MaxSpacesListed}" : "";
-            return (" — " + string.Join(", ", bm) + more, " — " + string.Join(", ", en) + more);
+            return " — " + string.Join(", ", en) + more;
         }
 
-        /// <summary>"Aras 02" for level "02", "Aras 01" for level "Aras 01" (not "Aras Aras 01").</summary>
+        /// <summary>"Level 02" for level "02", "Level 01" for level "Level 01" (not "Level Level 01");
+        /// a level a model names "Aras 01" keeps its own name.</summary>
         private static string Aras(string levelName)
         {
             var n = (levelName ?? "").Trim();
-            return n.StartsWith("Aras ", StringComparison.OrdinalIgnoreCase) ? n : "Aras " + n;
+            return n.StartsWith("Aras ", StringComparison.OrdinalIgnoreCase) || n.StartsWith("Level ", StringComparison.OrdinalIgnoreCase) ? n : "Level " + n;
         }
 
         /// <summary>
@@ -289,8 +282,7 @@ namespace RevitWebAppSync.Services.JkrSpec
             var doors = m.Types.Where(t => K.IsCat(t, "Doors")).ToList();
             if (doors.Count == 0)
             {
-                list.Add(Unjudged(id, "Tiada pintu dalam model — saiz pintu tidak dapat disemak", key: "no-doors")
-                    .En("No doors in the model — door sizes cannot be checked"));
+                list.Add(Unjudged(id, "No doors in the model — door sizes cannot be checked", key: "no-doors"));
                 return list;
             }
             var passed = 0;
@@ -301,45 +293,37 @@ namespace RevitWebAppSync.Services.JkrSpec
                 var hasH = K.TryNum(t, "Height", out var h) && h > 0;
                 if (!hasW || !hasH)
                 {
-                    list.Add(Unjudged(id, $"{label} | lebar {(hasW ? K.Mm(w) : "?")} | tinggi {(hasH ? K.Mm(h) : "?")}: nilai tidak dibaca",
-                                      K.FirstId(t), K.ElementLabel(t), key: K.TypeKey(t))
-                        .En($"{label} | width {(hasW ? K.Mm(w) : "?")} | height {(hasH ? K.Mm(h) : "?")}: value not read"));
+                    list.Add(Unjudged(id, $"{label} | width {(hasW ? K.Mm(w) : "?")} | height {(hasH ? K.Mm(h) : "?")}: value not read",
+                                      K.FirstId(t), K.ElementLabel(t), key: K.TypeKey(t)));
                     continue;
                 }
-                var ms = new List<string>();
                 var en = new List<string>();
                 var wFit = K.FitMin(w, 900);
                 var hFit = K.FitMin(h, 2100);
-                if (wFit == MinFit.Below) { ms.Add("lebar < 900 mm"); en.Add("width < 900 mm"); }
-                if (hFit == MinFit.Below) { ms.Add("tinggi < 2100 mm"); en.Add("height < 2100 mm"); }
-                if (ms.Count > 0)
+                if (wFit == MinFit.Below) en.Add("width < 900 mm");
+                if (hFit == MinFit.Below) en.Add("height < 2100 mm");
+                if (en.Count > 0)
                 {
-                    list.Add(Fail(id, $"{label} | {K.Mm(w)} | {K.Mm(h)} mm: {string.Join(", ", ms)}", elementName: K.ElementLabel(t),
+                    list.Add(Fail(id, $"{label} | {K.Mm(w)} | {K.Mm(h)} mm: {string.Join(", ", en)}", elementName: K.ElementLabel(t),
                                   actual: $"{K.Mm(w)} × {K.Mm(h)} mm", required: "≥ 900 × 2100 mm", key: K.TypeKey(t),
-                                  coverage: SpecCoverage.FailOnly, elementIds: t.InstanceIds)
-                        .En($"{label} | {K.Mm(w)} | {K.Mm(h)} mm: {string.Join(", ", en)}"));
+                                  coverage: SpecCoverage.FailOnly, elementIds: t.InstanceIds));
                     continue;
                 }
                 var person = new List<string>();
-                var personEn = new List<string>();
                 if (wFit == MinFit.PrintsAsMin || hFit == MinFit.PrintsAsMin)
                 {
-                    person.Add("saiz hanya mencapai minimum selepas pembundaran (JKR tiada peraturan pembundaran)");
-                    personEn.Add("the size only reaches the minimum when rounded (JKR gives no rounding rule)");
+                    person.Add("the size only reaches the minimum when rounded (JKR gives no rounding rule)");
                 }
                 if (SpecA.IsDoubleLeaf(t.FamilyName, t.TypeName) && w < 1500)
                 {
-                    person.Add("nama menunjukkan pintu dua daun — jika dua daun, minimum 1500 mm terpakai; sahkan bilangan daun dan bukaan bersih");
-                    personEn.Add("the name reads as a double-leaf door — if it is two leaves the 1500 mm minimum applies; confirm the leaves and the clear opening");
+                    person.Add("the name reads as a double-leaf door — if it is two leaves the 1500 mm minimum applies; confirm the leaves and the clear opening");
                 }
                 if (person.Count == 0) { passed++; continue; }
-                list.Add(Context(id, $"{label} | {K.Mm(w)} | {K.Mm(h)} mm: {string.Join("; ", person)} — manusia putuskan",
-                                 K.FirstId(t), K.ElementLabel(t), key: "person:" + K.TypeKey(t), elementIds: t.InstanceIds)
-                    .En($"{label} | {K.Mm(w)} | {K.Mm(h)} mm: {string.Join("; ", personEn)} — a person decides"));
+                list.Add(Context(id, $"{label} | {K.Mm(w)} | {K.Mm(h)} mm: {string.Join("; ", person)} — a person decides",
+                                 K.FirstId(t), K.ElementLabel(t), key: "person:" + K.TypeKey(t), elementIds: t.InstanceIds));
             }
             if (passed > 0)
-                list.Add(Pass(id, $"{passed} jenis pintu ≥ minimum (saiz nominal; bukaan bersih tidak dibaca)", passed, SpecCoverage.FailOnly)
-                    .En($"{passed} door types ≥ minimum (nominal size; clear opening not read)"));
+                list.Add(Pass(id, $"{passed} door types ≥ minimum (nominal size; clear opening not read)", passed, SpecCoverage.FailOnly));
             return list;
         }
 
@@ -360,8 +344,7 @@ namespace RevitWebAppSync.Services.JkrSpec
             var doors = m.Types.Where(t => K.IsCat(t, "Doors")).ToList();
             if (doors.Count == 0)
             {
-                list.Add(Unjudged(id, "Tiada pintu dalam model — pintu utama tidak dapat disemak", key: "no-doors")
-                    .En("No doors in the model — the main door cannot be checked"));
+                list.Add(Unjudged(id, "No doors in the model — the main door cannot be checked", key: "no-doors"));
                 return list;
             }
             var mains = doors.Where(SpecA.IsMainDoor).ToList();
@@ -372,9 +355,8 @@ namespace RevitWebAppSync.Services.JkrSpec
                 foreach (var t in cands)
                 {
                     var thk = K.TryNum(t, "Thickness", out var v) && v > 0 ? K.Mm(v) + " mm" : "?";
-                    list.Add(Unjudged(id, $"Pintu utama tidak dapat dikenal pasti — calon: {K.TypeLabel(t)} (tebal {thk}); manusia sahkan",
-                                      K.FirstId(t), K.ElementLabel(t), key: "cand:" + K.TypeKey(t))
-                        .En($"Main door not identifiable — candidate: {K.TypeLabel(t)} (thickness {thk}); a person confirms"));
+                    list.Add(Unjudged(id, $"Main door not identifiable — candidate: {K.TypeLabel(t)} (thickness {thk}); a person confirms",
+                                      K.FirstId(t), K.ElementLabel(t), key: "cand:" + K.TypeKey(t)));
                 }
                 return list;
             }
@@ -385,41 +367,35 @@ namespace RevitWebAppSync.Services.JkrSpec
                 var words = K.TypeWords(t);
                 if (!K.TryNum(t, "Thickness", out var thk) || thk <= 0)
                 {
-                    list.Add(Fail(id, $"Pintu utama {label}: parameter Thickness tiada / kosong", elementName: K.ElementLabel(t),
-                                  required: "≥ 40 mm", key: K.TypeKey(t), elementIds: t.InstanceIds)
-                        .En($"Main door {label}: Thickness parameter missing / empty"));
+                    list.Add(Fail(id, $"Main door {label}: Thickness parameter missing / empty", elementName: K.ElementLabel(t),
+                                  required: "≥ 40 mm", key: K.TypeKey(t), elementIds: t.InstanceIds));
                     continue;
                 }
                 var thkFit = K.FitMin(thk, 40, 1);
                 if (thkFit == MinFit.PrintsAsMin)
                 {
-                    list.Add(Context(id, $"Pintu utama {label}: tebal {thk.ToString("0.###", K.Inv)} mm — di bawah 40 mm tetapi dipaparkan sebagai 40 mm selepas pembundaran; JKR tiada peraturan pembundaran — manusia putuskan",
-                                     K.FirstId(t), K.ElementLabel(t), key: "edge:" + K.TypeKey(t), elementIds: t.InstanceIds)
-                        .En($"Main door {label}: thickness {thk.ToString("0.###", K.Inv)} mm — below 40 mm but reads as 40 mm when rounded; JKR gives no rounding rule — a person decides"));
+                    list.Add(Context(id, $"Main door {label}: thickness {thk.ToString("0.###", K.Inv)} mm — below 40 mm but reads as 40 mm when rounded; JKR gives no rounding rule — a person decides",
+                                     K.FirstId(t), K.ElementLabel(t), key: "edge:" + K.TypeKey(t), elementIds: t.InstanceIds));
                     continue;
                 }
                 if (thkFit == MinFit.Below)
                 {
-                    list.Add(Fail(id, $"Pintu utama {label}: tebal {K.Mm1(thk)} mm < 40 mm", elementName: K.ElementLabel(t),
-                                  actual: K.Mm1(thk) + " mm", required: "≥ 40 mm", key: K.TypeKey(t), elementIds: t.InstanceIds)
-                        .En($"Main door {label}: thickness {K.Mm1(thk)} mm < 40 mm"));
+                    list.Add(Fail(id, $"Main door {label}: thickness {K.Mm1(thk)} mm < 40 mm", elementName: K.ElementLabel(t),
+                                  actual: K.Mm1(thk) + " mm", required: "≥ 40 mm", key: K.TypeKey(t), elementIds: t.InstanceIds));
                     continue;
                 }
                 if (Regex.IsMatch(words, @"hollow|honeycomb|berongga", RegexOptions.IgnoreCase))
                 {
-                    list.Add(Fail(id, $"Pintu utama {label}: hollow core, bukan solid core", elementName: K.ElementLabel(t),
-                                  actual: "hollow core", required: "solid core", key: K.TypeKey(t), elementIds: t.InstanceIds)
-                        .En($"Main door {label}: hollow core, not solid core"));
+                    list.Add(Fail(id, $"Main door {label}: hollow core, not solid core", elementName: K.ElementLabel(t),
+                                  actual: "hollow core", required: "solid core", key: K.TypeKey(t), elementIds: t.InstanceIds));
                     continue;
                 }
                 if (Regex.IsMatch(words, @"solid|padu", RegexOptions.IgnoreCase)) solidPass++; else thickPass++;
             }
             if (solidPass > 0)
-                list.Add(Pass(id, $"{solidPass} jenis pintu utama: solid core, tebal ≥ 40 mm", solidPass)
-                    .En($"{solidPass} main door types: solid core, ≥ 40 mm thick"));
+                list.Add(Pass(id, $"{solidPass} main door types: solid core, ≥ 40 mm thick", solidPass));
             if (thickPass > 0)
-                list.Add(Pass(id, $"{thickPass} jenis pintu utama: tebal ≥ 40 mm; solid core tidak dapat disahkan dari model", thickPass, SpecCoverage.FailOnly)
-                    .En($"{thickPass} main door types: ≥ 40 mm thick; solid core cannot be confirmed from the model"));
+                list.Add(Pass(id, $"{thickPass} main door types: ≥ 40 mm thick; solid core cannot be confirmed from the model", thickPass, SpecCoverage.FailOnly));
             return list;
         }
 
@@ -447,9 +423,8 @@ namespace RevitWebAppSync.Services.JkrSpec
                 if (!isRc && r.Materials.Count == 0)
                 {
                     unknown++;
-                    list.Add(Context(id, $"Bumbung {label}: bahan tidak dibaca — RC atau tidak, dan sama ada ia flat roof, sahkan (JKR tiada takrif flat roof)",
-                                     r.Id, "Roofs · " + label, key: "nomat:" + r.Id)
-                        .En($"Roof {label}: materials not read — RC or not, and whether it is a flat roof, a person confirms (JKR gives no flat-roof definition)"));
+                    list.Add(Context(id, $"Roof {label}: materials not read — RC or not, and whether it is a flat roof, a person confirms (JKR gives no flat-roof definition)",
+                                     r.Id, "Roofs · " + label, key: "nomat:" + r.Id));
                     continue;
                 }
                 if (!isRc) continue;
@@ -457,17 +432,14 @@ namespace RevitWebAppSync.Services.JkrSpec
                 var wp = r.LayerFunctions.Any(f => (f ?? "").IndexOf("membrane", StringComparison.OrdinalIgnoreCase) >= 0)
                          || r.Materials.Any(SpecA.IsWaterproofing) || SpecA.IsWaterproofing(r.TypeName);
                 if (wp) { rcOk++; continue; }
-                var why = elsewhere ? "; ada elemen waterproofing lain dalam model" : "";
-                var whyEn = elsewhere ? "; the model has a separate waterproofing element" : "";
-                list.Add(Context(id, $"Bumbung RC {label} tiada lapisan waterproofing{why} — NS §5.2.3: flat roof RC perlu waterproofing atau double roofing; manusia putuskan sama ada ia flat roof dan sama ada ia dilindungi (JKR tiada takrif flat roof)",
-                                 r.Id, "Roofs · " + label, key: "rc-nowp:" + r.Id)
-                    .En($"RC roof {label} has no waterproofing layer{whyEn} — NS §5.2.3: an RC flat roof needs waterproofing or double roofing; a person decides whether it is a flat roof and whether it is covered (JKR gives no flat-roof definition)"));
+                var why = elsewhere ? "; the model has a separate waterproofing element" : "";
+                list.Add(Context(id, $"RC roof {label} has no waterproofing layer{why} — NS §5.2.3: an RC flat roof needs waterproofing or double roofing; a person decides whether it is a flat roof and whether it is covered (JKR gives no flat-roof definition)",
+                                 r.Id, "Roofs · " + label, key: "rc-nowp:" + r.Id));
             }
             if (rcOk > 0)
-                list.Add(Pass(id, $"{rcOk} bumbung RC ada waterproofing", rcOk).En($"{rcOk} RC roof{(rcOk == 1 ? " has" : "s have")} waterproofing"));
+                list.Add(Pass(id, $"{rcOk} RC roof{(rcOk == 1 ? " has" : "s have")} waterproofing", rcOk));
             else if (rc == 0 && unknown == 0)
-                list.Add(Pass(id, $"Tiada bumbung RC dalam model ({m.Roofs.Count} bumbung)", Math.Max(1, m.Roofs.Count))
-                    .En($"No RC roof in the model ({m.Roofs.Count} roofs)"));
+                list.Add(Pass(id, $"No RC roof in the model ({m.Roofs.Count} roofs)", Math.Max(1, m.Roofs.Count)));
             return list;
         }
 
@@ -487,8 +459,7 @@ namespace RevitWebAppSync.Services.JkrSpec
             if (deco.Count > 0) fences = deco;
             if (fences.Count == 0)
             {
-                list.Add(Unjudged(id, "Tiada elemen pagar dalam model — sahkan skop projek", key: "no-fence")
-                    .En("No fence elements in the model — confirm the project scope"));
+                list.Add(Unjudged(id, "No fence elements in the model — confirm the project scope", key: "no-fence"));
                 return list;
             }
             var passed = 0;
@@ -497,25 +468,22 @@ namespace RevitWebAppSync.Services.JkrSpec
                 var label = K.TypeLabel(t);
                 if (!K.TryNum(t, "Height", out var h) || h <= 0)
                 {
-                    list.Add(Unjudged(id, $"Pagar {label}: tinggi tidak dibaca", K.FirstId(t), K.ElementLabel(t), key: K.TypeKey(t))
-                        .En($"Fence {label}: height not read"));
+                    list.Add(Unjudged(id, $"Fence {label}: height not read", K.FirstId(t), K.ElementLabel(t), key: K.TypeKey(t)));
                     continue;
                 }
                 var hFit = K.FitMin(h, 2400);
                 if (hFit == MinFit.Meets) { passed++; continue; }
                 if (hFit == MinFit.PrintsAsMin)
                 {
-                    list.Add(Context(id, $"Pagar {label}: tinggi {h.ToString("0.###", K.Inv)} mm — di bawah 2400 mm tetapi dipaparkan sebagai 2400 mm selepas pembundaran; JKR tiada peraturan pembundaran — manusia putuskan",
-                                     K.FirstId(t), K.ElementLabel(t), key: "edge:" + K.TypeKey(t), elementIds: t.InstanceIds)
-                        .En($"Fence {label}: height {h.ToString("0.###", K.Inv)} mm — below 2400 mm but reads as 2400 mm when rounded; JKR gives no rounding rule — a person decides"));
+                    list.Add(Context(id, $"Fence {label}: height {h.ToString("0.###", K.Inv)} mm — below 2400 mm but reads as 2400 mm when rounded; JKR gives no rounding rule — a person decides",
+                                     K.FirstId(t), K.ElementLabel(t), key: "edge:" + K.TypeKey(t), elementIds: t.InstanceIds));
                     continue;
                 }
-                list.Add(Fail(id, $"Pagar {label}: tinggi {K.Mm(h)} mm < 2400 mm", elementName: K.ElementLabel(t),
-                              actual: K.Mm(h) + " mm", required: "≥ 2400 mm", key: K.TypeKey(t), elementIds: t.InstanceIds)
-                    .En($"Fence {label}: height {K.Mm(h)} mm < 2400 mm"));
+                list.Add(Fail(id, $"Fence {label}: height {K.Mm(h)} mm < 2400 mm", elementName: K.ElementLabel(t),
+                              actual: K.Mm(h) + " mm", required: "≥ 2400 mm", key: K.TypeKey(t), elementIds: t.InstanceIds));
             }
             if (passed > 0)
-                list.Add(Pass(id, $"{passed} jenis pagar: tinggi ≥ 2400 mm", passed).En($"{passed} fence types: height ≥ 2400 mm"));
+                list.Add(Pass(id, $"{passed} fence types: height ≥ 2400 mm", passed));
             return list;
         }
 
@@ -524,15 +492,13 @@ namespace RevitWebAppSync.Services.JkrSpec
         private static IEnumerable<SpecResult> A16OtherNsClauses(SpecModel m)
         {
             return SpecA.ManualNsClauses.Select(c =>
-                Listing("A1.6", $"Klausa NS {c.Clause} ({c.Rule}): tidak dapat disemak dari model — semak manual")
-                    .En($"NS clause {c.Clause} ({c.RuleEn}): cannot be checked from the model — check by hand")).ToList();
+                Listing("A1.6", $"NS clause {c.Clause} ({c.Rule}): cannot be checked from the model — check by hand")).ToList();
         }
 
         /// <summary>A1.7 (list only): the remark the spec asks for (model-audit-spec.md §A1, principle 0.3).</summary>
         private static IEnumerable<SpecResult> A17Scope(SpecModel m) => new[]
         {
-            Listing("A1.7", "Semakan berdasarkan Need Statement minimum kerajaan; konsep reka bentuk tidak disemak.")
-                .En("Checked against the government's minimum Need Statement only; the design concept is not assessed."),
+            Listing("A1.7", "Checked against the government's minimum Need Statement only; the design concept is not assessed."),
         };
 
         // ════════════════════════════════════════════════════════════════════
@@ -550,7 +516,7 @@ namespace RevitWebAppSync.Services.JkrSpec
             const string id = "A2.1";
             var name = SpecA.StripExtension(m.FileName);
             if (name.Length == 0)
-                return new[] { Unjudged(id, "Fail belum disimpan — tiada nama fail untuk disemak", key: "unsaved").En("File not saved — no file name to check") };
+                return new[] { Unjudged(id, "File not saved — no file name to check", key: "unsaved") };
             var segs = SpecA.FileSegments(name);
             var shown = string.Join(" | ", segs);
             // The first segment is the discipline + version block ("jkrAR24", "jkrEL24-5a").
@@ -560,17 +526,15 @@ namespace RevitWebAppSync.Services.JkrSpec
             if (segs.Count >= 3 && !SpecA.FileLead.IsMatch(name))
                 return new[]
                 {
-                    Fail(id, $"Nama fail \"{name}\": tidak bermula dengan blok disiplin JKR (cth \"jkrAR24\") — segmen pertama \"{segs[0]}\"",
-                         actual: segs[0], required: "jkr + disiplin + versi (cth jkrAR24)", key: "file")
-                        .En($"File name \"{name}\": does not start with the JKR discipline block (e.g. \"jkrAR24\") — first segment \"{segs[0]}\""),
+                    Fail(id, $"File name \"{name}\": does not start with the JKR discipline block (e.g. \"jkrAR24\") — first segment \"{segs[0]}\"",
+                         actual: segs[0], required: "jkr + discipline + version (e.g. jkrAR24)", key: "file"),
                 };
             if (segs.Count >= 3)
-                return new[] { Pass(id, $"Nama fail \"{name}\": {segs.Count} segmen ({shown})").En($"File name \"{name}\": {segs.Count} segments ({shown})") };
+                return new[] { Pass(id, $"File name \"{name}\": {segs.Count} segments ({shown})") };
             return new[]
             {
-                Fail(id, $"Nama fail \"{name}\": {segs.Count} segmen ({shown}) — perlu ≥ 3 segmen ikut garis panduan",
-                     actual: segs.Count + " segmen", required: "≥ 3 segmen", key: "file")
-                    .En($"File name \"{name}\": {segs.Count} segments ({shown}) — needs ≥ 3 segments per the guideline"),
+                Fail(id, $"File name \"{name}\": {segs.Count} segments ({shown}) — needs ≥ 3 segments per the guideline",
+                     actual: segs.Count + " segments", required: "≥ 3 segments", key: "file"),
             };
         }
 
@@ -584,19 +548,18 @@ namespace RevitWebAppSync.Services.JkrSpec
             const string id = "A2.2";
             var name = SpecA.StripExtension(m.FileName);
             if (name.Length == 0)
-                return new[] { Unjudged(id, "Fail belum disimpan — kod model tidak dapat dibaca", key: "unsaved").En("File not saved — the model code cannot be read") };
+                return new[] { Unjudged(id, "File not saved — the model code cannot be read", key: "unsaved") };
             var code = SpecA.ParseModelCode(name);
             if (code == null)
                 return new[]
                 {
-                    Fail(id, $"Kod model (W00 / WXnn) tidak dapat dibaca dari nama fail \"{name}\"", actual: name, required: "W00 / WXnn", key: "file")
-                        .En($"Model code (W00 / WXnn) cannot be read from the file name \"{name}\""),
+                    Fail(id, $"Model code (W00 / WXnn) cannot be read from the file name \"{name}\"", actual: name, required: "W00 / WXnn", key: "file"),
                 };
             return new[]
             {
                 code.IsSingle
-                    ? Pass(id, $"Kod model dikesan: {code.Canonical} (model tunggal) — segmen \"{code.Raw}\"").En($"Model code found: {code.Canonical} (single model) — segment \"{code.Raw}\"")
-                    : Pass(id, $"Kod model dikesan: {code.Canonical} (model pecah) — segmen \"{code.Raw}\"").En($"Model code found: {code.Canonical} (split model) — segment \"{code.Raw}\""),
+                    ? Pass(id, $"Model code found: {code.Canonical} (single model) — segment \"{code.Raw}\"")
+                    : Pass(id, $"Model code found: {code.Canonical} (split model) — segment \"{code.Raw}\""),
             };
         }
 
@@ -614,14 +577,14 @@ namespace RevitWebAppSync.Services.JkrSpec
             if (name.Length == 0) return Enumerable.Empty<SpecResult>();
             var code = SpecA.ParseModelCode(name);
             if (code == null)
-                return new[] { Unjudged(id, "Kod model tidak dapat dibaca (lihat A2.2) — tunggal atau pecah tidak diketahui", key: "no-code").En("Model code not readable (see A2.2) — single or split unknown") };
+                return new[] { Unjudged(id, "Model code not readable (see A2.2) — single or split unknown", key: "no-code") };
             if (code.IsSingle)
             {
                 // AI-504 (Q16): no JKR document gives a link-count rule, so there is no remark on how
                 // many links a W00 model has. The verdict is the code alone.
-                return new[] { Pass(id, "Model tunggal (W00) — patuh").En("Single model (W00) — complies") };
+                return new[] { Pass(id, "Single model (W00) — complies") };
             }
-            return new[] { NotApplicable(id, $"Model pecah ({code.Canonical}) — A3.1 tidak berkenaan").En($"Split model ({code.Canonical}) — A3.1 does not apply") };
+            return new[] { NotApplicable(id, $"Split model ({code.Canonical}) — A3.1 does not apply") };
         }
 
         /// <summary>
@@ -637,27 +600,24 @@ namespace RevitWebAppSync.Services.JkrSpec
             const string id = "A3.2";
             var s = K.Split(m);
             if (s == null) return Enumerable.Empty<SpecResult>();
-            if (s.Code.IsSingle) return new[] { NotApplicable(id, "Model tunggal (W00) — tiada pecahan untuk di-link").En("Single model (W00) — no parts to link") };
+            if (s.Code.IsSingle) return new[] { NotApplicable(id, "Single model (W00) — no parts to link") };
             var list = new List<SpecResult>();
             foreach (var p in s.Parts.Where(p => K.IsNotFound(p.Link)))
-                list.Add(Fail(id, $"Link pecahan {p.Code.Canonical} tidak dijumpai (NotFound): {p.Link.Name}", actual: "NotFound", required: "Loaded", key: "notfound:" + p.Link.Name)
-                    .En($"Part link {p.Code.Canonical} not found (NotFound): {p.Link.Name}"));
+                list.Add(Fail(id, $"Part link {p.Code.Canonical} not found (NotFound): {p.Link.Name}", actual: "NotFound", required: "Loaded", key: "notfound:" + p.Link.Name));
             var present = new HashSet<int>(s.Parts.Where(p => !K.IsNotFound(p.Link)).Select(p => p.Code.Number));
             var max = Math.Max(s.Code.Number, present.Count > 0 ? present.Max() : 0);
             var missing = Enumerable.Range(1, Math.Max(0, max)).Where(n => n != s.Code.Number && !present.Contains(n)).ToList();
             foreach (var n in missing)
-                list.Add(Fail(id, $"Pecahan {SpecA.SplitCode(n)} tiada sebagai link dalam model", actual: "tiada link", required: "link " + SpecA.SplitCode(n), key: "missing:" + n)
-                    .En($"Part {SpecA.SplitCode(n)} is not linked in the model"));
+                list.Add(Fail(id, $"Part {SpecA.SplitCode(n)} is not linked in the model", actual: "no link", required: "link " + SpecA.SplitCode(n), key: "missing:" + n));
             if (list.Count > 0) return list;
             if (m.Links.Count == 0)
-                return new[] { Unjudged(id, "Model perlu di-link dahulu sebelum semakan A3 boleh dijalankan", key: "no-links").En("The model must be linked first before the A3 checks can run") };
+                return new[] { Unjudged(id, "The model must be linked first before the A3 checks can run", key: "no-links") };
             if (s.Parts.Count == 0)
-                return new[] { Unjudged(id, $"Tiada link pecahan dikenal pasti ({m.Links.Count} link lain) — sahkan pecahan model", key: "no-parts").En($"No part links identified ({m.Links.Count} other links) — confirm the model parts") };
+                return new[] { Unjudged(id, $"No part links identified ({m.Links.Count} other links) — confirm the model parts", key: "no-parts") };
             var linked = string.Join(", ", s.Parts.Select(p => p.Code.Canonical).Distinct());
             return new[]
             {
-                Pass(id, $"{s.Code.Canonical} (fail ini); di-link: {linked} — senarai penuh pecahan perlu BPEP (A3.3)", s.Parts.Count, SpecCoverage.FailOnly)
-                    .En($"{s.Code.Canonical} (this file); linked: {linked} — the full part list needs the BPEP (A3.3)"),
+                Pass(id, $"{s.Code.Canonical} (this file); linked: {linked} — the full part list needs the BPEP (A3.3)", s.Parts.Count, SpecCoverage.FailOnly),
             };
         }
 
@@ -668,8 +628,8 @@ namespace RevitWebAppSync.Services.JkrSpec
             const string id = "A3.3";
             var s = K.Split(m);
             if (s == null) return Enumerable.Empty<SpecResult>();
-            if (s.Code.IsSingle) return new[] { NotApplicable(id, "Model tunggal (W00) — tiada pecahan untuk dibanding dengan BPEP").En("Single model (W00) — no parts to compare with the BPEP") };
-            return new[] { Unjudged(id, "BPEP tidak tersedia → tidak dapat disemak", key: "bpep").En("BPEP not available → cannot be checked") };
+            if (s.Code.IsSingle) return new[] { NotApplicable(id, "Single model (W00) — no parts to compare with the BPEP") };
+            return new[] { Unjudged(id, "BPEP not available → cannot be checked", key: "bpep") };
         }
 
         /// <summary>A3.4 (list only, T 21:22, 21:24): a split model with no links at all gets
@@ -679,10 +639,10 @@ namespace RevitWebAppSync.Services.JkrSpec
             const string id = "A3.4";
             var s = K.Split(m);
             if (s == null) return Enumerable.Empty<SpecResult>();
-            if (s.Code.IsSingle) return new[] { NotApplicable(id, "Model tunggal (W00) — A3.4 tidak berkenaan").En("Single model (W00) — A3.4 does not apply") };
+            if (s.Code.IsSingle) return new[] { NotApplicable(id, "Single model (W00) — A3.4 does not apply") };
             if (m.Links.Count == 0)
-                return new[] { Listing(id, $"Model pecah ({s.Code.Canonical}) tanpa link: Model perlu di-link dahulu sebelum semakan A3 boleh dijalankan").En($"Split model ({s.Code.Canonical}) with no links: the model must be linked first before the A3 checks can run") };
-            return new[] { Listing(id, $"Model pecah ({s.Code.Canonical}) dengan {m.Links.Count} link — semakan A3 dijalankan", m.Links.Count).En($"Split model ({s.Code.Canonical}) with {m.Links.Count} links — the A3 checks ran") };
+                return new[] { Listing(id, $"Split model ({s.Code.Canonical}) with no links: the model must be linked first before the A3 checks can run") };
+            return new[] { Listing(id, $"Split model ({s.Code.Canonical}) with {m.Links.Count} links — the A3 checks ran", m.Links.Count) };
         }
 
         /// <summary>A3.5 (list only, T 21:19–21:20): how the model is split — each part code
@@ -692,15 +652,11 @@ namespace RevitWebAppSync.Services.JkrSpec
             const string id = "A3.5";
             var s = K.Split(m);
             if (s == null) return Enumerable.Empty<SpecResult>();
-            if (s.Code.IsSingle) return new[] { NotApplicable(id, "Model tunggal (W00) — tidak dipecahkan").En("Single model (W00) — not split") };
-            var parts = new List<string> { $"{s.Code.Canonical} — {m.FileName} (fail ini)" };
-            var partsEn = new List<string> { $"{s.Code.Canonical} — {m.FileName} (this file)" };
+            if (s.Code.IsSingle) return new[] { NotApplicable(id, "Single model (W00) — not split") };
+            var parts = new List<string> { $"{s.Code.Canonical} — {m.FileName} (this file)" };
             foreach (var p in s.Parts.OrderBy(p => p.Code.Number))
-            {
                 parts.Add($"{p.Code.Canonical} — {p.Link.Name}");
-                partsEn.Add($"{p.Code.Canonical} — {p.Link.Name}");
-            }
-            return new[] { Listing(id, "Model dipecahkan: " + string.Join("; ", parts), parts.Count).En("Model split: " + string.Join("; ", partsEn)) };
+            return new[] { Listing(id, "Model split: " + string.Join("; ", parts), parts.Count) };
         }
 
         // ════════════════════════════════════════════════════════════════════
@@ -735,19 +691,16 @@ namespace RevitWebAppSync.Services.JkrSpec
                     var firstP = prefixed[0];
                     return new[]
                     {
-                        Context(id, $"Tiada grid bernama A dan 1; ada grid berawalan projek ({shownPairs}). JKR tidak menyatakan awalan sebagai Grid A/1 — manusia putuskan sama ada ia Grid A/1 dan semak kedudukan Project Base Point",
-                                0, "Grid " + shownPairs, key: "prefixed-a1", elementIds: new[] { m.Grids[firstP.A].Id, m.Grids[firstP.One].Id })
-                            .En($"No grid named A and 1; the model has project-prefixed grids ({shownPairs}). No JKR document names a prefix as Grid A/1 — a person decides whether they are Grid A/1 and checks the Project Base Point position"),
+                        Context(id, $"No grid named A and 1; the model has project-prefixed grids ({shownPairs}). No JKR document names a prefix as Grid A/1 — a person decides whether they are Grid A/1 and checks the Project Base Point position",
+                                0, "Grid " + shownPairs, key: "prefixed-a1", elementIds: new[] { m.Grids[firstP.A].Id, m.Grids[firstP.One].Id }),
                     };
                 }
                 var names = string.Join(", ", m.Grids.Select(g => g.Name.Trim()).Take(6)) + (m.Grids.Count > 6 ? ", …" : "");
                 return new[]
                 {
                     m.Grids.Count == 0
-                        ? Unjudged(id, "Tiada grid dalam model — kedudukan Project Base Point pada Grid A/1 tidak dapat disemak", key: "no-a1")
-                            .En("No grids in the model — the Project Base Point position at Grid A/1 cannot be checked")
-                        : Unjudged(id, $"Model ada {m.Grids.Count} grid ({names}) tetapi tiada grid A dan grid 1 — semak manual", key: "no-a1")
-                            .En($"The model has {m.Grids.Count} grids ({names}) but no grid A and grid 1 — check by hand"),
+                        ? Unjudged(id, "No grids in the model — the Project Base Point position at Grid A/1 cannot be checked", key: "no-a1")
+                        : Unjudged(id, $"The model has {m.Grids.Count} grids ({names}) but no grid A and grid 1 — check by hand", key: "no-a1"),
                 };
             }
             SpecGrid bestA = null, best1 = null;
@@ -765,8 +718,7 @@ namespace RevitWebAppSync.Services.JkrSpec
                 var first = $"{m.Grids[pairs[0].A].Name.Trim()} / {m.Grids[pairs[0].One].Name.Trim()}";
                 return new[]
                 {
-                    Unjudged(id, $"Grid {first}: bukan garisan lurus atau selari — persilangan tidak dapat dihitung; semak manual", key: "no-crossing")
-                        .En($"Grids {first}: not straight lines or parallel — the crossing cannot be computed; check by hand"),
+                    Unjudged(id, $"Grids {first}: not straight lines or parallel — the crossing cannot be computed; check by hand", key: "no-crossing"),
                 };
             }
             var pair = $"{bestA.Name.Trim()} / {best1.Name.Trim()}";
@@ -776,14 +728,12 @@ namespace RevitWebAppSync.Services.JkrSpec
             if (SpecUnits.CleanMm(bestD) == 0)
                 return new[]
                 {
-                    Pass(id, $"Project Base Point tepat pada persilangan grid {pair} (Grid A/1)")
-                        .En($"Project Base Point exactly at the crossing of grids {pair} (Grid A/1)"),
+                    Pass(id, $"Project Base Point exactly at the crossing of grids {pair} (Grid A/1)"),
                 };
             return new[]
             {
-                Context(id, $"Project Base Point {dist} mm dari persilangan grid {pair} (Grid A/1): X {dx} mm, Y {dy} mm. Piawaian: Project Base Point \"sebaiknya\" di Grid A/1; JKR tiada had sisihan — manusia putuskan",
-                        0, "Grid " + pair, key: "offset", elementIds: new[] { bestA.Id, best1.Id })
-                    .En($"Project Base Point {dist} mm from the crossing of grids {pair} (Grid A/1): X {dx} mm, Y {dy} mm. The Piawaian says the Project Base Point is preferably at Grid A/1; JKR gives no offset limit — a person decides"),
+                Context(id, $"Project Base Point {dist} mm from the crossing of grids {pair} (Grid A/1): X {dx} mm, Y {dy} mm. The Piawaian says the Project Base Point is preferably at Grid A/1; JKR gives no offset limit — a person decides",
+                        0, "Grid " + pair, key: "offset", elementIds: new[] { bestA.Id, best1.Id }),
             };
         }
 
@@ -830,8 +780,7 @@ namespace RevitWebAppSync.Services.JkrSpec
             var sub = subs.Count > 0 ? "; sub-grid: " + string.Join(", ", subs) : "";
             return new[]
             {
-                Listing("A5.1", $"{m.Grids.Count} grid, {m.Levels.Count} aras — grid: {order}{sub}", m.Grids.Count + m.Levels.Count)
-                    .En($"{m.Grids.Count} grids, {m.Levels.Count} levels — grids: {order}{sub}"),
+                Listing("A5.1", $"{m.Grids.Count} grids, {m.Levels.Count} levels — grids: {order}{sub}", m.Grids.Count + m.Levels.Count),
             };
         }
 
@@ -848,14 +797,14 @@ namespace RevitWebAppSync.Services.JkrSpec
             var list = new List<SpecResult>();
             if (m.Grids.Count == 0)
             {
-                list.Add(Unjudged(id, "Tiada grid dalam model — urutan tidak dapat disemak", key: "no-grids").En("No grids in the model — sequence cannot be checked"));
+                list.Add(Unjudged(id, "No grids in the model — sequence cannot be checked", key: "no-grids"));
                 return list;
             }
             var parsed = ParseModelGrids(m);
             if (!parsed.Any(p => p.L.Kind == SpecGridKind.Number || p.L.Kind == SpecGridKind.Letter))
             {
                 var names = string.Join(", ", m.Grids.Select(g => g.Name).Take(10));
-                list.Add(Unjudged(id, $"Tiada grid utama bernombor / berhuruf dikenal pasti: {names}", key: "no-main").En($"No numbered / lettered main grids identified: {names}"));
+                list.Add(Unjudged(id, $"No numbered / lettered main grids identified: {names}", key: "no-main"));
                 return list;
             }
             var descs = new List<string>();
@@ -875,37 +824,32 @@ namespace RevitWebAppSync.Services.JkrSpec
                 foreach (var gap in SpecA.NumberGaps(nums.Select(p => p.L.Main)))
                 {
                     var run = SpecA.RunBefore(nums.Select(p => p.L.Main), gap.From, NumName);
-                    list.Add(Fail(id, $"Grid {run} → {NumName(gap.To)}: urutan melompat ({SpecA.MissingNumbers(gap.From, gap.To)} tiada)",
-                                  actual: $"{NumName(gap.From)} → {NumName(gap.To)}", required: "tanpa lompat", key: "num:" + key + gap.From + "-" + gap.To)
-                        .En($"Grids {run} → {NumName(gap.To)}: sequence jumps ({SpecA.MissingNumbers(gap.From, gap.To)} missing)"));
+                    list.Add(Fail(id, $"Grids {run} → {NumName(gap.To)}: sequence jumps ({SpecA.MissingNumbers(gap.From, gap.To)} missing)",
+                                  actual: $"{NumName(gap.From)} → {NumName(gap.To)}", required: "no jump", key: "num:" + key + gap.From + "-" + gap.To));
                 }
                 foreach (var gap in SpecA.LetterGaps(lets.Select(p => p.L.Main)))
                 {
                     var run = SpecA.RunBefore(lets.Select(p => p.L.Main), gap.From, LetName);
                     var miss = string.Join(",", gap.Missing.Take(6)) + (gap.Missing.Count > 6 ? "…" : "");
-                    list.Add(Fail(id, $"Grid {run} → {LetName(gap.To)}: urutan melompat ({miss} tiada)",
-                                  actual: $"{LetName(gap.From)} → {LetName(gap.To)}", required: "tanpa lompat",
-                                  key: "let:" + key + gap.From + "-" + gap.To)
-                        .En($"Grids {run} → {LetName(gap.To)}: sequence jumps ({miss} missing)"));
+                    list.Add(Fail(id, $"Grids {run} → {LetName(gap.To)}: sequence jumps ({miss} missing)",
+                                  actual: $"{LetName(gap.From)} → {LetName(gap.To)}", required: "no jump",
+                                  key: "let:" + key + gap.From + "-" + gap.To));
                 }
                 foreach (var seq in new[] { nums, lets })
                 {
                     var order = SpecA.PlanOrderBroken(seq.Select(p => (p.L.Main, p.Grid.Offset, p.Grid.IsVertical)).ToList());
                     if (order == null) continue;
                     var shown = string.Join(",", order.Select(i => seq.First(p => p.L.Main == i).L.Display));
-                    list.Add(Fail(id, $"Grid tidak tersusun ikut kedudukan pada pelan: {shown}", actual: shown, required: "tersusun",
-                                  key: "order:" + shown, elementIds: seq.Select(p => p.Grid.Id))
-                        .En($"Grids not in order on plan: {shown}"));
+                    list.Add(Fail(id, $"Grids not in order on plan: {shown}", actual: shown, required: "in order",
+                                  key: "order:" + shown, elementIds: seq.Select(p => p.Grid.Id)));
                 }
                 descs.Add(SpecA.SequenceText(nums.Select(p => p.L.Main), NumName) + " | " + SpecA.SequenceText(lets.Select(p => p.L.Main), LetName));
             }
             if (list.Count > 0) return list;
             var other = parsed.Where(p => p.L.Kind == SpecGridKind.Other).Select(p => p.Grid.Name).ToList();
             var desc = string.Join(" · ", descs);
-            var extra = other.Count > 0 ? $"; grid lain tidak disemak: {string.Join(", ", other.Take(6))}" : "";
-            var extraEn = other.Count > 0 ? $"; other grids not checked: {string.Join(", ", other.Take(6))}" : "";
-            list.Add(Pass(id, $"Grid tersusun tanpa lompat: {desc}{extra}", checkedCount)
-                .En($"Grids in sequence with no jump: {desc}{extraEn}"));
+            var extra = other.Count > 0 ? $"; other grids not checked: {string.Join(", ", other.Take(6))}" : "";
+            list.Add(Pass(id, $"Grids in sequence with no jump: {desc}{extra}", checkedCount));
             return list;
         }
 
@@ -925,7 +869,7 @@ namespace RevitWebAppSync.Services.JkrSpec
             var subs = parsed.Where(p => p.L.Kind == SpecGridKind.NumberSub || p.L.Kind == SpecGridKind.LetterSub).ToList();
             if (subs.Count == 0)
             {
-                list.Add(Pass(id, "Tiada sub-grid dalam model — tiada pola untuk disemak").En("No sub-grids in the model — no pattern to check"));
+                list.Add(Pass(id, "No sub-grids in the model — no pattern to check"));
                 return list;
             }
             var valid = new List<string>();
@@ -942,8 +886,7 @@ namespace RevitWebAppSync.Services.JkrSpec
                 if (parent == null)
                 {
                     foreach (var s in grp)
-                        list.Add(Unjudged(id, $"Sub-grid {s.Grid.Name}: grid induk {parentName} tiada — sahkan", s.Grid.Id, "Grid " + s.Grid.Name)
-                            .En($"Sub-grid {s.Grid.Name}: parent grid {parentName} missing — confirm"));
+                        list.Add(Unjudged(id, $"Sub-grid {s.Grid.Name}: parent grid {parentName} missing — confirm", s.Grid.Id, "Grid " + s.Grid.Name));
                     continue;
                 }
                 var next = mains.Where(p => p.L.Main > grp.Key.ParentIndex).OrderBy(p => p.L.Main).FirstOrDefault();
@@ -952,8 +895,7 @@ namespace RevitWebAppSync.Services.JkrSpec
                 {
                     if (next != null && !SpecA.WithinBay(s.Grid, parent.Grid, next.Grid))
                     {
-                        list.Add(Unjudged(id, $"Sub-grid {s.Grid.Name} di luar petak {parent.Grid.Name}–{next.Grid.Name} — sahkan", s.Grid.Id, "Grid " + s.Grid.Name)
-                            .En($"Sub-grid {s.Grid.Name} lies outside bay {parent.Grid.Name}–{next.Grid.Name} — confirm"));
+                        list.Add(Unjudged(id, $"Sub-grid {s.Grid.Name} lies outside bay {parent.Grid.Name}–{next.Grid.Name} — confirm", s.Grid.Id, "Grid " + s.Grid.Name));
                         continue;
                     }
                     okHere.Add(s.L.Display);
@@ -965,15 +907,14 @@ namespace RevitWebAppSync.Services.JkrSpec
                 foreach (var g in gaps)
                 {
                     string Name(int i) => grp.Key.Kind == SpecGridKind.NumberSub ? parentName + SpecA.LetterName(i) : parentName + i.ToString(CultureInfo.InvariantCulture);
-                    list.Add(Unjudged(id, $"Sub-grid {Name(g.From)} → {Name(g.To)}: {g.Miss} tiada — sahkan", key: "subgap:" + parentName + ":" + g.From + "-" + g.To)
-                        .En($"Sub-grid {Name(g.From)} → {Name(g.To)}: {g.Miss} missing — confirm"));
+                    list.Add(Unjudged(id, $"Sub-grid {Name(g.From)} → {Name(g.To)}: {g.Miss} missing — confirm", key: "subgap:" + parentName + ":" + g.From + "-" + g.To));
                 }
                 if (okHere.Count > 0) valid.Add(parentName + ": " + string.Join(", ", okHere));
             }
             if (valid.Count > 0)
             {
                 var n = valid.Sum(v => v.Split(',').Length);
-                list.Add(Pass(id, "Sub-grid ikut pola: " + string.Join(" · ", valid), n).En("Sub-grids follow the pattern: " + string.Join(" · ", valid)));
+                list.Add(Pass(id, "Sub-grids follow the pattern: " + string.Join(" · ", valid), n));
             }
             return list;
         }
@@ -982,7 +923,7 @@ namespace RevitWebAppSync.Services.JkrSpec
         // A6 — rooms (T 21:26–21:34): every slab has a room; Department is information.
         // ════════════════════════════════════════════════════════════════════
 
-        /// <summary>A6.1 (list only): rooms per level, as `Aras | Nama | Nombor | Department | Luas`,
+        /// <summary>A6.1 (list only): rooms per level, as `Level | Name | Number | Department | Area`,
         /// every level that has rooms. Rooms with no area are counted apart: not placed (no
         /// location) and placed but not enclosed / redundant (real model, 16 Nov 2026: Aras 01
         /// had 8 of the one and 44 of the other, shown as "52 not placed"). A snapshot that
@@ -1002,13 +943,10 @@ namespace RevitWebAppSync.Services.JkrSpec
                 var unplaced = noArea.Count - notEnclosed;
                 var rows = placed.Take(8).Select(r => $"{K.Or(r.Name)} | {K.Or(r.Number)} | {K.Or(r.Department)} | {K.M2(r.Area)} m²").ToList();
                 var more = placed.Count > 8 ? $"; … +{placed.Count - 8}" : "";
-                var un = (unplaced > 0 ? $"; {unplaced} room tidak ditempatkan" : "")
-                         + (notEnclosed > 0 ? $"; {notEnclosed} room tidak tertutup / berlebihan" : "");
                 var unEn = (unplaced > 0 ? $"; {unplaced} rooms not placed" : "")
                            + (notEnclosed > 0 ? $"; {notEnclosed} rooms not enclosed / redundant" : "");
                 var shown = rows.Count > 0 ? " — " + string.Join("; ", rows) + more : "";
-                list.Add(Listing(id, $"Aras {name}: {placed.Count} room{shown}{un}", g.Count())
-                    .En($"Level {name}: {placed.Count} rooms{shown}{unEn}"));
+                list.Add(Listing(id, $"Level {name}: {placed.Count} rooms{shown}{unEn}", g.Count()));
             }
             return list;
         }
@@ -1036,9 +974,8 @@ namespace RevitWebAppSync.Services.JkrSpec
             var list = new List<SpecResult>();
             if (m.Floors.Count == 0)
             {
-                var msg = m.Rooms.Count == 0 ? "Tiada lantai dan tiada room dalam model" : "Tiada lantai (slab) dimodelkan";
                 var msgEn = m.Rooms.Count == 0 ? "No floors and no rooms in the model" : "No floors (slabs) modelled";
-                list.Add(Unjudged(id, msg + " — tidak dapat disemak", key: "no-floors").En(msgEn + " — cannot be checked"));
+                list.Add(Unjudged(id, msgEn + " — cannot be checked", key: "no-floors"));
                 return list;
             }
             var rooms = m.Rooms.Where(r => r.Area > 0).ToList();
@@ -1053,8 +990,7 @@ namespace RevitWebAppSync.Services.JkrSpec
                 var footprint = f.Loops.Count > 0 ? f.Loops : hasBox ? SpecPlan.Rect(f.MinX, f.MinY, f.MaxX, f.MaxY) : null;
                 if (footprint == null || (lv.Length == 0 && f.TopElevation == null))
                 {
-                    list.Add(Unjudged(id, $"Lantai {f.Id} ({label}): aras atau kedudukan tidak dibaca", f.Id, "Floors · " + label)
-                        .En($"Floor {f.Id} ({label}): level or position not read"));
+                    list.Add(Unjudged(id, $"Floor {f.Id} ({label}): level or position not read", f.Id, "Floors · " + label));
                     continue;
                 }
                 bool SameStorey(SpecRoom r)
@@ -1091,15 +1027,13 @@ namespace RevitWebAppSync.Services.JkrSpec
                 var at = near.Length > 0 ? $" | grid {near}" : "";
                 var k = kind.Length > 0 ? $" | {kind}" : "";
                 var lvName = K.LevelLabel(lv);
-                list.Add(Context(id, $"{Aras(lvName)}{at}{k}: lantai {f.Id} ({label}) tiada room — manusia putuskan sama ada slab ini dikecualikan (lif, tangga, apron)",
-                                 f.Id, "Floors · " + label, key: "noroom:" + f.Id)
-                    .En($"Level {lvName}{at}{k}: floor {f.Id} ({label}) has no room — a person decides whether this slab is an exception (lift, stair, apron)"));
+                list.Add(Context(id, $"Level {lvName}{at}{k}: floor {f.Id} ({label}) has no room — a person decides whether this slab is an exception (lift, stair, apron)",
+                                 f.Id, "Floors · " + label, key: "noroom:" + f.Id));
             }
             if (passedFull > 0)
-                list.Add(Pass(id, $"{passedFull} lantai ada room di atasnya", passedFull)
-                    .En($"{passedFull} floors have a room on them"));
+                list.Add(Pass(id, $"{passedFull} floors have a room on them", passedFull));
             if (passedPartly > 0)
-                list.Add(Pass(id, $"{passedPartly} lantai ada room di atasnya", passedPartly, SpecCoverage.FailOnly).En($"{passedPartly} floors have a room on them"));
+                list.Add(Pass(id, $"{passedPartly} floors have a room on them", passedPartly, SpecCoverage.FailOnly));
             return list;
         }
 
@@ -1116,13 +1050,12 @@ namespace RevitWebAppSync.Services.JkrSpec
             if (rooms.Count == 0) return Enumerable.Empty<SpecResult>();
             var empty = rooms.Where(r => r.Department.Trim().Length == 0).ToList();
             if (empty.Count == 0)
-                return new[] { Context(id, $"Semua {rooms.Count} room ada Department").En($"All {rooms.Count} rooms have a Department") };
+                return new[] { Context(id, $"All {rooms.Count} rooms have a Department") };
             var names = string.Join(", ", empty.Take(8).Select(r => (K.Or(r.Number) + " " + r.Name).Trim()));
             var more = empty.Count > 8 ? ", …" : "";
             return new[]
             {
-                Context(id, $"{empty.Count} daripada {rooms.Count} room tiada Department (maklumat sahaja; jenis projek menentukan): {names}{more}")
-                    .En($"{empty.Count} of {rooms.Count} rooms have no Department (information only; the project type decides): {names}{more}"),
+                Context(id, $"{empty.Count} of {rooms.Count} rooms have no Department (information only; the project type decides): {names}{more}"),
             };
         }
 
@@ -1135,7 +1068,7 @@ namespace RevitWebAppSync.Services.JkrSpec
         /// element (AI-475): in each placed type of a category where a material applies
         /// (everything but the non-physical ones in <see cref="SpecA.NoMaterialCategories"/>,
         /// plus Planting and Entourage, whose render content carries no Revit material), the
-        /// instances with no material fail, as `Kategori | Type | n daripada N elemen`; the
+        /// instances with no material fail, as `Category | Type | n of N elements`; the
         /// failing result carries exactly those element ids. A snapshot without per-element data (old,
         /// hand-made) falls back to the type's materials, as before. A pass is FailOnly when a
         /// type has more instances than the reader's id cap (the rest were not read).
@@ -1147,7 +1080,7 @@ namespace RevitWebAppSync.Services.JkrSpec
             var types = m.Types.Where(t => !SpecA.NoMaterialCategories.Contains(t.Category.Trim())).ToList();
             if (types.Count == 0)
             {
-                list.Add(Unjudged(id, "Tiada elemen model dibaca — material tidak dapat disemak", key: "no-types").En("No model elements read — materials cannot be checked"));
+                list.Add(Unjudged(id, "No model elements read — materials cannot be checked", key: "no-types"));
                 return list;
             }
             var passedElements = 0;
@@ -1160,9 +1093,8 @@ namespace RevitWebAppSync.Services.JkrSpec
                     // No per-element data (old snapshot): the type's list stands for its elements.
                     if (typeHas) { passedElements += Math.Max(1, t.InstanceCount); continue; }
                     var n0 = K.Count(t);
-                    list.Add(Fail(id, $"{K.Or(t.Category)} | {K.TypeLabel(t)} | {n0} elemen: tiada material", elementName: K.ElementLabel(t),
-                                  actual: "tiada material", required: "material", key: K.TypeKey(t), elementIds: t.InstanceIds)
-                        .En($"{K.Or(t.Category)} | {K.TypeLabel(t)} | {n0} elements: no material"));
+                    list.Add(Fail(id, $"{K.Or(t.Category)} | {K.TypeLabel(t)} | {n0} elements: no material", elementName: K.ElementLabel(t),
+                                  actual: "no material", required: "material", key: K.TypeKey(t), elementIds: t.InstanceIds));
                     continue;
                 }
                 var judged = t.InstanceIds.Count;
@@ -1171,13 +1103,11 @@ namespace RevitWebAppSync.Services.JkrSpec
                 if (bare.Count == 0) { passedElements += Math.Max(judged, 0); continue; }
                 passedElements += Math.Max(judged - bare.Count, 0);
                 var total = Math.Max(t.InstanceCount, judged);
-                list.Add(Fail(id, $"{K.Or(t.Category)} | {K.TypeLabel(t)} | {bare.Count} daripada {total} elemen: tiada material", elementName: K.ElementLabel(t),
-                              actual: "tiada material", required: "material", key: K.TypeKey(t), elementIds: bare)
-                    .En($"{K.Or(t.Category)} | {K.TypeLabel(t)} | {bare.Count} of {total} elements: no material"));
+                list.Add(Fail(id, $"{K.Or(t.Category)} | {K.TypeLabel(t)} | {bare.Count} of {total} elements: no material", elementName: K.ElementLabel(t),
+                              actual: "no material", required: "material", key: K.TypeKey(t), elementIds: bare));
             }
             if (passedElements > 0)
-                list.Add(Pass(id, $"{passedElements} elemen ada material", passedElements, partly ? SpecCoverage.FailOnly : SpecCoverage.Full)
-                    .En($"{passedElements} elements have a material"));
+                list.Add(Pass(id, $"{passedElements} elements have a material", passedElements, partly ? SpecCoverage.FailOnly : SpecCoverage.Full));
             return list;
         }
 
@@ -1201,8 +1131,7 @@ namespace RevitWebAppSync.Services.JkrSpec
             var used = K.UsedMaterials(m);
             if (used.Count == 0)
             {
-                list.Add(Context(id, "Tiada material digunakan dibaca — naming tidak dapat disemak; sahkan secara manual", key: "no-materials")
-                    .En("No used materials read — naming cannot be checked; confirm by hand"));
+                list.Add(Context(id, "No used materials read — naming cannot be checked; confirm by hand", key: "no-materials"));
                 return list;
             }
             var jkrNamed = 0;
@@ -1211,16 +1140,14 @@ namespace RevitWebAppSync.Services.JkrSpec
                 if (SpecA.IsJkrMaterialName(u.Name)) { jkrNamed++; continue; }
                 var cats = u.Categories.Count > 0 ? " (" + string.Join(", ", u.Categories.Take(4)) + (u.Categories.Count > 4 ? ", …" : "") + ")" : "";
                 var dflt = SpecA.IsRevitDefaultMaterial(u.Name);
-                var why = dflt ? "nama default Revit" : "bukan naming JKR";
-                var whyEn = dflt ? "Revit default name" : "not JKR naming";
-                var r = Context(id, $"AMARAN: Material \"{u.Name}\"{cats}, {u.Count} elemen: {why}", elementName: u.Name, key: "mat:" + u.Name)
-                    .En($"WARNING: Material \"{u.Name}\"{cats}, {u.Count} elements: {whyEn}");
+                var why = dflt ? "Revit default name" : "not JKR naming";
+                var r = Context(id, $"WARNING: Material \"{u.Name}\"{cats}, {u.Count} elements: {why}", elementName: u.Name, key: "mat:" + u.Name);
                 r.Actual = u.Name;
-                r.Required = "jkrXX_…_(kod) nama";
+                r.Required = "jkrXX_…_(code) name";
                 list.Add(r);
             }
             if (list.Count == 0)
-                list.Add(Context(id, $"Semua {jkrNamed} material yang digunakan ikut naming JKR").En($"All {jkrNamed} used materials follow JKR naming"));
+                list.Add(Context(id, $"All {jkrNamed} used materials follow JKR naming"));
             return list;
         }
 
@@ -1232,8 +1159,7 @@ namespace RevitWebAppSync.Services.JkrSpec
             const string id = "A7.3";
             var list = new List<SpecResult>
             {
-                Context(id, "Ketepatan pilihan material tidak dinilai di A7 — hanya kewujudan + naming; ketepatan disemak di seksyen D")
-                    .En("Material choice is not judged in A7 — only presence and naming; correctness is checked in section D"),
+                Context(id, "Material choice is not judged in A7 — only presence and naming; correctness is checked in section D"),
             };
             var byCat = new SortedDictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
             foreach (var t in m.Types)
@@ -1246,7 +1172,7 @@ namespace RevitWebAppSync.Services.JkrSpec
             foreach (var kv in byCat)
             {
                 var bad = kv.Value.Count(x => !SpecA.IsJkrMaterialName(x));
-                list.Add(Context(id, $"{kv.Key}: {kv.Value.Count} material, {bad} tidak ikut JKR").En($"{kv.Key}: {kv.Value.Count} materials, {bad} not JKR-named"));
+                list.Add(Context(id, $"{kv.Key}: {kv.Value.Count} materials, {bad} not JKR-named"));
             }
             return list;
         }
@@ -1292,7 +1218,7 @@ namespace RevitWebAppSync.Services.JkrSpec
         internal static string M2(double v) => v.ToString("0.0", Inv);
         internal static string Deg(double v) => v.ToString("0.#", Inv);
         internal static string Or(string s) => string.IsNullOrWhiteSpace(s) ? "—" : s.Trim();
-        internal static string LevelLabel(string name) => string.IsNullOrWhiteSpace(name) ? "(tiada aras)" : name.Trim();
+        internal static string LevelLabel(string name) => string.IsNullOrWhiteSpace(name) ? "(no level)" : name.Trim();
 
         internal static bool IsCat(SpecType t, string cat) => string.Equals(t.Category.Trim(), cat, StringComparison.OrdinalIgnoreCase);
         internal static int Count(SpecType t) => Math.Max(t.InstanceCount, t.InstanceIds.Count);
@@ -1305,7 +1231,7 @@ namespace RevitWebAppSync.Services.JkrSpec
             var f = t.FamilyName.Trim();
             var n = t.TypeName.Trim();
             if (f.Length > 0 && n.Length > 0 && !string.Equals(f, n, StringComparison.OrdinalIgnoreCase)) return f + " : " + n;
-            return n.Length > 0 ? n : f.Length > 0 ? f : "(tanpa nama)";
+            return n.Length > 0 ? n : f.Length > 0 ? f : "(no name)";
         }
 
         /// <summary>Family, type, text values and materials as one string, for word tests.</summary>
@@ -1512,9 +1438,9 @@ namespace RevitWebAppSync.Services.JkrSpec
     public static class SpecA
     {
         /// <summary>A1.6: the NS clauses the spec's "Klausa NS" sheet marks "Tidak — semak manual".</summary>
-        public static readonly IReadOnlyList<(string Clause, string Rule, string RuleEn)> ManualNsClauses = new[]
+        public static readonly IReadOnlyList<(string Clause, string Rule)> ManualNsClauses = new[]
         {
-            ("lain-lain", "Sustainability, IBS, landskap, konsep reka bentuk", "Sustainability, IBS, landscape, design concept"),
+            ("other", "Sustainability, IBS, landscape, design concept"),
         };
 
         // ── file name / model code (A2) ──

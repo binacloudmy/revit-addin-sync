@@ -60,8 +60,7 @@ namespace RevitWebAppSync.Tests
                 Views = { new SpecView { Id = 1, Name = "PTBR_ISOMETRIK ARAS 1", Kind = "ThreeD" } },
             };
             var fail = Of(m, "C1.5.2").Single(r => r.Status == "fail");
-            Assert.Contains("PTBR_Aras 01 tiada", fail.Note);
-            Assert.Contains("'PTBR_ISOMETRIK ARAS 1' di luar set Dokumen", fail.Note);
+            Assert.Contains("'PTBR_ISOMETRIK ARAS 1' exists outside the Dokumen set", fail.Note);
         }
 
         [Fact]
@@ -281,21 +280,19 @@ namespace RevitWebAppSync.Tests
         public void Real_model_C1_2_1_lists_the_15_WIP_views_found_by_browser_folder()
         {
             var r = Of(RealModel(), "C1.2.1");
-            Assert.Equal("15 view WIP — untuk semakan manusia; set dikenal pasti ikut folder Project Browser (View_jkr_pit) 15", r[0].Note);
-            Assert.Equal("15 WIP views — for a person to review; set found by browser folder View_jkr_pit 15", r[0].NoteEn);
+            Assert.Equal("15 WIP views — for a person to review; set found by browser folder View_jkr_pit 15", r[0].Note);
             Assert.Contains(r, x => x.Note == "PTBR_Aras 01 | floor plan ✓ | ceiling plan ✓ | section ✓ (set)");
             Assert.Contains(r, x => x.Note == "PTBR_Aras Tanah | floor plan ✓ | ceiling plan – | section ✓ (set)");
-            Assert.Contains(r, x => x.Note.StartsWith("Set WIP: 2 section, 4 elevation"));
+            Assert.Contains(r, x => x.Note.StartsWith("WIP set: 2 sections, 4 elevations"));
         }
 
         [Fact]
         public void Real_model_C1_5_1_lists_the_66_Dokumen_views()
         {
             var r = Of(RealModel(), "C1.5.1");
-            Assert.StartsWith("66 view Dokumen, ", r[0].Note);
-            Assert.EndsWith("; set dikenal pasti ikut folder Project Browser (View_jkr_pit) 66", r[0].Note);
+            Assert.EndsWith("; set found by browser folder View_jkr_pit 66", r[0].Note);
             Assert.Equal(67, r.Count);
-            Assert.Contains(r, x => x.Note.StartsWith("PTBR_ISOMETRIK ARAS 1 | 3D | — | dalam sheet ✗"));
+            Assert.Contains(r, x => x.Note.StartsWith("PTBR_ISOMETRIK ARAS 1 | 3D | — | on sheet ✗"));
         }
 
         [Fact]
@@ -305,8 +302,8 @@ namespace RevitWebAppSync.Tests
             var fails = r.Where(x => x.Status == "fail").ToList();
             Assert.Equal(new[] { "PTBR_Aras Tanah", "PTBR_Beam Aras Bumbung", "PTBR_Aras Bumbung Tangki Air", "PTBR_Aras Bumbung" },
                 fails.Select(f => f.ElementName));
-            Assert.All(fails, f => Assert.StartsWith("3D view setiap aras: 3/7 ✗ (", f.Note));
-            Assert.Equal("3D view setiap aras: 3/7 ✗ (PTBR_Aras Tanah tiada)", fails[0].Note);
+            Assert.All(fails, f => Assert.StartsWith("3D view for every level: 3/7 ✗ (", f.Note));
+            Assert.Equal("3D view for every level: 3/7 ✗ (PTBR_Aras Tanah missing)", fails[0].Note);
             Assert.Equal(847682, fails[0].ElementId);
         }
 
@@ -316,11 +313,11 @@ namespace RevitWebAppSync.Tests
             var m = RealModel();
             var pbt = Of(m, "C1.3.1");
             Assert.Equal(3, pbt.Count(x => x.Status == "fail"));
-            Assert.All(pbt, x => Assert.Contains("tiada view dijumpai ikut folder Project Browser", x.Note));
+            Assert.All(pbt, x => Assert.Contains("no view found by browser folder", x.Note));
             var bomba = Of(m, "C1.4.1").Where(x => x.Status == "fail").ToList();
             Assert.Equal(2, bomba.Count);                            // no floor plan, no section; the drafting view is there
             Assert.Contains("drafting view ✓", bomba[0].Note);
-            Assert.Contains("ikut nama view 2, ikut folder Project Browser (View_jkr_pit) 1", bomba[0].Note);
+            Assert.Contains("by name 2, by browser folder View_jkr_pit 1", bomba[0].Note);
         }
 
         [Fact]
@@ -330,19 +327,19 @@ namespace RevitWebAppSync.Tests
             var fails = r.Where(x => x.Status == "fail").ToList();
             var dok = fails.Where(f => f.Category == "Dokumen").ToList();
             Assert.Equal(30, dok.Count);
-            Assert.All(dok, f => Assert.Equal("tiada", f.Actual));
+            Assert.All(dok, f => Assert.Equal("none", f.Actual));
             var details = RealModel().Views.Where(v => v.Kind == "Detail" && v.TemplateName == "").Select(v => v.Name).ToList();
             Assert.Equal(details.OrderBy(n => n), dok.Select(f => f.ElementName).OrderBy(n => n));
             // Bomba: the drafting view has no template; the legends are not judged.
             var bomba = Assert.Single(fails, f => f.Category == "BOMBA");
             Assert.Equal("Petunjuk Bomba", bomba.ElementName);
             Assert.DoesNotContain(fails, f => f.ElementName.StartsWith("jkrAR_lgd"));
-            var skipped = Assert.Single(r, x => x.Note.Contains("legend dilangkau"));
-            Assert.StartsWith("2 legend dilangkau", skipped.Note);
+            var skipped = Assert.Single(r, x => x.Note.Contains("legends skipped"));
+            Assert.StartsWith("2 legends skipped", skipped.Note);
             Assert.Equal(SpecCoverage.Listing, skipped.Coverage);
             // The 36 Dokumen views with a Dokumen template pass; the WIP views are listed only.
             var pass = Assert.Single(r, x => x.Status == "pass" && x.Category == "Dokumen" && x.Coverage != SpecCoverage.Listing);
-            Assert.Equal("Dokumen: 36 view guna template set yang betul", pass.Note);
+            Assert.Equal("Dokumen: 36 views use their set's template", pass.Note);
             Assert.Equal(15, r.Count(x => x.Category == "WIP" && x.Coverage == SpecCoverage.Listing));
         }
 
@@ -352,7 +349,7 @@ namespace RevitWebAppSync.Tests
             var m = RealModel();
             m.Views.Single(v => v.Name == "PTBR_PELAN LANTAI ARAS 01").TemplateName = "jkrAR_01w_WIP_(Pelan Aras 1)";
             var f = Assert.Single(Of(m, "E.1"), x => x.Status == "fail" && x.ElementName == "PTBR_PELAN LANTAI ARAS 01");
-            Assert.Equal("Dokumen | view 'PTBR_PELAN LANTAI ARAS 01' guna template 'jkrAR_01w_WIP_(Pelan Aras 1)' — bukan template Dokumen (template set WIP)", f.Note);
+            Assert.Equal("Dokumen | view 'PTBR_PELAN LANTAI ARAS 01' uses template 'jkrAR_01w_WIP_(Pelan Aras 1)' — not a Dokumen template (a WIP set template)", f.Note);
             Assert.Equal("Dokumen", f.Category);
         }
 
@@ -372,7 +369,7 @@ namespace RevitWebAppSync.Tests
                     RowElementIds = new List<long> { 1060438 } });
             var pass = Assert.Single(Of(m, "C3.1.1"));
             Assert.Equal("pass", pass.Status);
-            Assert.StartsWith("1 kategori PB dimodelkan, semua ada schedule (Ramp dalam schedule pelbagai kategori 'jkrAR_sch_gen-mo_Jarak Perjalanan (Bomba)', material takeoff", pass.Note);
+            Assert.StartsWith("1 Buku Parameter categories modelled, all have a schedule (Ramp in multi-category schedule 'jkrAR_sch_gen-mo_Jarak Perjalanan (Bomba)', material takeoff", pass.Note);
         }
 
         // ═════ The Dewan (jkrAR24_5a_(BEde1A_p14-001)_A1_w-01, 17 Nov 2026) ═════
@@ -525,10 +522,8 @@ namespace RevitWebAppSync.Tests
         {
             var r = Of(Dewan(), "A1.1");
             var fail = Assert.Single(r, x => x.Status == "fail");
-            Assert.Equal("Aras 01: siling 2250 mm < 3000 mm — UM07 Tandas Perempuan 2250 mm, UM06 Tandas Lelaki 2250 mm, "
-                         + "UM01 Laluan Belakang Pentas 2550 mm, UM05 Bilik Persalinan (P) 2600 mm, UM04 Bilik Persalinan (L) 2600 mm", fail.Note);
             Assert.Equal("Level Aras 01: ceiling 2250 mm < 3000 mm — UM07 Tandas Perempuan 2250 mm, UM06 Tandas Lelaki 2250 mm, "
-                         + "UM01 Laluan Belakang Pentas 2550 mm, UM05 Bilik Persalinan (P) 2600 mm, UM04 Bilik Persalinan (L) 2600 mm", fail.NoteEn);
+                         + "UM01 Laluan Belakang Pentas 2550 mm, UM05 Bilik Persalinan (P) 2600 mm, UM04 Bilik Persalinan (L) 2600 mm", fail.Note);
             Assert.Equal("Aras 01", fail.ElementName);
             Assert.Equal("2250 mm", fail.Actual);
             // All 16 stage-side ceilings and 927649 (over floor 828071, top 1350: 2550 mm), lowest first.
@@ -539,7 +534,7 @@ namespace RevitWebAppSync.Tests
             Assert.DoesNotContain("3450", fail.Note);
             // Aras Tanah (Anjung 4350) and Aras 02 (3448) pass; the hall's ceiling counts for Aras 01 (8998).
             var pass = Assert.Single(r, x => x.Status == "pass");
-            Assert.Equal("2 aras: siling ≥ 3000 mm (basement ≥ 2500 mm)", pass.Note);
+            Assert.Equal("2 levels: ceiling ≥ 3000 mm (basement ≥ 2500 mm)", pass.Note);
             Assert.Equal(SpecState.Fail, SpecReport.Build(SpecChecks.Run(Dewan())).For("A1.1").State);
         }
 
@@ -577,7 +572,7 @@ namespace RevitWebAppSync.Tests
             // Height above the host level: every Aras 01 ceiling is ≥ 3210 mm, so the level-only
             // reading passes the stage side (what the pane showed); Aras 01 and Aras 02 pass.
             Assert.DoesNotContain(r, x => x.Status == "fail");
-            Assert.Equal("2 aras: siling ≥ 3000 mm (basement ≥ 2500 mm)", Assert.Single(r, x => x.Status == "pass").Note);
+            Assert.Equal("2 levels: ceiling ≥ 3000 mm (basement ≥ 2500 mm)", Assert.Single(r, x => x.Status == "pass").Note);
             // 1312453 has no level and no floor to measure from: a person checks it.
             var unread = Assert.Single(r, x => x.Status == "cannot_verify");
             Assert.Equal(1312453, unread.ElementId);
@@ -593,10 +588,10 @@ namespace RevitWebAppSync.Tests
             var listed = r.Where(x => x.Coverage == SpecCoverage.Context).ToList();
             foreach (var id in new long[] { 827925, 828016, 828043, 900149 })
                 Assert.Contains(listed, f => f.ElementId == id);
-            Assert.StartsWith("Aras 01 | grid 10/B: lantai 827925 (" + Svs + ") tiada room", listed.Single(f => f.ElementId == 827925).Note);
+            Assert.StartsWith("Level Aras 01 | grid 10/B: floor 827925 (" + Svs + ") has no room", listed.Single(f => f.ElementId == 827925).Note);
             var apron = listed.Single(f => f.ElementId == 900149);
-            Assert.StartsWith("Aras 01 | grid ", apron.Note);
-            Assert.Contains(" | apron: lantai 900149 (" + Apron + ") tiada room", apron.Note);
+            Assert.StartsWith("Level Aras 01 | grid ", apron.Note);
+            Assert.Contains(" | apron: floor 900149 (" + Apron + ") has no room", apron.Note);
             Assert.All(listed, f => Assert.NotEqual("", f.IssueId));
             // The floor finishes the bounding-box rule failed are inside their rooms.
             foreach (var id in StageSide.Select(s => s.Floor).Append(828071L))

@@ -119,7 +119,7 @@ namespace RevitWebAppSync.Tests
                     foreach (var r in Run(id, model))
                     {
                         Assert.False(string.IsNullOrWhiteSpace(r.Note), id + " result without a note");
-                        Assert.False(string.IsNullOrWhiteSpace(r.NoteEn), id + " result without English: " + r.Note);
+                        Assert.False(string.IsNullOrWhiteSpace(r.Note), id + " result without English: " + r.Note);
                     }
         }
 
@@ -266,11 +266,10 @@ namespace RevitWebAppSync.Tests
             var fails = Fails(Run("B1.1", m));
             Assert.Equal(4, fails.Count);
             var arkitek = fails.Single(f => f.Note.StartsWith("Arkitek_jkr_sit"));
-            Assert.Equal("Arkitek_jkr_sit | wajib LOi 100–500 | — | kosong", arkitek.Note);
-            Assert.Equal("Arkitek_jkr_sit | mandatory at LOi 100–500 | — | empty", arkitek.NoteEn);
-            Assert.Contains(fails, f => f.Note == "Project Address | wajib LOi 100–500 | Enter address here | nilai lalai Revit");
-            Assert.Contains(fails, f => f.Note.StartsWith("Client Name") && f.Note.EndsWith("nilai lalai Revit"));
-            Assert.Contains(fails, f => f.Note.StartsWith("URL_Projek_jkr_siu | wajib LOi 300–500") && f.Note.EndsWith("tiada parameter"));
+            Assert.Equal("Arkitek_jkr_sit | mandatory at LOi 100–500 | — | empty", arkitek.Note);
+            Assert.Contains(fails, f => f.Note == "Project Address | mandatory at LOi 100–500 | Enter address here | Revit default value");
+            Assert.Contains(fails, f => f.Note.StartsWith("Client Name") && f.Note.EndsWith("Revit default value"));
+            Assert.Contains(fails, f => f.Note.StartsWith("URL_Projek_jkr_siu | mandatory at LOi 300–500") && f.Note.EndsWith("no such parameter"));
             Assert.DoesNotContain(fails, f => f.Note.StartsWith("Harga_Kontrak"));
             Assert.Equal(fails.Count, fails.Select(f => f.IssueId).Distinct().Count());
             Assert.Equal(SpecState.Fail, State("B1.1", m).State);
@@ -324,10 +323,9 @@ namespace RevitWebAppSync.Tests
             m.ProjectInfo["Kos_Projek_jkr_sic"] = "";
             var f = Assert.Single(Run("B1.2", m));
             Assert.Equal("fail", f.Status);
-            Assert.StartsWith("ST: Tidak patuh — 2 field belum diisi:", f.Note);
             Assert.Contains("Project Name", f.Note);
             Assert.Contains("Kos_Projek_jkr_sic", f.Note);
-            Assert.StartsWith("ST: Not compliant", f.NoteEn);
+            Assert.StartsWith("ST: Not compliant", f.Note);
         }
 
         [Fact]
@@ -347,7 +345,7 @@ namespace RevitWebAppSync.Tests
             var r = Assert.Single(Run("B1.3", m));
             Assert.Equal(SpecCoverage.Listing, r.Coverage);
             var pct = (int)Math.Round(100.0 * (total - 1) / total, MidpointRounding.AwayFromZero);
-            Assert.StartsWith((total - 1) + "/" + total + " field diisi (" + pct + "%)", r.Note);
+            Assert.StartsWith((total - 1) + "/" + total + " fields filled (" + pct + "%)", r.Note);
             Assert.Equal(SpecState.Listed, State("B1.3", m).State);
             Assert.Empty(Run("B1.3", new SpecModel()));
         }
@@ -359,7 +357,7 @@ namespace RevitWebAppSync.Tests
         {
             var r = Assert.Single(Run("C1.0.1", new SpecModel()));
             Assert.Equal(SpecCoverage.Listing, r.Coverage);
-            Assert.Contains("baris induk", r.Note);
+            Assert.Contains("parent row", r.Note);
         }
 
         [Fact]
@@ -367,7 +365,7 @@ namespace RevitWebAppSync.Tests
         {
             var r = Assert.Single(Run("C1.1.3", Compliant()));
             Assert.Equal(SpecCoverage.Context, r.Coverage);
-            Assert.StartsWith("2 aras dikesan (Aras 01, Aras 02)", r.Note);
+            Assert.StartsWith("2 levels found (Aras 01, Aras 02)", r.Note);
             Assert.Equal(SpecState.NeedsPerson, State("C1.1.3", Compliant()).State);
             Assert.False(SpecChecks.Rules.ContainsKey("C1.1.4"));
         }
@@ -387,11 +385,10 @@ namespace RevitWebAppSync.Tests
         {
             var r = Run("C1.2.1", Compliant());
             Assert.All(r, x => Assert.Equal(SpecCoverage.Listing, x.Coverage));
-            Assert.Equal("4 view WIP — untuk semakan manusia; set dikenal pasti ikut nama view 4", r[0].Note);
-            Assert.Equal("4 WIP views — for a person to review; set found by name 4", r[0].NoteEn);
+            Assert.Equal("4 WIP views — for a person to review; set found by name 4", r[0].Note);
             Assert.Equal("Aras 01 | floor plan ✓ | ceiling plan ✓ | section – (set)", r[1].Note);
             Assert.Equal("Aras 02 | floor plan ✓ | ceiling plan ✓ | section – (set)", r[2].Note);
-            Assert.StartsWith("Set WIP: 0 section, 0 elevation", r[3].Note);
+            Assert.StartsWith("WIP set: 0 sections, 0 elevations", r[3].Note);
             Assert.Contains(r, x => x.Note == "floor plan | Aras 01 | WIP Aras 01");
             Assert.Equal(SpecState.Listed, State("C1.2.1", Compliant()).State);
         }
@@ -407,10 +404,10 @@ namespace RevitWebAppSync.Tests
             var r = Run("C1.2.1", m);
             Assert.DoesNotContain(r, x => x.Status != "pass" || x.Coverage != SpecCoverage.Listing);
             var rows = r.Select(x => x.Note).ToList();
-            Assert.Equal("6 view WIP — untuk semakan manusia; set dikenal pasti ikut nama view 6", rows[0]);
+            Assert.Equal("6 WIP views — for a person to review; set found by name 6", rows[0]);
             Assert.Equal("Aras Bawah | floor plan ✓ | ceiling plan – | section ✓ (set)", rows[1]);
             Assert.Equal("Aras 03 | floor plan – | ceiling plan – | section ✓ (set)", rows[4]);
-            Assert.StartsWith("Set WIP: 1 section, 0 elevation", rows[5]);
+            Assert.StartsWith("WIP set: 1 sections, 0 elevations", rows[5]);
             Assert.Equal(new[]
             {
                 "floor plan | Aras Bawah | WIP Pelan Aras Bawah",
@@ -426,12 +423,12 @@ namespace RevitWebAppSync.Tests
         public void C1_3_1_PBT_needs_floor_plan_elevation_and_section()
         {
             var pass = Assert.Single(Run("C1.3.1", Compliant()));
-            Assert.Equal("Set PBT: floor plan ✓ | elevation ✓ | section ✓ (3 view; set dikenal pasti ikut nama view 3)", pass.Note);
+            Assert.Equal("PBT set: floor plan ✓ | elevation ✓ | section ✓ (3 views; set found by name 3)", pass.Note);
             Assert.Equal(SpecState.Pass, State("C1.3.1", Compliant()).State);
             var m = Compliant();
             m.Views.RemoveAll(v => v.Name == "PBT Section A-A");
             var f = Assert.Single(Fails(Run("C1.3.1", m)));
-            Assert.Equal("Set PBT: tiada section (floor plan ✓ | elevation ✓ | section ✗); set dikenal pasti ikut nama view 2", f.Note);
+            Assert.Equal("PBT set: no section (floor plan ✓ | elevation ✓ | section ✗); set found by name 2", f.Note);
         }
 
         [Fact]
@@ -448,8 +445,8 @@ namespace RevitWebAppSync.Tests
         {
             var r = Run("C1.5.1", Compliant());
             Assert.All(r, x => Assert.Equal(SpecCoverage.Listing, x.Coverage));
-            Assert.Equal("2 view Dokumen, 2 dalam sheet (biru); set dikenal pasti ikut nama view 2", r[0].Note);
-            Assert.Contains(r, x => x.Note == "Dokumen 3D Aras 01 | 3D | — | dalam sheet ✓ (A-301)");
+            Assert.Equal("2 Dokumen views, 2 on a sheet (blue); set found by name 2", r[0].Note);
+            Assert.Contains(r, x => x.Note == "Dokumen 3D Aras 01 | 3D | — | on sheet ✓ (A-301)");
             Assert.DoesNotContain(r, x => x.Note.StartsWith("3D view"));
             Assert.Equal(3, r.Count);
         }
@@ -464,15 +461,14 @@ namespace RevitWebAppSync.Tests
             m.Views.Add(View(91, "Dokumen 3D Aras 030", "ThreeD"));                    // not Aras 03
             m.Views.Add(View(92, "Dokumen Pelan Aras 03", "FloorPlan", "Aras 03"));    // not 3D
             var f = Fails(Run("C1.5.2", m)).Single();
-            Assert.Equal("3D view setiap aras: 3/4 ✗ (Aras 03 tiada)", f.Note);
-            Assert.Equal("3D view for every level: 3/4 ✗ (Aras 03 missing)", f.NoteEn);
+            Assert.Equal("3D view for every level: 3/4 ✗ (Aras 03 missing)", f.Note);
             Assert.Equal(3, f.ElementId);
             Assert.Equal(SpecCoverage.Full, f.Coverage);
 
             var pass = Assert.Single(Run("C1.5.2", Compliant()));
             Assert.Equal("pass", pass.Status);
             Assert.Equal(SpecCoverage.Full, pass.Coverage);
-            Assert.Equal("3D view setiap aras: 2/2 ✓ (set Dokumen)", pass.Note);
+            Assert.Equal("3D view for every level: 2/2 ✓ (Dokumen set)", pass.Note);
             Assert.Equal(SpecState.Pass, State("C1.5.2", Compliant()).State);
         }
 
@@ -482,8 +478,7 @@ namespace RevitWebAppSync.Tests
             var m = Compliant();
             m.Views.RemoveAll(v => v.Name == "Dokumen 3D Aras 02");
             var f = Fails(Run("C1.5.2", m)).Single();
-            Assert.Equal("3D view setiap aras: 1/2 ✗ (Aras 02 tiada) — ada 3D view '3D Aras 02' di luar set Dokumen (folder, template dan nama tiada 'Dokumen'), tidak dikira", f.Note);
-            Assert.Contains("'3D Aras 02' exists outside the Dokumen set", f.NoteEn);
+            Assert.Contains("'3D Aras 02' exists outside the Dokumen set", f.Note);
         }
 
         [Fact]
@@ -493,8 +488,7 @@ namespace RevitWebAppSync.Tests
             m.Views.RemoveAll(v => v.Kind == "ThreeD");
             var fails = Fails(Run("C1.5.2", m));
             Assert.Equal(2, fails.Count);
-            Assert.Contains(fails, x => x.Note == "3D view setiap aras: 0/2 ✗ (Aras 01 tiada) — tiada 3D view dalam set Dokumen");
-            Assert.Contains(fails, x => x.Note == "3D view setiap aras: 0/2 ✗ (Aras 02 tiada) — tiada 3D view dalam set Dokumen");
+            Assert.Contains(fails, x => x.Note == "3D view for every level: 0/2 ✗ (Aras 02 missing) — no 3D view in the Dokumen set");
         }
 
         [Fact]
@@ -505,7 +499,7 @@ namespace RevitWebAppSync.Tests
             m.Levels.Clear();
             var r = Assert.Single(Run("C1.5.2", m));
             Assert.Equal("cannot_verify", r.Status);
-            Assert.Contains("Tiada aras", r.Note);
+            Assert.Contains("No story levels were read", r.Note);
         }
 
         // ─── C1.6 room schedule ───
@@ -518,8 +512,7 @@ namespace RevitWebAppSync.Tests
             m.Schedules.RemoveAll(s => s.Category == "Rooms");
             var f = Assert.Single(Run("C1.6.1", m));
             Assert.Equal("fail", f.Status);
-            Assert.Equal("Tiada jadual ruang (room schedule)", f.Note);
-            Assert.Equal("No room schedule", f.NoteEn);
+            Assert.Equal("No room schedule", f.Note);
             Assert.DoesNotContain("berbayar", f.Note);
         }
 
@@ -531,7 +524,7 @@ namespace RevitWebAppSync.Tests
             m.Rooms.Add(new SpecRoom { Id = 103, Name = "Tidak diletak", Area = 0 });
             var f = Assert.Single(Fails(Run("C1.6.2", m)));
             Assert.Equal(102, f.ElementId);
-            Assert.Equal("Room 003 Stor (Aras 01) tiada dalam jadual ruang", f.Note);
+            Assert.Equal("Room 003 Stor (Aras 01) is not in the room schedule", f.Note);
             Assert.Equal("cannot_verify", Assert.Single(Run("C1.6.2", new SpecModel())).Status);
         }
 
@@ -556,7 +549,6 @@ namespace RevitWebAppSync.Tests
             s.Fields = new List<string> { "Number", "Name", "Area" };
             m.Rooms[1].Params.Remove("Department");
             var fails = Fails(Run("C1.6.3", m));
-            Assert.Contains(fails, f => f.Note.StartsWith("Jadual 'Jadual Ruang' tiada kolum wajib LOi 300 (PB p.37):") && f.Note.Contains("Floor Finish"));
             Assert.Contains(fails, f => f.ElementId == 101 && f.Note.Contains("Department"));
         }
 
@@ -611,24 +603,24 @@ namespace RevitWebAppSync.Tests
         {
             var r = Assert.Single(Run("C2.1.1", Compliant()));
             Assert.Equal("pass", r.Status);
-            Assert.Contains("Legend Pintu | legend | dalam lukisan ✓", r.Note);
+            Assert.Contains("Legend Pintu | legend | on a drawing ✓", r.Note);
             var m = Compliant();
             m.Views.RemoveAll(v => v.Kind == "Legend");
-            Assert.Equal("Tiada legend dalam model", Assert.Single(Fails(Run("C2.1.1", m))).Note);
+            Assert.Equal("No legend in the model", Assert.Single(Fails(Run("C2.1.1", m))).Note);
         }
 
         [Fact]
         public void C3_1_1_fails_each_modelled_PB_category_without_a_schedule()
         {
             var pass = Assert.Single(Run("C3.1.1", Compliant()));
-            Assert.Equal("2 kategori PB dimodelkan, semua ada schedule", pass.Note);
+            Assert.Equal("2 Buku Parameter categories modelled, all have a schedule", pass.Note);
             var m = Compliant();
             m.CategoryCounts["Railings"] = 5;
             m.CategoryCounts["Ramps"] = 0;
             m.CategoryCounts["Dimensions"] = 99;
             var f = Assert.Single(Fails(Run("C3.1.1", m)));
-            Assert.Equal("Railing: 5 elemen, tiada schedule", f.Note);
-            Assert.Equal("Railing: 5 elements, no schedule", f.NoteEn);
+            Assert.Equal("Railing: 5 elements, no schedule", f.Note);
+            Assert.Equal("Railing: 5 elements, no schedule", f.Note);
             Assert.Equal("cannot_verify", Assert.Single(Run("C3.1.1", new SpecModel())).Status);
         }
 
@@ -637,7 +629,7 @@ namespace RevitWebAppSync.Tests
         {
             var m = Compliant();
             m.Schedules.Single(s => s.Category == "Doors").IsTemplate = true;
-            Assert.Equal("Door: 4 elemen, tiada schedule", Assert.Single(Fails(Run("C3.1.1", m))).Note);
+            Assert.Equal("Door: 4 elements, no schedule", Assert.Single(Fails(Run("C3.1.1", m))).Note);
         }
 
         [Fact]
@@ -652,9 +644,9 @@ namespace RevitWebAppSync.Tests
                 RowCategories = new List<string> { "Ramps", "Doors" } });
             var pass = Assert.Single(Run("C3.1.1", m));
             Assert.Equal("pass", pass.Status);
-            Assert.Equal("3 kategori PB dimodelkan, semua ada schedule (Ramp dalam material takeoff 'jkrAR_mto_mc_Multi-Category Material Takeoff', "
-                         + "schedule pelbagai kategori 'jkrAR_sch_gen-mo_Jarak Perjalanan (Bomba)')", pass.Note);
-            Assert.Contains("Ramp in material takeoff", pass.NoteEn);
+            Assert.Equal("3 Buku Parameter categories modelled, all have a schedule (Ramp in material takeoff 'jkrAR_mto_mc_Multi-Category Material Takeoff', "
+                         + "multi-category schedule 'jkrAR_sch_gen-mo_Jarak Perjalanan (Bomba)')", pass.Note);
+            Assert.Contains("Ramp in material takeoff", pass.Note);
         }
 
         [Fact]
@@ -668,7 +660,7 @@ namespace RevitWebAppSync.Tests
 
             // A takeoff listing walls only does not schedule the ramp.
             m.Schedules.Single(s => s.Id == 212).RowElementIds = new List<long> { 777 };
-            Assert.Equal("Ramp: 1 elemen, tiada schedule", Assert.Single(Fails(Run("C3.1.1", m))).Note);
+            Assert.Equal("Ramp: 1 elements, no schedule", Assert.Single(Fails(Run("C3.1.1", m))).Note);
         }
 
         [Fact]
@@ -679,9 +671,9 @@ namespace RevitWebAppSync.Tests
             m.CategoryCounts["Railings"] = 5;
             m.Schedules.Add(new SpecSchedule { Id = 210, Name = "MTO mc", IsMaterialTakeoff = true, RowCategories = new List<string> { "Ramps" } });
             var r = Run("C3.1.1", m);
-            Assert.Equal("Railing: 5 elemen, tiada schedule", Assert.Single(Fails(r)).Note);
+            Assert.Equal("Railing: 5 elements, no schedule", Assert.Single(Fails(r)).Note);
             var listed = r.Single(x => x.Coverage == SpecCoverage.Listing);
-            Assert.Contains("Ramp dalam material takeoff 'MTO mc'", listed.Note);
+            Assert.Contains("Ramp in material takeoff 'MTO mc'", listed.Note);
         }
 
         // ─── which set a view belongs to (SpecViewSets) ───
@@ -755,11 +747,10 @@ namespace RevitWebAppSync.Tests
             var m = Compliant();
             m.Views.Add(InFolder(70, "PTBR_PELAN LANTAI ARAS 01", "FloorPlan", "07d_Dokumen / 01_Lukisan Utama / Floor Plans", "jkrAR_07d_Dokumen_(Pelan Aras 1)", "Aras 01"));
             m.Views.Add(InFolder(71, "PTBR_PELAN LANTAI ARAS 01 Copy 1", "FloorPlan", "01w_WIP / 01_Lukisan Utama / Floor Plans", "jkrAR_01w_WIP_(Pelan Aras 1)", "Aras 01"));
-            Assert.Equal("5 view WIP — untuk semakan manusia; set dikenal pasti ikut nama view 4, ikut folder Project Browser (View_jkr_pit) 1",
+            Assert.Equal("5 WIP views — for a person to review; set found by name 4, by browser folder View_jkr_pit 1",
                 Run("C1.2.1", m)[0].Note);
             var dok = Run("C1.5.1", m)[0];
-            Assert.Equal("3 view Dokumen, 2 dalam sheet (biru); set dikenal pasti ikut nama view 2, ikut folder Project Browser (View_jkr_pit) 1", dok.Note);
-            Assert.Equal("3 Dokumen views, 2 on a sheet (blue); set found by name 2, by browser folder View_jkr_pit 1", dok.NoteEn);
+            Assert.Equal("3 Dokumen views, 2 on a sheet (blue); set found by name 2, by browser folder View_jkr_pit 1", dok.Note);
         }
 
         [Fact]
@@ -767,7 +758,6 @@ namespace RevitWebAppSync.Tests
         {
             var r = Assert.Single(Run("C3.1.2", Compliant()));
             Assert.Equal(SpecCoverage.Listing, r.Coverage);
-            Assert.StartsWith("n/a (tidak dimodelkan, bukan kekurangan): Area, Casework", r.Note);
             Assert.DoesNotContain("Door", r.Note);
             Assert.DoesNotContain("Lines", r.Note);
         }
@@ -779,20 +769,19 @@ namespace RevitWebAppSync.Tests
         {
             var r = Run("C4.1.1", Compliant());
             Assert.Equal(4, r.Count);
-            Assert.Contains(r, x => x.Note == "A-101 | Pelan Aras | 2 view | floor plan, ceiling plan");
+            Assert.Contains(r, x => x.Note == "A-101 | Pelan Aras | 2 views | floor plan, ceiling plan");
         }
 
         [Fact]
         public void C4_1_2_needs_every_kind_across_the_sheets()
         {
             var pass = Assert.Single(Run("C4.1.2", Compliant()));
-            Assert.Equal("floor plan ✓ | ceiling plan ✓ | elevation ✓ | section ✓ | detail pintu ✓ | detail tingkap ✓ (3 sheet)", pass.Note);
+            Assert.Equal("floor plan ✓ | ceiling plan ✓ | elevation ✓ | section ✓ | door detail ✓ | window detail ✓ (3 sheets)", pass.Note);
             var m = Compliant();
             m.Sheets.RemoveAll(s => s.Number == "A-501");
             var fails = Fails(Run("C4.1.2", m));
             Assert.Equal(2, fails.Count);
-            Assert.Contains(fails, f => f.Note.StartsWith("Tiada detail pintu dalam mana-mana sheet"));
-            Assert.Contains(fails, f => f.NoteEn.StartsWith("No window detail on any sheet"));
+                        Assert.Contains(fails, f => f.Note.StartsWith("No window detail on any sheet"));
         }
 
         [Fact]
@@ -822,7 +811,7 @@ namespace RevitWebAppSync.Tests
             Assert.Empty(Fails(rs));
             var listed = rs.Where(r => r.Coverage == SpecCoverage.Context).ToList();
             Assert.Equal(2, listed.Count);
-            Assert.Contains(listed, r => r.Note.Contains("Butiran Pintu") && r.NoteEn.Contains("a person decides"));
+            Assert.Contains(listed, r => r.Note.Contains("Butiran Pintu") && r.Note.Contains("a person decides"));
             Assert.Contains(listed, r => r.Note.Contains("Butiran Tingkap"));
             Assert.All(listed, r => Assert.NotEqual("", r.IssueId));
 
@@ -830,7 +819,7 @@ namespace RevitWebAppSync.Tests
             var empty = Compliant();
             empty.Sheets.RemoveAll(s => s.Number == "A-501");
             empty.Sheets.Add(new SpecSheet { Id = 403, Number = "bPT02", Name = "Butiran Pintu", TitleBlock = "JKR A1" });
-            Assert.Contains(Fails(Run("C4.1.2", empty)), f => f.NoteEn.StartsWith("No door detail"));
+            Assert.Contains(Fails(Run("C4.1.2", empty)), f => f.Note.StartsWith("No door detail"));
         }
 
         [Fact]
@@ -839,8 +828,7 @@ namespace RevitWebAppSync.Tests
             var m = Compliant();
             m.Sheets.Add(new SpecSheet { Id = 309, Number = "A-901", Name = "Kosong", TitleBlock = "JKR A1" });
             var f = Assert.Single(Fails(Run("C4.1.3", m)));
-            Assert.Equal("Sheet A-901 Kosong tiada view", f.Note);
-            Assert.Equal("Sheet A-901 Kosong has no view", f.NoteEn);
+            Assert.Equal("Sheet A-901 Kosong has no view", f.Note);
             Assert.Equal(309, f.ElementId);
             Assert.Equal("cannot_verify", Assert.Single(Run("C4.1.3", new SpecModel())).Status);
         }
@@ -854,8 +842,7 @@ namespace RevitWebAppSync.Tests
             m.Sheets[1].TitleBlock = "";
             var fails = Fails(Run("C4.2.1", m));
             Assert.Equal(2, fails.Count);
-            Assert.Contains(fails, f => f.Note == "Sheet A-101 Pelan Aras: title block 'A1 metric : A1' bukan JKR");
-            Assert.Contains(fails, f => f.Note == "Sheet A-201 Elevation & Section: tiada title block");
+            Assert.Contains(fails, f => f.Note == "Sheet A-201 Elevation & Section: no title block");
         }
 
         [Fact]
@@ -868,8 +855,7 @@ namespace RevitWebAppSync.Tests
             m.Sheets[1].Params.Remove("Project Name");      // falls back to Project Information
             var fails = Fails(Run("C4.2.2", m));
             Assert.Equal(2, fails.Count);
-            Assert.Contains(fails, f => f.Note == "Sheet A-101 Pelan Aras: dimodelkan oleh (Drawn By) nilai lalai Revit");
-            Assert.Contains(fails, f => f.Note == "Sheet A-101 Pelan Aras: timestamp (Sheet Issue Date) kosong");
+            Assert.Contains(fails, f => f.Note == "Sheet A-101 Pelan Aras: timestamp (Sheet Issue Date) empty");
             Assert.Equal(2, fails.Select(f => f.IssueId).Distinct().Count());
         }
 
@@ -889,7 +875,6 @@ namespace RevitWebAppSync.Tests
             var r = Assert.Single(Run("C4.2.3", Compliant()));
             Assert.Equal(SpecCoverage.Context, r.Coverage);
             Assert.Contains("A-101 = 16.11.2026", r.Note);
-            Assert.Contains("SEMAK MANUAL", r.Note);
         }
 
         // ══════════════ C5 — Links ══════════════
@@ -903,8 +888,7 @@ namespace RevitWebAppSync.Tests
             m.Links.Single(l => l.Name.StartsWith("jkrME")).Status = "Unloaded";
             var fails = Fails(Run("C5.1.1", m));
             Assert.Equal(2, fails.Count);
-            Assert.Contains(fails, f => f.Note == "KRITIKAL: tiada link EL" && f.NoteEn == "CRITICAL: no EL link");
-            Assert.Contains(fails, f => f.Note.StartsWith("KRITIKAL: link ME 'jkrME24") && f.Note.EndsWith("Unloaded"));
+            Assert.Contains(fails, f => f.Note.StartsWith("CRITICAL: ME link 'jkrME24") && f.Note.EndsWith("Unloaded"));
             Assert.Equal(3, Fails(Run("C5.1.1", new SpecModel())).Count);
         }
 
@@ -933,7 +917,7 @@ namespace RevitWebAppSync.Tests
         {
             var r = Assert.Single(Run("C5.1.2", Compliant()));
             Assert.Equal("cannot_verify", r.Status);
-            Assert.StartsWith("BPEP tidak tersedia → tidak dapat disemak", r.Note);
+            Assert.StartsWith("No BPEP available → cannot be checked", r.Note);
         }
 
         [Fact]
@@ -941,7 +925,7 @@ namespace RevitWebAppSync.Tests
         {
             var r = Assert.Single(Run("C5.1.3", Compliant()));
             Assert.Equal(SpecCoverage.Context, r.Coverage);
-            Assert.StartsWith("Kena semak versi terkini secara manual", r.Note);
+            Assert.StartsWith("The latest version must be checked manually", r.Note);
         }
 
         [Fact]

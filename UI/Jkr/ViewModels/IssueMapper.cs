@@ -282,7 +282,6 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     Title = RevitWebAppSync.UI.Jkr.Panel.Core.SpecModelIssues.Title(r),
                     Description = description,
                     Actual = r.Actual ?? "",
-                    ActualEn = RevitWebAppSync.UI.Jkr.Panel.Core.SpecModelIssues.ActualIn(r),
                     Required = r.Required ?? "",
                     AutoFixable = false,
                     Verification = ai ? IssueVerification.Ai : IssueVerification.Human,

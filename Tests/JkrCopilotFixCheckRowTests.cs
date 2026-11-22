@@ -55,12 +55,12 @@ namespace RevitWebAppSync.Tests
         public void The_facts_of_several_rows_are_one_set_and_the_prompt_lists_all_their_ids()
         {
             var rows = new[] { Row("a", "Db.2", 100, 30), Row("b", "Db.2", 200, 30), Row("c", "Db.2", 300, 60) };
-            var facts = JkrCopilotPrompt.FactsOfRows(rows, false);
+            var facts = JkrCopilotPrompt.FactsOfRows(rows);
             Assert.Equal(120, facts.ElementIds.Count);
-            Assert.Equal(3, JkrCopilotPrompt.Build(facts, false).Count);
-            Assert.Throws<System.InvalidOperationException>(() => JkrCopilotPrompt.FactsOfRows(new IssueVm[] { null }, false));
+            Assert.Equal(3, JkrCopilotPrompt.Build(facts).Count);
+            Assert.Throws<System.InvalidOperationException>(() => JkrCopilotPrompt.FactsOfRows(new IssueVm[] { null }));
             // one row: exactly the row-level facts
-            Assert.Equal(JkrCopilotPrompt.FactsOf(rows[0], false).ElementIds, JkrCopilotPrompt.FactsOfRows(new[] { rows[0] }, false).ElementIds);
+            Assert.Equal(JkrCopilotPrompt.FactsOf(rows[0]).ElementIds, JkrCopilotPrompt.FactsOfRows(new[] { rows[0] }).ElementIds);
         }
 
         private static (ResultsScreenModel r, List<PanelItem> items) Screen(int n)

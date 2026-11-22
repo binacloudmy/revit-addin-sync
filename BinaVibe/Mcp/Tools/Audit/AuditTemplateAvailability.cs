@@ -74,15 +74,15 @@ namespace BinaVibe.Mcp.Tools.Audit
             : split.Unactionable.Count > 0 ? "not_verifiable"
             : "yes";
 
-        /// <summary>BM clause appended to remarks when any offender is
-        /// unactionable: "29 boleh tindakan, 21 tiada template jenis tersebut
-        /// wujud (Legend ×13, DraftingView ×8)". Empty when all are actionable.</summary>
+        /// <summary>Clause appended to remarks when any offender is
+        /// unactionable: "29 can be fixed, 21 have no template of their view type
+        /// in the model (Legend ×13, DraftingView ×8)". Empty when all are actionable.</summary>
         public static string ActionabilityClause(TemplateAvailabilitySplit split)
         {
             if (split.Unactionable.Count == 0) return "";
-            return $" {split.Actionable.Count} boleh tindakan, {split.Unactionable.Count} tiada template "
-                 + $"jenis tersebut wujud dalam model ({split.UnactionableTypesText}) — tidak boleh "
-                 + "disapukan sehingga template jenis itu diwujudkan.";
+            return $" {split.Actionable.Count} can be fixed, {split.Unactionable.Count} have no template "
+                 + $"of their view type in the model ({split.UnactionableTypesText}) — they cannot "
+                 + "be applied until a template of that type exists.";
         }
     }
 }

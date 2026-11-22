@@ -78,7 +78,7 @@ namespace RevitWebAppSync.Services.JkrSpec
                 }
                 catch (Exception ex)
                 {
-                    got = new List<SpecResult> { Unjudged(kv.Key, "Semakan gagal dijalankan / check failed to run: " + ex.Message) };
+                    got = new List<SpecResult> { Unjudged(kv.Key, "Check failed to run: " + ex.Message) };
                 }
                 foreach (var r in got)
                 {
@@ -148,22 +148,6 @@ namespace RevitWebAppSync.Services.JkrSpec
         /// <summary>The check does not apply to this model, as the spec defines (e.g. A3.2 on a W00 model).</summary>
         public static SpecResult NotApplicable(string id, string note) =>
             new SpecResult { CheckId = id, Status = "pass", Note = note ?? "", NotApplicable = true, Coverage = SpecCoverage.Full, Rule = id };
-
-        /// <summary>Add the English note: <c>Fail("A1.2", "Pintu … 850 mm").En("Door … 850 mm")</c>.
-        /// Notes are BM first (the spec's language); the pane shows the one matching its language.</summary>
-        public static SpecResult En(this SpecResult r, string english)
-        {
-            if (r != null) r.NoteEn = english ?? "";
-            return r;
-        }
-
-        /// <summary>Add the English for what the model has (<see cref="SpecResult.Actual"/>),
-        /// shown on the element row: <c>Fail(…, actual: "tiada room").EnAct("no room")</c>.</summary>
-        public static SpecResult EnAct(this SpecResult r, string english)
-        {
-            if (r != null) r.ActualEn = english ?? "";
-            return r;
-        }
 
         /// <summary>"SPEC-A1.2-3f9c0a1b2c3d": the same check + key gives the same id every run,
         /// so Ignore / Reviewed decisions survive a re-scan.</summary>

@@ -50,7 +50,7 @@ namespace RevitWebAppSync.Tests
             {
                 case "AI-verifiable": return SpecCellClass.Ai;
                 case "human-decides": return SpecCellClass.Human;
-                default: return SpecCellClass.List;   // "senarai sahaja (tiada verdict)"
+                default: return SpecCellClass.List;   // "list only (no verdict)"
             }
         }
 
@@ -69,11 +69,11 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void Totals_row_matches_the_catalog_classes()
         {
-            var totals = Tsv("jkr_spec_rules.tsv").Single(c => c[0] == "JUMLAH");
+            var totals = Tsv("jkr_spec_rules.tsv").Single(c => c[0] == "TOTAL");
             Assert.Contains("61", totals[3]);
             Assert.Equal("AI-verifiable: " + SpecCatalog.Checks.Count(c => c.Class == SpecCellClass.Ai), totals[4]);
             Assert.Equal("human-decides: " + SpecCatalog.Checks.Count(c => c.Class == SpecCellClass.Human), totals[5]);
-            Assert.Equal("senarai sahaja: " + SpecCatalog.Checks.Count(c => c.Class == SpecCellClass.List), totals[6]);
+            Assert.Equal("list only: " + SpecCatalog.Checks.Count(c => c.Class == SpecCellClass.List), totals[6]);
         }
 
         [Theory]
@@ -87,7 +87,7 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(row.Item, c.Item);
             Assert.Equal(ClassOf(row.Class), c.Class);
             Assert.Equal(row.Reference, c.Reference);
-            Assert.Equal(row.What, c.Title.Ms);                 // BM = the spec's "Apa yang disemak", verbatim
+            Assert.Equal(row.What, c.Title.En);                 // the spec's "Apa yang disemak", in English
             Assert.False(string.IsNullOrWhiteSpace(c.Title.En));
         }
 
@@ -97,9 +97,9 @@ namespace RevitWebAppSync.Tests
         {
             var row = Rules().Single(r => r.Id == id);
             var c = SpecCatalog.Find(id);
-            Assert.Equal(row.Comply, c.Comply.Ms);
-            Assert.Equal(row.NotComply, c.NotComply.Ms);
-            Assert.Equal(row.Manual, c.Manual.Ms);
+            Assert.Equal(row.Comply, c.Comply.En);
+            Assert.Equal(row.NotComply, c.NotComply.En);
+            Assert.Equal(row.Manual, c.Manual.En);
         }
 
         [Fact]
@@ -109,7 +109,7 @@ namespace RevitWebAppSync.Tests
             foreach (var item in SpecCatalog.Items)
             {
                 Assert.True(items.ContainsKey(item.No), "Borang A-E has no item " + item.No);
-                Assert.Equal(items[item.No], item.Title.Ms);
+                Assert.Equal(items[item.No], item.Title.En);
             }
             Assert.Equal(SpecCatalog.Items.Select(i => i.No).Distinct(), Rules().Select(r => r.Item).Distinct());
         }

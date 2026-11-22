@@ -812,13 +812,13 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// Department) still lists them, without the warning label.</summary>
         public static int WarningCount(SpecCheckResult r) =>
             r != null && r.Check.Class == SpecCellClass.Human
-            && (r.Check.Manual?.Ms ?? "").IndexOf("WARNING", StringComparison.OrdinalIgnoreCase) >= 0
+            && (r.Check.Manual?.En ?? "").IndexOf("WARNING", StringComparison.OrdinalIgnoreCase) >= 0
                 ? r.IssueIds.Count : 0;
 
         /// <summary>The spec's Manual / note cell says the rule awaits JKR's confirmation.</summary>
         public static bool IsPendingJkr(SpecCheck c) =>
             c != null && !SpecCatalog.IsEmpty(c.Manual)
-            && c.Manual.Ms.IndexOf("menunggu pengesahan JKR", StringComparison.OrdinalIgnoreCase) >= 0;
+            && c.Manual.En.IndexOf("awaiting JKR's confirmation", StringComparison.OrdinalIgnoreCase) >= 0;
 
         /// <summary>
         /// "Reference · class · awaiting JKR". The reference is left out when the title

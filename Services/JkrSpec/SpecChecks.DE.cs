@@ -81,19 +81,19 @@ namespace RevitWebAppSync.Services.JkrSpec
 
         /// <summary>One failure for a placed type: located at its instances, keyed by the
         /// type id so Ignore / Reviewed survive a re-scan.</summary>
-        private static SpecResult FailType(string id, SpecType t, string bm, string en, SpecCoverage coverage,
+        private static SpecResult FailType(string id, SpecType t, string en, SpecCoverage coverage,
                                            string actual = "", string required = "", string keySuffix = "")
         {
             var first = t.InstanceIds.FirstOrDefault(x => x > 0);
-            return Fail(id, bm, first > 0 ? first : t.TypeId, Label(t), actual, required,
+            return Fail(id, en, first > 0 ? first : t.TypeId, Label(t), actual, required,
                         key: "type:" + t.TypeId + keySuffix, coverage: coverage,
-                        elementIds: t.InstanceIds.Count > 0 ? t.InstanceIds : null).En(en).InCat(t.Category);
+                        elementIds: t.InstanceIds.Count > 0 ? t.InstanceIds : null).InCat(t.Category);
         }
 
-        private static SpecResult UnjudgedType(string id, SpecType t, string bm, string en, string keySuffix = "")
+        private static SpecResult UnjudgedType(string id, SpecType t, string en, string keySuffix = "")
         {
             var first = t.InstanceIds.FirstOrDefault(x => x > 0);
-            return Unjudged(id, bm, first > 0 ? first : t.TypeId, Label(t), key: "type:" + t.TypeId + keySuffix).En(en).InCat(t.Category);
+            return Unjudged(id, en, first > 0 ? first : t.TypeId, Label(t), key: "type:" + t.TypeId + keySuffix).InCat(t.Category);
         }
 
         // ─── Da.1 — type name follows JKR coding ───
@@ -129,21 +129,16 @@ namespace RevitWebAppSync.Services.JkrSpec
                 if (AuditNaming.IsJkrName(t.FamilyName)) { Bump(ok, t.Category); byFamily++; continue; }
                 var name = t.TypeName.Trim();
                 var generic = name.Length == 0 || GenericName.IsMatch(name);
-                var bm = name.Length == 0
-                    ? $"{t.Category}: type tanpa nama ({t.InstanceCount} elemen) — tidak ikut coding JKR"
-                    : $"{t.Category}: type '{name}' ({t.InstanceCount} elemen) tidak ikut coding JKR{(generic ? " (nama generik)" : "")} — tiada kod '(XXnnn)' atau awalan 'jkrAR'";
                 var en = name.Length == 0
                     ? $"{t.Category}: unnamed type ({t.InstanceCount} elements) does not follow JKR coding"
                     : $"{t.Category}: type '{name}' ({t.InstanceCount} elements) does not follow JKR coding{(generic ? " (generic name)" : "")} — no '(XXnnn)' code or 'jkrAR' prefix";
-                yield return FailType(id, t, bm, en, SpecCoverage.Full, actual: name,
+                yield return FailType(id, t, en, SpecCoverage.Full, actual: name,
                                       required: "(XXnnn) … / jkrAR_…");
             }
             foreach (var kv in ok)
-                yield return Pass(id, $"{kv.Key}: {kv.Value} type ikut pola coding JKR", kv.Value, SpecCoverage.Full)
-                    .En($"{kv.Key}: {kv.Value} types follow the JKR coding pattern").InCat(kv.Key);
+                yield return Pass(id, $"{kv.Key}: {kv.Value} types follow the JKR coding pattern", kv.Value, SpecCoverage.Full).InCat(kv.Key);
             if (byFamily > 0)
-                yield return SpecChecks.Context(id, $"{byFamily} type diterima kerana kod JKR pada nama family (nama type hanya saiz/varian)")
-                    .En($"{byFamily} types accepted because the JKR code is in the family name (the type name holds only the size/variant)");
+                yield return SpecChecks.Context(id, $"{byFamily} types accepted because the JKR code is in the family name (the type name holds only the size/variant)");
         }
 
         // ─── Db.1 — mandatory parameters per Buku Parameter × LOD ───
@@ -166,15 +161,15 @@ namespace RevitWebAppSync.Services.JkrSpec
         /// instance. Instance parameters are therefore judged on the first placed instance of each type — a
         /// documented choice, not "all": one blank on a later instance is not seen. Reading every instance
         /// is a reader change (Revit side) and a follow-up.</item>
-        /// <item>Judged by value: a text parameter (…_jkr_s?t, …x) empty → "kosong"; any parameter the type
-        /// does not carry at all (reader saw the names) → "tiada pada type". Yes/No, number, currency and
+        /// <item>Judged by value: a text parameter (…_jkr_s?t, …x) empty → "empty"; any parameter the type
+        /// does not carry at all (reader saw the names) → "not on the type". Yes/No, number, currency and
         /// material values are not in the snapshot, so a carried one is not judged, and the 86 plain Revit
         /// built-in rows (Name, Base Level, Description …) need a map to Revit's own parameters and are not
         /// judged either. So the check is FailOnly: a fail is proven, a pass is "partly checked".</item>
         /// <item>Room and Area (PB p.36–37) have no type: judged per element on the parameters the snapshot
         /// reads (SpecRoom.Params / SpecArea.Params), blank only.</item>
         /// </list>
-        /// The remark says what was required at which LOi ("wajib LOi 300 (PB hlm. 51–54)", and "dari LOi
+        /// The remark says what was required at which LOi ("mandatory LOi 300 (PB p.51–54)", and "dari LOi
         /// 300" per parameter).
         /// </summary>
         private static IEnumerable<SpecResult> DbMandatoryParameters(SpecModel m)
@@ -210,30 +205,25 @@ namespace RevitWebAppSync.Services.JkrSpec
                 }
                 var bad = empty.Count + missing.Count;
                 var pages = PageRange(rows);
-                var bm = $"{t.Category}: type '{t.TypeName}' — {bad}/{states.Count} parameter wajib LOi {loi} (PB hlm. {pages}) tidak terisi"
-                         + (empty.Count > 0 ? $"; kosong: {Names(empty, loi)}" : "")
-                         + (missing.Count > 0 ? $"; tiada pada type: {Names(missing, loi)}" : "");
                 var en = $"{t.Category}: type '{t.TypeName}' — {bad}/{states.Count} mandatory LOi {loi} parameters (PB p.{pages}) not filled"
-                         + (empty.Count > 0 ? $"; empty: {Names(empty, loi, true)}" : "")
-                         + (missing.Count > 0 ? $"; not on the type: {Names(missing, loi, true)}" : "");
-                var actual = (empty.Count > 0 ? "kosong: " + string.Join(", ", empty.Select(p => p.Name)) : "")
+                         + (empty.Count > 0 ? $"; empty: {Names(empty, loi)}" : "")
+                         + (missing.Count > 0 ? $"; not on the type: {Names(missing, loi)}" : "");
+                var actual = (empty.Count > 0 ? "empty: " + string.Join(", ", empty.Select(p => p.Name)) : "")
                              + (empty.Count > 0 && missing.Count > 0 ? "; " : "")
-                             + (missing.Count > 0 ? "tiada: " + string.Join(", ", missing.Select(p => p.Name)) : "");
-                yield return FailType(id, t, bm, en, SpecCoverage.FailOnly, actual: actual, required: "terisi (PB, LOi " + loi + ")");
+                             + (missing.Count > 0 ? "missing: " + string.Join(", ", missing.Select(p => p.Name)) : "");
+                yield return FailType(id, t, en, SpecCoverage.FailOnly, actual: actual, required: "filled (PB, LOi " + loi + ")");
             }
             foreach (var kv in ok)
             {
                 var book = SpecPbParameters.BookCategoryOf(kv.Key);
                 var pages = PageRange(SpecPbParameters.At(book, loi));
-                yield return Pass(id, $"{kv.Key}: {kv.Value} type: parameter wajib LOi {loi} (PB hlm. {pages}) yang boleh dibaca terisi — {judgedParams[kv.Key]} diperiksa; nilai Yes/No, nombor, material dan parameter Revit biasa belum disemak", kv.Value, SpecCoverage.FailOnly)
-                    .En($"{kv.Key}: {kv.Value} types: the mandatory LOi {loi} parameters (PB p.{pages}) that can be read are filled — {judgedParams[kv.Key]} checked; Yes/No, number, material values and plain Revit parameters are not checked yet").InCat(kv.Key);
+                yield return Pass(id, $"{kv.Key}: {kv.Value} types: the mandatory LOi {loi} parameters (PB p.{pages}) that can be read are filled — {judgedParams[kv.Key]} checked; Yes/No, number, material values and plain Revit parameters are not checked yet", kv.Value, SpecCoverage.FailOnly).InCat(kv.Key);
             }
             // Starred rows: listed, never failed (D8 open).
             foreach (var kv in starCounts.Where(x => x.Value.Count > 0).OrderBy(x => x.Key, StringComparer.Ordinal))
             {
                 var names = string.Join(", ", kv.Value.Take(8).Select(p => p.Name + new string('*', p.Star))) + (kv.Value.Count > 8 ? " …" : "");
-                yield return SpecChecks.Listing(id, $"{kv.Key}: {kv.Value.Count} parameter bertanda * pada LOi {loi} disenaraikan, tidak digagalkan (* = \"Parameter yang perlu diisi jika berkaitan\", PB): {names}", kv.Value.Count)
-                    .En($"{kv.Key}: {kv.Value.Count} starred (*) parameters at LOi {loi} listed, not failed (* = fill if relevant, per the book's legend): {names}").InCat(kv.Key);
+                yield return SpecChecks.Listing(id, $"{kv.Key}: {kv.Value.Count} starred (*) parameters at LOi {loi} listed, not failed (* = fill if relevant, per the book's legend): {names}", kv.Value.Count).InCat(kv.Key);
             }
 
             foreach (var r in DbRoomArea(m, loi, id)) yield return r;
@@ -248,11 +238,11 @@ namespace RevitWebAppSync.Services.JkrSpec
                 : pages.Min().ToString(CultureInfo.InvariantCulture) + "–" + pages.Max().ToString(CultureInfo.InvariantCulture);
         }
 
-        /// <summary>"Kod_Jenis_jkr_stt (dari LOi 300), …": each parameter with the LOi it starts at, so the remark
+        /// <summary>"Kod_Jenis_jkr_stt (from LOi 300), …": each parameter with the LOi it starts at, so the remark
         /// says what was required at which LOi. Only the ones that start below the project's LOi get the tag.</summary>
-        private static string Names(List<PbParam> ps, int loi, bool en = false)
+        private static string Names(List<PbParam> ps, int loi)
         {
-            string Tag(PbParam p) => p.FromLoi < loi ? (en ? $" (from LOi {p.FromLoi})" : $" (dari LOi {p.FromLoi})") : "";
+            string Tag(PbParam p) => p.FromLoi < loi ? $" (from LOi {p.FromLoi})" : "";
             var shown = ps.Take(12).Select(p => p.Name + Tag(p));
             return string.Join(", ", shown) + (ps.Count > 12 ? $" … (+{ps.Count - 12})" : "");
         }
@@ -293,14 +283,12 @@ namespace RevitWebAppSync.Services.JkrSpec
                     var all = bad.Values.SelectMany(x => x).Distinct().ToList();
                     var list = string.Join(", ", bad.Select(kv => $"{kv.Key} ({kv.Value.Count})"));
                     yield return Fail(id,
-                            $"{group.Label}: {all.Count} elemen — parameter wajib LOi {loi} (PB hlm. {pages}) kosong: {list}",
-                            all[0], group.Label, actual: "kosong: " + string.Join(", ", bad.Keys), required: "terisi (PB, LOi " + loi + ")",
-                            key: "pb:" + group.Book + ":" + loi, coverage: SpecCoverage.FailOnly, elementIds: all)
-                        .En($"{group.Label}: {all.Count} elements — mandatory LOi {loi} parameters (PB p.{pages}) empty: {list}").InCat(group.Label);
+                            $"{group.Label}: {all.Count} elements — mandatory LOi {loi} parameters (PB p.{pages}) empty: {list}",
+                            all[0], group.Label, actual: "empty: " + string.Join(", ", bad.Keys), required: "filled (PB, LOi " + loi + ")",
+                            key: "pb:" + group.Book + ":" + loi, coverage: SpecCoverage.FailOnly, elementIds: all).InCat(group.Label);
                 }
                 if (okCount > 0)
-                    yield return Pass(id, $"{group.Label}: {okCount} elemen: parameter wajib LOi {loi} (PB hlm. {pages}) yang boleh dibaca terisi", okCount, SpecCoverage.FailOnly)
-                        .En($"{group.Label}: {okCount} elements: the mandatory LOi {loi} parameters (PB p.{pages}) that can be read are filled").InCat(group.Label);
+                    yield return Pass(id, $"{group.Label}: {okCount} elements: the mandatory LOi {loi} parameters (PB p.{pages}) that can be read are filled", okCount, SpecCoverage.FailOnly).InCat(group.Label);
             }
         }
 
@@ -331,22 +319,19 @@ namespace RevitWebAppSync.Services.JkrSpec
                 if (mats.Count == 0)
                 {
                     yield return FailType(id, t,
-                        $"{t.Category}: type '{t.TypeName}' tiada material",
                         $"{t.Category}: type '{t.TypeName}' has no material",
-                        SpecCoverage.Full, actual: "tiada material", required: "material jkrAR_…", keySuffix: ":none");
+                        SpecCoverage.Full, actual: "no material", required: "a material jkrAR_…", keySuffix: ":none");
                     continue;
                 }
                 var bad = mats.Where(x => !IsJkrMaterial(x)).ToList();
                 if (bad.Count == 0) { Bump(ok, t.Category); continue; }
                 var list = string.Join(", ", bad.Take(5).Select(x => "'" + x + "'")) + (bad.Count > 5 ? " …" : "");
                 yield return FailType(id, t,
-                    $"{t.Category}: type '{t.TypeName}' guna material tidak ikut coding JKR: {list}",
                     $"{t.Category}: type '{t.TypeName}' uses materials not JKR-coded: {list}",
                     SpecCoverage.Full, actual: string.Join(", ", bad), required: "jkrAR_…", keySuffix: ":code");
             }
             foreach (var kv in ok)
-                yield return Pass(id, $"{kv.Key}: {kv.Value} type: material terisi dan berawalan JKR", kv.Value, SpecCoverage.Full)
-                    .En($"{kv.Key}: {kv.Value} types: materials filled and JKR-prefixed").InCat(kv.Key);
+                yield return Pass(id, $"{kv.Key}: {kv.Value} types: materials filled and JKR-prefixed", kv.Value, SpecCoverage.Full).InCat(kv.Key);
         }
 
         // ─── Dc.1 — numbers in the type name tally with the geometry ───
@@ -434,7 +419,6 @@ namespace RevitWebAppSync.Services.JkrSpec
             {
                 var stated = NameNumbers(t.Category, t.TypeName);
                 if (stated.Count == 0) { if (HasUnreadNumbers(t)) unread++; continue; }
-                var bad = new List<string>();
                 var badEn = new List<string>();
                 var missing = new List<string>();
                 foreach (var (param, value) in stated)
@@ -442,14 +426,12 @@ namespace RevitWebAppSync.Services.JkrSpec
                     if (!t.Numbers.TryGetValue(param, out var actual) || double.IsNaN(actual)) { missing.Add(param); continue; }
                     if (!SpecUnits.SameMm(actual, value))
                     {
-                        bad.Add($"{param} {MmExact(actual)} (nama: {MmExact(value)})");
                         badEn.Add($"{param} {MmExact(actual)} (name: {MmExact(value)})");
                     }
                 }
-                if (bad.Count > 0)
+                if (badEn.Count > 0)
                 {
                     results.Add(FailType(id, t,
-                        $"{t.Category}: type '{t.TypeName}' — nilai dalam nama tidak padan: {string.Join("; ", bad)}",
                         $"{t.Category}: type '{t.TypeName}' — number in the name does not match: {string.Join("; ", badEn)}",
                         SpecCoverage.Full,
                         actual: string.Join("; ", stated.Where(x => t.Numbers.ContainsKey(x.Param)).Select(x => x.Param + " " + Mm(t.Numbers[x.Param]))),
@@ -458,7 +440,6 @@ namespace RevitWebAppSync.Services.JkrSpec
                 else if (missing.Count > 0)
                 {
                     results.Add(UnjudgedType(id, t,
-                        $"{t.Category}: type '{t.TypeName}' — nilai {string.Join(", ", missing)} tidak dibaca dari model; tidak dapat dibanding dengan nama",
                         $"{t.Category}: type '{t.TypeName}' — {string.Join(", ", missing)} was not read from the model; cannot compare with the name"));
                 }
                 else Bump(ok, t.Category);
@@ -466,8 +447,7 @@ namespace RevitWebAppSync.Services.JkrSpec
             foreach (var r in results) yield return r;
             var cov = unread > 0 ? SpecCoverage.FailOnly : SpecCoverage.Full;
             foreach (var kv in ok)
-                yield return Pass(id, $"{kv.Key}: {kv.Value} type: nilai dalam nama padan dengan parameter geometri", kv.Value, cov)
-                    .En($"{kv.Key}: {kv.Value} types: numbers in the name match the geometry").InCat(kv.Key);
+                yield return Pass(id, $"{kv.Key}: {kv.Value} types: numbers in the name match the geometry", kv.Value, cov).InCat(kv.Key);
         }
 
         /// <summary>The type's name has a number in a category Dc.1 judges, but
@@ -551,19 +531,19 @@ namespace RevitWebAppSync.Services.JkrSpec
         }
 
         /// <summary>The categories the type's name says it belongs in, and what said so
-        /// ("kod (TK…)" / "nama" / "famili"); null when the name says nothing judgeable.</summary>
+        /// ("code (TK…)" / "name" / "family"); null when the name says nothing judgeable.</summary>
         internal static (string[] Categories, string Source)? ExpectedCategories(SpecType t)
         {
             var code = CodeRx.Match(t.TypeName ?? "");
             if (code.Success && CodeCategories.TryGetValue(code.Groups[1].Value.ToUpperInvariant(), out var byCode))
-                return (byCode, "kod (" + code.Groups[1].Value.ToUpperInvariant() + "…)");
+                return (byCode, "code (" + code.Groups[1].Value.ToUpperInvariant() + "…)");
             var accessory = In(AccessoryCategories, t.Category);
             var byType = WordExpectation(t.TypeName, accessory);
             var byFamily = WordExpectation(t.FamilyName, accessory);
             if (byType == null && byFamily == null) return null;
             // Either name matching the category is enough ("Door-Double" family, "Panel 900" type).
             var all = (byType ?? new string[0]).Concat(byFamily ?? new string[0]).Distinct().ToArray();
-            return (all, byType != null ? "nama" : "famili");
+            return (all, byType != null ? "name" : "family");
         }
 
         /// <summary>
@@ -585,17 +565,14 @@ namespace RevitWebAppSync.Services.JkrSpec
                 if (exp == null) { unjudged++; continue; }
                 if (In(exp.Value.Categories, t.Category)) { Bump(ok, t.Category); continue; }
                 var expected = string.Join(" / ", exp.Value.Categories);
-                var srcEn = exp.Value.Source.StartsWith("kod", StringComparison.Ordinal) ? exp.Value.Source.Replace("kod", "code")
-                          : exp.Value.Source == "nama" ? "name" : "family";
+                var srcEn = exp.Value.Source;
                 yield return FailType(id, t,
-                    $"Type '{t.TypeName}' dalam kategori {t.Category} — {exp.Value.Source} menunjukkan {expected}",
                     $"Type '{t.TypeName}' is in {t.Category} — its {srcEn} says {expected}",
                     SpecCoverage.Full, actual: t.Category, required: expected);
             }
             var cov = unjudged > 0 ? SpecCoverage.FailOnly : SpecCoverage.Full;
             foreach (var kv in ok)
-                yield return Pass(id, $"{kv.Key}: {kv.Value} type: kategori Revit padan dengan nama", kv.Value, cov)
-                    .En($"{kv.Key}: {kv.Value} types: Revit category matches the name").InCat(kv.Key);
+                yield return Pass(id, $"{kv.Key}: {kv.Value} types: Revit category matches the name", kv.Value, cov).InCat(kv.Key);
         }
 
         // ─── Dd.2, De.1–De.3 — human / list rows ───
@@ -604,8 +581,7 @@ namespace RevitWebAppSync.Services.JkrSpec
         /// check's scope — a person decides. Context only.</summary>
         private static IEnumerable<SpecResult> DdTechnique(SpecModel m)
         {
-            yield return Context("Dd.2", "SEMAK MANUAL — teknik pemodelan (cara letak permukaan dll) di luar skop semakan automatik")
-                .En("MANUAL CHECK — modelling technique (how surfaces are placed, etc.) is outside the automatic check");
+            yield return Context("Dd.2", "MANUAL CHECK — modelling technique (how surfaces are placed, etc.) is outside the automatic check");
         }
 
         /// <summary>De.1 (F D.8): Room has no ElementType, so Section D does not judge it;
@@ -613,15 +589,14 @@ namespace RevitWebAppSync.Services.JkrSpec
         private static IEnumerable<SpecResult> DeRoom(SpecModel m)
         {
             var placed = m.Rooms.Count(r => r.Area > 0);
-            yield return Listing("De.1", $"Room tiada ElementType — semakan room di A6 / C1.6 ({placed} room diletak)", placed)
-                .En($"Rooms have no element type — checked under A6 / C1.6 ({placed} placed rooms)").InCat("Rooms");
+            yield return Listing("De.1", $"Rooms have no element type — checked under A6 / C1.6 ({placed} placed rooms)", placed).InCat("Rooms");
         }
 
         private static int CountOf(SpecModel m, string category) =>
             m.CategoryCounts.Where(kv => string.Equals(kv.Key, category, StringComparison.OrdinalIgnoreCase)).Sum(kv => Math.Max(0, kv.Value));
 
         /// <summary>
-        /// De.2 (F D.18, D.21): Columns / Structural Columns with 0 elements → "sahkan skop"
+        /// De.2 (F D.18, D.21): Columns / Structural Columns with 0 elements → "confirm scope"
         /// for a person, never an automatic MAJOR. One Context note with both counts
         /// ("Columns: 0 · Structural Columns: 4"), so a 0 in one is read beside the other; it
         /// asks to confirm scope only for a category that is 0, and then carries an issue the
@@ -637,13 +612,11 @@ namespace RevitWebAppSync.Services.JkrSpec
             var zero = counts.Where(x => x.N == 0).Select(x => x.Cat).ToList();
             if (zero.Count == 0)
             {
-                yield return Context("De.2", both + " — kedua-dua kategori dimodelkan")
-                    .En(both + " — both categories are modelled").InCat(cats[0]);
+                yield return Context("De.2", both + " — both categories are modelled").InCat(cats[0]);
                 yield break;
             }
             var z = string.Join(", ", zero);
-            yield return Context("De.2", $"{both} — {z} 0 elemen: sahkan skop", key: string.Join("|", zero))
-                .En($"{both} — {z} 0 elements: confirm scope").InCat(zero[0]);
+            yield return Context("De.2", $"{both} — {z} 0 elements: confirm scope", key: string.Join("|", zero)).InCat(zero[0]);
         }
 
         /// <summary>The Buku Parameter AR categories (PB p.36–102; C 3.1 point 5), as Revit
@@ -662,7 +635,7 @@ namespace RevitWebAppSync.Services.JkrSpec
         };
 
         /// <summary>
-        /// De.3 (C 3.1): categories not modelled are "tidak berkenaan", consistent with C 3.1 —
+        /// De.3 (C 3.1): categories not modelled are "not applicable", consistent with C 3.1 —
         /// listed, never a shortfall. Lists each Buku Parameter AR category with 0 placed
         /// elements (one listing per category). Nothing when the category counts were not read.
         /// </summary>
@@ -672,13 +645,12 @@ namespace RevitWebAppSync.Services.JkrSpec
             var none = PbArCategories.Where(c => c.Revit.Sum(r => CountOf(m, r)) == 0).ToList();
             if (none.Count == 0)
             {
-                yield return Listing("De.3", "Semua kategori AR Buku Parameter dimodelkan").En("Every Buku Parameter AR category is modelled");
+                yield return Listing("De.3", "Every Buku Parameter AR category is modelled");
                 yield break;
             }
             // One row per category, filed under its Revit category (Column under Columns).
             foreach (var c in none)
-                yield return Listing("De.3", $"{c.Pb}: tidak dimodelkan — tidak berkenaan")
-                    .En($"{c.Pb}: not modelled — not applicable").InCat(c.Revit[0]);
+                yield return Listing("De.3", $"{c.Pb}: not modelled — not applicable").InCat(c.Revit[0]);
         }
 
         // ─── E.1 — each set's views use that set's template ───
@@ -721,15 +693,13 @@ namespace RevitWebAppSync.Services.JkrSpec
                 {
                     judgedSets++;
                     unjudged++;
-                    yield return Unjudged(id, $"View '{name}' — lebih dari satu set ({string.Join(", ", sets)}, {SpecViewSets.SourceText(hit.Source, hit.By, false)}); sahkan template", v.Id, name)
-                        .En($"View '{name}' — more than one set ({string.Join(", ", sets)}, {SpecViewSets.SourceText(hit.Source, hit.By, true)}); confirm the template").InCat(sets[0]);
+                    yield return Unjudged(id, $"View '{name}' — more than one set ({string.Join(", ", sets)}, {SpecViewSets.SourceText(hit.Source, hit.By)}); confirm the template", v.Id, name).InCat(sets[0]);
                     continue;
                 }
                 var set = sets[0];
                 if (set == "WIP")
                 {
                     yield return ViewListing(id,
-                        $"WIP | view '{name}' | template: {(tpl.Length == 0 ? "tiada" : "'" + tpl + "'")} — tiada peraturan template WIP (menunggu pengesahan JKR)",
                         $"WIP | view '{name}' | template: {(tpl.Length == 0 ? "none" : "'" + tpl + "'")} — no WIP template rule (awaiting JKR's confirmation)",
                         v, set);
                     continue;
@@ -738,41 +708,36 @@ namespace RevitWebAppSync.Services.JkrSpec
                 var expected = "template " + set;
                 if (tpl.Length == 0)
                 {
-                    yield return Fail(id, $"{set} | view '{name}' tiada view template (dijangka: {expected})", v.Id, name,
-                                      actual: "tiada", required: expected).En($"{set} | view '{name}' has no view template (expected: {expected})").InCat(set);
+                    yield return Fail(id, $"{set} | view '{name}' has no view template (expected: {expected})", v.Id, name,
+                                      actual: "none", required: expected).InCat(set);
                     continue;
                 }
                 var tplSets = SpecViewSets.SetsIn(tpl);
                 if (tplSets.Contains(set)) { Bump(passed, set); continue; }
-                var whose = tplSets.Count > 0 ? $" (template set {string.Join("/", tplSets)})" : "";
                 var whoseEn = tplSets.Count > 0 ? $" (a {string.Join("/", tplSets)} set template)" : "";
-                yield return Fail(id, $"{set} | view '{name}' guna template '{tpl}' — bukan template {set}{whose}", v.Id, name,
-                                  actual: tpl, required: expected)
-                    .En($"{set} | view '{name}' uses template '{tpl}' — not a {set} template{whoseEn}").InCat(set);
+                yield return Fail(id, $"{set} | view '{name}' uses template '{tpl}' — not a {set} template{whoseEn}", v.Id, name,
+                                  actual: tpl, required: expected).InCat(set);
             }
             if (legends.Count > 0)
             {
                 var names = string.Join(", ", legends.Take(5).Select(l => l.View.Name.Trim())) + (legends.Count > 5 ? " …" : "");
-                yield return Listing(id, $"{legends.Count} legend dilangkau — legend tidak boleh guna view template ({names})", legends.Count)
-                    .En($"{legends.Count} legends skipped — a legend cannot take a view template ({names})").InCat(legends[0].Set);
+                yield return Listing(id, $"{legends.Count} legends skipped — a legend cannot take a view template ({names})", legends.Count).InCat(legends[0].Set);
             }
             if (judgedSets == 0)
             {
-                yield return Unjudged(id, "Tiada view set BOMBA / PBT / Dokumen dijumpai (folder Project Browser, View_jkr_pit, nama view atau template) — sahkan template secara manual", key: "no-set-views")
-                    .En("No BOMBA / PBT / Dokumen view found (browser folder, View_jkr_pit, view name or template) — check the templates by hand");
+                yield return Unjudged(id, "No BOMBA / PBT / Dokumen view found (browser folder, View_jkr_pit, view name or template) — check the templates by hand", key: "no-set-views");
                 yield break;
             }
             // One pass per set; Full only when no BOMBA / PBT / Dokumen view was left unjudged.
             var cov = unjudged > 0 ? SpecCoverage.FailOnly : SpecCoverage.Full;
             foreach (var kv in passed)
-                yield return Pass(id, $"{kv.Key}: {kv.Value} view guna template set yang betul", kv.Value, cov)
-                    .En($"{kv.Key}: {kv.Value} views use their set's template").InCat(kv.Key);
+                yield return Pass(id, $"{kv.Key}: {kv.Value} views use their set's template", kv.Value, cov).InCat(kv.Key);
         }
 
         /// <summary>A list row for one view (no verdict): filed under its set, named after the view.</summary>
-        private static SpecResult ViewListing(string id, string bm, string en, SpecView v, string set)
+        private static SpecResult ViewListing(string id, string en, SpecView v, string set)
         {
-            var r = Listing(id, bm, 1).En(en).InCat(set);
+            var r = Listing(id, en, 1).InCat(set);
             r.ElementName = v.Name.Trim();
             if (v.Id > 0) { r.ElementId = v.Id; r.ElementIds = new List<long> { v.Id }; }
             return r;

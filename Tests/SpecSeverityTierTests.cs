@@ -20,7 +20,7 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(61, SpecCatalog.Checks.Count);
             foreach (var c in SpecCatalog.Checks)
             {
-                var expected = c.NotComply.Ms.Contains("KRITIKAL") ? IssuePriority.High : IssuePriority.Medium;
+                var expected = c.NotComply.En.Contains("CRITICAL") ? IssuePriority.High : IssuePriority.Medium;
                 Assert.True(expected == JkrTierMap.FromSeverity(c.Severity), c.Id + " tier");
             }
         }

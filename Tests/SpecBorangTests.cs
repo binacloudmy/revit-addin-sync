@@ -28,7 +28,7 @@ namespace RevitWebAppSync.Tests
             new SpecResult
             {
                 Source = SpecReport.Model, CheckId = checkId, Status = status, Category = category,
-                IssueId = issueId, Coverage = coverage, Note = note, NoteEn = noteEn,
+                IssueId = issueId, Coverage = coverage, Note = string.IsNullOrEmpty(noteEn) ? note : noteEn,
             };
 
         internal static Bim010Summary Summary(params SpecResult[] results) =>

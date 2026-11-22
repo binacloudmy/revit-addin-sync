@@ -10,7 +10,7 @@ namespace RevitWebAppSync.Tests
     [Collection("CopilotLauncher")]
     public class JkrCopilotFixInstallerTests : IDisposable
     {
-        private readonly Func<IssueVm, bool, IReadOnlyList<string>> _savedBuilder = JkrCopilotFixInstaller.PromptBuilder;
+        private readonly Func<IssueVm, IReadOnlyList<string>> _savedBuilder = JkrCopilotFixInstaller.PromptBuilder;
         public void Dispose() { JkrCopilotFixInstaller.PromptBuilder = _savedBuilder; JkrCopilotFix.Launcher = null; }
 
         private sealed class NoSession : ICopilotSession
@@ -46,7 +46,7 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void A_prompt_builder_sets_the_launcher_and_shows_the_button()
         {
-            JkrCopilotFixInstaller.PromptBuilder = (issue, bm) => new[] { "p" };
+            JkrCopilotFixInstaller.PromptBuilder = issue => new[] { "p" };
             JkrCopilotFixInstaller.Install(new NoSession(), id => Row(), _ => { }, confirm: _ => true);
             Assert.NotNull(JkrCopilotFix.Launcher);
             Assert.True(JkrCopilotFix.LauncherReady);
@@ -127,7 +127,7 @@ namespace RevitWebAppSync.Tests
         public void The_default_prompt_builder_is_the_protocol_3_one()
         {
             Assert.NotNull(JkrCopilotFixInstaller.DefaultPromptBuilder);
-            var parts = JkrCopilotFixInstaller.DefaultPromptBuilder(Row(), true);
+            var parts = JkrCopilotFixInstaller.DefaultPromptBuilder(Row());
             Assert.NotEmpty(parts);
             Assert.Contains("100", parts[0]);
             Assert.Contains("set_parameters", parts[0]);
@@ -136,7 +136,7 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void No_session_means_no_launcher()
         {
-            JkrCopilotFixInstaller.PromptBuilder = (issue, bm) => new[] { "p" };
+            JkrCopilotFixInstaller.PromptBuilder = issue => new[] { "p" };
             JkrCopilotFixInstaller.Install(null, id => Row(), _ => { });
             Assert.Null(JkrCopilotFix.Launcher);
         }

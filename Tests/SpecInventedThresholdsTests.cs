@@ -62,8 +62,7 @@ namespace RevitWebAppSync.Tests
             Assert.Empty(Fails(rs));                       // it used to pass silently inside a 0.5 mm slack
             var row = Assert.Single(Listed(rs));
             AssertPersonRow(row);
-            Assert.Contains("JKR tiada peraturan pembundaran", row.Note);
-            Assert.Contains("JKR gives no rounding rule", row.NoteEn);
+            Assert.Contains("JKR gives no rounding rule", row.Note);
             Assert.DoesNotContain("0.5", row.Note);
             Assert.Single(Fails(Run(Ceiling(2999.0), "A1.1")));
             Assert.Empty(Listed(Run(Ceiling(3000.0), "A1.1")));
@@ -129,7 +128,7 @@ namespace RevitWebAppSync.Tests
                 AssertPersonRow(row);
                 Assert.DoesNotContain("had ≤", row.Note);
                 Assert.DoesNotContain("≤", row.Note);
-                Assert.DoesNotContain("limit ≤", row.NoteEn);
+                Assert.DoesNotContain("limit ≤", row.Note);
             }
             var exact = Assert.Single(Run(BasePointAt(0), "A4.1"));
             Assert.Equal("pass", exact.Status);
@@ -230,7 +229,7 @@ namespace RevitWebAppSync.Tests
             Assert.Empty(Fails(dbl));                      // it used to fail at 1500 read from the name
             var row = Assert.Single(dbl);
             AssertPersonRow(row);
-            Assert.Contains("dua daun", row.Note);
+            Assert.Contains("double-leaf", row.Note);
             // A door named single or not named double is judged at 900 only.
             Assert.Empty(Fails(Run(new SpecModel { Types = { T("Doors", "Single", "1400", width: 1400, height: 2100) } }, "A1.2")));
             Assert.Single(Fails(Run(new SpecModel { Types = { T("Doors", "Double Flush", "850", width: 850, height: 2100) } }, "A1.2")));
@@ -273,7 +272,7 @@ namespace RevitWebAppSync.Tests
             m.Links.Add(new SpecLink { Name = "jkrAR24_5a_A1_WX02_DS.rvt", Status = "Loaded" });
             var r = Assert.Single(Run(m, "A3.1"));
             Assert.Equal("pass", r.Status);
-            Assert.DoesNotContain("REMARK", r.Note + r.NoteEn);
+            Assert.DoesNotContain("REMARK", r.Note + r.Note);
             Assert.DoesNotContain("link", r.Note.ToLowerInvariant().Replace("di-link", ""));
             Assert.DoesNotContain("REMARK", SpecCatalog.Find("A3.1").Manual.Ms + SpecCatalog.Find("A3.1").Manual.En);
         }
@@ -308,12 +307,12 @@ namespace RevitWebAppSync.Tests
             m.Views.Add(new SpecView { Id = 4, Name = "Sec", Kind = "Section", OnSheet = true, SheetNumber = "A1" });
             m.Sheets.Add(new SpecSheet { Id = 1, Number = "A1", Name = "Plans", ViewKinds = { "FloorPlan", "CeilingPlan", "Elevation", "Section" }, ViewNames = { "Plan", "Ceiling", "Elev", "Sec" } });
             var rs = Run(m, "C4.1.2");
-            var door = Assert.Single(Listed(rs), r => r.Note.Contains("detail pintu"));
+            var door = Assert.Single(Listed(rs), r => r.Note.Contains("door detail"));
             AssertPersonRow(door);
             Assert.Contains("Butiran Pintu", door.Note);
             // The window detail has no sheet at all: still a fail (the documented list of kinds).
-            Assert.Contains(Fails(rs), f => f.NoteEn.StartsWith("No window detail"));
-            Assert.DoesNotContain(Fails(rs), f => f.NoteEn.StartsWith("No door detail"));
+            Assert.Contains(Fails(rs), f => f.Note.StartsWith("No window detail"));
+            Assert.DoesNotContain(Fails(rs), f => f.Note.StartsWith("No door detail"));
         }
 
         // ── spec #12 prefixed grids ──

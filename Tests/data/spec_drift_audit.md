@@ -176,6 +176,12 @@ rule that missing data is not a pass (principle 0.4).
 code (searched the whole tree for `BM-` / `BM_` / `BM<n>` codes: none). I read "still prints legacy
 BM after the rename" as "still prints BM text in the English pane".
 
+> **AI-513 (22 Nov 2026): all 40 templates below now read English at source** (`AuditCheckers.cs`, `AuditTools.cs`,
+> `AuditTemplateAvailability.cs`; "Rule: … Found … — compliant"). `PaneText.AuditRemarkEn` and its regex table are gone,
+> `LegacyRemarkEnglishTests` guards the English templates, and the "BM" / "EN" columns and quoted remarks below are the
+> state before AI-513, kept as the AI-469 record. The cells of `jkr_spec_rules.tsv`, `jkr_spec_items.tsv`,
+> `jkr_spec_ns_clauses.tsv` and `spec_rows.json` are the English text of the spec sheet now (the workbook itself stays Malay).
+
 Path of a remark: `AuditRecord.Remark` → (a) `IssueMapper.FromAuditRecords` makes an Issues-list row
 for every record that is not a pass, not a heading, not not-applicable, with `Description = Remark`;
 the pane shows it through `PaneText.AuditRemark`, which had English for the "no automatic check"

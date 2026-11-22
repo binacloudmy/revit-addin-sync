@@ -136,9 +136,8 @@ namespace RevitAddinSync.Tests
             Assert.Equal(3, dto.Instances);
             Assert.Equal(new long[] { 11, 13 }, dto.Ids);                 // one instance id per type, as the prompt lists them
             Assert.All(dto.Params, p => Assert.True(TypeRename.IsRenameParam(p)));
-            foreach (var bm in new[] { false, true })
             {
-                var how = JkrCopilotPrompt.VariantFor(id).How(bm);
+                var how = JkrCopilotPrompt.VariantFor(id).How;
                 Assert.Contains("\"Type Name\"", how);
                 Assert.Contains("type_param true", how);
                 Assert.DoesNotContain("run_revit_code", how);          // the prompt never steers a rename to code

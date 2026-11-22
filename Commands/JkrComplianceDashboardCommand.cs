@@ -25,7 +25,6 @@ namespace RevitWebAppSync.Commands
                 if (!DockablePane.PaneExists(JkrComplianceDashboardHost.PaneId))
                 {
                     TaskDialog.Show("BINA JKR Compliance",
-                        "Buka model dahulu. Revit hanya membina panel sisi selepas model pertama dibuka dalam sesi ini.\n\n" +
                         "Open a model first. Revit only creates side panels after the first model is opened in this session.");
                     return Result.Cancelled;
                 }

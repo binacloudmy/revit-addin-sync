@@ -40,8 +40,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 Desc = desc,
                 El = ElementLabel(i),
                 Req = i.Required ?? "",
-                Act = string.IsNullOrEmpty(actual) ? Text.Same("—")
-                    : new Text(actual, !string.IsNullOrEmpty(i.ActualEn) && actual == i.Actual ? i.ActualEn : actual),
+                Act = Text.Same(string.IsNullOrEmpty(actual) ? "—" : actual),
                 Prop = !human && i.AutoFixable && !string.IsNullOrEmpty(i.FixValue) ? i.FixValue
                      : !human && i.AiFixCandidate && i.AiProposal != null && !string.IsNullOrEmpty(i.AiProposal.Value) ? i.AiProposal.Value
                      : null,
@@ -132,30 +131,18 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             }
         }
 
-        // The fixed words SpecModelIssues.Description adds, BM ↔ EN.
-        private static readonly (string Ms, string En)[] DescWords =
-        {
-            ("Keperluan: ", "Required: "), ("Elemen: ", "Elements: "), (" kesemuanya)", " in all)"),
-        };
-
-        /// <summary>A spec issue's text, line by line, in BM and EN: a line that is one of
-        /// the run's remarks takes both texts; the words the add-in adds are swapped.
-        /// A line with no known translation stays as written in both.</summary>
+        /// <summary>A spec issue's text, line by line, whitespace cleaned. English only (AI-513); a line that is one
+        /// of the run's remarks takes the note's text.</summary>
         public static Text Bilingual(string text, IReadOnlyDictionary<string, Text> notes)
         {
             var lines = (text ?? "").Split('\n');
-            var ms = new List<string>();
             var en = new List<string>();
             foreach (var raw in lines)
             {
                 var line = SpecReport.Clean(raw);
-                if (notes != null && notes.TryGetValue(line, out var t)) { ms.Add(t.Ms); en.Add(t.En); continue; }
-                string m = line, e = line;
-                foreach (var w in DescWords) { m = m.Replace(w.En, w.Ms); e = e.Replace(w.Ms, w.En); }
-                ms.Add(m);
-                en.Add(e);
+                en.Add(notes != null && notes.TryGetValue(line, out var t) ? t.En : line);
             }
-            return new Text(string.Join("\n", ms), string.Join("\n", en));
+            return Text.Same(string.Join("\n", en));
         }
 
         /// <summary>Pane status → prototype status. Approved (old "accept") keeps the

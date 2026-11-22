@@ -190,12 +190,11 @@ namespace RevitWebAppSync.Tests
             var rows = Enumerable.Range(0, 12).Select(k => RowFacts("Db.2", k * 10 + 1, 10)).ToList();
             var merged = JkrCopilotPrompt.MergeFacts(rows);
             Assert.Equal(120, merged.ElementIds.Count);
-            foreach (var bm in new[] { true, false })
             {
-                var parts = JkrCopilotPrompt.Build(merged, bm);
+                var parts = JkrCopilotPrompt.Build(merged);
                 Assert.Equal(3, parts.Count);
-                Assert.Contains(bm ? "(bahagian 1 daripada 3)" : "(part 1 of 3)", parts[0]);
-                Assert.Contains(bm ? "(bahagian 3 daripada 3)" : "(part 3 of 3)", parts[2]);
+                Assert.Contains("(part 1 of 3)", parts[0]);
+                Assert.Contains("(part 3 of 3)", parts[2]);
             }
             var perPart = Enumerable.Range(0, 3).Select(p => JkrCopilotConfirmedWrite.ForPart(merged, p).Ids).ToList();
             Assert.Equal(new[] { 50, 50, 20 }, perPart.Select(x => x.Count));
@@ -208,7 +207,7 @@ namespace RevitWebAppSync.Tests
         {
             var ids = Enumerable.Range(1, 120).Select(i => 7000L + i).ToList();
             var facts = new CopilotPromptFacts { CheckId = "Da.1", Category = "Doors", ElementIds = ids, ElementLabels = ids.ToDictionary(i => i, i => "Doors · Type" + (i % 4)) };
-            var parts = JkrCopilotPrompt.Build(facts, false);
+            var parts = JkrCopilotPrompt.Build(facts);
             Assert.Single(parts);
             Assert.Equal(4, JkrCopilotPrompt.TargetIds(facts).Count);
         }
@@ -218,17 +217,16 @@ namespace RevitWebAppSync.Tests
         public void The_check_wide_prompt_passes_the_gate_engine_tools_only_confirmed_already_no_pass_fail_decision(string check)
         {
             var merged = JkrCopilotPrompt.MergeFacts(new[] { RowFacts(check, 1, 30), RowFacts(check, 31, 30) });
-            foreach (var bm in new[] { true, false })
-                foreach (var p in JkrCopilotPrompt.Build(merged, bm))
+                foreach (var p in JkrCopilotPrompt.Build(merged))
                 {
                     foreach (var old in new[] { "get_user_input", "create_views_for_levels", "rename_elements", "change_type", "dry_run", "set_parameter_by_filter", "fill_missing_parameter", "create_schedule" })
                         Assert.DoesNotContain(old, p);
                     Assert.False(Regex.IsMatch(p, @"\bset_parameter\b"), "old singular tool name");
                     Assert.Contains("set_parameters", p);
-                    Assert.Contains(bm ? "Saya sudah mengesahkan perubahan ini" : "I already confirmed this change", p);
-                    Assert.Contains(bm ? "Jangan putuskan comply atau tidak comply" : "Do not decide pass or fail", p);
-                    Assert.Contains(bm ? "jangan guna filter" : "never use a filter", p);
-                    Assert.Contains(bm ? "Skop: ubah hanya" : "Scope: change only", p);
+                    Assert.Contains("I already confirmed this change", p);
+                    Assert.Contains("Do not decide pass or fail", p);
+                    Assert.Contains("never use a filter", p);
+                    Assert.Contains("Scope: change only", p);
                 }
         }
 
@@ -262,7 +260,7 @@ namespace RevitWebAppSync.Tests
         {
             var s = new Session();
             var log = new List<string>();
-            var l = new JkrCopilotFixLauncher(s, req => JkrCopilotPrompt.Build(facts, false), log.Add, _ => Task.CompletedTask,
+            var l = new JkrCopilotFixLauncher(s, req => JkrCopilotPrompt.Build(facts), log.Add, _ => Task.CompletedTask,
                 indexingTimeout: TimeSpan.FromSeconds(1), turnTimeout: TimeSpan.FromSeconds(5), settle: TimeSpan.FromMilliseconds(500),
                 afterWrite: req => { log.Add("recheck"); return Task.CompletedTask; },
                 confirm: req => { log.Add("confirm"); return confirm(); },
@@ -447,7 +445,7 @@ namespace RevitWebAppSync.Tests
             var req = CopilotFixRequest.ForCheck("Db.2", f.Rows.Select(r => r.Id), merged.ElementIds, "t");
             // the rows whose ids lie in parts 2 and 3 were never written: the rule still fails on them
             foreach (var r in f.Rows.Skip(5)) f.Failing.Add(r.Id);
-            var l = new JkrCopilotFixLauncher(s, _ => JkrCopilotPrompt.Build(merged, false), toasts.Add, _ => Task.CompletedTask,
+            var l = new JkrCopilotFixLauncher(s, _ => JkrCopilotPrompt.Build(merged), toasts.Add, _ => Task.CompletedTask,
                 indexingTimeout: TimeSpan.FromSeconds(1), turnTimeout: TimeSpan.FromSeconds(3), startGrace: TimeSpan.FromMilliseconds(500), settle: TimeSpan.FromMilliseconds(500),
                 afterWrite: re.RunAsync, confirm: _ => true);
             var o = await l.LaunchAsync(req);
@@ -507,7 +505,7 @@ namespace RevitWebAppSync.Tests
 
             var f = new Fake { Rows = Enumerable.Range(0, 12).Select(k => new Row { Id = "r" + k, RevitElementId = 5001 + k * 10, ElementIds = new long[] { 5001 + k * 10 } }).ToList() };
             var s2 = new Scripted(p => CopilotCardState.Approved);
-            var l = new JkrCopilotFixLauncher(s2, _ => JkrCopilotPrompt.Build(merged, false), _ => { }, _ => { s2.Visible = false; return Task.CompletedTask; },
+            var l = new JkrCopilotFixLauncher(s2, _ => JkrCopilotPrompt.Build(merged), _ => { }, _ => { s2.Visible = false; return Task.CompletedTask; },
                 indexingTimeout: TimeSpan.FromSeconds(1), turnTimeout: TimeSpan.FromSeconds(3), settle: TimeSpan.FromMilliseconds(500),
                 afterWrite: new JkrCopilotRecheck<Row>(f.Host()).RunAsync, confirm: _ => true);
             var o = await l.LaunchAsync(CopilotFixRequest.ForCheck("Db.2", f.Rows.Select(r => r.Id), merged.ElementIds, "t"));

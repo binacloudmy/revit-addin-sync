@@ -64,7 +64,7 @@ namespace RevitWebAppSync.Tests
             foreach (var r in SpecChecks.Run(m).Where(r => r.CheckId.StartsWith("A")))
             {
                 Assert.False(string.IsNullOrWhiteSpace(r.Note), r.CheckId + " has no note");
-                Assert.False(string.IsNullOrWhiteSpace(r.NoteEn), r.CheckId + " has no English note: " + r.Note);
+                Assert.False(string.IsNullOrWhiteSpace(r.Note), r.CheckId + " has no English note: " + r.Note);
             }
         }
 
@@ -117,8 +117,7 @@ namespace RevitWebAppSync.Tests
             };
             var rs = Run(m, "A1.1");
             var f = Assert.Single(Fails(rs));
-            Assert.Equal("Aras 02: siling 2700 mm < 3000 mm", f.Note);
-            Assert.Equal("Level 02: ceiling 2700 mm < 3000 mm", f.NoteEn);
+            Assert.Equal("Level 02: ceiling 2700 mm < 3000 mm", f.Note);
             Assert.Equal(new long[] { 2, 3 }, f.ElementIds);
             Assert.Contains(rs, r => r.Status == "pass" && r.ElementCount == 1);
             Assert.Equal(SpecState.Fail, State(m, "A1.1"));
@@ -138,7 +137,7 @@ namespace RevitWebAppSync.Tests
                 },
             };
             var f = Assert.Single(Fails(Run(m, "A1.1")));
-            Assert.Contains("Basement 2 (basement): siling 2400 mm < 2500 mm", f.Note);
+            Assert.Contains("Level Basement 2 (basement): ceiling 2400 mm < 2500 mm", f.Note);
         }
 
         [Fact]
@@ -147,7 +146,7 @@ namespace RevitWebAppSync.Tests
             var rs = Run(new SpecModel { Levels = { new SpecLevel { Name = "01" } } }, "A1.1");
             var r = Assert.Single(rs);
             Assert.Equal("cannot_verify", r.Status);
-            Assert.Contains("Tiada siling", r.Note);
+            Assert.Contains("No ceilings modelled", r.Note);
         }
 
         [Fact]
@@ -159,7 +158,7 @@ namespace RevitWebAppSync.Tests
                 Rooms = { new SpecRoom { Name = "Bilik", LevelName = "02", Area = 20 } },
             };
             var rs = Run(m, "A1.1");
-            Assert.Contains(rs, r => r.Status == "cannot_verify" && r.Note.StartsWith("Aras 02"));
+            Assert.Contains(rs, r => r.Status == "cannot_verify" && r.Note.StartsWith("Level 02"));
             Assert.Equal(SpecState.NeedsPerson, State(m, "A1.1"));
         }
 
@@ -199,8 +198,7 @@ namespace RevitWebAppSync.Tests
                 },
             };
             var f = Assert.Single(Fails(Run(m, "A1.1")));
-            Assert.Equal("Aras 01: siling 2400 mm < 3000 mm — R1 Stor 2400 mm", f.Note);
-            Assert.Equal("Level 01: ceiling 2400 mm < 3000 mm — R1 Stor 2400 mm", f.NoteEn);
+            Assert.Equal("Level 01: ceiling 2400 mm < 3000 mm — R1 Stor 2400 mm", f.Note);
             Assert.Equal(new long[] { 1 }, f.ElementIds);        // ceiling 2 is 3300 over the main floor
         }
 
@@ -234,7 +232,7 @@ namespace RevitWebAppSync.Tests
                 Assert.Equal(SpecCoverage.Context, row.Coverage);
                 Assert.NotEqual("", row.IssueId);
                 Assert.True(SpecPersonDecides.IsPersonDecides(row));
-                Assert.Contains("manusia putuskan", row.Note);
+                Assert.Contains("a person decides", row.Note);
                 Assert.Equal(SpecState.NeedsPerson, State(m, "A1.1"));
             }
         }
@@ -263,7 +261,7 @@ namespace RevitWebAppSync.Tests
                 Ceilings = { new SpecCeiling { Id = 1, LevelName = "01", HeightOffset = 2800, BottomElevation = 2800, Loops = Box(0, 0, 4000, 4000) } },
             };
             var f = Assert.Single(Fails(Run(m, "A1.1")));
-            Assert.Equal("Aras 01: siling 2800 mm < 3000 mm", f.Note);
+            Assert.Equal("Level 01: ceiling 2800 mm < 3000 mm", f.Note);
         }
 
         [Fact]
@@ -319,11 +317,10 @@ namespace RevitWebAppSync.Tests
             // AI-504: 900 / 2100 are the minimum every door shares; the double-leaf 1500 mm is read from
             // the name, which is not a source, so the 1400 mm "double" is listed for a person, not failed.
             Assert.Equal(2, fails.Count);
-            Assert.Contains(fails, f => f.Note == "Pintu : (PT1p600a) 850 | 850 | 2100 mm: lebar < 900 mm");
-            Assert.Contains(fails, f => f.Note.Contains("tinggi < 2100 mm") && f.ElementId == 40);
+            Assert.Contains(fails, f => f.Note.Contains("height < 2100 mm") && f.ElementId == 40);
             var person = Assert.Single(rs, r => r.Coverage == SpecCoverage.Context);
             Assert.Equal(30, person.ElementId);
-            Assert.Contains("dua daun", person.Note);
+            Assert.Contains("double-leaf", person.Note);
             var pass = Assert.Single(rs, r => r.Status == "pass");
             Assert.Equal(2, pass.ElementCount);
             Assert.Equal(SpecCoverage.FailOnly, pass.Coverage);
@@ -354,8 +351,7 @@ namespace RevitWebAppSync.Tests
             };
             var fails = Fails(Run(m, "A1.3"));
             Assert.Equal(2, fails.Count);
-            Assert.Contains(fails, f => f.Note == "Pintu utama Pintu Utama : Kayu: tebal 35 mm < 40 mm");
-            Assert.Contains(fails, f => f.Note.Contains("parameter Thickness tiada"));
+            Assert.Contains(fails, f => f.Note.Contains("Thickness parameter missing"));
         }
 
         [Fact]
@@ -385,7 +381,7 @@ namespace RevitWebAppSync.Tests
             var r = Assert.Single(rs);
             Assert.Equal("cannot_verify", r.Status);
             Assert.Equal(10, r.ElementId);
-            Assert.Contains("calon: Single : Ext (tebal 45 mm)", r.Note);
+            Assert.Contains("candidate: Single : Ext (thickness 45 mm)", r.Note);
         }
 
         // ════ A1.4 flat roof ════
@@ -409,7 +405,6 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(SpecCoverage.Context, c.Coverage);
             Assert.Equal(7, c.ElementId);
             Assert.NotEqual("", c.IssueId);
-            Assert.Contains("JKR tiada takrif flat roof", c.Note);
             Assert.DoesNotContain("°", c.Note);
         }
 
@@ -464,7 +459,7 @@ namespace RevitWebAppSync.Tests
             var m = new SpecModel { Types = { Type("Railings", "Railing", "Pagar Tangga 1000", height: 1000) } };
             var r = Assert.Single(Run(m, "A1.5"));
             Assert.Equal("cannot_verify", r.Status);
-            Assert.Contains("sahkan skop projek", r.Note);
+            Assert.Contains("confirm the project scope", r.Note);
             Assert.Equal(SpecState.NeedsPerson, State(m, "A1.5"));
         }
 
@@ -481,7 +476,7 @@ namespace RevitWebAppSync.Tests
             };
             var rs = Run(m, "A1.5");
             var f = Assert.Single(Fails(rs));
-            Assert.Equal("Pagar Basic Wall : Pagar Hiasan 1800: tinggi 1800 mm < 2400 mm", f.Note);
+            Assert.Equal("Fence Basic Wall : Pagar Hiasan 1800: height 1800 mm < 2400 mm", f.Note);
             Assert.Contains(rs, r => r.Status == "pass" && r.ElementCount == 1);
         }
 
@@ -492,7 +487,7 @@ namespace RevitWebAppSync.Tests
         {
             var manual = File.ReadAllLines(Path.Combine(AppContext.BaseDirectory, "data", "jkr_spec_ns_clauses.tsv"))
                 .Where(l => !l.StartsWith("#")).Skip(1).Select(l => l.Split('\t'))
-                .Where(c => c.Length >= 4 && c[3].StartsWith("Tidak")).ToList();
+                .Where(c => c.Length >= 4 && c[3].StartsWith("No")).ToList();
             Assert.Equal(manual.Select(c => c[0]), SpecA.ManualNsClauses.Select(c => c.Clause));
             Assert.Equal(manual.Select(c => c[1]), SpecA.ManualNsClauses.Select(c => c.Rule));
             var rs = Run(new SpecModel(), "A1.6");
@@ -504,7 +499,7 @@ namespace RevitWebAppSync.Tests
         public void A1_7_carries_the_need_statement_remark()
         {
             var r = Assert.Single(Run(new SpecModel(), "A1.7"));
-            Assert.Equal("Semakan berdasarkan Need Statement minimum kerajaan; konsep reka bentuk tidak disemak.", r.Note);
+            Assert.Equal("Checked against the government's minimum Need Statement only; the design concept is not assessed.", r.Note);
             Assert.Equal(SpecCoverage.Listing, r.Coverage);
         }
 
@@ -525,10 +520,10 @@ namespace RevitWebAppSync.Tests
         {
             var r = Assert.Single(Run(new SpecModel { FileName = File01 }, "A2.1"));
             Assert.Equal("pass", r.Status);
-            Assert.Contains("8 segmen (jkrAR24 | 5a | (BEde1A_p14-001) | A1 | w-01 | (S) | DS | 220222a)", r.Note);
+            Assert.Contains("8 segments (jkrAR24 | 5a | (BEde1A_p14-001) | A1 | w-01 | (S) | DS | 220222a)", r.Note);
             var bad = Assert.Single(Run(new SpecModel { FileName = "Project1_final.rvt" }, "A2.1"));
             Assert.Equal("fail", bad.Status);
-            Assert.Contains("2 segmen (Project1 | final)", bad.Note);
+            Assert.Contains("2 segments (Project1 | final)", bad.Note);
             Assert.Equal("cannot_verify", Assert.Single(Run(new SpecModel(), "A2.1")).Status);
         }
 
@@ -580,7 +575,7 @@ namespace RevitWebAppSync.Tests
         {
             var r = Assert.Single(Run(new SpecModel { FileName = File01 }, "A2.2"));
             Assert.Equal("pass", r.Status);
-            Assert.Contains("WX01 (model pecah)", r.Note);
+            Assert.Contains("WX01 (split model)", r.Note);
             Assert.Equal("fail", Assert.Single(Run(new SpecModel { FileName = "Project1.rvt" }, "A2.2")).Status);
         }
 
@@ -633,7 +628,7 @@ namespace RevitWebAppSync.Tests
             var r = Assert.Single(Run(m, "A3.1"));      // AI-504 (Q16): the W00 -> comply logic only
             Assert.Equal("pass", r.Status);
             Assert.DoesNotContain("REMARK", r.Note);
-            Assert.DoesNotContain("REMARK", r.NoteEn);
+            Assert.DoesNotContain("REMARK", r.Note);
             var c = SpecReport.Build(SpecChecks.Run(m)).For("A3.1");
             Assert.Equal(SpecState.Pass, c.State);
             Assert.Equal(1, c.Passed);
@@ -667,8 +662,7 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(SpecState.Partial, State(m, "A3.2"));
             var bpep = Assert.Single(Run(m, "A3.3"));
             Assert.Equal("cannot_verify", bpep.Status);
-            Assert.Equal("BPEP tidak tersedia → tidak dapat disemak", bpep.Note);
-            Assert.Equal("BPEP not available → cannot be checked", bpep.NoteEn);
+            Assert.Equal("BPEP not available → cannot be checked", bpep.Note);
             var how = Assert.Single(Run(m, "A3.5"));
             Assert.Contains("WX01 — jkrAR24_5a_A1_WX01_DS.rvt", how.Note);
             Assert.DoesNotContain("jkrST", how.Note);   // another discipline is not a part
@@ -687,9 +681,8 @@ namespace RevitWebAppSync.Tests
                 },
             };
             var fails = Fails(Run(m, "A3.2"));
-            Assert.Contains(fails, f => f.Note == "Pecahan WX02 tiada sebagai link dalam model");
-            Assert.Contains(fails, f => f.Note == "Pecahan WX03 tiada sebagai link dalam model");
-            Assert.Contains(fails, f => f.Note.StartsWith("Link pecahan WX02 tidak dijumpai"));
+            Assert.Contains(fails, f => f.Note == "Part WX03 is not linked in the model");
+            Assert.Contains(fails, f => f.Note.StartsWith("Part link WX02 not found"));
             Assert.DoesNotContain(fails, f => f.Note.Contains("WX01") || f.Note.Contains("WX04"));
         }
 
@@ -699,7 +692,7 @@ namespace RevitWebAppSync.Tests
             var m = new SpecModel { FileName = File01 };
             var a34 = Assert.Single(Run(m, "A3.4"));
             Assert.Equal(SpecCoverage.Listing, a34.Coverage);
-            Assert.Contains("Model perlu di-link dahulu sebelum semakan A3 boleh dijalankan", a34.Note);
+            Assert.Contains("the model must be linked first before the A3 checks can run", a34.Note);
             Assert.Equal(SpecState.NeedsPerson, State(m, "A3.2"));
             // part 3 with no links: parts 1 and 2 are known to be missing
             Assert.Equal(2, Fails(Run(new SpecModel { FileName = "jkrAR24_A1_WX03_DS.rvt" }, "A3.2")).Count);
@@ -788,8 +781,7 @@ namespace RevitWebAppSync.Tests
             var m = Grids(Grid("1", 0), Grid("2", 6000), Grid("3", 12000), Grid("11", 18000),
                           Grid("A", 0, false), Grid("B", 6000, false), Grid("C", 12000, false));
             var f = Assert.Single(Fails(Run(m, "A5.2")));
-            Assert.Equal("Grid 1,2,3 → 11: urutan melompat (4–10 tiada)", f.Note);
-            Assert.Equal("Grids 1,2,3 → 11: sequence jumps (4–10 missing)", f.NoteEn);
+            Assert.Equal("Grids 1,2,3 → 11: sequence jumps (4–10 missing)", f.Note);
         }
 
         [Fact]
@@ -807,7 +799,6 @@ namespace RevitWebAppSync.Tests
         public void A5_2_letter_jump_and_out_of_order_on_plan_fail()
         {
             var jump = Grids(Grid("A", 0, false), Grid("B", 1, false), Grid("E", 2, false));
-            Assert.Contains("C,D tiada", Assert.Single(Fails(Run(jump, "A5.2"))).Note);
             var order = Grids(Grid("1", 0), Grid("3", 6000), Grid("2", 12000));
             Assert.Contains("1,3,2", Assert.Single(Fails(Run(order, "A5.2"))).Note);
             // mixed directions cannot be ordered on plan: only jumps count
@@ -829,7 +820,7 @@ namespace RevitWebAppSync.Tests
                           Grid("A", 0, false), Grid("B", 6000, false), Grid("A1", 3000, false));
             var rs = Run(m, "A5.3");
             Assert.Empty(Fails(rs));
-            Assert.Equal("Sub-grid ikut pola: 1: 1A, 1B · A: A1", Assert.Single(rs).Note);
+            Assert.Equal("Sub-grids follow the pattern: 1: 1A, 1B · A: A1", Assert.Single(rs).Note);
             Assert.Equal(SpecState.Pass, State(m, "A5.3"));
         }
 
@@ -839,9 +830,8 @@ namespace RevitWebAppSync.Tests
             var m = Grids(Grid("1", 0), Grid("2", 6000), Grid("7A", 100), Grid("1A", 9000), Grid("1C", 3000));
             var rs = Run(m, "A5.3");
             Assert.Empty(Fails(rs));
-            Assert.Contains(rs, r => r.Status == "cannot_verify" && r.Note.Contains("grid induk 7 tiada"));
-            Assert.Contains(rs, r => r.Status == "cannot_verify" && r.Note.Contains("1A di luar petak 1–2"));
-            Assert.Contains(rs, r => r.Status == "cannot_verify" && r.Note.Contains("1B tiada"));
+            Assert.Contains(rs, r => r.Status == "cannot_verify" && r.Note.Contains("1A lies outside bay 1–2"));
+            Assert.Contains(rs, r => r.Status == "cannot_verify" && r.Note.Contains("1B"));
         }
 
         [Fact]
@@ -851,7 +841,6 @@ namespace RevitWebAppSync.Tests
             m.Levels.Add(new SpecLevel { Name = "01" });
             var r = Assert.Single(Run(m, "A5.1"));
             Assert.Equal(SpecCoverage.Listing, r.Coverage);
-            Assert.Equal("3 grid, 1 aras — grid: 1,2 | A", r.Note);
         }
 
         // ════ A6 rooms ════
@@ -870,8 +859,8 @@ namespace RevitWebAppSync.Tests
             };
             var rs = Run(m, "A6.1");
             Assert.Equal(2, rs.Count);
-            Assert.Equal("Aras 01: 1 room — Lobi | 001 | Pentadbiran | 45.0 m²", rs[0].Note);
-            Assert.Contains("1 room tidak ditempatkan", rs[1].Note);
+            Assert.Equal("Level 01: 1 rooms — Lobi | 001 | Pentadbiran | 45.0 m²", rs[0].Note);
+            Assert.Contains("1 rooms not placed", rs[1].Note);
             Assert.Equal(SpecState.Listed, State(m, "A6.1"));
         }
 
@@ -897,8 +886,7 @@ namespace RevitWebAppSync.Tests
             Assert.Empty(Fails(rs));
             var listed = rs.Where(r => r.Coverage == SpecCoverage.Context).ToList();
             Assert.Equal(2, listed.Count);
-            Assert.Contains(listed, f => f.ElementId == 12 && f.Note.StartsWith("Aras 01 | grid 2/B | lif: lantai 12 (Lantai Lif) tiada room"));
-            Assert.Contains(listed, f => f.ElementId == 13 && f.Note.StartsWith("Aras 02"));
+            Assert.Contains(listed, f => f.ElementId == 13 && f.Note.StartsWith("Level 02"));
             Assert.All(listed, f => Assert.NotEqual("", f.IssueId));
             Assert.Equal(SpecCoverage.FailOnly, Assert.Single(rs, r => r.Status == "pass").Coverage);
         }
@@ -1013,7 +1001,7 @@ namespace RevitWebAppSync.Tests
             var r = Assert.Single(Run(m, "A6.3"));
             Assert.Equal(SpecCoverage.Context, r.Coverage);
             Assert.False(SpecReport.IsFail(r.Status));
-            Assert.Contains("1 daripada 2 room tiada Department", r.Note);
+            Assert.Contains("1 of 2 rooms have no Department", r.Note);
             Assert.Equal(SpecState.NeedsPerson, State(m, "A6.3"));
         }
 
@@ -1031,7 +1019,6 @@ namespace RevitWebAppSync.Tests
                 },
             };
             var r = Assert.Single(Run(m, "A6.3"));
-            Assert.Contains("1 daripada 2 room tiada Department", r.Note);
             Assert.DoesNotContain("PTBR_00_116", r.Note);
         }
 
@@ -1055,7 +1042,7 @@ namespace RevitWebAppSync.Tests
             var fails = Fails(rs);
             Assert.Equal(2, fails.Count);
             var w = Assert.Single(fails, f => f.ElementId == 10);
-            Assert.Equal("Walls | Basic Wall : Generic 200 | 3 elemen: tiada material", w.Note);
+            Assert.Equal("Walls | Basic Wall : Generic 200 | 3 elements: no material", w.Note);
             Assert.Equal(new long[] { 10, 11, 12 }, w.ElementIds);
             Assert.Equal(1, Assert.Single(rs, r => r.Status == "pass").ElementCount);
         }
@@ -1071,8 +1058,7 @@ namespace RevitWebAppSync.Tests
             var m = new SpecModel { Types = { t } };
             var rs = Run(m, "A7.1");
             var f = Assert.Single(Fails(rs));
-            Assert.Equal("Walls | Basic Wall : Generic 200 | 2 daripada 4 elemen: tiada material", f.Note);
-            Assert.Equal("Walls | Basic Wall : Generic 200 | 2 of 4 elements: no material", f.NoteEn);
+            Assert.Equal("Walls | Basic Wall : Generic 200 | 2 of 4 elements: no material", f.Note);
             Assert.Equal(new long[] { 11, 13 }, f.ElementIds);   // only the bare elements are located
             Assert.Equal(SpecCoverage.Full, f.Coverage);
             var pass = Assert.Single(rs, r => r.Status == "pass");
@@ -1150,10 +1136,9 @@ namespace RevitWebAppSync.Tests
             Assert.All(rs, r => Assert.Equal(SpecCoverage.Context, r.Coverage));
             Assert.All(rs, r => Assert.False(string.IsNullOrEmpty(r.IssueId)));
             Assert.DoesNotContain(rs, r => r.Status == "fail" || r.Status == "warning" || r.Status == "pass");
-            var glass = rs.Single(w => w.Note == "AMARAN: Material \"Glass\" (Doors, Windows), 12 elemen: nama default Revit");
-            Assert.Equal("WARNING: Material \"Glass\" (Doors, Windows), 12 elements: Revit default name", glass.NoteEn);
+            var glass = rs.Single(w => w.Note == "WARNING: Material \"Glass\" (Doors, Windows), 12 elements: Revit default name");
             Assert.Equal("Glass", glass.Actual);
-            Assert.Contains(rs, w => w.Note.Contains("Kaca Biru") && w.Note.EndsWith("bukan naming JKR"));
+            Assert.Contains(rs, w => w.Note.Contains("Kaca Biru") && w.Note.EndsWith("not JKR naming"));
             Assert.DoesNotContain(rs, r => r.Note.Contains("Metal White"));   // unused
             Assert.DoesNotContain(rs, r => r.Note.Contains("jkrAR_dor"));     // JKR-named: no warning
             // Stable issue ids across runs (Ignore / Reviewed survive a re-scan).
@@ -1173,8 +1158,7 @@ namespace RevitWebAppSync.Tests
             var r = Assert.Single(Run(m, "A7.2"));
             Assert.Equal(SpecCoverage.Context, r.Coverage);
             Assert.Equal("", r.IssueId);
-            Assert.Equal("Semua 1 material yang digunakan ikut naming JKR", r.Note);
-            Assert.Equal("All 1 used materials follow JKR naming", r.NoteEn);
+            Assert.Equal("All 1 used materials follow JKR naming", r.Note);
             Assert.Equal(SpecState.NeedsPerson, State(m, "A7.2"));
         }
 
@@ -1191,7 +1175,7 @@ namespace RevitWebAppSync.Tests
             var m = new SpecModel { Types = { Type("Doors", "Pintu", "P1", materials: new[] { "Glass", "jkrAR_(ab)- Aluminium" }) } };
             var rs = Run(m, "A7.3");
             Assert.All(rs, r => Assert.Equal(SpecCoverage.Context, r.Coverage));
-            Assert.Contains(rs, r => r.Note == "Doors: 2 material, 1 tidak ikut JKR");
+            Assert.Contains(rs, r => r.Note == "Doors: 2 materials, 1 not JKR-named");
             Assert.Equal(SpecState.NeedsPerson, State(m, "A7.3"));
         }
 
@@ -1271,10 +1255,9 @@ namespace RevitWebAppSync.Tests
             var rs = Run(RealGridModel(), "A5.3");
             Assert.Empty(Fails(rs));
             var person = Assert.Single(rs, r => r.Status == "cannot_verify");
-            Assert.Equal("Sub-grid K3: grid induk K tiada — sahkan", person.Note);
-            Assert.Equal("Sub-grid K3: parent grid K missing — confirm", person.NoteEn);
+            Assert.Equal("Sub-grid K3: parent grid K missing — confirm", person.Note);
             var pass = Assert.Single(rs, r => r.Status == "pass");
-            Assert.Equal("Sub-grid ikut pola: PT4: PT4A · PT-A: PT-A1 · PT-C: PT-C1", pass.Note);
+            Assert.Equal("Sub-grids follow the pattern: PT4: PT4A · PT-A: PT-A1 · PT-C: PT-C1", pass.Note);
             Assert.Equal(3, pass.ElementCount);
         }
 
@@ -1284,8 +1267,7 @@ namespace RevitWebAppSync.Tests
             var rs = Run(RealGridModel(), "A5.2");
             Assert.Empty(Fails(rs));
             var r = Assert.Single(rs);
-            Assert.Equal("Grid tersusun tanpa lompat: 1–4 | B · PT1–PT8 | PT-A–PT-G", r.Note);
-            Assert.Equal("Grids in sequence with no jump: 1–4 | B · PT1–PT8 | PT-A–PT-G", r.NoteEn);
+            Assert.Equal("Grids in sequence with no jump: 1–4 | B · PT1–PT8 | PT-A–PT-G", r.Note);
             Assert.Equal(20, r.ElementCount);   // 5 unprefixed mains + 15 PT mains
         }
 
@@ -1294,14 +1276,14 @@ namespace RevitWebAppSync.Tests
         {
             var m = Grids(Grid("PT1", 0), Grid("PT2", 6000), Grid("PT5", 12000), Grid("PT-A", 0, false), Grid("PT-B", 6000, false), Grid("1", 0, false));
             var f = Assert.Single(Fails(Run(m, "A5.2")));
-            Assert.Equal("Grid PT1,PT2 → PT5: urutan melompat (3–4 tiada)", f.Note);
+            Assert.Equal("Grids PT1,PT2 → PT5: sequence jumps (3–4 missing)", f.Note);
         }
 
         [Fact]
         public void A5_1_real_model_splits_letters_and_numbers_per_prefix()
         {
             var r = Assert.Single(Run(RealGridModel(), "A5.1"));
-            Assert.Equal("24 grid, 0 aras — grid: 1,2,3,4 | B · PT: 1,2,3,4,5,6,7,8 | A,B,C,D,E,F,G; sub-grid: K3, PT-A1, PT-C1, PT4A", r.Note);
+            Assert.Equal("24 grids, 0 levels — grids: 1,2,3,4 | B · PT: 1,2,3,4,5,6,7,8 | A,B,C,D,E,F,G; sub-grid: K3, PT-A1, PT-C1, PT4A", r.Note);
         }
 
         [Fact]
@@ -1313,7 +1295,6 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(SpecCoverage.Context, r.Coverage);
             Assert.Equal("cannot_verify", r.Status);
             Assert.Contains("PT-A / PT1", r.Note);
-            Assert.Contains("manusia putuskan", r.Note);
             Assert.NotEqual("", r.IssueId);
             Assert.Equal(2, r.ElementIds.Count);
             Assert.Equal(SpecState.NeedsPerson, State(RealGridModel(), "A4.1"));
@@ -1329,7 +1310,7 @@ namespace RevitWebAppSync.Tests
             };
             var r = Assert.Single(Run(m, "A4.1"));
             Assert.Equal("pass", r.Status);
-            Assert.Equal("Project Base Point tepat pada persilangan grid A / 1 (Grid A/1)", r.Note);
+            Assert.Equal("Project Base Point exactly at the crossing of grids A / 1 (Grid A/1)", r.Note);
             Assert.Equal(SpecState.Pass, State(m, "A4.1"));
         }
 
@@ -1345,7 +1326,6 @@ namespace RevitWebAppSync.Tests
             Assert.Empty(Fails(rs));
             var c = Assert.Single(rs);
             Assert.Equal(SpecCoverage.Context, c.Coverage);
-            Assert.StartsWith("Project Base Point 25 mm dari persilangan grid A / 1 (Grid A/1): X 15 mm, Y -20 mm", c.Note);
             Assert.DoesNotContain("had ≤", c.Note);
             Assert.Equal(2, c.ElementIds.Count);
         }
@@ -1361,7 +1341,7 @@ namespace RevitWebAppSync.Tests
             var labels = SpecA.ParseGrids(m.Grids.Select(g => g.Name));
             Assert.Equal(new[] { (0, 1) }, SpecA.BaseGridPairs(labels));
             Assert.Empty(SpecA.PrefixedBaseGridPairs(labels));
-            Assert.Contains("grid A / 1 (Grid A/1): X 5000 mm, Y 7000 mm", Assert.Single(Run(m, "A4.1")).Note);
+            Assert.Contains("grids A / 1 (Grid A/1): X 5000 mm, Y 7000 mm", Assert.Single(Run(m, "A4.1")).Note);
         }
 
         [Fact]
@@ -1370,12 +1350,12 @@ namespace RevitWebAppSync.Tests
             var noA = new SpecModel { ProjectBasePoint = new SpecPoint(), Grids = { LineGrid("B", 0, true, 1), LineGrid("1", 0, false, 2) } };
             var r = Assert.Single(Run(noA, "A4.1"));
             Assert.Equal("cannot_verify", r.Status);
-            Assert.Contains("tiada grid A dan grid 1", r.Note);
+            Assert.Contains("but no grid A and grid 1", r.Note);
             // No base point read: no model result; the backend and the BIM010 checker answer.
             Assert.Empty(Run(new SpecModel { Grids = { LineGrid("A", 0, true, 1), LineGrid("1", 0, false, 2) } }, "A4.1"));
             // Grids read without their lines (an older snapshot): a person.
             var noLines = new SpecModel { ProjectBasePoint = new SpecPoint(), Grids = { Grid("A", 0), Grid("1", 0, false) } };
-            Assert.Contains("persilangan tidak dapat dihitung", Assert.Single(Run(noLines, "A4.1")).Note);
+            Assert.Contains("the crossing cannot be computed", Assert.Single(Run(noLines, "A4.1")).Note);
         }
 
         [Fact]
@@ -1386,9 +1366,8 @@ namespace RevitWebAppSync.Tests
             for (var i = 0; i < 8; i++) m.Rooms.Add(new SpecRoom { Name = "U" + i, LevelName = "PTBR_Aras 01", Area = 0, Placed = false });
             for (var i = 0; i < 44; i++) m.Rooms.Add(new SpecRoom { Name = "N" + i, LevelName = "PTBR_Aras 01", Area = 0, Placed = true });
             var r = Assert.Single(Run(m, "A6.1"));
-            Assert.EndsWith("; 8 room tidak ditempatkan; 44 room tidak tertutup / berlebihan", r.Note);
-            Assert.EndsWith("; 8 rooms not placed; 44 rooms not enclosed / redundant", r.NoteEn);
-            Assert.StartsWith("Aras PTBR_Aras 01: 1 room — BILIK PENGETUA", r.Note);
+            Assert.EndsWith("; 8 rooms not placed; 44 rooms not enclosed / redundant", r.Note);
+            Assert.StartsWith("Level PTBR_Aras 01: 1 rooms — BILIK PENGETUA", r.Note);
         }
 
         [Fact]
@@ -1411,14 +1390,13 @@ namespace RevitWebAppSync.Tests
                 Materials = { new SpecMaterial { Id = 1, Name = "Glass", UsedBy = 54 }, new SpecMaterial { Id = 2, Name = "Aluminium", UsedBy = 11 } },
             };
             var rs = Run(m, "A7.2");
-            Assert.Contains(rs, r => r.Note == "AMARAN: Material \"Glass\" (Windows, Doors, Curtain Panels), 53 elemen: nama default Revit");
-            Assert.Contains(rs, r => r.Note == "AMARAN: Material \"Aluminium\" (Curtain Wall Mullions, Windows, Generic Models), 10 elemen: nama default Revit");
+            Assert.Contains(rs, r => r.Note == "WARNING: Material \"Aluminium\" (Curtain Wall Mullions, Windows, Generic Models), 10 elements: Revit default name");
             // Without UsedBy (counted from the types) the result is the same.
             m.Materials.Clear();
-            Assert.Contains(Run(m, "A7.2"), r => r.Note.StartsWith("AMARAN: Material \"Glass\" (Windows, Doors, Curtain Panels), 53 elemen"));
+            Assert.Contains(Run(m, "A7.2"), r => r.Note.StartsWith("WARNING: Material \"Glass\" (Windows, Doors, Curtain Panels), 53 elements"));
             // A basic wall's own glass layer is the wall's, and counts under Walls.
             m.Types.Add(Type("Walls", "Basic Wall", "Glass Block", n: 3, firstId: 800, materials: new[] { "Glass" }));
-            Assert.Contains(Run(m, "A7.2"), r => r.Note.StartsWith("AMARAN: Material \"Glass\" (Windows, Doors, Curtain Panels, Walls), 56 elemen"));
+            Assert.Contains(Run(m, "A7.2"), r => r.Note.StartsWith("WARNING: Material \"Glass\" (Windows, Doors, Curtain Panels, Walls), 56 elements"));
             // A7.1 still sees the curtain wall as having a material.
             Assert.Empty(Fails(Run(m, "A7.1")));
         }

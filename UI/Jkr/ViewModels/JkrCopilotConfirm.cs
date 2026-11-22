@@ -52,11 +52,11 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             var body = new StringBuilder();
             if (typeLevel)
             {
-                body.Append(variant.Change(false)).Append($" on the TYPE of each element listed below (one id per type). The change applies to ALL {(atLeast ? "at least " : "")}{instances} instance{(instanceNo == 1 && !atLeast ? "" : "s")} of those types, listed or not. Category: {Cat(facts)}. Nothing is deleted. ");
+                body.Append(variant.Change).Append($" on the TYPE of each element listed below (one id per type). The change applies to ALL {(atLeast ? "at least " : "")}{instances} instance{(instanceNo == 1 && !atLeast ? "" : "s")} of those types, listed or not. Category: {Cat(facts)}. Nothing is deleted. ");
             }
             else
             {
-                body.Append(variant.Change(false)).Append(" on the elements listed below only. ");
+                body.Append(variant.Change).Append(" on the elements listed below only. ");
                 if (level == CopilotWriteLevel.Either)
                     body.Append("If the parameter is a type parameter, it changes the element's type and so EVERY instance of that type, listed or not. ");
                 else

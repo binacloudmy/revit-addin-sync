@@ -1,13 +1,13 @@
-# JKR-Model-Audit-Spec.xlsx, sheet 'Klausa NS'.
-Klausa	Peraturan	Guna untuk	Boleh auto-check?
-§3.1	SOA hendaklah dijana dari design model	C 1.6 / C 3.1	Ya
-§4.1.9	Floor-to-ceiling >= 3000 mm; basement >= 2500 mm	A1	Ya
-§4.8.3	Pagar hiasan min 2400 mm	A1	Ya
-§5.2.3	RC flat roof tidak dibenarkan; jika tak dapat dielak — double roofing / waterproofing	A1	Ya
-§5.8.1 / 5.8.3	Pintu utama solid core >= 40 mm	A1 / D-b	Ya
-§5.8.5	Pintu single leaf >= 900 mm, double >= 1500 mm, tinggi >= 2100 mm clear	A1 / D-c	Ya
-§5.14	Waterproofing (flat roof, gutter, toilet, wet area)	A1	Ya
-§12.4.1	Model ikut BIM: Garis Panduan, Piawaian, Spesifikasi Parameter JKR, BPEP	asas keseluruhan	Sebahagian
-§12.4.2	Model mesti ada geometry, material, coding, tagging; lukisan & schedule diekstrak dari model	A7, C 3.1, C 4	Ya
-§12.4.5	Semua lukisan dijana dari model; softcopy & hardcopy time stamp sama	C 4.2	Separa (hardcopy = manual)
-lain-lain	Sustainability, IBS, landskap, konsep reka bentuk	—	Tidak — semak manual
+# JKR-Model-Audit-Spec.xlsx, sheet 'Klausa NS' (NS clauses), cell text in English (AI-513: the pane is English only; the workbook itself stays Malay).
+Clause	Rule	Used for	Can it be auto-checked?
+§3.1	The SOA shall be generated from the design model	C 1.6 / C 3.1	Yes
+§4.1.9	Floor-to-ceiling >= 3000 mm; basement >= 2500 mm	A1	Yes
+§4.8.3	Decorative fence min 2400 mm	A1	Yes
+§5.2.3	RC flat roof not allowed; if unavoidable — double roofing / waterproofing	A1	Yes
+§5.8.1 / 5.8.3	Main door solid core >= 40 mm	A1 / D-b	Yes
+§5.8.5	Single-leaf door >= 900 mm, double >= 1500 mm, clear height >= 2100 mm	A1 / D-c	Yes
+§5.14	Waterproofing (flat roof, gutter, toilet, wet area)	A1	Yes
+§12.4.1	Model follows BIM: Guidelines, Standards, JKR Parameter Specification, BPEP	whole basis	Partly
+§12.4.2	Model must have geometry, material, coding, tagging; drawings & schedules extracted from the model	A7, C 3.1, C 4	Yes
+§12.4.5	All drawings generated from the model; softcopy & hardcopy time stamp match	C 4.2	Partial (hardcopy = manual)
+other	Sustainability, IBS, landscape, design concept	—	No — manual check

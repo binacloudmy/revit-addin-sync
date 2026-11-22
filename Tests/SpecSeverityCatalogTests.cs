@@ -11,7 +11,7 @@ namespace RevitWebAppSync.Tests
         public void A_check_is_critical_exactly_when_its_not_comply_cell_says_KRITIKAL()
         {
             foreach (var c in SpecCatalog.Checks)
-                Assert.True(c.NotComply.Ms.Contains("KRITIKAL") == (c.Severity == "critical"), c.Id + " severity vs text");
+                Assert.True(c.NotComply.En.Contains("CRITICAL") == (c.Severity == "critical"), c.Id + " severity vs text");
         }
 
         [Fact]

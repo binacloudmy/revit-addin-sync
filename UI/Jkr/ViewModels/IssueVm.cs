@@ -92,8 +92,6 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public long RevitElementId { get; set; }
         public string Required { get; set; } = "";
         public string Actual { get; set; } = "";
-        /// <summary>English of <see cref="Actual"/> for the add-in's own spec results ("" = same).</summary>
-        public string ActualEn { get; set; } = "";
         public string Example { get; set; } = "";
         private bool _autoFixable;
         public bool AutoFixable

@@ -85,8 +85,7 @@ namespace RevitWebAppSync.Tests
             var f1 = fails.Single(f => f.ElementName == "Doors · Door 1");
             Assert.Equal(door1.InstanceIds[0], f1.ElementId);
             Assert.Equal(door1.InstanceIds, f1.ElementIds);
-            Assert.Contains("nama generik", f1.Note);
-            Assert.Contains("generic name", f1.NoteEn);
+            Assert.Contains("generic name", f1.Note);
             Assert.Equal("Doors", f1.Category);
             Assert.Equal("Walls", fails.Single(f => f != f1).Category);
 
@@ -117,7 +116,7 @@ namespace RevitWebAppSync.Tests
             }, failed);
             var note = r.Single(x => x.Coverage == SpecCoverage.Context);
             Assert.Contains("2 type", note.Note);
-            Assert.Contains("family name", note.NoteEn);
+            Assert.Contains("family name", note.Note);
         }
 
         [Fact]
@@ -208,7 +207,6 @@ namespace RevitWebAppSync.Tests
 
             var fails = Fails(r);
             Assert.Equal(2, fails.Count);
-            Assert.Contains(fails, f => f.Note.Contains("tiada material") && f.NoteEn.Contains("has no material"));
             Assert.Contains(fails, f => f.Note.Contains("'Glass'") && !f.Note.Contains("jkrAR_wdw"));
             Assert.Equal(1, PassOf(r).ElementCount);
             Assert.All(r, x => Assert.Equal(SpecCoverage.Full, x.Coverage));
@@ -287,12 +285,11 @@ namespace RevitWebAppSync.Tests
             var fails = Fails(r);
             Assert.Equal(2, fails.Count);
             var w = fails.Single(f => f.ElementName == "Walls · Wall 146");
-            Assert.Contains("Width 150 mm (nama: 146 mm)", w.Note);
-            Assert.Contains("Width 150 mm (name: 146 mm)", w.NoteEn);
+            Assert.Contains("Width 150 mm (name: 146 mm)", w.Note);
             Assert.Equal("Width 150 mm", w.Actual);
             Assert.Equal("Width 146 mm", w.Required);
             var d = fails.Single(f => f.ElementName.StartsWith("Doors · (PT2p600a)"));
-            Assert.Contains("Height 2100 mm (nama: 2325 mm)", d.Note);
+            Assert.Contains("Height 2100 mm (name: 2325 mm)", d.Note);
             Assert.DoesNotContain("Width 900", d.Note);
 
             var unj = r.Single(x => x.Status == "cannot_verify");
@@ -309,13 +306,13 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(SpecCoverage.Full, f.Coverage);
             Assert.DoesNotContain("toleransi", f.Note);
             Assert.DoesNotContain("±", f.Note);
-            Assert.DoesNotContain("tolerance", f.NoteEn);
-            Assert.DoesNotContain("±", f.NoteEn);
+            Assert.DoesNotContain("tolerance", f.Note);
+            Assert.DoesNotContain("±", f.Note);
 
             var ok = T("Walls", "Wall 200"); ok.Numbers["Width"] = 200;
             var r = Run("Dc.1", Model(ok));
             Assert.Equal(SpecCoverage.Full, PassOf(r).Coverage);
-            Assert.DoesNotContain("tolerance", PassOf(r).NoteEn);
+            Assert.DoesNotContain("tolerance", PassOf(r).Note);
             Assert.DoesNotContain("±", PassOf(r).Note);
             Assert.Equal(SpecState.Pass, Report("Dc.1", Model(ok)).State);
         }
@@ -374,7 +371,7 @@ namespace RevitWebAppSync.Tests
             var tk = fails.Single(f => f.ElementName.Contains("TKh281a"));
             Assert.Equal("Doors", tk.Actual);
             Assert.Contains("Windows", tk.Required);
-            Assert.Contains("kod (TK…)", tk.Note);
+            Assert.Contains("code (TK…)", tk.Note);
             Assert.Contains(fails, f => f.ElementName == "Generic Models · Floor 150" && f.Required == "Floors" && f.Category == "Generic Models");
             Assert.Equal(new[] { "Doors", "Walls" }, Passes(r).Select(p => p.Category).OrderBy(c => c));
             Assert.All(r, x => Assert.Equal(SpecCoverage.Full, x.Coverage));
@@ -398,8 +395,7 @@ namespace RevitWebAppSync.Tests
         {
             var r = Run("Dd.1", Model(T("Doors", "0915 x 1220mm", "Window-Fixed")));
             var f = Fails(r).Single();
-            Assert.Contains("famili", f.Note);
-            Assert.Contains("family", f.NoteEn);
+            Assert.Contains("family", f.Note);
         }
 
         // ── Dd.2, De.1–De.3 ──
@@ -409,7 +405,7 @@ namespace RevitWebAppSync.Tests
         {
             var r = Run("Dd.2", new SpecModel()).Single();
             Assert.Equal(SpecCoverage.Context, r.Coverage);
-            Assert.Contains("SEMAK MANUAL", r.Note);
+            Assert.Contains("MANUAL CHECK", r.Note);
         }
 
         [Fact]
@@ -433,8 +429,7 @@ namespace RevitWebAppSync.Tests
             m.CategoryCounts["Structural Columns"] = 4;
             var zero = Run("De.2", m).Single();
             Assert.Equal(SpecCoverage.Context, zero.Coverage);
-            Assert.Equal("Columns: 0 · Structural Columns: 4 — Columns 0 elemen: sahkan skop", zero.Note);
-            Assert.Equal("Columns: 0 · Structural Columns: 4 — Columns 0 elements: confirm scope", zero.NoteEn);
+            Assert.Equal("Columns: 0 · Structural Columns: 4 — Columns 0 elements: confirm scope", zero.Note);
             Assert.Equal("Columns", zero.Category);
             Assert.False(string.IsNullOrEmpty(zero.IssueId));
             Assert.Equal(SpecChecks.StableId("De.2", "Columns"), zero.IssueId);   // same id as before the merge
@@ -442,7 +437,7 @@ namespace RevitWebAppSync.Tests
             var both = new SpecModel();
             both.CategoryCounts["Walls"] = 3;                 // counts read, no columns at all
             var b = Run("De.2", both).Single();
-            Assert.Equal("Columns: 0 · Structural Columns: 0 — Columns, Structural Columns 0 elemen: sahkan skop", b.Note);
+            Assert.Equal("Columns: 0 · Structural Columns: 0 — Columns, Structural Columns 0 elements: confirm scope", b.Note);
             Assert.False(string.IsNullOrEmpty(b.IssueId));
 
             var none = new SpecModel();
@@ -494,9 +489,9 @@ namespace RevitWebAppSync.Tests
             var fails = Fails(r);
             Assert.Equal(2, fails.Count);
             var pbt = fails.Single(f => f.ElementId == 2);
-            Assert.Contains("bukan template PBT", pbt.Note);
+            Assert.Contains("not a PBT template", pbt.Note);
             Assert.Equal("JKR_BOMBA Floor Plan", pbt.Actual);
-            Assert.Contains(fails, f => f.ElementId == 3 && f.Actual == "tiada" && f.Category == "Dokumen");
+            Assert.Contains(fails, f => f.ElementId == 3 && f.Actual == "none" && f.Category == "Dokumen");
             Assert.Equal("PBT", pbt.Category);
             Assert.Equal("PBT - Aras 01", pbt.ElementName);
             var passes = Passes(r);
@@ -521,8 +516,7 @@ namespace RevitWebAppSync.Tests
             Assert.All(wip, x => Assert.Equal("WIP", x.Category));
             Assert.All(wip, x => Assert.Equal("", x.IssueId));
             Assert.Equal(new[] { "WIP_Aras 01", "WIP_Aras 02", "WIP_Aras 03" }, wip.Select(x => x.ElementName));
-            Assert.Contains(wip, x => x.Note == "WIP | view 'WIP_Aras 01' | template: tiada — tiada peraturan template WIP (menunggu pengesahan JKR)");
-            Assert.Contains(wip, x => x.NoteEn.StartsWith("WIP | view 'WIP_Aras 02' | template: 'PBT Plan'"));
+            Assert.Contains(wip, x => x.Note.StartsWith("WIP | view 'WIP_Aras 02' | template: 'PBT Plan'"));
             // WIP no longer holds BOMBA's pass back: every BOMBA / PBT / Dokumen view was judged → Full.
             var pass = r.Single(x => x.Status == "pass" && x.Coverage != SpecCoverage.Listing);
             Assert.Equal("BOMBA", pass.Category);
@@ -587,7 +581,7 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(2, f.ElementId);
             Assert.Equal("Dokumen", f.Category);
             var p = Assert.Single(Passes(r));
-            Assert.Equal("Dokumen: 1 view guna template set yang betul", p.Note);
+            Assert.Equal("Dokumen: 1 views use their set's template", p.Note);
             Assert.DoesNotContain(r, x => x.Category == "BOMBA");
         }
 
@@ -603,8 +597,7 @@ namespace RevitWebAppSync.Tests
             var f = Assert.Single(Fails(r));
             Assert.Equal("Petunjuk Bomba", f.ElementName);
             var skipped = Assert.Single(r, x => x.Coverage == SpecCoverage.Listing);
-            Assert.Equal("2 legend dilangkau — legend tidak boleh guna view template (jkrAR_lgd_Kehendak Bomba, jkrAR_lgd_Petunjuk Bomba)", skipped.Note);
-            Assert.StartsWith("2 legends skipped", skipped.NoteEn);
+            Assert.StartsWith("2 legends skipped", skipped.Note);
             Assert.Equal("BOMBA", skipped.Category);
         }
 
