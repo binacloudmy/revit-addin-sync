@@ -12,8 +12,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
     public static class JkrCopilotFixInstaller
     {
         /// <summary>AI-493: the prompt parts for a row, in the pane language (<c>bm</c>), none over the element-id cap.
-        /// TODO(AI-493): default this to <c>JkrCopilotPrompt.Build</c> once that is on this branch.</summary>
-        public static Func<IssueVm, bool, IReadOnlyList<string>> PromptBuilder { get; set; }
+        /// Defaults to AI-493's <see cref="JkrCopilotPrompt.Build(IssueVm, bool)"/>; null (tests) means no launcher.</summary>
+        public static Func<IssueVm, bool, IReadOnlyList<string>> PromptBuilder { get; set; } = (issue, bm) => JkrCopilotPrompt.Build(issue, bm);
 
         /// <summary>Sets the launcher, or clears it when there is no prompt builder.</summary>
         public static void Install(ICopilotSession session, Func<string, IssueVm> issueById, Action<string> notify)
