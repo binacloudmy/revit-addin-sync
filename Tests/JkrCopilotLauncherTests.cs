@@ -280,7 +280,7 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public async Task Part_2_ending_with_no_card_is_NoWrite_not_a_stale_Ya()
+        public async Task Part_2_ending_with_no_card_after_part_1_wrote_is_not_needed_not_a_stale_Ya()
         {
             var s = new FakeSession
             {
@@ -290,9 +290,9 @@ namespace RevitWebAppSync.Tests
             };
             var toasts = new List<string>();
             var l = Timed(s, toasts, new[] { "A", "B", "C" });
-            Assert.Equal(CopilotLaunchOutcome.NoWrite, await l.LaunchAsync(Req));
+            Assert.Equal(CopilotLaunchOutcome.Sent, await l.LaunchAsync(Req));
             Assert.Equal(new[] { "open", "new", "send:A", "send:B" }, s.Log);
-            Assert.Contains("Part 2 ended without a change. Check the Copilot chat: it may have asked a question. Part 3 not sent", Assert.Single(toasts));
+            Assert.Equal("Parts 2-3 not needed: an earlier part already changed the elements. Re-checking.", Assert.Single(toasts));
         }
 
         [Fact]

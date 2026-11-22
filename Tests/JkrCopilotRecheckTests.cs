@@ -121,6 +121,35 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
+        public async Task Part_1_committed_part_2_no_write_stops_but_still_rechecks_and_says_not_needed()
+        {
+            var f = new Fake { ScanResult = () => true }; f.Issue.RevitElementId = 0;
+            var s = new Session();
+            var toasts = new List<string>();
+            var l = new JkrCopilotFixLauncher(new NoWriteAfterFirst(s), _ => new[] { "A", "B", "C" }, toasts.Add, () => false, _ => Task.CompletedTask,
+                indexingTimeout: TimeSpan.FromSeconds(1), turnTimeout: TimeSpan.FromSeconds(5), settle: TimeSpan.FromMilliseconds(500),
+                afterWrite: new JkrCopilotRecheck<Row>(f.Host()).RunAsync);
+            Assert.Equal(CopilotLaunchOutcome.Sent, await l.LaunchAsync(Req));
+            Assert.Equal(1, f.Scans + f.Rechecks);          // re-check ran once
+            Assert.Contains(toasts, t => t.Contains("Parts 2-3 not needed"));
+            Assert.DoesNotContain(toasts, t => t.Contains("ended without a change"));
+        }
+
+        [Fact]
+        public async Task No_part_committed_is_NoWrite_with_no_recheck()
+        {
+            var f = new Fake { ScanResult = () => true };
+            var s = new Session { End = CopilotCardState.None };
+            var toasts = new List<string>();
+            var l = new JkrCopilotFixLauncher(s, _ => new[] { "A", "B" }, toasts.Add, () => false, _ => Task.CompletedTask,
+                indexingTimeout: TimeSpan.FromSeconds(1), turnTimeout: TimeSpan.FromSeconds(5), settle: TimeSpan.FromMilliseconds(500),
+                afterWrite: new JkrCopilotRecheck<Row>(f.Host()).RunAsync);
+            Assert.Equal(CopilotLaunchOutcome.NoWrite, await l.LaunchAsync(Req));
+            Assert.Equal(0, f.Scans + f.Rechecks);
+            Assert.Contains("ended without a change", toasts[0]);
+        }
+
+        [Fact]
         public async Task No_element_id_rule_still_fails_in_the_scan_row_stays_Open()
         {
             var f = new Fake { ScanResult = () => false }; f.Issue.RevitElementId = 0;
@@ -250,6 +279,21 @@ namespace RevitWebAppSync.Tests
                 indexingTimeout: TimeSpan.FromSeconds(1), turnTimeout: TimeSpan.FromSeconds(5), settle: TimeSpan.FromMilliseconds(500), afterWrite: new JkrCopilotRecheck<Row>(f.Host()).RunAsync);
             Assert.Equal(CopilotLaunchOutcome.Declined, await l.LaunchAsync(Req));
             Assert.Equal(0, f.Rechecks);
+        }
+
+        /// <summary>Part 1 commits a write; from part 2 on the turn ends with no write (a type parameter already changed).</summary>
+        private sealed class NoWriteAfterFirst : ICopilotSession
+        {
+            private readonly Session _s;
+            public NoWriteAfterFirst(Session s) { _s = s; }
+            public Task<string> OpenPaneAsync() => _s.OpenPaneAsync();
+            public void NewChat() => _s.NewChat();
+            public bool IsIndexing => false;
+            public bool IsSignedIn => true;
+            public bool IsPaneVisible => true;
+            public bool IsSending => _s.IsSending;
+            public CopilotCardState Cards { get { var c = _s.Cards; return _s.Sends >= 2 ? CopilotCardState.None : c; } }
+            public void Send(string text) => _s.Send(text);
         }
 
         private sealed class DeclineSecond : ICopilotSession

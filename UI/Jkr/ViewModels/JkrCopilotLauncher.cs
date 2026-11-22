@@ -250,6 +250,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             }
 
             // 5. send each part; the next goes only after this one's turn finished WITH a committed write (a gate, if the engine asked, was answered write_all)
+            var committed = false;   // an earlier part committed a write (e.g. a type parameter changed for all instances)
             for (var i = 0; i < parts.Count; i++)
             {
                 var part = parts[i];
@@ -266,7 +267,14 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 var end = await WaitForTurnAsync().ConfigureAwait(true);
                 if (end == null) { _notify(Text.TurnTimeout(bm, i + 1, parts.Count)); return CopilotLaunchOutcome.TurnTimeout; }
                 if (end == CopilotCardState.Declined) { _notify(Text.Declined(bm, i + 1, parts.Count)); return CopilotLaunchOutcome.Declined; }
+                if (end == CopilotCardState.None && committed)
+                {
+                    // A later part found nothing left to write: stop sending, keep the earlier write and re-check it.
+                    _notify(Text.PartsNotNeeded(bm, i + 1, parts.Count));
+                    break;
+                }
                 if (end != CopilotCardState.Approved) { _notify(Text.NoWrite(bm, i + 1, parts.Count)); return CopilotLaunchOutcome.NoWrite; }
+                committed = true;
             }
 
             // 6. every part wrote: re-check ONCE, after the last part. The parts are one row's element ids
@@ -362,6 +370,10 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             public static string NoWrite(bool bm, int sent, int total) => bm
                 ? $"Bahagian {sent} selesai tanpa perubahan. Semak sembang Copilot: ia mungkin bertanya sesuatu.{NotSent(bm, sent, total)}"
                 : $"Part {sent} ended without a change. Check the Copilot chat: it may have asked a question.{NotSent(bm, sent, total)}";
+            /// <param name="first">The part that ended with no write (1-based); it and the later ones were not needed.</param>
+            public static string PartsNotNeeded(bool bm, int first, int total) => bm
+                ? $"{Cap(Parts(bm, first, total))} tidak diperlukan: bahagian sebelumnya sudah mengubah elemen. Semakan semula dijalankan."
+                : $"{Cap(Parts(bm, first, total))} not needed: an earlier part already changed the elements. Re-checking.";
             public static string PaneClosed(bool bm, int sent, int total) => bm
                 ? $"Panel Copilot ditutup.{NotSent(bm, sent, total)}"
                 : $"The Copilot pane was closed.{NotSent(bm, sent, total)}";
