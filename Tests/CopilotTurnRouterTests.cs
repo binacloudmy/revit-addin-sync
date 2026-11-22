@@ -221,6 +221,32 @@ namespace RevitAddinSync.Tests
             Assert.Equal(lang, body.RootElement.GetProperty("lang").GetString());
         }
 
+        // AI-511: a Fix via Copilot turn sends the PANE language as lang, whatever language its words read as; a normal chat is unchanged.
+        [Theory]
+        [InlineData(true, "ms")]
+        [InlineData(false, "en")]
+        public async Task Router_FixTurnSendsThePaneLanguage_AndANormalChatKeepsItsDetectedOne(bool paneMs, string expected)
+        {
+            FixTurnLanguageSlot.Clear();
+            try
+            {
+                var server = new Server().On(IsStart, Sse(Frame("turn_end", End(1)))).On(IsStart, Sse(Frame("turn_end", End(1))));
+                var (router, _) = RouterOn(server, new Tools());
+                // English-looking words, as a Fix prompt is; the pane says otherwise.
+                var fix = paneMs ? "Use set_parameters on the ids below." : "Guna set_parameters pada id di bawah, tukar semua nama dengan ini.";
+                FixTurnLanguageSlot.Arm(fix, paneMs);
+                await router.RouteAsync(fix, "ai-generated");
+                await router.RouteAsync("how many doors are on level 2", "ai-generated");
+                var starts = server.Requests.Where(r => IsStart(r.Path)).ToList();
+                using var a = JsonDocument.Parse(starts[0].Body);
+                Assert.Equal(expected, a.RootElement.GetProperty("lang").GetString());
+                using var b = JsonDocument.Parse(starts[1].Body);
+                Assert.Equal("en", b.RootElement.GetProperty("lang").GetString());
+                Assert.False(FixTurnLanguageSlot.IsArmed);
+            }
+            finally { FixTurnLanguageSlot.Clear(); }
+        }
+
         // AI-490: confirmed_write rides only the turn whose message is the armed Fix via Copilot prompt.
         [Fact]
         public async Task Router_SendsConfirmedWriteOnlyOnTheArmedPromptTurn_AndNeverOnANormalChat()

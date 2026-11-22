@@ -288,6 +288,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 if (parts > 1)
                     sb.AppendLine($"Ini bahagian {part} daripada {parts}; bahagian lain dihantar berasingan. Urus hanya id dalam bahagian ini.");
                 sb.AppendLine("Saya sudah mengesahkan perubahan ini dalam panel JKR: laksanakan sekarang. Jangan minta kebenaran atau pengesahan daripada saya. Tanya saya hanya jika nilai yang diperlukan tiada dalam model dan lookup.");
+                sb.AppendLine("Bahasa: tulis setiap soalan ask_user, setiap pilihan dan setiap label butang dalam Bahasa Malaysia (nama Revit kekal seperti dalam model).");
                 sb.Append("Jangan putuskan comply atau tidak comply; semakan semula JKR yang memutuskannya.");
             }
             else
@@ -296,6 +297,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 if (parts > 1)
                     sb.AppendLine($"This is part {part} of {parts}; the other parts are sent separately. Handle only the ids in this part.");
                 sb.AppendLine("I already confirmed this change in the JKR pane: apply it now. Do not ask me for permission or confirmation. Ask me only if a value you need is not in the model or in lookup.");
+                sb.AppendLine("Language: write every ask_user question, every option and every button label in English (Revit names stay as they are in the model).");
                 sb.Append("Do not decide pass or fail; the JKR re-check decides that.");
             }
             return sb.ToString();
