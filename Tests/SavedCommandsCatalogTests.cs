@@ -5,6 +5,7 @@ using Xunit;
 
 namespace Tests
 {
+    [Collection("ToolCatalog")]   // the catalog's Mine tier is static: tests that merge into it must not overlap
     public class SavedCommandsCatalogTests
     {
         private static CatalogCommandDto Mine(string id = "my-walls-from-cad") => new CatalogCommandDto

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
@@ -32,7 +33,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             // shadow-sm ring instead of a tinted fill (radius stays 14/14/4/14).
             var bubble = new Border
             {
-                Background = CopilotColors.From("#eef1f5"),   // → surface white in v6 light, slate bubble in dark
+                Background = CopilotColors.Token("Cp.UserBubble"),   // → surface white in v6 light, slate bubble in dark
                 CornerRadius = new CornerRadius(14, 14, 4, 14),
                 Padding = padding, MaxWidth = maxWidth * 0.82,
                 Effect = new System.Windows.Media.Effects.DropShadowEffect
@@ -83,8 +84,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             // stays plain (no markdown).
             var textBox = new TextBox
             {
-                Text = text, FontSize = 13.5, Foreground = CopilotColors.From("#131c2b"),
-                CaretBrush = CopilotColors.From("#131c2b"),
+                Text = text, FontSize = 13.5, Foreground = CopilotColors.Token("Cp.Ink"),
+                CaretBrush = CopilotColors.Token("Cp.Ink"),
                 TextWrapping = TextWrapping.Wrap, IsReadOnly = true,
                 BorderThickness = new Thickness(0), Background = System.Windows.Media.Brushes.Transparent,
                 Padding = new Thickness(0), IsTabStop = false,
@@ -106,7 +107,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             {
                 var t = new TextBlock
                 {
-                    Text = time, FontSize = 10, Foreground = CopilotColors.From("#99a3b3"),
+                    Text = time, FontSize = 10, Foreground = CopilotColors.Token("Cp.Faint"),
                     HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 4, 0, 0),
                 };
                 colWrap.Children.Add(t);
@@ -146,13 +147,13 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 clip.OpacityMask = fade;
 
                 var label = new TextBlock { Text = "Show more", FontSize = 12, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center };
-                label.Foreground = CopilotColors.From("#131c2b");
+                label.Foreground = CopilotColors.Token("Cp.Ink");
                 var chevron = new System.Windows.Shapes.Path
                 {
                     Width = 11, Height = 11, Stretch = Stretch.Uniform, StrokeThickness = 2.2,
                     StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round, StrokeLineJoin = PenLineJoin.Round,
                     Data = Geometry.Parse("M6,9 L12,15 L18,9"), Margin = new Thickness(5, 1, 0, 0),
-                    VerticalAlignment = VerticalAlignment.Center, Stroke = CopilotColors.From("#131c2b"),
+                    VerticalAlignment = VerticalAlignment.Center, Stroke = CopilotColors.Token("Cp.Ink"),
                 };
                 var toggle = new StackPanel
                 {
@@ -196,9 +197,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         /// <summary>Just the markdown element (AI replies are markdown — headers,
         /// **bold**, tables, lists). ChatView stacks its cards/Steps/Verdict
         /// around this inside its own AI column.</summary>
-        public static FrameworkElement MarkdownText(string markdown, double maxWidth)
+        public static FrameworkElement MarkdownText(string markdown, double maxWidth, bool tableDownloads = true)
         {
-            var md = RevitWebAppSync.Helpers.MarkdownRenderer.Render(markdown, maxWidth);
+            var md = RevitWebAppSync.Helpers.MarkdownRenderer.Render(markdown, maxWidth, tableDownloads);
             md.Margin = new Thickness(0, 0, 0, 8);
             return md;
         }
@@ -207,11 +208,49 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         private static readonly Geometry StarGeom = Geometry.Parse(
             "M12,1.1 C12.45,7.05 16.95,11.55 22.9,12 C16.95,12.45 12.45,16.95 12,22.9 C11.55,16.95 7.05,12.45 1.1,12 C7.05,11.55 11.55,7.05 12,1.1 Z");
 
-        /// <summary>Gradient four-point BINA star (transparent tile) — the Slate
-        /// design's logo mark, shared by header, greeting and thinking line.</summary>
+        private static System.Windows.Media.Imaging.BitmapImage? _binaZoneLogo;
+        private static bool _binaZoneLogoFailed;
+
+        /// <summary>The real BinaZone logo (Resources/binazone-logo.png, the mark the pane header and the About window already show), decoded once at
+        /// 96 px high: sharp when WPF scales it down to the 24 DIP slot at 100% (24 px) and 150% (36 px) DPI, on the light and the dark theme (the
+        /// mark has its own transparent background). Null when the resource cannot be loaded.</summary>
+        internal static System.Windows.Media.Imaging.BitmapImage? BinaZoneLogo()
+        {
+            if (_binaZoneLogo != null || _binaZoneLogoFailed) return _binaZoneLogo;
+            try
+            {
+                var asm = typeof(CopilotMessageBubble).Assembly.GetName().Name;
+                var bi = new System.Windows.Media.Imaging.BitmapImage();
+                bi.BeginInit();
+                bi.UriSource = new System.Uri("pack://application:,,,/" + asm + ";component/Resources/binazone-logo.png", System.UriKind.Absolute);
+                bi.DecodePixelHeight = 96;
+                bi.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+                bi.EndInit();
+                bi.Freeze();
+                _binaZoneLogo = bi;
+            }
+            catch (System.Exception ex) { _binaZoneLogoFailed = true; System.Diagnostics.Debug.WriteLine("[BINA] logo: " + ex.Message); }
+            return _binaZoneLogo;
+        }
+
+        /// <summary>The BinaZone logo in a transparent square tile of <paramref name="size"/> DIP — the leading mark of the "thinking" line (the
+        /// senior dev asked for the real logo instead of the drawn star). The four-point star stays only as the fallback when the resource is missing.</summary>
         public static FrameworkElement BotAvatar(double size = 22)
         {
-            var b = new Border { Width = size, Height = size, Background = Brushes.Transparent, VerticalAlignment = VerticalAlignment.Top };
+            var b = new Border { Width = size, Height = size, Background = Brushes.Transparent, VerticalAlignment = VerticalAlignment.Top, SnapsToDevicePixels = true };
+            var logo = BinaZoneLogo();
+            if (logo != null)
+            {
+                // The mark has near-black lobes (18% of its pixels are under 1.5:1 against the dark pane, measured): on the dark theme it sits on a light
+                // rounded tile (token Cp.LogoBacking: transparent on the light theme, #f4f6fa on the dark one), which brings 84% of it to 3:1 or more.
+                b.CornerRadius = new CornerRadius(Math.Max(4, size / 4));
+                b.Padding = new Thickness(Math.Max(2, size / 10));
+                b.SetResourceReference(Border.BackgroundProperty, "Cp.LogoBacking");
+                var img = new Image { Source = logo, Stretch = Stretch.Uniform, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, SnapsToDevicePixels = true };
+                RenderOptions.SetBitmapScalingMode(img, BitmapScalingMode.Fant);
+                b.Child = img;
+                return b;
+            }
             b.Child = new System.Windows.Shapes.Path
             {
                 Width = size * 0.82, Height = size * 0.82, Stretch = Stretch.Uniform,
@@ -225,9 +264,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         public static LinearGradientBrush StarGradient()
         {
             var g = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(1, 1) };
-            g.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#7dd6ff"), 0));
-            g.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#3b8ef7"), 0.45));
-            g.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#1d5fe0"), 1));
+            foreach (var (hex, offset) in RevitWebAppSync.UI.Copilot.Model.ThemeTokens.StarLogoStops)
+                g.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString(hex), offset));
             g.Freeze();
             return g;
         }
@@ -260,7 +298,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         // Small ⧉ button that copies the message and flashes ✓ as feedback.
         public static Button CopyButton(string text)
         {
-            var label = new TextBlock { Text = "⧉", FontSize = 12, Foreground = CopilotColors.From("#99a3b3") };
+            var label = new TextBlock { Text = "⧉", FontSize = 12, Foreground = CopilotColors.Token("Cp.Faint") };
             var btn = new Button
             {
                 Content = label, Cursor = System.Windows.Input.Cursors.Hand, ToolTip = "Copy",
@@ -271,11 +309,11 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             btn.Click += (_, __) =>
             {
                 CopyText(text);
-                label.Text = "✓"; label.Foreground = CopilotColors.From("#10b981");
+                label.Text = "✓"; label.Foreground = CopilotColors.Token("Cp.Green");
                 var t = new System.Windows.Threading.DispatcherTimer { Interval = System.TimeSpan.FromSeconds(1.2) };
                 t.Tick += (s, e2) =>
                 {
-                    label.Text = "⧉"; label.Foreground = CopilotColors.From("#99a3b3");
+                    label.Text = "⧉"; label.Foreground = CopilotColors.Token("Cp.Faint");
                     ((System.Windows.Threading.DispatcherTimer)s).Stop();
                 };
                 t.Start();
@@ -319,28 +357,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         /// button styling on the answer's action row).</summary>
         public static FrameworkElement SaveCommandButton(System.Action onClick)
         {
-            var bd = new Border
-            {
-                Height = 26, CornerRadius = new CornerRadius(8),
-                Padding = new Thickness(7, 0, 9, 0),
-                Cursor = System.Windows.Input.Cursors.Hand,
-                VerticalAlignment = VerticalAlignment.Center,
-                ToolTip = "Turn this into a command you can re-run",
-            };
-            bd.SetResourceReference(Border.BackgroundProperty, "Cp.BlueSoft");
-            var sp = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-            sp.Children.Add(CommandPalette.IconEl("ti-device-floppy", 12, "Cp.BlueText"));
-            var t = new TextBlock
-            {
-                Text = "Save as command", FontSize = 11.5,
-                FontWeight = FontWeight.FromOpenTypeWeight(600),
-                Margin = new Thickness(6, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center,
-            };
-            t.SetResourceReference(TextBlock.ForegroundProperty, "Cp.BlueText");
-            sp.Children.Add(t);
-            bd.Child = sp;
-            bd.MouseLeftButtonUp += (_, __) => onClick();
-            return bd;
+            var b = CardKit.Secondary("Save as command", onClick, CardKit.Icons.Bookmark);
+            b.ToolTip = "Turn this into a command you can re-run";
+            b.VerticalAlignment = VerticalAlignment.Center;
+            return b;
         }
     }
 }

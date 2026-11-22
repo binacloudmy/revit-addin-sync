@@ -13,8 +13,9 @@ namespace RevitWebAppSync.Helpers
     /// <summary>
     /// Lightweight markdown → WPF converter for the Copilot chat bubbles.
     /// Light-themed (dark text on white). Supports headers, **bold**,
-    /// *italic*, `code`, ```code blocks```, bullet + numbered lists,
-    /// > blockquotes, [links](url), and GitHub-style | tables |.
+    /// *italic*, __bold__, ~~strike~~, `code`, ```code blocks```, bullet
+    /// (- * + dot) + numbered (1. and 1)) lists, > blockquotes, --- rules,
+    /// [links](url), and GitHub-style | tables |.
     ///
     /// Renders into a FlowDocument hosted in a read-only borderless
     /// RichTextBox so the user can HIGHLIGHT AND COPY any part of an AI
@@ -24,20 +25,19 @@ namespace RevitWebAppSync.Helpers
     /// </summary>
     public static class MarkdownRenderer
     {
-        // Palette resolved through CopilotColors so DARK MODE maps each light hex
-        // to its Slate equivalent AT RENDER TIME (ChatView re-renders replies on
-        // ThemeChanged). These were `static readonly` light-only brushes before,
-        // which left AI prose near-invisible (#131c2b on #131d2b) in dark mode.
-        private static Brush Ink     => UI.Copilot.Controls.CopilotColors.From("#131c2b"); // headers
-        private static Brush Text    => UI.Copilot.Controls.CopilotColors.From("#131c2b"); // body (design --text)
-        private static Brush Muted   => UI.Copilot.Controls.CopilotColors.From("#586273"); // quotes/citations
-        private static Brush Accent  => UI.Copilot.Controls.CopilotColors.From("#1d4ed8"); // bullets/links
-        private static Brush Line    => UI.Copilot.Controls.CopilotColors.From("#290F1B2D"); // table borders
-        private static Brush CodeBg  => UI.Copilot.Controls.CopilotColors.From("#f3f6f9");
-        private static Brush CodeFg  => UI.Copilot.Controls.CopilotColors.From("#1e40af");
-        private static Brush BlockBg => UI.Copilot.Controls.CopilotColors.From("#f6f8fa");
-        private static Brush CellBg  => UI.Copilot.Controls.CopilotColors.From("#ffffff"); // table data-cell surface (dark → #1a2433)
-        private static Brush IdLinkHoverBg => UI.Copilot.Controls.CopilotColors.From("#dbeafe"); // clickable-id hover chip
+        // Palette from the copilot colour tokens (ThemeTokens, AI-311), resolved for the current theme AT
+        // RENDER TIME (ChatView re-renders replies on ThemeChanged). Each token holds the colour the old hex
+        // literal drew through CopilotColors' light -> v6 / light -> dark maps, so neither theme changed.
+        private static Brush Ink     => UI.Copilot.Controls.CopilotColors.Token("Cp.Ink");       // headers
+        private static Brush Text    => UI.Copilot.Controls.CopilotColors.Token("Cp.Text");      // body (design --text)
+        private static Brush Muted   => UI.Copilot.Controls.CopilotColors.Token("Cp.Muted");     // quotes/citations
+        private static Brush Accent  => UI.Copilot.Controls.CopilotColors.Token("Cp.Accent");    // bullets/links
+        private static Brush Line    => UI.Copilot.Controls.CopilotColors.Token("Cp.Hair2");     // table borders
+        private static Brush CodeBg  => UI.Copilot.Controls.CopilotColors.Token("Cp.CodeBg");
+        private static Brush CodeFg  => UI.Copilot.Controls.CopilotColors.Token("Cp.CodeFg");
+        private static Brush BlockBg => UI.Copilot.Controls.CopilotColors.Token("Cp.CodeBg");
+        private static Brush CellBg  => UI.Copilot.Controls.CopilotColors.Token("Cp.Menu");      // table data-cell surface
+        private static Brush IdLinkHoverBg => UI.Copilot.Controls.CopilotColors.Token("Cp.Tier2Bg"); // clickable-id hover chip
         private static readonly FontFamily CodeFont = new FontFamily("Cascadia Mono, Consolas, monospace");
 
         // Ambient FlowDocument font size (Render sets doc.FontSize to this). Runs
@@ -52,7 +52,10 @@ namespace RevitWebAppSync.Helpers
         /// (no backend round-trip) to select + zoom the element in Revit.</summary>
         public static event Action<long> ElementIdClicked;
 
-        public static FrameworkElement Render(string markdown, double maxWidth = 350)
+        /// <param name="tableDownloads">False when the reply already offers its
+        /// tables for export (the turn's "Export to Excel"), so a table does not
+        /// carry a second, competing "Download CSV" button.</param>
+        public static FrameworkElement Render(string markdown, double maxWidth = 350, bool tableDownloads = true)
         {
             var doc = new FlowDocument
             {
@@ -62,7 +65,7 @@ namespace RevitWebAppSync.Helpers
             };
 
             if (!string.IsNullOrWhiteSpace(markdown))
-                BuildBlocks(doc.Blocks, markdown, maxWidth);
+                BuildBlocks(doc.Blocks, markdown, maxWidth, tableDownloads);
 
             var box = new RichTextBox
             {
@@ -98,7 +101,7 @@ namespace RevitWebAppSync.Helpers
             return box;
         }
 
-        private static void BuildBlocks(BlockCollection blocks, string markdown, double maxWidth)
+        private static void BuildBlocks(BlockCollection blocks, string markdown, double maxWidth, bool tableDownloads)
         {
             var lines = markdown.Replace("\r\n", "\n").Split('\n');
             bool inCode = false;
@@ -109,6 +112,9 @@ namespace RevitWebAppSync.Helpers
             // A blank markdown line becomes extra top-margin on the NEXT block
             // (an empty FlowDocument paragraph would render a full line tall).
             double pendingSpace = 0;
+            // The list item the previous line produced (null after anything else):
+            // an indented line that follows it continues its text.
+            Paragraph lastItem = null;
 
             void Add(Block b)
             {
@@ -124,9 +130,11 @@ namespace RevitWebAppSync.Helpers
             {
                 var line = lines[i];
                 var trimmed = line.TrimStart();
+                var prevItem = lastItem;
+                lastItem = null;
 
                 // ``` fenced code block toggle
-                if (trimmed.StartsWith("```"))
+                if (MarkdownBlocks.IsFence(trimmed.Trim()))
                 {
                     if (inCode) { Add(CodeBlock(string.Join("\n", codeLines))); codeLines.Clear(); inCode = false; }
                     else inCode = true;
@@ -135,31 +143,56 @@ namespace RevitWebAppSync.Helpers
                 if (inCode) { codeLines.Add(line); continue; }
 
                 // | table | — gather the contiguous block of pipe rows
-                if (IsTableRow(trimmed))
+                if (MarkdownBlocks.IsPipeRow(trimmed))
                 {
                     var rows = new List<string>();
-                    while (i < lines.Length && IsTableRow(lines[i].TrimStart()))
+                    while (i < lines.Length && MarkdownBlocks.IsPipeRow(lines[i]))
                         rows.Add(lines[i++].Trim());
                     i--; // step back; for-loop will advance
-                    var table = TableBlock(rows, maxWidth, lastHeading);
+                    var table = TableBlock(rows, maxWidth, lastHeading, tableDownloads);
                     if (table != null) Add(new BlockUIContainer(table) { Margin = new Thickness(0, 4, 0, 4) });
                     continue;
                 }
 
                 if (string.IsNullOrWhiteSpace(trimmed)) { pendingSpace = 6; continue; }
 
-                if (trimmed.StartsWith("### ")) { lastHeading = trimmed.Substring(4); Add(Header(lastHeading, 13)); continue; }
-                if (trimmed.StartsWith("## "))  { lastHeading = trimmed.Substring(3); Add(Header(lastHeading, 14)); continue; }
-                if (trimmed.StartsWith("# "))   { lastHeading = trimmed.Substring(2); Add(Header(lastHeading, 15)); continue; }
+                // # … ###### headings (#### and deeper used to show their hashes).
+                int level = MarkdownBlocks.HeadingLevel(trimmed.Trim(), out var headingText);
+                if (level > 0)
+                {
+                    lastHeading = headingText;
+                    Add(Header(headingText, level == 1 ? 15 : level == 2 ? 14 : level == 3 ? 13 : 12.5));
+                    continue;
+                }
 
-                if (trimmed.StartsWith("> "))   { Add(Blockquote(trimmed.Substring(2))); continue; }
+                if (MarkdownBlocks.IsHorizontalRule(trimmed)) { Add(Rule()); continue; }
 
-                if (trimmed.StartsWith("- ") || trimmed.StartsWith("* "))
-                { Add(ListItem("•", trimmed.Substring(2))); continue; }
+                if (trimmed.StartsWith("> ")) { Add(Blockquote(trimmed.Substring(2))); continue; }
 
-                var numbered = Regex.Match(trimmed, @"^(\d+)\.\s+(.*)$");
-                if (numbered.Success)
-                { Add(ListItem(numbered.Groups[1].Value + ".", numbered.Groups[2].Value)); continue; }
+                if (MarkdownBlocks.TryBullet(line, out var bulletLevel, out var bulletText))
+                {
+                    var bulletItem = ListItem(bulletLevel == 0 ? "•" : "◦", bulletText, bulletLevel);
+                    Add(bulletItem);
+                    lastItem = bulletItem;
+                    continue;
+                }
+
+                if (MarkdownBlocks.TryNumbered(line, out var numLevel, out var number, out var numText))
+                {
+                    var numItem = ListItem(number + ".", numText, numLevel);
+                    Add(numItem);
+                    lastItem = numItem;
+                    continue;
+                }
+
+                // Indented line right after a list item: more text of that item.
+                if (prevItem != null && MarkdownBlocks.TryListContinuation(line, out var continuation))
+                {
+                    prevItem.Inlines.Add(new Run(" "));
+                    AddInlines(prevItem.Inlines, continuation, BodyFontSize);
+                    lastItem = prevItem;
+                    continue;
+                }
 
                 // paragraph
                 var p = new Paragraph { Margin = new Thickness(0, 1, 0, 1), LineHeight = 18 };
@@ -181,12 +214,29 @@ namespace RevitWebAppSync.Helpers
             return p;
         }
 
-        private static Paragraph ListItem(string marker, string text)
+        private static Paragraph ListItem(string marker, string text, int level = 0)
         {
-            var p = new Paragraph { Margin = new Thickness(8, 1, 0, 1) };
-            p.Inlines.Add(new Run(marker + "  ") { Foreground = Accent });
+            // Nested items step in 14px per level. A hanging indent: the marker sits in a fixed-width cell at the item's left edge and
+            // every wrapped line of the item starts under the first word, not under the marker (a long type name used to wrap back to the
+            // left edge and read as glued to the line above).
+            var markerWidth = marker == "•" || marker == "◦" ? 16.0 : 24.0;   // bullets 16; numbers 24 so "1." and "10." line up
+            var p = new Paragraph { Margin = new Thickness(8 + level * 14 + markerWidth, 2, 0, 2), TextIndent = -markerWidth, LineHeight = 18 };
+            var cell = new TextBlock { Text = marker, Width = markerWidth, FontSize = BodyFontSize, Foreground = Accent };
+            p.Inlines.Add(new InlineUIContainer(cell) { BaselineAlignment = BaselineAlignment.TextBottom });
             AddInlines(p.Inlines, text, BodyFontSize);
             return p;
+        }
+
+        /// <summary>--- / *** / ___ : a thin full-width line in the table-border colour.</summary>
+        private static Block Rule()
+        {
+            return new BlockUIContainer(new Border
+            {
+                Height = 1,
+                Background = Line,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+            })
+            { Margin = new Thickness(0, 6, 0, 6) };
         }
 
         private static Paragraph Blockquote(string text)
@@ -215,20 +265,9 @@ namespace RevitWebAppSync.Helpers
             };
         }
 
-        private static bool IsTableRow(string t) =>
-            t.StartsWith("|") && t.TrimEnd().EndsWith("|") && t.Count(c => c == '|') >= 2;
+        private static bool IsSeparatorRow(string t) => MarkdownBlocks.IsSeparatorRow(t);
 
-        private static bool IsSeparatorRow(string t) =>
-            t.Replace("|", "").Replace("-", "").Replace(":", "").Trim().Length == 0
-            && t.Contains("-");
-
-        private static string[] SplitCells(string row)
-        {
-            var t = row.Trim();
-            if (t.StartsWith("|")) t = t.Substring(1);
-            if (t.EndsWith("|")) t = t.Substring(0, t.Length - 1);
-            return t.Split('|').Select(c => c.Trim()).ToArray();
-        }
+        private static string[] SplitCells(string row) => MarkdownBlocks.SplitCells(row);
 
         // Detection rule (deliberately strict, see ElementIdClicked doc-comment):
         // the trimmed cell text must parse whole as a positive long ≥ 100000 —
@@ -292,7 +331,7 @@ namespace RevitWebAppSync.Helpers
         /// horizontal ScrollViewer and its width is bound to the viewport, so at
         /// extreme widths where even wrapped columns can't fit their minimum, the
         /// TABLE scrolls inside its own box — the thread never scrolls sideways.</summary>
-        private static FrameworkElement TableBlock(List<string> rows, double maxWidth, string nearestHeading)
+        private static FrameworkElement TableBlock(List<string> rows, double maxWidth, string nearestHeading, bool tableDownloads)
         {
             var dataRows = rows.Where(r => !IsSeparatorRow(r)).Select(SplitCells).ToList();
             if (dataRows.Count == 0) return null;
@@ -374,7 +413,7 @@ namespace RevitWebAppSync.Helpers
             grid.MaxWidth = maxWidth;
 
             // Header-only tables get no export affordance — nothing to save.
-            if (dataRows.Count < 2) return grid;
+            if (dataRows.Count < 2 || !tableDownloads) return grid;
 
             var panel = new StackPanel { HorizontalAlignment = HorizontalAlignment.Stretch, MaxWidth = maxWidth };
             panel.Children.Add(grid);
@@ -437,21 +476,41 @@ namespace RevitWebAppSync.Helpers
         // for this text does — see AppendTextWithEmoji remarks.
         private static void AddInlines(InlineCollection inlines, string text, double fontSize)
         {
-            var pattern = @"(\*\*(.+?)\*\*)|(\*(.+?)\*)|(`(.+?)`)|(\[(.+?)\]\((.+?)\))";
-            int last = 0;
-            foreach (Match m in Regex.Matches(text, pattern))
+            AddInlinesLine(inlines, text ?? "", fontSize);
+            if (inlines.Count == 0) inlines.Add(new Run(text ?? ""));
+        }
+
+        // The span grammar (image, code, bold, __bold__, ~~strike~~, italic, link) lives in
+        // MarkdownBlocks.TokenizeInline so it can be unit-tested without WPF.
+        private static void AddInlinesLine(InlineCollection inlines, string text, double fontSize)
+        {
+            foreach (var t in MarkdownBlocks.TokenizeInline(text))
             {
-                if (m.Index > last) AppendTextWithEmoji(inlines, text.Substring(last, m.Index - last), fontSize);
-                if (m.Groups[2].Success) AppendTextWithEmoji(inlines, m.Groups[2].Value, fontSize, r => r.FontWeight = FontWeights.Bold);
-                else if (m.Groups[4].Success) AppendTextWithEmoji(inlines, m.Groups[4].Value, fontSize, r => r.FontStyle = FontStyles.Italic);
-                // Code spans stay literal/monochrome — never emoji-substituted.
-                else if (m.Groups[6].Success) inlines.Add(new Run(m.Groups[6].Value) { FontFamily = CodeFont, Foreground = CodeFg, FontSize = 11 });
-                // Link text/click-handling is untouched — element ids never contain emoji.
-                else if (m.Groups[8].Success) inlines.Add(LinkInline(m.Groups[8].Value, m.Groups[9].Value));
-                last = m.Index + m.Length;
+                switch (t.Kind)
+                {
+                    case InlineKind.Image: inlines.Add(ImageInline(t.Text, t.Url)); break;
+                    // Code spans stay literal/monochrome — never emoji-substituted.
+                    case InlineKind.Code: inlines.Add(new Run(t.Text) { FontFamily = CodeFont, Foreground = CodeFg, FontSize = 11 }); break;
+                    // Emphasis content is parsed again, so `code` or a link inside
+                    // **bold** renders as code/link instead of literal backticks.
+                    case InlineKind.Bold: inlines.Add(Emphasis(t.Text, fontSize, InlineKind.Bold)); break;
+                    case InlineKind.Italic: inlines.Add(Emphasis(t.Text, fontSize, InlineKind.Italic)); break;
+                    case InlineKind.Strike: inlines.Add(Emphasis(t.Text, fontSize, InlineKind.Strike)); break;
+                    // Link text/click-handling is untouched — element ids never contain emoji.
+                    case InlineKind.Link: inlines.Add(LinkInline(t.Text, t.Url)); break;
+                    default: AppendTextWithEmoji(inlines, t.Text, fontSize); break;
+                }
             }
-            if (last < text.Length) AppendTextWithEmoji(inlines, text.Substring(last), fontSize);
-            if (inlines.Count == 0) inlines.Add(new Run(text));
+        }
+
+        private static Span Emphasis(string inner, double fontSize, InlineKind kind)
+        {
+            var span = new Span();
+            if (kind == InlineKind.Bold) span.FontWeight = FontWeights.Bold;
+            else if (kind == InlineKind.Italic) span.FontStyle = FontStyles.Italic;
+            else if (kind == InlineKind.Strike) span.TextDecorations = TextDecorations.Strikethrough;
+            AddInlinesLine(span.Inlines, inner, fontSize);
+            return span;
         }
 
         /// <summary>Splits <paramref name="text"/> on any Emoji.Wpf-detected emoji
@@ -472,7 +531,7 @@ namespace RevitWebAppSync.Helpers
         /// <c>Foreground</c> is pinned to <see cref="Brushes.Black"/> on every
         /// EmojiInline: <c>EmojiInline.Rebuild()</c> only skips its (monochrome)
         /// TintEffect when Foreground resolves to pure black — this app's ambient
-        /// text color is a dark navy (#131c2b, not pure black), which every inline
+        /// text color is a dark navy (Cp.Ink, not pure black), which every inline
         /// would otherwise inherit and get tinted with, silently defeating the point
         /// of this change (real color emoji, not navy-tinted ones).
         ///
@@ -541,8 +600,9 @@ namespace RevitWebAppSync.Helpers
 
         /// <summary>`[text](url)` → a real clickable Hyperlink ONLY for
         /// `bina://select/&lt;id&gt;` (raises the same ElementIdClicked event as
-        /// the table id-cells); any other url stays the inert styled Run today's
-        /// prose links have always rendered as (no navigation, nothing to click).</summary>
+        /// the table id-cells); any other url stays inert (no navigation, nothing
+        /// to click) and shows its target next to the text (spec §7.11), so a
+        /// link can never hide where it points.</summary>
         private static Inline LinkInline(string linkText, string url)
         {
             var m = SelectUriPattern.Match(url ?? "");
@@ -557,7 +617,20 @@ namespace RevitWebAppSync.Helpers
                 hl.Click += (_, __) => { try { ElementIdClicked?.Invoke(elementId); } catch { /* listener's problem, not ours */ } };
                 return hl;
             }
-            return new Run(linkText) { Foreground = Accent, TextDecorations = TextDecorations.Underline };
+            var span = new Span();
+            span.Inlines.Add(new Run(linkText) { Foreground = Accent, TextDecorations = TextDecorations.Underline });
+            var target = (url ?? "").Trim();
+            if (target.Length > 0 && !string.Equals(target, (linkText ?? "").Trim(), StringComparison.Ordinal))
+                span.Inlines.Add(new Run(" (" + target + ")") { Foreground = Brushes.Gray, FontSize = 11 });
+            return span;
+        }
+
+        /// <summary>`![alt](url)` → never loaded: names the picture and where it
+        /// points (spec §7.11, no remote images in the pane).</summary>
+        private static Inline ImageInline(string alt, string url)
+        {
+            var label = string.IsNullOrWhiteSpace(alt) ? "image" : "image: " + alt.Trim();
+            return new Run("[" + label + "] (" + (url ?? "").Trim() + ")") { Foreground = Brushes.Gray, FontStyle = FontStyles.Italic };
         }
     }
 }

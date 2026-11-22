@@ -184,7 +184,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             {
                 CornerRadius    = new CornerRadius(8),
                 BorderThickness = new Thickness(1),
-                Background      = CopilotColors.From("#ffffff"),
+                Background      = CopilotColors.Token("Cp.Menu"),
                 Padding         = new Thickness(4, 6, 4, 6),
             };
             // Cp.Red (not Cp.RedBg/IssueBg — those are light-theme-only values and
@@ -264,10 +264,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 VerticalAlignment   = VerticalAlignment.Top,
                 Margin              = new Thickness(0, -3, -3, 0),
                 Padding             = new Thickness(0),
-                Background          = CopilotColors.From("#ffffff"),
-                Foreground          = CopilotColors.From("#586273"),
+                Background          = CopilotColors.Token("Cp.Menu"),
+                Foreground          = CopilotColors.Token("Cp.Muted"),
                 BorderThickness     = new Thickness(1),
-                BorderBrush         = CopilotColors.From("#290F1B2D"),
+                BorderBrush         = CopilotColors.Token("Cp.Hair2"),
                 IsTabStop           = false,
             };
             btn.Click += (_, __) => OnRemove?.Invoke();

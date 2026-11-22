@@ -6,7 +6,7 @@ using Xunit;
 
 namespace RevitWebAppSync.Tests
 {
-    /// <summary>AI-494 (IssueVm / WPF half; not compiled on the Mac harness): the button shows only when a launcher AND a prompt builder are set.</summary>
+    /// <summary>AI-494 (IssueVm / WPF half; not compiled on the Mac harness): the button shows only when a launcher AND a prompt builder are set; no builder is the app default (disabled until the protocol-3 rework).</summary>
     [Collection("CopilotLauncher")]
     public class JkrCopilotFixInstallerTests : IDisposable
     {
@@ -54,11 +54,22 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void The_default_prompt_builder_is_the_AI_493_one()
+        public void A_default_install_leaves_the_button_hidden_until_the_protocol_3_rework()
         {
-            JkrCopilotFixInstaller.PromptBuilder = _savedBuilder;
-            Assert.NotNull(JkrCopilotFixInstaller.PromptBuilder);
-            var parts = JkrCopilotFixInstaller.PromptBuilder(Row(), true);
+            JkrCopilotFixInstaller.PromptBuilder = _savedBuilder;   // what the app starts with
+            Assert.Null(JkrCopilotFixInstaller.PromptBuilder);
+            JkrCopilotFix.Launcher = new JkrCopilotFixLauncher(new NoSession(), _ => new[] { "x" }, _ => { });   // a stale one
+            JkrCopilotFixInstaller.Install(new NoSession(), id => Row(), _ => { });
+            Assert.Null(JkrCopilotFix.Launcher);
+            Assert.False(JkrCopilotFix.LauncherReady);
+            Assert.False(Row().CopilotFixable);
+        }
+
+        [Fact]
+        public void The_AI_493_prompt_builder_is_kept_for_the_rework()
+        {
+            Assert.NotNull(JkrCopilotFixInstaller.DefaultPromptBuilder);
+            var parts = JkrCopilotFixInstaller.DefaultPromptBuilder(Row(), true);
             Assert.NotEmpty(parts);
             Assert.Contains("100", parts[0]);
         }

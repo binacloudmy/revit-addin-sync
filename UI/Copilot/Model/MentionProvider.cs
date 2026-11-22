@@ -16,6 +16,18 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public bool Pickable = true;
         public List<MentionNode> Children = new List<MentionNode>();
 
+        // Facts the flat search shows and ranks on. All optional: a node from
+        // an older provider (or the static fallback) leaves them unset and the
+        // search falls back to the tree's ancestry for family and category.
+        public string Family;     // type: its family ("Pintu Tunggal")
+        public string Category;   // type / family: its category ("Doors")
+        public string CategoryKey;// category / type / family: BuiltInCategory name ("OST_Doors")
+        public string TypeMark;   // type: the Type Mark, when the provider read it
+        public int? Count;        // type: instances in the model; null = not counted
+        public int? InView;       // type: instances in the active view; null = not counted
+        public bool IsActive;     // view: the active view
+        public MentionSelection Selection;   // selection: what is selected, by type
+
         public MentionNode(string kind, string name, bool pickable = true)
         { Kind = kind; Name = name; Pickable = pickable; }
 
@@ -35,6 +47,16 @@ namespace RevitWebAppSync.UI.Copilot.Model
         List<MentionNode> GetTree();
     }
 
+    /// <summary>A provider that can read the live selection again at send time,
+    /// so a "Selection" chip sends what is selected then, not when it was picked.
+    /// Separate from IMentionProvider so fakes and the static fallback need not
+    /// implement it (net48: no default interface members).</summary>
+    public interface IMentionSelectionSource
+    {
+        /// <summary>The selection now, or null when it cannot be read.</summary>
+        MentionSelection ReadSelection();
+    }
+
     /// <summary>
     /// Fallback when no live document is available. Only "Categories" is a fixed enum (real,
     /// not mock); levels/views/sheets/families come from the model, so they're omitted here
@@ -48,24 +70,5 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 new[] { "Walls", "Doors", "Windows", "Floors", "Rooms", "Furniture", "Casework" }
                     .Select(c => MentionNode.Leaf("category", c))),
         };
-    }
-
-    // Pill colors per mention kind (chat.jsx MENTION_PILL_STYLE).
-    public static class MentionStyle
-    {
-        public static (string bg, string fg) For(string kind)
-        {
-            switch (kind)
-            {
-                case "level": return ("#fef3c7", "#92400e");
-                case "category": return ("#dbeafe", "#1e40af");
-                case "family": return ("#dbeafe", "#1e40af");
-                case "type": return ("#e0f2fe", "#0369a1");
-                case "view": return ("#dcfce7", "#15803d");
-                case "sheet": return ("#fce7f3", "#9d174d");
-                case "selection": return ("#ede9fe", "#6d28d9");
-                default: return ("#eef0f3", "#374151");
-            }
-        }
     }
 }

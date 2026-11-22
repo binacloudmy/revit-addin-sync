@@ -20,7 +20,7 @@
     <SolidColorBrush x:Key="Cp.Ink2"      Color="#1c1e26"/>
     <SolidColorBrush x:Key="Cp.Text"      Color="#22242a"/>
     <SolidColorBrush x:Key="Cp.Muted"     Color="#5d6170"/>
-    <SolidColorBrush x:Key="Cp.Faint"     Color="#9397ab"/>
+    <SolidColorBrush x:Key="Cp.Faint"     Color="#686d80"/>
     <SolidColorBrush x:Key="Cp.Line"      Color="#2122242A"/>
     <SolidColorBrush x:Key="Cp.Hair2"     Color="#3D22242A"/>
     <SolidColorBrush x:Key="Cp.LineSoft"  Color="#1522242A"/>
@@ -85,6 +85,7 @@
     <SolidColorBrush x:Key="Cp.AmberFg"   Color="#92400e"/>
     <SolidColorBrush x:Key="Cp.CodeBg"    Color="#f0f1f7"/>
     <SolidColorBrush x:Key="Cp.CodeFg"    Color="#22549e"/>
+    <SolidColorBrush x:Key="Cp.CodeFgAlt" Color="#22549e"/>
     <SolidColorBrush x:Key="Cp.TabBadgeBg" Color="#f0f1f7"/>
 
     <!-- Logo / bot star gradient (design gstarLogo: #7dd6ff → #3b8ef7 → #1d5fe0) -->
@@ -218,8 +219,8 @@
 
     <!-- ═══════════ TYPOGRAPHY ═══════════ -->
     <!-- Geist preferred; falls back to Segoe UI until woff2/ttf is embedded (Task 17). -->
-    <FontFamily x:Key="Cp.Font">pack://application:,,,/RevitWebAppSync;component/Fonts/#Inter, Segoe UI, system-ui, sans-serif</FontFamily>
-    <FontFamily x:Key="Cp.FontMono">Geist Mono, Cascadia Mono, Consolas, Courier New, monospace</FontFamily>
+    <FontFamily x:Key="Cp.Font">pack://application:,,,/RevitWebAppSync;component/Fonts/#Geist, pack://application:,,,/RevitWebAppSync;component/Fonts/#Inter, Segoe UI, system-ui, sans-serif</FontFamily>
+    <FontFamily x:Key="Cp.FontMono">pack://application:,,,/RevitWebAppSync;component/Fonts/#Geist Mono, Cascadia Mono, Consolas, Courier New, monospace</FontFamily>
 
     <!-- ═══════════ DIMENSIONS ═══════════ -->
     <sys:Double x:Key="Cp.PanelWidth">440</sys:Double>
@@ -229,7 +230,7 @@
          "BINA Copilot Thinking v2.dc.html") — 2026-08-02 spec.
          Separate Cp.Reasoning.*/Cp.System.* namespace, NOT a re-theme of the
          Cp.* palette above: the handoff's colors/type/spacing are FINAL for
-         the reasoning timeline, approval card, and result card ONLY. Existing
+         the reasoning timeline and result card ONLY. Existing
          Cp.* keys (Cp.Accent, Cp.Font, …) keep every other screen unchanged —
          per the operator's override, this feature keeps the current BINA icon
          and does not restyle the rest of the panel.
@@ -243,8 +244,8 @@
     <SolidColorBrush x:Key="Cp.Reasoning.Text"         Color="#75798c"/>   <!-- reasoning body -->
     <SolidColorBrush x:Key="Cp.Reasoning.TextMuted"    Color="#75798c"/>
     <SolidColorBrush x:Key="Cp.Reasoning.TextRowCount" Color="#5d6170"/>   <!-- result card row count (task 16 polish; distinct from TextMuted per handoff) -->
-    <SolidColorBrush x:Key="Cp.Reasoning.TextFaint"    Color="#9397ab"/>
-    <SolidColorBrush x:Key="Cp.Reasoning.TextFaint2"   Color="#9397ab"/>
+    <SolidColorBrush x:Key="Cp.Reasoning.TextFaint"    Color="#686d80"/>
+    <SolidColorBrush x:Key="Cp.Reasoning.TextFaint2"   Color="#686d80"/>
 
     <!-- Borders / surfaces -->
     <SolidColorBrush x:Key="Cp.Reasoning.Border"       Color="#2122242A"/>
@@ -280,7 +281,89 @@
     <SolidColorBrush x:Key="Cp.System.Exhaust"         Color="#eab308"/>
     <SolidColorBrush x:Key="Cp.System.None"            Color="#d4d4da"/>
 
-    <!-- Approval card "Needs permission" amber badge -->
+    <!-- The running card (design Running.dc.html, dark board). Scoped Cp.Run.* set: only the live step card, its
+         write preview, the Stop row and the running composer read it, so the rest of the pane keeps its palette.
+         Light values here; ThemeTokens.cs holds the dark (board) ones. -->
+    <SolidColorBrush x:Key="Cp.Run.Bg"                 Color="#f7f7f6"/>
+    <SolidColorBrush x:Key="Cp.Run.Surface"            Color="#ffffff"/>
+    <SolidColorBrush x:Key="Cp.Run.Surface2"           Color="#f0f1f7"/>
+    <SolidColorBrush x:Key="Cp.Run.Raised"             Color="#e4e6ee"/>
+    <SolidColorBrush x:Key="Cp.Run.Composer"           Color="#ffffff"/>
+    <SolidColorBrush x:Key="Cp.Run.Line"               Color="#2122242A"/>
+    <SolidColorBrush x:Key="Cp.Run.LineStrong"         Color="#3D22242A"/>
+    <SolidColorBrush x:Key="Cp.Run.LineButton"         Color="#5222242A"/>
+    <SolidColorBrush x:Key="Cp.Run.Text"               Color="#22242a"/>
+    <SolidColorBrush x:Key="Cp.Run.Text2"              Color="#3a3d48"/>
+    <SolidColorBrush x:Key="Cp.Run.Muted"              Color="#5d6170"/>
+    <SolidColorBrush x:Key="Cp.Run.Faint"              Color="#666b7c"/>
+    <SolidColorBrush x:Key="Cp.Run.Accent"             Color="#2a69c6"/>
+    <SolidColorBrush x:Key="Cp.Run.AccentHalo"         Color="#242a69c6"/>
+    <SolidColorBrush x:Key="Cp.Run.AccentRing"         Color="#382a69c6"/>
+    <SolidColorBrush x:Key="Cp.Run.AccentInk"          Color="#ffffff"/>
+    <SolidColorBrush x:Key="Cp.Run.Success"            Color="#2f9a72"/>
+    <SolidColorBrush x:Key="Cp.Run.SuccessBg"          Color="#242f9a72"/>
+    <SolidColorBrush x:Key="Cp.Run.Warn"               Color="#b9770e"/>
+    <SolidColorBrush x:Key="Cp.Run.WarnBg"             Color="#fdf3dc"/>
+    <SolidColorBrush x:Key="Cp.Run.WarnText"           Color="#6b4a10"/>
+    <SolidColorBrush x:Key="Cp.Run.Info"               Color="#2a69c6"/>
+    <SolidColorBrush x:Key="Cp.Run.Dash"               Color="#4022242A"/>
+    <FontFamily x:Key="Cp.Run.Font">pack://application:,,,/RevitWebAppSync;component/Fonts/#Geist, Segoe UI, system-ui, sans-serif</FontFamily>
+    <FontFamily x:Key="Cp.Run.FontMono">pack://application:,,,/RevitWebAppSync;component/Fonts/#Geist Mono, Cascadia Mono, Consolas, Courier New, monospace</FontFamily>
+
+    <!-- Moved here from the code-built views and the pane XAML (AI-311): the colour each one drew before.
+         Light values; ThemeTokens.cs holds the dark ones. Most are fixed (same in both themes). -->
+    <SolidColorBrush x:Key="Cp.Raised"                Color="#f7f7f6"/>
+    <SolidColorBrush x:Key="Cp.AccentWash"            Color="#edf3fd"/>
+    <SolidColorBrush x:Key="Cp.TextSecondary"         Color="#4a4e5c"/>
+    <SolidColorBrush x:Key="Cp.ErrorText"             Color="#c24545"/>
+    <SolidColorBrush x:Key="Cp.Notice"                Color="#d98a2b"/>
+    <SolidColorBrush x:Key="Cp.NoticeBg"              Color="#1ad97706"/>
+    <SolidColorBrush x:Key="Cp.Brand"                 Color="#2a69c6"/>
+    <SolidColorBrush x:Key="Cp.BrandGreen"            Color="#2f9a72"/>
+    <SolidColorBrush x:Key="Cp.BrandTint10"           Color="#1A2A69C6"/>
+    <SolidColorBrush x:Key="Cp.BrandTint12"           Color="#1F2A69C6"/>
+    <SolidColorBrush x:Key="Cp.BrandLine35"           Color="#592A69C6"/>
+    <SolidColorBrush x:Key="Cp.ChipOnBg"              Color="#1a1d4ed8"/>
+    <SolidColorBrush x:Key="Cp.RowLine"               Color="#0f22242a"/>
+    <SolidColorBrush x:Key="Cp.RowHover"              Color="#f7f9fb"/>
+    <SolidColorBrush x:Key="Cp.ConfirmHover"          Color="#0da271"/>
+    <SolidColorBrush x:Key="Cp.WaitBg"                Color="#fbf0dd"/>
+    <SolidColorBrush x:Key="Cp.LogoBacking"           Color="#00ffffff"/>
+    <SolidColorBrush x:Key="Cp.WaitFg"                Color="#6b4a12"/>
+    <SolidColorBrush x:Key="Cp.IndexingVeil"          Color="#F7FFFFFF"/>
+    <SolidColorBrush x:Key="Cp.Scrim"                 Color="#66000000"/>
+    <SolidColorBrush x:Key="Cp.ScrimSoft"             Color="#3D22242A"/>
+    <SolidColorBrush x:Key="Cp.WhatsApp"              Color="#25D366"/>
+    <SolidColorBrush x:Key="Cp.Chart.Cyan"            Color="#0891b2"/>
+    <SolidColorBrush x:Key="Cp.Rating.Fill"           Color="#f59e0b"/>
+    <SolidColorBrush x:Key="Cp.Rating.Hi"             Color="#FFE07A"/>
+    <SolidColorBrush x:Key="Cp.Rating.Mid"            Color="#FBB72B"/>
+    <SolidColorBrush x:Key="Cp.Rating.Lo"             Color="#E8941A"/>
+    <SolidColorBrush x:Key="Cp.Rating.Text"           Color="#E0941A"/>
+    <SolidColorBrush x:Key="Cp.Mark.Made"             Color="#0E9F55"/>
+    <SolidColorBrush x:Key="Cp.Mark.Changed"          Color="#7C3AED"/>
+    <SolidColorBrush x:Key="Cp.Mark.Attn"             Color="#C27803"/>
+    <SolidColorBrush x:Key="Cp.Mark.Skip"             Color="#7D8595"/>
+    <SolidColorBrush x:Key="Cp.Mark.Halo"             Color="#F2FFFFFF"/>
+    <SolidColorBrush x:Key="Cp.Mark.PrimaryInk"       Color="#06120B"/>
+    <SolidColorBrush x:Key="Cp.Mark.BadgeInk"         Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="Cp.Key.Bg"                Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="Cp.Key.Ink"               Color="#1D2129"/>
+    <SolidColorBrush x:Key="Cp.Key.Muted"             Color="#5D6170"/>
+    <SolidColorBrush x:Key="Cp.Key.Line"              Color="#D5D9E1"/>
+    <SolidColorBrush x:Key="Cp.Overlay.Pill"          Color="#EB0B0D12"/>
+    <SolidColorBrush x:Key="Cp.Overlay.Dot"           Color="#fbbf24"/>
+    <SolidColorBrush x:Key="Cp.Overlay.Btn"           Color="#1AFFFFFF"/>
+    <SolidColorBrush x:Key="Cp.Padlock.ShackleBack"   Color="#3f74d6"/>
+    <SolidColorBrush x:Key="Cp.Padlock.ShackleHi"     Color="#9cc6ff"/>
+    <SolidColorBrush x:Key="Cp.Padlock.ShackleLo"     Color="#4f8ef0"/>
+    <SolidColorBrush x:Key="Cp.Padlock.BodyHi"        Color="#7cb4ff"/>
+    <SolidColorBrush x:Key="Cp.Padlock.BodyMid"       Color="#4a8bf0"/>
+    <SolidColorBrush x:Key="Cp.Padlock.BodyLo"        Color="#2766d6"/>
+    <SolidColorBrush x:Key="Cp.Padlock.Key"           Color="#dbe9ff"/>
+    <SolidColorBrush x:Key="Cp.Padlock.Glow"          Color="#3b82f6"/>
+
+    <!-- "Needs permission" amber badge -->
     <LinearGradientBrush x:Key="Cp.Reasoning.WarnHeadGrad" StartPoint="0,0" EndPoint="0,1">
         <GradientStop Offset="0" Color="#fffdf8"/>
         <GradientStop Offset="1" Color="#ffffff"/>
@@ -295,8 +378,8 @@
          WPF can't resolve the pack URI family and silently falls through to
          the fallback names — dropping the files in later "just works" with NO
          further code change, matching the Cp.Font precedent (Task 17). -->
-    <FontFamily x:Key="Cp.Reasoning.Font">pack://application:,,,/RevitWebAppSync;component/Fonts/#Inter, Segoe UI, system-ui, sans-serif</FontFamily>
-    <FontFamily x:Key="Cp.Reasoning.FontMono">pack://application:,,,/RevitWebAppSync;component/Fonts/#JetBrains Mono, Cascadia Mono, Consolas, Courier New, monospace</FontFamily>
+    <FontFamily x:Key="Cp.Reasoning.Font">pack://application:,,,/RevitWebAppSync;component/Fonts/#Geist, pack://application:,,,/RevitWebAppSync;component/Fonts/#Inter, Segoe UI, system-ui, sans-serif</FontFamily>
+    <FontFamily x:Key="Cp.Reasoning.FontMono">pack://application:,,,/RevitWebAppSync;component/Fonts/#Geist Mono, Cascadia Mono, Consolas, Courier New, monospace</FontFamily>
 
     <!-- Spacing scale (README: 4/6/8/9/10/11/13/14/16/20/22px) — exposed as
          named doubles for code-behind consumers (ReasoningTimelineView etc.);

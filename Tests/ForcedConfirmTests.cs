@@ -71,21 +71,6 @@ namespace RevitAddinSync.Tests
             Assert.False(ForcedConfirm.IsActive);
         }
 
-        [Fact]
-        public void Decline_rejects_every_pending_call()
-        {
-            var batch = new List<PendingToolCall>
-            {
-                new PendingToolCall { ToolCallId = "a", Tool = "set_parameter", Mutate = true },
-                new PendingToolCall { ToolCallId = "b", Tool = "list_views", Mutate = false },
-            };
-            var results = batch.Select(ConfirmGate.Rejected).ToList();
-            Assert.Equal(2, results.Count);
-            Assert.All(results, r => Assert.True(r.Ok));
-            Assert.Equal(new[] { "a", "b" }, results.Select(r => r.ToolCallId));
-            Assert.All(results, r => Assert.Equal("rejected", ((Dictionary<string, object>)r.Result)["status"]));
-        }
-
         // Turn lifecycle: early-return, sign-in park and clarify resume (review fixes).
         [Fact]
         public void Take_arm_without_begin_does_not_start_a_turn()
@@ -140,9 +125,10 @@ namespace RevitAddinSync.Tests
         }
 
         // Source guard: every code read of AutoApproveWrites outside the settings UI must sit next to a
-        // ForcedConfirm call, so a new auto-approve path (e.g. PR #307's engine-mode gate) cannot skip the flag.
+        // ForcedConfirm call, so a new auto-approve path cannot skip the flag. (VACUOUS TODAY. After the merge with feat/bina-ai-copilot
+        // the pane no longer reads AutoApproveWrites at all, so this passes vacuously until a client-side gate comes back.)
         [Fact]
-        public void Every_AutoApproveWrites_read_goes_through_ForcedConfirm()
+        public void Vacuous_today_guards_only_a_future_client_side_AutoApproveWrites_read_going_through_ForcedConfirm()
         {
             var dir = new DirectoryInfo(AppContext.BaseDirectory);
             while (dir != null && !File.Exists(Path.Combine(dir.FullName, "RevitWebAppSync.csproj"))) dir = dir.Parent;

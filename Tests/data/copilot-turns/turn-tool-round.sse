@@ -1,0 +1,21 @@
+event: progress
+data: {"seq":1,"kind":"thinking","text":"Reading the request"}
+
+event: progress
+data: {"seq":2,"kind":"thinking","text":"Reading the request"}
+
+event: reply_delta
+data: {"seq":3,"text":"Saya semak pintu."}
+
+event: tool_request
+data: {"seq":4,"request_id":"req_a","kind":"read","calls":[{"call_id":"call_a","idempotency_key":"t:call_a","tool":"find_elements","args":{"queries":[{"category":"Doors"}]}}]}
+
+event: progress
+data: {"seq":5,"kind":"running","text":"Counting"}
+
+event: reply_delta
+data: {"seq":6,"text":"Ada 34 pintu."}
+
+event: turn_end
+data: {"seq":7,"status":"done","session_id":"ses_round","receipt_ids":[]}
+

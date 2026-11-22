@@ -1,0 +1,69 @@
+{
+  "ok": true,
+  "status": "done",
+  "phase": "read",
+  "summary": "34 ceilings on Level 2 in the host model: 28 CL-02A 600x600 Grid, 6 CL-20 Plasterboard. Link STR_v3 was not searched (unloaded).",
+  "data": {
+    "rows": [
+      {
+        "ref": {
+          "id": 312045
+        },
+        "category": "Ceilings",
+        "type": "CL-02A 600x600 Grid",
+        "level": "Level 2",
+        "room": "Pejabat Am 2.01",
+        "height_offset": "2400 mm"
+      },
+      {
+        "ref": {
+          "id": 312048
+        },
+        "category": "Ceilings",
+        "type": "CL-02A 600x600 Grid",
+        "level": "Level 2",
+        "room": "Pejabat Am 2.01",
+        "height_offset": "2400 mm"
+      },
+      {
+        "ref": {
+          "id": 312051
+        },
+        "category": "Ceilings",
+        "type": "CL-20 Plasterboard",
+        "level": "Level 2",
+        "room": "Tandas Lelaki 2.03",
+        "height_offset": "2400 mm"
+      }
+    ],
+    "groups": [
+      {
+        "key": "CL-02A 600x600 Grid",
+        "count": 28
+      },
+      {
+        "key": "CL-20 Plasterboard",
+        "count": 6
+      }
+    ]
+  },
+  "count": 34,
+  "handle": "h_7f3a91c2",
+  "searched": {
+    "sources": [
+      "host"
+    ],
+    "categories": [
+      "Ceilings"
+    ],
+    "filter": "Level = 'Level 2'",
+    "not_searched": [
+      "link: STR_v3 (unloaded)"
+    ]
+  },
+  "highlight": {
+    "selected": 34,
+    "visible_in_view": 30
+  },
+  "next": "3 of 34 rows shown (limit 3). Use handle h_7f3a91c2 to inspect or edit all 34."
+}
