@@ -275,6 +275,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public string RenameFrom { get; set; } = "";
         public string RenameTo { get; set; } = "";
         public string RenameSource { get; set; } = "";
+        /// <summary>AI-535 (Da.1): no code could be derived; what Copilot may offer when it asks the person for one. Empty otherwise.</summary>
+        public string CodeHint { get; set; } = "";
 
         /// <summary>Db.2: the writable material parameters a fix fills, and the read-only ones it leaves alone (with the reason). Both empty = none named: the fix uses "Material".</summary>
         public List<RevitWebAppSync.UI.Jkr.Panel.Core.SpecParamTarget> ParamsToFill { get; set; } = new List<RevitWebAppSync.UI.Jkr.Panel.Core.SpecParamTarget>();

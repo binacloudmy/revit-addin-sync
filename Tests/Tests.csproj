@@ -197,11 +197,13 @@
     <Compile Include="..\Services\JkrSpec\SpecExtractionRules.cs" Link="JkrSpec\SpecExtractionRules.cs" />
     <Compile Include="..\Services\JkrSpec\SpecChecks.A.cs" Link="JkrSpec\SpecChecks.A.cs" />
     <Compile Include="..\Services\JkrSpec\SpecChecks.BC.cs" Link="JkrSpec\SpecChecks.BC.cs" />
+    <Compile Include="..\Services\JkrSpec\JkrCodeList.cs" Link="JkrSpec\JkrCodeList.cs" />
     <Compile Include="..\Services\JkrSpec\SpecChecks.DE.cs" Link="JkrSpec\SpecChecks.DE.cs" />
     <Compile Include="..\Services\JkrSpec\SpecPbData.cs" Link="JkrSpec\SpecPbData.cs" />
     <Compile Include="..\Services\JkrSpec\SpecPbParameters.cs" Link="JkrSpec\SpecPbParameters.cs" />
     <Compile Include="..\Services\JkrSpec\SpecTemplateViews.cs" Link="JkrSpec\SpecTemplateViews.cs" />
     <EmbeddedResource Include="..\Services\JkrSpec\data\jkr_pb_ar_parameters.csv" LogicalName="jkr_pb_ar_parameters.csv" Link="JkrSpec\jkr_pb_ar_parameters.csv" />
+    <EmbeddedResource Include="..\Services\JkrSpec\data\jkr_ar_code_list.csv" LogicalName="jkr_ar_code_list.csv" Link="JkrSpec\jkr_ar_code_list.csv" />
     <EmbeddedResource Include="..\Services\JkrSpec\data\jkr_ar_template_views.csv" LogicalName="jkr_ar_template_views.csv" Link="JkrSpec\jkr_ar_template_views.csv" />
     <Compile Include="..\Services\JkrSpec\SpecHowToFix.cs" Link="JkrSpec\SpecHowToFix.cs" />
     <EmbeddedResource Include="..\Services\JkrSpec\data\jkr_howto_fix_steps.csv" LogicalName="jkr_howto_fix_steps.csv" Link="JkrSpec\jkr_howto_fix_steps.csv" />

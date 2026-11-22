@@ -52,7 +52,14 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         private static IReadOnlyDictionary<long, CopilotRename> RenamesOf(IssueVm issue)
         {
             var map = new Dictionary<long, CopilotRename>();
-            if (string.IsNullOrWhiteSpace(issue.RenameTo)) return map;
+            if (string.IsNullOrWhiteSpace(issue.RenameTo))
+            {
+                // AI-535 (Da.1): no derived code: the line asks the person (hint = type-code prefix and codes already in the model).
+                if (string.IsNullOrWhiteSpace(issue.RenameFrom) || (issue.SpecCheckId ?? "").Trim() != "Da.1") return map;
+                var ask = new CopilotRename { Old = issue.RenameFrom, New = "", Source = issue.CodeHint ?? "", Ask = true };
+                foreach (var id in issue.ElementIds ?? new List<long>()) if (id > 0) map[id] = ask;
+                return map;
+            }
             var r = new CopilotRename { Old = issue.RenameFrom, New = issue.RenameTo, Source = issue.RenameSource };
             foreach (var id in issue.ElementIds ?? new List<long>()) if (id > 0) map[id] = r;
             return map;

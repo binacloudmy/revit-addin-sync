@@ -115,6 +115,7 @@
     <EmbeddedResource Include="Services\JkrSpec\data\jkr_pb_ar_parameters.csv" LogicalName="jkr_pb_ar_parameters.csv" />
 
     <!-- JKR AR template view list (C1.1.1 / C1.1.2, AI-482), exported from the official .rte; refresh note in the PR / header of SpecTemplateViews.cs. -->
+    <EmbeddedResource Include="Services\JkrSpec\data\jkr_ar_code_list.csv" LogicalName="jkr_ar_code_list.csv" />
     <EmbeddedResource Include="Services\JkrSpec\data\jkr_ar_template_views.csv" LogicalName="jkr_ar_template_views.csv" />
 
     <!-- How-to-fix steps for the 61 checks (issue cards), Researcher csv of 23 Nov 2026; loader SpecHowToFix.cs. -->

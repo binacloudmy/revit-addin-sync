@@ -51,6 +51,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// <summary>Model, Dd.1 (WP-6): the type's current name, the new name the add-in derived, and the evidence that the NAME is
         /// the odd one out. Empty when no safe new name exists (a person decides).</summary>
         public string RenameFrom = "", RenameTo = "", RenameSource = "";
+        /// <summary>Model, Da.1 (AI-535): when no code can be derived, what Copilot may offer when it asks for one (kod jenis of the category, codes already in use in the model). Empty otherwise.</summary>
+        public string CodeHint = "";
         /// <summary>Model, Db.2: the writable material parameters of the failing type a fix should fill (the model fills them: it matches an
         /// existing material or asks, the add-in only names the parameters). Empty = the reader named none: the fix falls back to "Material".</summary>
         public List<SpecParamTarget> ParamsToFill = new List<SpecParamTarget>();

@@ -1,0 +1,334 @@
+category,field,code,meaning,source_page
+Door (dor),kod_jenis,PTa,Pintu Rintangan Api (Fire Rated Door),Piawaian Lampiran A3 p.130
+Door (dor),kod_jenis,PTb,Pintu Besi (Metal / Steel Door),Piawaian Lampiran A3 p.130
+Door (dor),kod_jenis,PTc,Kaca Penuh (All Glass Door),Piawaian Lampiran A3 p.130
+Door (dor),kod_jenis,PTd,Dua Arah (Dual Direction),Piawaian Lampiran A3 p.130
+Door (dor),kod_jenis,PTe,Putar (Revolving),Piawaian Lampiran A3 p.130
+Door (dor),kod_jenis,PTf,Pintu Pagar,Piawaian Lampiran A3 p.130
+Door (dor),kod_jenis,PTg,Pintu Gelangsar (Sliding Door),Piawaian Lampiran A3 p.130
+Door (dor),kod_jenis,PTh,Pintu Tandas (Phenolic Door),Piawaian Lampiran A3 p.130
+Door (dor),kod_jenis,PTi,Compressed panel,Piawaian Lampiran A3 p.130
+Door (dor),kod_jenis,PTj,Pintu Jeriji (Grill),Piawaian Lampiran A3 p.130
+Door (dor),kod_jenis,PTk,Pintu Plastik / PVC,Piawaian Lampiran A3 p.130
+Door (dor),kod_jenis,PTl,Detention Door,Piawaian Lampiran A3 p.130
+Door (dor),kod_jenis,PTm,Pintu Komposit,Piawaian Lampiran A3 p.130
+Door (dor),kod_jenis,PTn,Pintu Aluminium,Piawaian Lampiran A3 p.130
+Door (dor),kod_jenis,PTo,Bukaan (Opening),Piawaian Lampiran A3 p.130
+Door (dor),kod_jenis,PTp,Pintu Panel Kayu (Solid Timber),Piawaian Lampiran A3 p.130
+Door (dor),kod_jenis,PTq,Rekabentuk Khusus / Pelbagai / Akustik / Custom,Piawaian Lampiran A3 p.130
+Door (dor),kod_jenis,PTr,Pintu Rata (Flush Hollow Core Door),Piawaian Lampiran A3 p.130
+Door (dor),kod_jenis,PTs,Pintu Senggara (Access Door),Piawaian Lampiran A3 p.130
+Door (dor),kod_jenis,PTt,Pintu Lipat (Folding Door),Piawaian Lampiran A3 p.130
+Door (dor),kod_jenis,PTu,Pintu Gulung Aluminium,Piawaian Lampiran A3 p.130
+Door (dor),kod_jenis,PTv,Laminated Flush Door,Piawaian Lampiran A3 p.130
+Door (dor),kod_jenis,PTy,Bingkai Pintu,Piawaian Lampiran A3 p.130
+Door (dor),kod_jenis,PTz,Panel Pintu,Piawaian Lampiran A3 p.130
+Window (wdw),kod_jenis,TKa,Tingkap Atas (High Window),Piawaian Lampiran A3 p.130-131
+Window (wdw),kod_jenis,TKb,Tingkap Bucu,Piawaian Lampiran A3 p.130-131
+Window (wdw),kod_jenis,TKc,Kaca Tetap Luar (Fixed Glass),Piawaian Lampiran A3 p.130-131
+Window (wdw),kod_jenis,TKd,Tingkap Kaunter,Piawaian Lampiran A3 p.130-131
+Window (wdw),kod_jenis,TKe,Elliptical / Arc,Piawaian Lampiran A3 p.130-131
+Window (wdw),kod_jenis,TKf,Lipat (Folding),Piawaian Lampiran A3 p.130-131
+Window (wdw),kod_jenis,TKg,Gelangsar (Sliding),Piawaian Lampiran A3 p.130-131
+Window (wdw),kod_jenis,TKh,Tingkap Buka Atas (Hopper Window),Piawaian Lampiran A3 p.130-131
+Window (wdw),kod_jenis,TKj,Tingkap Jeriji (Grill),Piawaian Lampiran A3 p.130-131
+Window (wdw),kod_jenis,TKk,Kasmen,Piawaian Lampiran A3 p.130-131
+Window (wdw),kod_jenis,TKm,Ram Tetap (Fixed Louvres),Piawaian Lampiran A3 p.130-131
+Window (wdw),kod_jenis,TKn,Bay Window,Piawaian Lampiran A3 p.130-131
+Window (wdw),kod_jenis,TKo,Bukaan (Opening),Piawaian Lampiran A3 p.130-131
+Window (wdw),kod_jenis,TKp,Putar (Pivot),Piawaian Lampiran A3 p.130-131
+Window (wdw),kod_jenis,TKq,Pelbagai/Gabungan/Rekabentuk Khas,Piawaian Lampiran A3 p.130-131
+Window (wdw),kod_jenis,TKr,Ram Boleh Laras (Adjustable Louvres),Piawaian Lampiran A3 p.130-131
+Window (wdw),kod_jenis,TKt,Tingkap Gantung (Top Hung),Piawaian Lampiran A3 p.130-131
+Window (wdw),kod_jenis,TKu,Tingkap Gelung Aluminium (Roller Shutter),Piawaian Lampiran A3 p.130-131
+Window (wdw),kod_jenis,TKy,Bingkai Tingkap,Piawaian Lampiran A3 p.130-131
+Window (wdw),kod_jenis,TKz,Panel Tingkap,Piawaian Lampiran A3 p.130-131
+Casework (cwk),kod_jenis,PBa,Kabinet Aras Atas,Piawaian Lampiran A3 p.131
+Casework (cwk),kod_jenis,PBb,Kabinet Aras Bawah,Piawaian Lampiran A3 p.131
+Casework (cwk),kod_jenis,PBc,Locker,Piawaian Lampiran A3 p.131
+Casework (cwk),kod_jenis,PBd,Papan Kenyataan / Notice Board,Piawaian Lampiran A3 p.131
+Casework (cwk),kod_jenis,PBe,Tetingkat (bawah rendah),Piawaian Lampiran A3 p.131
+Casework (cwk),kod_jenis,PBg,Tetingkat (bawah tinggi),Piawaian Lampiran A3 p.131
+Casework (cwk),kod_jenis,PBk,Kabinet Berkaki,Piawaian Lampiran A3 p.131
+Casework (cwk),kod_jenis,PBm,Almari,Piawaian Lampiran A3 p.131
+Casework (cwk),kod_jenis,PBq,Pelbagai/Khas/Gabungan (Custom),Piawaian Lampiran A3 p.131
+Casework (cwk),kod_jenis,PBr,Rak Dinding,Piawaian Lampiran A3 p.131
+Casework (cwk),nested_component_suffix,PBt,Tetingkat Keluli Tahan Karat (atas),Piawaian Lampiran A3 p.131
+Furniture (frn),kod_jenis,PAa,Almari,Piawaian Lampiran A3 p.131
+Furniture (frn),kod_jenis,PAb,Katil,Piawaian Lampiran A3 p.131
+Furniture (frn),kod_jenis,PAc,Cermin,Piawaian Lampiran A3 p.131
+Furniture (frn),kod_jenis,PAd,Papan Kenyataan/Notice Board,Piawaian Lampiran A3 p.131
+Furniture (frn),kod_jenis,PAk,Kerusi,Piawaian Lampiran A3 p.131
+Furniture (frn),kod_jenis,PAm,Meja,Piawaian Lampiran A3 p.131
+Furniture (frn),kod_jenis,PAq,Pelbagai (Trolley/Papan Putih dll.),Piawaian Lampiran A3 p.131
+Furniture (frn),kod_jenis,PAr,Rak,Piawaian Lampiran A3 p.131
+Furniture (frn),kod_jenis,PAt,Tetingkat,Piawaian Lampiran A3 p.131
+Furniture (frn),kod_jenis,gPA,Set/Group,Piawaian Lampiran A3 p.131
+Furniture System (frn-sy),kod_jenis,PMa,Kabinet Aras Atas,Piawaian Lampiran A3 p.131-132
+Furniture System (frn-sy),kod_jenis,PMb,Kabinet Aras Bawah,Piawaian Lampiran A3 p.131-132
+Furniture System (frn-sy),kod_jenis,PMc,Kabinet Kombinasi,Piawaian Lampiran A3 p.131-132
+Furniture System (frn-sy),kod_jenis,PMk,Kabinet Berkaki,Piawaian Lampiran A3 p.131-132
+Furniture System (frn-sy),kod_jenis,PMl,Locker,Piawaian Lampiran A3 p.131-132
+Furniture System (frn-sy),kod_jenis,PMm,Almari,Piawaian Lampiran A3 p.131-132
+Furniture System (frn-sy),kod_jenis,PMq,Pelbagai,Piawaian Lampiran A3 p.131-132
+Furniture System (frn-sy),kod_jenis,PMr,Rak Dinding,Piawaian Lampiran A3 p.131-132
+Furniture System (frn-sy),kod_jenis,PMt,Tetingkat,Piawaian Lampiran A3 p.131-132
+Furniture System (frn-sy),kod_jenis,PKj,Jururawat,Piawaian Lampiran A3 p.131-132
+Furniture System (frn-sy),kod_jenis,PKk,Kewangan,Piawaian Lampiran A3 p.131-132
+Furniture System (frn-sy),kod_jenis,PKq,Pelbagai,Piawaian Lampiran A3 p.131-132
+Furniture System (frn-sy),kod_jenis,PKr,Reception,Piawaian Lampiran A3 p.131-132
+Furniture System (frn-sy),kod_jenis,PKs,Specimen,Piawaian Lampiran A3 p.131-132
+Furniture System (frn-sy),kod_jenis,PKu,Ubat,Piawaian Lampiran A3 p.131-132
+Plumbing Fixture (plb-fx),kod_jenis,LSa,Curtain Track,Piawaian Lampiran A3 p.132
+Plumbing Fixture (plb-fx),kod_jenis,LSb,Basin,Piawaian Lampiran A3 p.132
+Plumbing Fixture (plb-fx),kod_jenis,LSc,Tandas Cangkung,Piawaian Lampiran A3 p.132
+Plumbing Fixture (plb-fx),kod_jenis,LSd,Paper Towel Dispenser,Piawaian Lampiran A3 p.132
+Plumbing Fixture (plb-fx),kod_jenis,LSe,Cistern,Piawaian Lampiran A3 p.132
+Plumbing Fixture (plb-fx),kod_jenis,LSf,Floor Trap,Piawaian Lampiran A3 p.132
+Plumbing Fixture (plb-fx),kod_jenis,LSg,Group of Sanitary Fitting,Piawaian Lampiran A3 p.132
+Plumbing Fixture (plb-fx),kod_jenis,LSh,Hose Spray,Piawaian Lampiran A3 p.132
+Plumbing Fixture (plb-fx),kod_jenis,LSi,Towel Rail,Piawaian Lampiran A3 p.132
+Plumbing Fixture (plb-fx),kod_jenis,LSj,Foot Operated Brush Dispenser,Piawaian Lampiran A3 p.132
+Plumbing Fixture (plb-fx),kod_jenis,LSl,Shelf,Piawaian Lampiran A3 p.132
+Plumbing Fixture (plb-fx),kod_jenis,LSm,Cermin / Mirror,Piawaian Lampiran A3 p.132
+Plumbing Fixture (plb-fx),kod_jenis,LSn,Nail Brush Dispenser,Piawaian Lampiran A3 p.132
+Plumbing Fixture (plb-fx),kod_jenis,LSo,Soap Holder,Piawaian Lampiran A3 p.132
+Plumbing Fixture (plb-fx),kod_jenis,LSp,Bottle Trap,Piawaian Lampiran A3 p.132
+Plumbing Fixture (plb-fx),kod_jenis,LSq,Pelbagai,Piawaian Lampiran A3 p.132
+Plumbing Fixture (plb-fx),kod_jenis,LSr,Shower Head,Piawaian Lampiran A3 p.132
+Plumbing Fixture (plb-fx),kod_jenis,LSs,Sink,Piawaian Lampiran A3 p.132
+Plumbing Fixture (plb-fx),kod_jenis,LSt,Tab,Piawaian Lampiran A3 p.132
+Plumbing Fixture (plb-fx),kod_jenis,LSu,Grab Bar / Support Rail,Piawaian Lampiran A3 p.132
+Plumbing Fixture (plb-fx),kod_jenis,LSw,WC / Tandas Duduk,Piawaian Lampiran A3 p.132
+Specialty Equipment (spc-eq),kod_jenis,ALa,"Audio Visual, Office & Miscellaneous equipment",Piawaian Lampiran A3 p.132-133
+Specialty Equipment (spc-eq),kod_jenis,ALb,Biomedical equipment,Piawaian Lampiran A3 p.132-133
+Specialty Equipment (spc-eq),kod_jenis,ALc,Housekeeping & Laundry,Piawaian Lampiran A3 p.132-133
+Specialty Equipment (spc-eq),kod_jenis,ALd,Equipments used in Dental Units/Clinics,Piawaian Lampiran A3 p.132-133
+Specialty Equipment (spc-eq),kod_jenis,ALe,Vehicles,Piawaian Lampiran A3 p.132-133
+Specialty Equipment (spc-eq),kod_jenis,ALf,Furniture,Piawaian Lampiran A3 p.132-133
+Specialty Equipment (spc-eq),kod_jenis,ALq,General Items,Piawaian Lampiran A3 p.132-133
+Specialty Equipment (spc-eq),kod_jenis,ALi,Instruments,Piawaian Lampiran A3 p.132-133
+Specialty Equipment (spc-eq),kod_jenis,ALk,Kitchen,Piawaian Lampiran A3 p.132-133
+Specialty Equipment (spc-eq),kod_jenis,ALn,Linen,Piawaian Lampiran A3 p.132-133
+Specialty Equipment (spc-eq),kod_jenis,ALm,Kitchen Equipment in Mechanical Group,Piawaian Lampiran A3 p.132-133
+Wall (wll),kod_sistem_bahan_kemasan (uppercase 3-char),DGa,Cavity,Piawaian Lampiran A3 p.123-129
+Wall (wll),kod_sistem_bahan_kemasan (uppercase 3-char),DGb,Batu-bata,Piawaian Lampiran A3 p.123-129
+Wall (wll),kod_sistem_bahan_kemasan (uppercase 3-char),DGc,Blok Konkrit / Blok Beban Ringan,Piawaian Lampiran A3 p.123-129
+Wall (wll),kod_sistem_bahan_kemasan (uppercase 3-char),DGd,Drywall,Piawaian Lampiran A3 p.123-129
+Wall (wll),kod_sistem_bahan_kemasan (uppercase 3-char),DGg,Blok Kaca / Glass Wall / Curtain Wall / Panel Kaca,Piawaian Lampiran A3 p.123-129
+Wall (wll),kod_sistem_bahan_kemasan (uppercase 3-char),DGi,IBS / Panel Konkrit Tuang Dulu,Piawaian Lampiran A3 p.123-129
+Wall (wll),kod_sistem_bahan_kemasan (uppercase 3-char),DGj,Jeriji,Piawaian Lampiran A3 p.123-129
+Wall (wll),kod_sistem_bahan_kemasan (uppercase 3-char),DGk,Konkrit Tetulang / Core / Shaft (Tanggung Beban),Piawaian Lampiran A3 p.123-129
+Wall (wll),kod_sistem_bahan_kemasan (uppercase 3-char),DGm,Kerangka Keluli / Metal,Piawaian Lampiran A3 p.123-129
+Wall (wll),kod_sistem_bahan_kemasan (uppercase 3-char),DGn,Foundation,Piawaian Lampiran A3 p.123-129
+Wall (wll),kod_sistem_bahan_kemasan (uppercase 3-char),DGo,Blok Berongga / Udara,Piawaian Lampiran A3 p.123-129
+Wall (wll),kod_sistem_bahan_kemasan (uppercase 3-char),DGp,Parti Wall,Piawaian Lampiran A3 p.123-129
+Wall (wll),kod_sistem_bahan_kemasan (uppercase 3-char),DGq,Pelbagai,Piawaian Lampiran A3 p.123-129
+Wall (wll),kod_sistem_bahan_kemasan (uppercase 3-char),DGr,Retaining,Piawaian Lampiran A3 p.123-129
+Wall (wll),kod_sistem_bahan_kemasan (uppercase 3-char),Dgs,Sistem Kubikal,Piawaian Lampiran A3 p.123-129
+Wall (wll),kod_sistem_bahan_kemasan (uppercase 3-char),DGt,Komposit / Gypsum board,Piawaian Lampiran A3 p.123-129
+Wall (wll),kod_sistem_bahan_kemasan (uppercase 3-char),DGu,Kerangka Kayu,Piawaian Lampiran A3 p.123-129
+Wall (wll),kod_sistem_bahan_kemasan (uppercase 3-char),DBa,Cavity,Piawaian Lampiran A3 p.123-129
+Wall (wll),kod_sistem_bahan_kemasan (uppercase 3-char),DBb,Batu-bata,Piawaian Lampiran A3 p.123-129
+Wall (wll),kod_sistem_bahan_kemasan (uppercase 3-char),DBc,Blok Konkrit / Blok Beban Ringan,Piawaian Lampiran A3 p.123-129
+Wall (wll),kod_sistem_bahan_kemasan (uppercase 3-char),DBd,Drywall,Piawaian Lampiran A3 p.123-129
+Wall (wll),kod_sistem_bahan_kemasan (uppercase 3-char),DBg,Blok Kaca / Glass Wall / Curtain Wall / Panel Kaca,Piawaian Lampiran A3 p.123-129
+Wall (wll),kod_sistem_bahan_kemasan (uppercase 3-char),DBi,IBS / Panel Konkrit Tuang Dulu,Piawaian Lampiran A3 p.123-129
+Wall (wll),kod_sistem_bahan_kemasan (uppercase 3-char),DBj,Jeriji,Piawaian Lampiran A3 p.123-129
+Wall (wll),kod_sistem_bahan_kemasan (uppercase 3-char),DBk,Konkrit Tetulang / Core / Shaft (Tanggung Beban),Piawaian Lampiran A3 p.123-129
+Wall (wll),kod_sistem_bahan_kemasan (uppercase 3-char),DBm,Kerangka Keluli / Metal,Piawaian Lampiran A3 p.123-129
+Wall (wll),kod_sistem_bahan_kemasan (uppercase 3-char),DBn,Foundation,Piawaian Lampiran A3 p.123-129
+Wall (wll),kod_sistem_bahan_kemasan (uppercase 3-char),DBo,Blok Berongga / Udara,Piawaian Lampiran A3 p.123-129
+Wall (wll),kod_sistem_bahan_kemasan (uppercase 3-char),DFa,Batu Asli – Batu Asli / Granite / Marmar / Organik / Pebble,Piawaian Lampiran A3 p.123-129
+Wall (wll),kod_sistem_bahan_kemasan (uppercase 3-char),DFb,Batu Bata Hiasan - Batu Bata Muka,Piawaian Lampiran A3 p.123-129
+Wall (wll),kod_sistem_bahan_kemasan (uppercase 3-char),DFd,Cat Dalam – Cat Emulsi / Plaster & Emulsion Paint,Piawaian Lampiran A3 p.123-129
+Wall (wll),kod_sistem_bahan_kemasan (uppercase 3-char),DFk,Cat Khusus – Cat Pelapik/Plaster & Epoxy Paint,Piawaian Lampiran A3 p.123-129
+Wall (wll),kod_sistem_bahan_kemasan (uppercase 3-char),DFl,Cat Luar – Cat Acrylic/Cat Tahan Cuaca/Plaster & Weather,Piawaian Lampiran A3 p.123-129
+Wall (wll),kod_sistem_bahan_kemasan (uppercase 3-char),DFn,Panel – Clading/Enamel Paint/Inorganik/Organik Fibre,Piawaian Lampiran A3 p.123-129
+Wall (wll),kod_sistem_bahan_kemasan (uppercase 3-char),DFp,Plaster – Barium Plaster & Paint/Lepa Shanghai/Lepaan,Piawaian Lampiran A3 p.123-129
+Wall (wll),kod_sistem_bahan_kemasan (uppercase 3-char),DFq,Lain - Lain – Acoustic Wall Panelling/Fibre/Kertas,Piawaian Lampiran A3 p.123-129
+Wall (wll),kod_sistem_bahan_kemasan (uppercase 3-char),DFs,Jubin Seramik – Jubin Homogeneous/Jubin Seramik /Mozek/,Piawaian Lampiran A3 p.123-129
+Floor (flr),kod_sistem_bahan_kemasan (uppercase 3-char),LTd,Panel Konkrit Tuang Dulu (IBS),Piawaian Lampiran A3 p.123-129
+Floor (flr),kod_sistem_bahan_kemasan (uppercase 3-char),LTg,Generic,Piawaian Lampiran A3 p.123-129
+Floor (flr),kod_sistem_bahan_kemasan (uppercase 3-char),LTi,IBS*,Piawaian Lampiran A3 p.123-129
+Floor (flr),kod_sistem_bahan_kemasan (uppercase 3-char),LTk,Konkrit Tetulang,Piawaian Lampiran A3 p.123-129
+Floor (flr),kod_sistem_bahan_kemasan (uppercase 3-char),LTm,Keluli,Piawaian Lampiran A3 p.123-129
+Floor (flr),kod_sistem_bahan_kemasan (uppercase 3-char),LTr,Sistem Lantai Raise Floor,Piawaian Lampiran A3 p.123-129
+Floor (flr),kod_sistem_bahan_kemasan (uppercase 3-char),LTy,Kayu,Piawaian Lampiran A3 p.123-129
+Floor (flr),kod_sistem_bahan_kemasan (uppercase 3-char),LTq,Pelbagai,Piawaian Lampiran A3 p.123-129
+Floor (flr),kod_sistem_bahan_kemasan (uppercase 3-char),LFa,Panel Plate - Kayu / Aluminium / Parket / Glass,Piawaian Lampiran A3 p.123-129
+Floor (flr),kod_sistem_bahan_kemasan (uppercase 3-char),LFb,Batu Asli - Mamar / Pebble wash / Granite / Stone / Organik,Piawaian Lampiran A3 p.123-129
+Floor (flr),kod_sistem_bahan_kemasan (uppercase 3-char),LFh,Jubin Homogenous,Piawaian Lampiran A3 p.123-129
+Floor (flr),kod_sistem_bahan_kemasan (uppercase 3-char),LFk,Karpet- Roll loop / Heavy duty loop / Fitted carpeting / Tile /,Piawaian Lampiran A3 p.123-129
+Floor (flr),kod_sistem_bahan_kemasan (uppercase 3-char),LFl,Bahan Luar - Bitumen / Concrete Paving Block / Epoxy / Paving,Piawaian Lampiran A3 p.123-129
+Floor (flr),kod_sistem_bahan_kemasan (uppercase 3-char),LFp,Plaster – Rendering / Simen / Shanghai / Barium Plaster /,Piawaian Lampiran A3 p.123-129
+Floor (flr),kod_sistem_bahan_kemasan (uppercase 3-char),LFq,Lain - Lain - Fibre / Raised Floor / Komposit / Laminate / Cat,Piawaian Lampiran A3 p.123-129
+Floor (flr),kod_sistem_bahan_kemasan (uppercase 3-char),LFs,Jubin Seramik - Mosek / Porcelain / Glazed / Matt / Anti-Slip,Piawaian Lampiran A3 p.123-129
+Floor (flr),kod_sistem_bahan_kemasan (uppercase 3-char),LFv,Vinal – Heavy duty / Anti Static / Anti Slip / High Resistant /,Piawaian Lampiran A3 p.123-129
+Roof (rof),kod_sistem_bahan_kemasan (uppercase 3-char),BGc,Sistem Kekuda Keluli (Cold Form),Piawaian Lampiran A3 p.123-129
+Roof (rof),kod_sistem_bahan_kemasan (uppercase 3-char),BGe,Sistem Kekuda Keluli (Hot Rolled),Piawaian Lampiran A3 p.123-129
+Roof (rof),kod_sistem_bahan_kemasan (uppercase 3-char),BGk,Konkrit Tetulang,Piawaian Lampiran A3 p.123-129
+Roof (rof),kod_sistem_bahan_kemasan (uppercase 3-char),BGm,Sistem Kekuda Keluli (Mild Steel),Piawaian Lampiran A3 p.123-129
+Roof (rof),kod_sistem_bahan_kemasan (uppercase 3-char),BGq,Pelbagai (Dome dll),Piawaian Lampiran A3 p.123-129
+Roof (rof),kod_sistem_bahan_kemasan (uppercase 3-char),BGt,Panel Konkrit Tuang Dulu,Piawaian Lampiran A3 p.123-129
+Roof (rof),kod_sistem_bahan_kemasan (uppercase 3-char),BGu,Sistem Kekuda Kayu,Piawaian Lampiran A3 p.123-129
+Roof (rof),kod_sistem_bahan_kemasan (uppercase 3-char),BFa,Kepingan Aluminium,Piawaian Lampiran A3 p.123-129
+Roof (rof),kod_sistem_bahan_kemasan (uppercase 3-char),BFe,Kepingan Bitumen Bergelugor / Shingles,Piawaian Lampiran A3 p.123-129
+Roof (rof),kod_sistem_bahan_kemasan (uppercase 3-char),BFf,Fabric / Tensile Roofing,Piawaian Lampiran A3 p.123-129
+Roof (rof),kod_sistem_bahan_kemasan (uppercase 3-char),BFg,Genting Tanah Liat,Piawaian Lampiran A3 p.123-129
+Roof (rof),kod_sistem_bahan_kemasan (uppercase 3-char),BFk,Genting Konkrit,Piawaian Lampiran A3 p.123-129
+Roof (rof),kod_sistem_bahan_kemasan (uppercase 3-char),BFl,Dek Logam,Piawaian Lampiran A3 p.123-129
+Roof (rof),kod_sistem_bahan_kemasan (uppercase 3-char),BFp,Kepingan Polycarbonate,Piawaian Lampiran A3 p.123-129
+Roof (rof),kod_sistem_bahan_kemasan (uppercase 3-char),BFr,Kepingan Acrylic,Piawaian Lampiran A3 p.123-129
+Roof (rof),kod_sistem_bahan_kemasan (uppercase 3-char),BFt,Kepingan Thermoglass,Piawaian Lampiran A3 p.123-129
+Ceiling (clg),kod_sistem_bahan_kemasan (uppercase 3-char),SLf,Kemasan (Finishes),Piawaian Lampiran A3 p.123-129
+Ceiling (clg),kod_sistem_bahan_kemasan (uppercase 3-char),SLg,Sistem Siling Gantung,Piawaian Lampiran A3 p.123-129
+Ceiling (clg),kod_sistem_bahan_kemasan (uppercase 3-char),SLk,Konkrit Tetulang,Piawaian Lampiran A3 p.123-129
+Ceiling (clg),kod_sistem_bahan_kemasan (uppercase 3-char),SLt,Sistem Siling Jeriau / Fix / Tetap,Piawaian Lampiran A3 p.123-129
+Ceiling (clg),kod_sistem_bahan_kemasan (uppercase 3-char),SFb,Boral Vinal - Boral Vinal (bv),Piawaian Lampiran A3 p.123-129
+Ceiling (clg),kod_sistem_bahan_kemasan (uppercase 3-char),SFc,Paint - Plaster & Paint (lc) / Plaster Jointless Ceiling With Anti,Piawaian Lampiran A3 p.123-129
+Ceiling (clg),kod_sistem_bahan_kemasan (uppercase 3-char),SFf,Fibre Board – Kepingan Cellulose Fibre (cf) / Glass Fibre Gypsum,Piawaian Lampiran A3 p.123-129
+Ceiling (clg),kod_sistem_bahan_kemasan (uppercase 3-char),SFg,Gypsum Board – PVC Laminated Gypsum Board (gbp) / Gypsum,Piawaian Lampiran A3 p.123-129
+Ceiling (clg),kod_sistem_bahan_kemasan (uppercase 3-char),SFj,Strip / Jalur / Panel – Jejalur Aluminium (al)/ Insulated,Piawaian Lampiran A3 p.123-129
+Ceiling (clg),kod_sistem_bahan_kemasan (uppercase 3-char),SFm,Skim Coat – Lepaan Skim - Skim Coat Plastering (lm)/ Cement,Piawaian Lampiran A3 p.123-129
+Ceiling (clg),kod_sistem_bahan_kemasan (uppercase 3-char),SFp,Plaster Ceiling – Fibrous Plaster (fp)/ Plaster Board (pb) / Plaster,Piawaian Lampiran A3 p.123-129
+Ceiling (clg),kod_sistem_bahan_kemasan (uppercase 3-char),SFq,"Lain-Lain – Inorganik - Organik Fibre (Chipboard, Softboard)",Piawaian Lampiran A3 p.123-129
+Ceiling (clg),kod_sistem_bahan_kemasan (uppercase 3-char),SFs,Simen Tanpa Asbestos – Calcium Silicate Board (cb) / Cement,Piawaian Lampiran A3 p.123-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),kt,Konkrit tetulang,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),lg,Generic,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),kd,Panel Konkrit Tuang Dulu,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),kl,Keluli,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),rs,Raised floor system,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),ky,Kayu,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),bb,Batu Bata,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),br,Blok Beban Ringan,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),bk,Blok konkrit,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),dw,Dry Wall,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),bc,Blok kaca,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),pc,Panel Kaca,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),ktd,Panel Konkrit Tuang Dulu,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),kt,Konkrit Tetulang,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),kl,Kerangka Keluli,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),bu,Bata/Blok Berongga / Udara,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),po,Polycarbonate,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),pg,Panel Gipsum,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),ky,Kerangka Kayu,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),cl,Cat lantai,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),ep,Epoxy,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),fh,Floor hardener,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),gr,Granite,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),jh,Jubin Homogen,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),jhh,Jubin Homogeneous (heavy-duty),Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),jhn,Jubin Homogeneous (non-slip),Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),jk,Jejalur Kayu,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),jng,Jubin Seramik (non-glaze),Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),jns,Jubin Seramik (non-slip),Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),js,Jubin Seramik,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),jsg,Jubin Seramik (gilap/glaze),Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),jt,Jubin Teracotta,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),ka,Lapisan Kedap Air,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),kp,Karpet,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),kf,Karpet (Fitted carpeting),Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),kh,Karpet (Heavy duty loop),Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),kyp,Kayu Parket,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),kr,Karpet (Rool loop),Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),kt,Carpet Tile,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),la,Laminated Flooring,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),le,Lead sheet lining,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),li,Linoleum,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),ls,Lepaan simen/Cement Render,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),mr,Mamar,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),mz,Mozek,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),ni,Permaidani,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),pc,Porcelain,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),pks,Papan Kayu Sintetik,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),pls,Papan Lapis Berspring,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),pv,Pvc,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),pw,Pebble Wash,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),px,Premix,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),rm,Rubberized Matt,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),tk,Blok Turapan Konkrit (Pavers),Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),vh,Vinyl,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),vy,Vinyl (Seamless heavy duty),Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),aw,Panel Dinding Akustik,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),ba,Batu Asli,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),bm,Batu Bata Muka,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),bp,Barium Plaster & Paint,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),ca,Cat Acrylic,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),cd,Clading,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),ce,Cat Emulsi,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),cp,Cat Pelapik,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),ctc,Cat Tahan Cuaca,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),emp,Plaster & Emulsion Paint (Washable/Wipeable),Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),en,Enamel Paint,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),ep,Plaster & Epoxy Paint (Washable/Wipeable/Chemical Resistant),Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),fo,Inorganik,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),fr,Fibre,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),hp,Plaster & Hygenic Paint (Washable/Anti Bacteria),Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),jh,Jubin Homogeneous,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),kd,Kertas Dinding,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),kcp,Kaca Kalis Peluru,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),kcs,Stained Glass,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),lh,Lepa Shanghai,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),ls,Lepaan Simen,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),lv,Papan Lapis Veneer,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),mr,Marmar,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),mzk,Mozek Kaca,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),or,Organik,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),of,"Organik Fibre (Chipboard, Softboard)",Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),pa,Panel Aluminium,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),pg,Papan Gypsum,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),ph,Panel Berhias,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),pk,Panel Komposit,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),pr,Porcelain,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),ptc,Plaster & Weather Sheild Paint,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),pu,Plaster & PU Paint (Washable/Anti Algae),Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),pw,Pebble wash,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),py,Panel Kayu,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),sc,Stone Cladding,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),sl,Slate,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),st,Spray Tiles,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),yh,Kayu Berhias,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),bv,Boral Vinyl,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),lc,Plaster & Paint,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),pj,"Plaster Jointless Ceiling With Anti Bacteria, Washable Paint",Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),cf,Kepingan Cellulose Fibre,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),gf,Glass Fibre Gypsum Board,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),mf,Mineral Fibre Board - Acoustic Mineral Fibre Board,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),gbp,PVC Laminated Gypsum Board,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),pg,Gypsum Board,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),al,Jejalur Aluminium,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),as,Insulated Aluminium Strip Ceiling,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),jkh,"Decorative Timber Strip, panel",Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),ms,Metal Strip,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),pk,Panel komposit,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),tp,Fixed Tiber Strip Panel,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),lm,Lepaan Skim,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),ls,Cement Screed,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),fp,Fibrous Plaster,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),pb,Plaster Board,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),pgc,Plaster Glass Ceiling,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),sf,Fibreglass Cement Rend,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),fo,"Inorganik - Organik Fibre (Chipboard, Softboard)",Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),la,Laminate,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),cb,Calcium Silicate Board,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),ks,Cement Board,Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),ksm,"Fixed Moisture Resist, Cement Board With Paint",Piawaian Lampiran A3 p.126-129
+"Material / finish code (lowercase, in parentheses)",kod_bahan_in_parentheses (lowercase),ps,Papan Simen Tanpa Asbestos,Piawaian Lampiran A3 p.126-129
+Stair,pb_sample_only (not a Piawaian list),TGc,sample Kod_Jenis (stair),PB p.91
+Railing,pb_sample_only (not a Piawaian list),TGc,sample Kod_Jenis (railing),PB p.80
+Generic Model,pb_sample_only (not a Piawaian list),GMa,sample Kod_Jenis,PB p.67
+Planting,pb_sample_only (not a Piawaian list),PKa,sample Kod_Jenis,PB p.70
+Ramp,pb_sample_only (not a Piawaian list),LAk,sample Kod_Jenis,PB p.76
+Floor (PB sample),pb_sample_only (not a Piawaian list),LBk,sample Kod_Jenis,PB p.55
+Column,pb_sample_only (not a Piawaian list),Co,sample Kod_Jenis,PB p.45
+Ceiling (PB sample),pb_sample_only (not a Piawaian list),SLt,sample Kod_Jenis (matches SLt in Lampiran A3),PB p.42
+Casework (PB sample),pb_sample_only (not a Piawaian list),PBm,sample Kod_Jenis (matches PBm Almari),PB p.38
+Curtain System,pb_sample_only (not a Piawaian list),DGg,sample Kod_Jenis (matches DGg in Lampiran A3),PB p.48
+Window (PB sample),pb_sample_only (not a Piawaian list),TKk,sample,PB p.99
+Door (PB sample),pb_sample_only (not a Piawaian list),PTc,sample,PB p.51
+Casework (cwk),nested_component_suffix,v,Laci,Piawaian Lampiran A3 p.131
+Casework (cwk),nested_component_suffix,w,Permukaan Worktop,Piawaian Lampiran A3 p.131
+Casework (cwk),nested_component_suffix,x,Hardware,Piawaian Lampiran A3 p.131
+Casework (cwk),nested_component_suffix,y,Frame/Carcass/Kaki,Piawaian Lampiran A3 p.131
+Casework (cwk),nested_component_suffix,z,Panel/Pintu,Piawaian Lampiran A3 p.131
