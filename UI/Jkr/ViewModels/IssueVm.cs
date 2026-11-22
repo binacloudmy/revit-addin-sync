@@ -333,7 +333,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// at least one element id (model-level create-type checks need none, AI-498), and never a person-decides row (<see cref="JkrCopilotFix.Eligible(string, string, bool, bool, bool, int, string)"/>).
         /// Hidden while no Copilot launcher is set (no dead button). Not persisted: ids are not in the audit snapshot, so a restored row shows no button until a re-scan.</summary>
         public bool CopilotFixable => JkrCopilotFix.LauncherReady && JkrCopilotFix.Eligible(SpecCheckId, RevitCategory, NeedsPerson,
-            AutoFixable || !string.IsNullOrEmpty(FixAction), IsPick || ValidOptions.Count > 0, ElementIds?.Count ?? 0, RenameTo);
+            AutoFixable || !string.IsNullOrEmpty(FixAction), IsPick || ValidOptions.Count > 0, ElementIds?.Count ?? 0, RenameTo, RevitWebAppSync.Services.JkrSpec.SpecViewSets.SetFromRequired(Required));
 
         /// <summary>AI-492: what the Copilot launcher gets for this row.</summary>
         public CopilotFixRequest ToCopilotFixRequest() => new CopilotFixRequest(Id, SpecCheckId, ElementIds, Title);

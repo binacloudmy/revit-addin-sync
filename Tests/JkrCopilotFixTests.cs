@@ -11,8 +11,8 @@ namespace RevitWebAppSync.Tests
     [Collection("CopilotLauncher")]
     public class JkrCopilotFixTests
     {
-        private static bool Ok(string id, string cat = "Doors", bool person = false, bool fix = false, bool pick = false, int ids = 2, string rename = "New 1") =>
-            JkrCopilotFix.Eligible(id, cat, person, fix, pick, ids, rename);
+        private static bool Ok(string id, string cat = "Doors", bool person = false, bool fix = false, bool pick = false, int ids = 2, string rename = "New 1", string viewSet = "BOMBA") =>
+            JkrCopilotFix.Eligible(id, cat, person, fix, pick, ids, rename, viewSet);
 
         public static IEnumerable<object[]> Allowed() => JkrCopilotFix.Allowed.Select(id => new object[] { id });
 
@@ -51,6 +51,15 @@ namespace RevitWebAppSync.Tests
         {
             Assert.False(JkrCopilotFix.IsListed(id));
             Assert.False(Ok(id));
+        }
+
+        [Fact]
+        public void E1_needs_the_set_the_evaluator_named_WP5_followup()
+        {
+            Assert.True(Ok("E.1", "Views"));
+            Assert.False(Ok("E.1", "Views", viewSet: ""));
+            Assert.False(Ok("E.1", "Views", viewSet: "  "));
+            Assert.True(Ok("Da.1", viewSet: ""));         // every other check ignores it
         }
 
         [Fact]
