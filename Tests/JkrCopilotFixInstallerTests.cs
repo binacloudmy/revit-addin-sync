@@ -62,7 +62,9 @@ namespace RevitWebAppSync.Tests
             Assert.True(JkrCopilotFix.LauncherReady);
             Assert.True(Row().CopilotFixable);                 // Da.1
             var dd = Row(); dd.SpecCheckId = "Dd.1";
-            Assert.False(dd.CopilotFixable);                   // not enabled: needs run_revit_code
+            Assert.False(dd.CopilotFixable);                   // no derived name
+            dd.RenameTo = "Door 1";
+            Assert.True(dd.CopilotFixable);                    // Dd.1 (WP-6): enabled once the add-in derived a name
             var c = Row(); c.SpecCheckId = "C1.3.1";
             Assert.False(c.CopilotFixable);                    // create-type: hidden
         }

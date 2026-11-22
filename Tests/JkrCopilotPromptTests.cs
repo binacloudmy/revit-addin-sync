@@ -3,6 +3,7 @@ using RevitWebAppSync.Services.JkrSpec;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
+using BinaVibe.Copilot.Contracts;
 using RevitWebAppSync.UI.Jkr.ViewModels;
 using Xunit;
 
@@ -24,7 +25,7 @@ namespace RevitWebAppSync.Tests
         };
         private static readonly Regex OldSingular = new Regex(@"\bset_parameter\b");
 
-        private static readonly string[] FixableFamilies = { "Da.1", "Db.2", "Db.1", "Dc.1", "A5.2", "C1.6.3", "C4.2.2" };
+        private static readonly string[] FixableFamilies = { "Da.1", "Db.2", "Db.1", "Dc.1", "Dd.1", "A5.2", "C1.6.3", "C4.2.2" };
         public static IEnumerable<object[]> Families() => FixableFamilies.Select(i => new object[] { i });
 
         private static CopilotPromptFacts Facts(string check, int n, string cat = "Doors")
@@ -34,6 +35,7 @@ namespace RevitWebAppSync.Tests
             {
                 CheckId = check, Category = cat, Required = "JKR code", Actual = "Door 1",
                 ElementIds = ids, ElementLabels = ids.ToDictionary(i => i, i => "Doors · T" + i),
+                Renames = check == "Dd.1" ? ids.ToDictionary(i => i, i => new CopilotRename { Old = "Door T" + i, New = "Window T" + i, Source = "the type name's first word" }) : new Dictionary<long, CopilotRename>(),
             };
         }
 
@@ -74,6 +76,80 @@ namespace RevitWebAppSync.Tests
                 }
         }
 
+        private static CopilotPromptFacts Dd1Facts(params (long Id, string Label, string Old, string New)[] rows) => new CopilotPromptFacts
+        {
+            CheckId = "Dd.1", Category = "Windows",
+            ElementIds = rows.Select(r => r.Id).ToList(),
+            ElementLabels = rows.ToDictionary(r => r.Id, r => r.Label),
+            Renames = rows.Where(r => r.New != null).ToDictionary(r => r.Id, r => new CopilotRename { Old = r.Old, New = r.New, Source = "the type name's first word (not the JKR code)" }),
+        };
+
+        [Fact]
+        public void Dd1_prompt_lists_exact_old_to_new_lines_the_model_never_derives_a_name_WP6()
+        {
+            var v = JkrCopilotPrompt.VariantFor("Dd.1");
+            Assert.Equal(CopilotWriteLevel.Type, v.Level);
+            Assert.Equal(new[] { "Type Name" }, v.Params);
+            Assert.True(v.NamesFromFacts);
+            Assert.Contains("param \"Type Name\", type_param true", v.How);
+            Assert.Contains("never derive, edit, translate or add a name yourself", v.How);
+            Assert.Contains("Never change the Family Name", v.How);
+            Assert.Contains("never change the Revit category", v.How);
+            var f = Dd1Facts((11, "Windows · Door 900", "Door 900", "Window 900"), (21, "Windows · Pintu 1200", "Pintu 1200", "Window 1200"));
+            var p = Assert.Single(JkrCopilotPrompt.Build(f));
+            Assert.Contains("- 11 — Windows · \"Door 900\" -> \"Window 900\"", p);
+            Assert.Contains("- 21 — Windows · \"Pintu 1200\" -> \"Window 1200\"", p);   // the Malay word is the OLD name (data); the new name is English
+            Assert.Contains("Evidence for the new names: the type name's first word (not the JKR code).", p);
+            Assert.Contains("one id per type", p);
+            Assert.Contains("Read these ids first", p);
+            Assert.DoesNotContain("Baiki", p);   // English only (AI-513)
+        }
+
+        [Fact]
+        public void Dd1_an_id_without_a_derived_name_is_never_listed_or_confirmed_and_no_name_means_no_prompt_WP6()
+        {
+            var f = Dd1Facts((11, "Windows · Door 900", "Door 900", "Window 900"), (12, "Windows · Floor 3", "Floor 3", null));
+            Assert.Equal(new long[] { 11 }, JkrCopilotPrompt.TargetIds(f));
+            var p = Assert.Single(JkrCopilotPrompt.Build(f));
+            Assert.DoesNotContain("- 12", p);
+            var none = Dd1Facts((12, "Windows · Floor 3", "Floor 3", null));
+            Assert.Empty(JkrCopilotPrompt.Build(none));
+            Assert.Null(JkrCopilotConfirmedWrite.ForPart(none, 0));
+            var same = Dd1Facts((13, "Windows · Window 1", "Window 1", "Window 1"));   // already correct: nothing to write
+            Assert.Empty(JkrCopilotPrompt.Build(same));
+        }
+
+        [Fact]
+        public void Dd1_confirm_shows_old_to_new_and_the_evidence_and_confirmed_write_is_type_level_with_the_param_never_the_value_WP6()
+        {
+            var ids = new List<long> { 11, 12, 13, 14, 21, 22, 31 };
+            var f = new CopilotPromptFacts
+            {
+                CheckId = "Dd.1", Category = "Windows", ElementIds = ids,
+                ElementLabels = ids.ToDictionary(i => i, i => i < 20 ? "Windows · Door A" : i < 30 ? "Windows · Door B" : "Windows · Floor C"),
+                Renames = ids.Where(i => i < 30).ToDictionary(i => i, i => new CopilotRename { Old = i < 20 ? "Door A" : "Door B", New = i < 20 ? "Window A" : "Window B", Source = "the type name's first word" }),
+            };
+            Assert.Equal(new long[] { 11, 21 }, JkrCopilotPrompt.TargetIds(f));   // one id per type; type C has no derived name
+            var dto = JkrCopilotConfirmedWrite.ForPart(f, 0);
+            Assert.NotNull(dto);
+            Assert.Equal("Dd.1", dto.CheckId);
+            Assert.Equal(new long[] { 11, 21 }, dto.Ids);
+            Assert.Equal(new[] { "Type Name" }, dto.Params);
+            Assert.True(dto.TypeLevel);
+            Assert.Equal(6, dto.Instances);                         // type C's instance (31) is not renamed: not counted
+            Assert.Null(JkrCopilotConfirmedWrite.ForPart(f, 1));   // one part only
+            var json = CopilotJson.Serialize(dto);
+            Assert.DoesNotContain("Window A", json);                // the param, never the value
+            var c = JkrCopilotConfirm.Build(f);
+            Assert.Contains("2 types (6 instances)", c.Heading);
+            Assert.Contains("Dd.1", c.Heading);
+            Assert.Contains("derived by the JKR pane, not by Copilot", c.Body);
+            Assert.Contains("evidence: the type name's first word", c.Body);
+            Assert.Contains("11 — Windows · \"Door A\" -> \"Window A\"", c.Details);
+            Assert.Contains("21 — Windows · \"Door B\" -> \"Window B\"", c.Details);
+            Assert.DoesNotContain("31", c.Details);
+        }
+
         [Fact]
         public void The_prompt_says_the_person_already_confirmed_and_never_to_ask_permission()
         {
@@ -101,7 +177,7 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void Type_rename_families_write_the_Type_Name_parameter_on_the_type_and_never_the_family_or_a_dimension()
         {
-            foreach (var id in new[] { "Da.1", "Dc.1" })
+            foreach (var id in new[] { "Da.1", "Dc.1", "Dd.1" })
             {
                 var how = JkrCopilotPrompt.VariantFor(id).How;
                 Assert.Contains("param \"Type Name\", type_param true", how);
@@ -252,6 +328,7 @@ namespace RevitWebAppSync.Tests
         [Theory]
         [InlineData("Da.1")]
         [InlineData("Dc.1")]
+        [InlineData("Dd.1")]
         public void Type_level_confirm_says_the_type_and_every_instance_and_drops_no_other_element_is_touched(string id)
         {
             var f = Facts(id, 3);
@@ -281,18 +358,19 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void Type_level_120_instances_of_one_type_is_one_prompt_with_one_id()
         {
-            foreach (var id in new[] { "Da.1", "Dc.1" })
+            foreach (var id in new[] { "Da.1", "Dc.1", "Dd.1" })
                 {
                     var f = Facts(id, 120);
                     f.ElementLabels = f.ElementIds.ToDictionary(i => i, i => "Doors · D1");
                     var p = Assert.Single(JkrCopilotPrompt.Build(f));
                     Assert.Equal(1, Regex.Matches(p, @"^- \d+", RegexOptions.Multiline).Count);
-                    Assert.Contains("- 1001 — Doors · D1", p);
+                    var line = id == "Dd.1" ? "Doors · D1".Replace("Doors", "Doors") : "Doors · D1";
+                    Assert.Contains(id == "Dd.1" ? "- 1001 — Doors · \"Door T1001\" -> \"Window T1001\"" : "- 1001 — " + line, p);
                     Assert.DoesNotContain("part 1 of", p);
                     Assert.Contains("one id per type", p);
                     var c = JkrCopilotConfirm.Build(f);
                     Assert.Contains("1 type (", c.Heading);
-                    Assert.Equal("1001 — Doors · D1", c.Details);
+                    Assert.Equal(id == "Dd.1" ? "1001 — Doors · \"Door T1001\" -> \"Window T1001\"" : "1001 — Doors · D1", c.Details);
                 }
         }
 

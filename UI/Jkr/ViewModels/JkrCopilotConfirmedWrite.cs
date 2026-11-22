@@ -11,7 +11,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
     /// <list type="bullet">
     /// <item>Instance-level family (Db.2, Db.1, C1.6.3, C4.2.2, A5.2): <c>ids</c> = the ids of THIS prompt part only (a part confirms
     /// only the ids its own prompt lists, at most <see cref="JkrCopilotPrompt.MaxIdsPerPrompt"/>). Strict: a write on any other id is asked.</item>
-    /// <item>Type-level family (Da.1, Dc.1): <c>ids</c> = the one INSTANCE id per type the prompt lists, <c>type_level</c> true (the server
+    /// <item>Type-level family (Da.1, Dc.1, Dd.1): <c>ids</c> = the one INSTANCE id per type the prompt lists, <c>type_level</c> true (the server
     /// resolves the types itself) and <c>instances</c> = the total instances the dialog showed for those types.</item>
     /// <item><c>params</c> = <see cref="CopilotPromptVariant.Params"/>, the names the prompt tells Copilot to set. A family whose parameters
     /// are only known at run time (Db.1, C1.6.3) has none: no field, the server asks as before.</item>
@@ -23,7 +23,17 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
     {
         /// <summary>Type-level families: the total instances behind the listed types, as the dialog shows them (the row's distinct ids).</summary>
         public static int InstanceCount(CopilotPromptFacts facts) =>
-            (facts?.ElementIds ?? new List<long>()).Where(i => i > 0).Distinct().Count();
+            ConfirmedIds(facts).Count();
+
+        /// <summary>The ids behind the write: every row id, but for a family whose names come from the add-in (Dd.1) only the ids of a type
+        /// that has a derived name, so the dialog never counts instances of a type that is not renamed.</summary>
+        private static IEnumerable<long> ConfirmedIds(CopilotPromptFacts facts)
+        {
+            var ids = (facts?.ElementIds ?? new List<long>()).Where(i => i > 0).Distinct();
+            if (facts != null && JkrCopilotPrompt.VariantFor((facts.CheckId ?? "").Trim()).NamesFromFacts)
+                ids = ids.Where(i => JkrCopilotPrompt.RenameOf(facts, i) != null);
+            return ids;
+        }
 
         /// <summary>The spec reader keeps at most this many instance ids per type (SpecModelReader.InstanceIdCap).</summary>
         public const int ReaderInstanceCap = 2000;
@@ -33,7 +43,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         {
             if (facts == null) return false;
             var perType = new Dictionary<string, int>(System.StringComparer.OrdinalIgnoreCase);
-            foreach (var id in (facts.ElementIds ?? new List<long>()).Where(i => i > 0).Distinct())
+            foreach (var id in ConfirmedIds(facts))
             {
                 string label = null;
                 if (facts.ElementLabels != null) facts.ElementLabels.TryGetValue(id, out label);

@@ -29,13 +29,13 @@ namespace RevitWebAppSync.Tests
             Assert.True(ResultsAdapter.FromIssue(row).CopilotFixable);
         }
 
-        private static IssueVm Row(string check, string cat = "Doors", bool fix = false, bool pick = false, int ids = 2, bool human = false)
+        private static IssueVm Row(string check, string cat = "Doors", bool fix = false, bool pick = false, int ids = 2, bool human = false, string rename = "")
         {
             var i = new IssueVm
             {
                 Id = "r-" + check, CheckId = "SPEC-" + check, SpecCheckId = check, Title = check, RevitCategory = cat,
                 Verification = human ? IssueVerification.Human : IssueVerification.Ai,
-                RevitElementId = ids > 0 ? 100 : 0, AutoFixable = fix, FixAction = fix ? "rename_type" : "", FixValue = fix ? "x" : "",
+                RenameTo = rename, RevitElementId = ids > 0 ? 100 : 0, AutoFixable = fix, FixAction = fix ? "rename_type" : "", FixValue = fix ? "x" : "",
             };
             for (var k = 0; k < ids; k++) i.AddElements(new long[] { 100 + k }, "Doors · d" + k);
             if (pick) i.SetPick(new[] { "a", "b" }, "", "", true);
@@ -56,9 +56,25 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
+        public void A_Dd1_row_shows_the_button_only_with_a_derived_new_name_WP6()
+        {
+            Assert.True(Row("Dd.1", "Windows", rename: "Window 900").CopilotFixable);
+            Assert.False(Row("Dd.1", "Windows").CopilotFixable);          // no derived name: code evidence, a contradicting family, a clash
+            Assert.False(Row("Dd.1", "Windows", human: true, rename: "Window 900").CopilotFixable);
+            Assert.False(Row("Dd.1", "Windows", fix: true, rename: "Window 900").CopilotFixable);
+            Assert.False(Row("Dd.1", "Windows", pick: true, rename: "Window 900").CopilotFixable);
+            Assert.False(Row("Dd.1", "Windows", ids: 0, rename: "Window 900").CopilotFixable);
+            var r = Row("Dd.1", "Windows", rename: "Window 900").ToCopilotFixRequest();
+            Assert.Equal("Dd.1", r.CheckId);
+            JkrCopilotFix.Launcher = null;
+            Assert.False(Row("Dd.1", "Windows", rename: "Window 900").CopilotFixable);
+            JkrCopilotFix.Launcher = new NoopLauncher();
+        }
+
+        [Fact]
         public void Rows_of_the_hidden_families_never_show_the_button_even_with_ids()
         {
-            foreach (var id in new[] { "Dd.1", "A2.2", "A3.1", "C1.3.1", "C1.4.1", "C1.5.2", "C1.6.1", "C2.1.1", "C3.1.1", "C4.1.3", "C5.1.1", "C5.1.2", "C1.1.1", "C1.1.2" })
+            foreach (var id in new[] { "A2.2", "A3.1", "C1.3.1", "C1.4.1", "C1.5.2", "C1.6.1", "C2.1.1", "C3.1.1", "C4.1.3", "C5.1.1", "C5.1.2", "C1.1.1", "C1.1.2" })
             {
                 Assert.False(Row(id, "Views", ids: 0).CopilotFixable, id);
                 Assert.False(Row(id, "Views", ids: 3).CopilotFixable, id);

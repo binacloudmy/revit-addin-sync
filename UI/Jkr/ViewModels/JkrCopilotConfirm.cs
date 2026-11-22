@@ -62,6 +62,14 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 else
                     body.Append("No other element is touched and nothing is deleted. ");
             }
+            if (variant.NamesFromFacts)
+            {
+                var src = ids.Select(i => JkrCopilotPrompt.RenameOf(facts, i)).Where(r => r != null).Select(r => JkrCopilotPrompt.CleanLabel(r.Source)).Where(x => x.Length > 0).Distinct().ToList();
+                body.Append("The new names were derived by the JKR pane, not by Copilot");
+                if (src.Count > 0) body.Append(" (evidence: ").Append(string.Join("; ", src)).Append(')');
+                body.Append("; Copilot applies exactly those names and the category is not changed. Old name -> new name is listed below. Applied at once; you can Undo from the Copilot chat. ");
+            }
+            else
             body.Append("Copilot works out the new values from the model and applies them at once; you can Undo from the Copilot chat. ");
             if (parts > 1)
                 body.Append($"Sent in {parts} parts, with this one confirmation. ");
@@ -75,7 +83,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 if (facts.ElementLabels != null) facts.ElementLabels.TryGetValue(id, out label);
                 label = JkrCopilotPrompt.CleanLabel(label);
                 d.Append(id);
-                if (label.Length > 0) d.Append(" — ").Append(label);
+                if (variant.NamesFromFacts) d.Append(" — ").Append(JkrCopilotPrompt.RenameLine(facts, id));
+                else if (label.Length > 0) d.Append(" — ").Append(label);
                 d.AppendLine();
             }
             if (ids.Count > MaxListed)

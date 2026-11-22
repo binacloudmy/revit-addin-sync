@@ -61,16 +61,16 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
     public static class JkrCopilotFix
     {
         /// <summary>The families the protocol-3 engine can do with <c>set_parameters</c> (one parameter, a value per call, on
-        /// element ids): type renames through the "Type Name" parameter (Da.1, Dc.1), the Material parameter (Db.2), mandatory
+        /// element ids): type renames through the "Type Name" parameter (Da.1, Dc.1, Dd.1), the Material parameter (Db.2), mandatory
         /// parameters with a derivable value (Db.1), grid names (A5.2), room parameters (C1.6.3) and sheet parameters (C4.2.2).
-        /// NOT here, and hidden: Dd.1 (changing an element's category needs run_revit_code or a person), A2.2 and A3.1 (the
+        /// Dd.1 (WP-6): the type is renamed to a name the add-in derived (first word swapped to its category) only when the NAME is the evidence; a failing JKR code or a contradicting family gets no button (a person decides). NOT here, and hidden: A2.2 and A3.1 (the
         /// model code lives in the FILE name: a Save As), the create-type families C1.3.1 C1.4.1 C1.5.2 C1.6.1 C2.1.1 C3.1.1
         /// C4.1.3 C5.1.1 (create views, schedules, legends, sheets, links: run_revit_code) and the template views C1.1.1 / C1.1.2,
         /// C1.6.2, C5.1.2. The gaps are listed in the AI-490 rework PR.</summary>
         public static IReadOnlyCollection<string> Allowed => AllowedSet;
         private static readonly HashSet<string> AllowedSet = new HashSet<string>(StringComparer.Ordinal)
         {
-            "Da.1", "Db.2", "Db.1", "Dc.1", "A5.2", "C1.6.3", "C4.2.2",
+            "Da.1", "Db.2", "Db.1", "Dc.1", "Dd.1", "A5.2", "C1.6.3", "C4.2.2",
         };
 
         /// <summary>Never offered, whatever <see cref="Allowed"/> says: a person decides. Project Information (B1.1),
@@ -106,9 +106,16 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             (specCheckId ?? "").Trim() == "Db.2" && string.Equals((revitCategory ?? "").Trim(), "Walls", StringComparison.OrdinalIgnoreCase);
 
         /// <summary>The whole rule, on plain values (the table test drives this).</summary>
-        public static bool Eligible(string specCheckId, string revitCategory, bool needsPerson, bool hasFix, bool isPick, int elementIdCount) =>
+        public static bool Eligible(string specCheckId, string revitCategory, bool needsPerson, bool hasFix, bool isPick, int elementIdCount, string renameTo = "") =>
             !needsPerson && !hasFix && !isPick && elementIdCount >= 1
-            && IsListed(specCheckId) && IsAiClass(specCheckId) && !IsWallMaterial(specCheckId, revitCategory);
+            && IsListed(specCheckId) && IsAiClass(specCheckId) && !IsWallMaterial(specCheckId, revitCategory)
+            && IsDerivableRename(specCheckId, renameTo);
+
+        /// <summary>WP-6: Dd.1 shows the button only when the add-in derived the new name (<c>SpecChecks.ProposeRename</c>): the NAME is the
+        /// odd one out, not the JKR code and not the family. Without it the family may really be of another category, a rename would hide
+        /// that model error, and a person decides. True for every other check.</summary>
+        public static bool IsDerivableRename(string specCheckId, string renameTo) =>
+            (specCheckId ?? "").Trim() != "Dd.1" || !string.IsNullOrWhiteSpace(renameTo);
 
         public static string Label() =>
             "Fix via Copilot";
@@ -116,7 +123,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// <summary>AI-509: the check header's button: "Fix all 46 elements via Copilot".</summary>
         public static string FixAllLabel(int elements) => $"Fix all {elements} element{(elements == 1 ? "" : "s")} via Copilot";
 
-        public static string FixAllTooltip() => "Asks you to confirm once, then opens one new Copilot chat that applies the change to every element of this check (in parts of 50). The check is re-checked afterwards; you can Undo it from the Copilot chat. Da.1 / Dc.1: a type rename changes all instances of the type.";
+        public static string FixAllTooltip() => "Asks you to confirm once, then opens one new Copilot chat that applies the change to every element of this check (in parts of 50). The check is re-checked afterwards; you can Undo it from the Copilot chat. Da.1 / Dc.1 / Dd.1: a type rename changes all instances of the type.";
 
         /// <summary>What a click does: a confirm here first (nothing is sent on No), then a new Copilot chat that applies the change.</summary>
         public static string Tooltip() => "Asks you to confirm, then opens a new Copilot chat that applies the change to this item's elements. You can Undo it from the Copilot chat.";

@@ -590,6 +590,7 @@ namespace RevitWebAppSync.Services.JkrSpec
             const string id = "Dd.1";
             var ok = new Dictionary<string, int>(StringComparer.Ordinal);
             var unjudged = 0;
+            var fails = new List<(SpecType T, SpecResult R)>();
             foreach (var t in TypesIn(m, SectionDCategories))
             {
                 var exp = ExpectedCategories(t);
@@ -597,13 +598,121 @@ namespace RevitWebAppSync.Services.JkrSpec
                 if (In(exp.Value.Categories, t.Category)) { Bump(ok, t.Category); continue; }
                 var expected = string.Join(" / ", exp.Value.Categories);
                 var srcEn = exp.Value.Source;
-                yield return FailType(id, t,
+                fails.Add((t, FailType(id, t,
                     $"Type '{t.TypeName}' is in {t.Category} — its {srcEn} says {expected}",
-                    SpecCoverage.Full, actual: t.Category, required: expected);
+                    SpecCoverage.Full, actual: t.Category, required: expected)));
+            }
+            // WP-6: a type whose NAME alone is the odd one out gets a proposed new name (pure, deterministic; the "Fix via Copilot"
+            // button and prompt use it, the model never derives a name). A failing code, a contradicting family and a name that would
+            // collide get none: a person decides.
+            var proposals = ProposeRenames(m, fails.Select(f => f.T).ToList());
+            foreach (var f in fails)
+            {
+                if (proposals.TryGetValue(f.T, out var pr)) { f.R.RenameFrom = f.T.TypeName; f.R.RenameTo = pr.NewName; f.R.RenameSource = pr.Source; }
+                yield return f.R;
             }
             var cov = unjudged > 0 ? SpecCoverage.FailOnly : SpecCoverage.Full;
             foreach (var kv in ok)
                 yield return Pass(id, $"{kv.Key}: {kv.Value} types: Revit category matches the name", kv.Value, cov).InCat(kv.Key);
+        }
+
+        /// <summary>A proposed new type name and the evidence that makes the NAME the odd one out.</summary>
+        public sealed class RenameProposal
+        {
+            public string NewName = "";
+            /// <summary>Plain-English evidence, shown in the confirm dialog and the prompt.</summary>
+            public string Source = "";
+        }
+
+        /// <summary>English singular word per Revit category: the word a first-word swap writes (never Malay).</summary>
+        private static readonly Dictionary<string, string> CategoryWord = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Doors"] = "Door", ["Windows"] = "Window", ["Walls"] = "Wall", ["Floors"] = "Floor", ["Ceilings"] = "Ceiling",
+            ["Roofs"] = "Roof", ["Stairs"] = "Stair", ["Railings"] = "Railing", ["Ramps"] = "Ramp",
+            ["Columns"] = "Column", ["Structural Columns"] = "Column",
+        };
+
+        private static readonly string EvidenceName = "the type name's first word (not the JKR code, and the family name does not contradict the category)";
+
+        /// <summary>
+        /// WP-6: the new type name for ONE type, or null when none can be derived without a guess. Pure and deterministic.
+        /// Only when the NAME is the odd one out: the evidence is the type name's first word (<see cref="ExpectedCategories"/> source "name"),
+        /// the JKR code is not the evidence (a failing code means the family may really be of another category: a person decides),
+        /// and the family name says nothing or includes the category the type is in. The new name replaces only that first word
+        /// by the English word of the category (capitalisation kept) and is checked to pass Dd.1 for the category.
+        /// <paramref name="allowCode"/> (false in production) also swaps the two-letter code prefix for the one table prefix of the
+        /// category, keeping the letter case of the original ("Co100", "CO100"); it is not used by the button.
+        /// </summary>
+        public static RenameProposal ProposeRename(SpecType t, bool allowCode = false)
+        {
+            if (t == null) return null;
+            var cat = (t.Category ?? "").Trim();
+            var exp = ExpectedCategories(t);
+            if (exp == null || In(exp.Value.Categories, cat)) return null;
+            if (exp.Value.Source.StartsWith("code", StringComparison.Ordinal))
+            {
+                if (!allowCode) return null;
+                var swapped = SwapCodePrefix(t.TypeName, cat);
+                return swapped == null ? null : Verified(t, swapped, "the JKR code prefix");
+            }
+            if (exp.Value.Source != "name") return null;                       // "family": the family is the odd one out
+            var accessory = In(AccessoryCategories, cat);
+            var fam = WordExpectation(t.FamilyName, accessory);
+            if (fam != null && !In(fam, cat)) return null;                       // the family contradicts the category too: a real model error
+            if (!CategoryWord.TryGetValue(cat, out var word)) return null;
+            var name = t.TypeName ?? "";
+            // the first word as Dd.1 judges it (brackets blanked, same length, so the index is valid in the original name)
+            var m = Words.Match(Bracketed.Replace(name, x => new string(' ', x.Length)));
+            if (!m.Success || !WordCategories.ContainsKey(m.Value)) return null;
+            var neu = name.Substring(0, m.Index) + MatchCase(word, m.Value) + name.Substring(m.Index + m.Length);
+            return Verified(t, neu, EvidenceName);
+        }
+
+        private static string MatchCase(string word, string like)
+        {
+            if (like.Length > 1 && like.All(char.IsUpper)) return word.ToUpperInvariant();
+            if (like.Length > 0 && char.IsLower(like[0])) return word.ToLowerInvariant();
+            return word;
+        }
+
+        /// <summary>The code with its two prefix letters replaced by the category's one table prefix, each letter keeping the case of
+        /// the original letter at that place ("Co100" stays mixed). Null: no code, or the category has no single prefix.</summary>
+        public static string SwapCodePrefix(string typeName, string category)
+        {
+            var c = (category ?? "").Trim();
+            var hits = CodeCategories.Where(kv => kv.Value.Any(x => string.Equals(x, c, StringComparison.OrdinalIgnoreCase))).Select(kv => kv.Key).ToList();
+            if (hits.Count != 1) return null;
+            var m = CodeRx.Match(typeName ?? "");
+            if (!m.Success) return null;
+            var g = m.Groups[1];
+            var neu = new string(hits[0].Select((ch, i) => char.IsLower(g.Value[i]) ? char.ToLowerInvariant(ch) : char.ToUpperInvariant(ch)).ToArray());
+            if (g.Value.Length > 1 && char.IsUpper(g.Value[0]) && char.IsLower(g.Value[1]))   // "Co": capital then small
+                neu = char.ToUpperInvariant(neu[0]) + neu.Substring(1).ToLowerInvariant();
+            return (typeName ?? "").Substring(0, g.Index) + neu + (typeName ?? "").Substring(g.Index + g.Length);
+        }
+
+        /// <summary>The proposal only when the renamed type passes Dd.1 for its category.</summary>
+        private static RenameProposal Verified(SpecType t, string newName, string source)
+        {
+            if (string.IsNullOrWhiteSpace(newName) || string.Equals(newName, t.TypeName, StringComparison.Ordinal)) return null;
+            var probe = new SpecType { Category = t.Category, FamilyName = t.FamilyName, TypeName = newName };
+            var e = ExpectedCategories(probe);
+            if (e == null || !In(e.Value.Categories, t.Category)) return null;
+            return new RenameProposal { NewName = newName, Source = source };
+        }
+
+        /// <summary>Proposals for a batch of failing types. A name that equals another proposed name in the same family and category, or
+        /// the name of a type that already exists there (Revit type names are unique per family), is dropped for every type in the clash.</summary>
+        internal static Dictionary<SpecType, RenameProposal> ProposeRenames(SpecModel m, IReadOnlyList<SpecType> failing)
+        {
+            var all = new Dictionary<SpecType, RenameProposal>();
+            foreach (var t in failing) { var p = ProposeRename(t); if (p != null) all[t] = p; }
+            string Key(SpecType t, string name) => (t.Category ?? "").ToLowerInvariant() + "|" + (t.FamilyName ?? "").ToLowerInvariant() + "|" + (name ?? "").Trim().ToLowerInvariant();
+            var existing = new HashSet<string>((m?.Types ?? new List<SpecType>()).Select(x => Key(x, x.TypeName)));
+            var counts = all.GroupBy(kv => Key(kv.Key, kv.Value.NewName)).ToDictionary(g => g.Key, g => g.Count());
+            var drop = all.Where(kv => { var k = Key(kv.Key, kv.Value.NewName); return counts[k] > 1 || existing.Contains(k); }).Select(kv => kv.Key).ToList();
+            foreach (var t in drop) all.Remove(t);
+            return all;
         }
 
         // ─── Dd.2, De.1–De.3 — human / list rows ───
