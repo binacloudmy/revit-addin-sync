@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Linq;
 using RevitWebAppSync.UI.Jkr.Export;
 using RevitWebAppSync.UI.Jkr.ViewModels;
@@ -43,12 +44,40 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void Seven_columns_and_csv_quoting()
+        public void Eight_columns_and_csv_quoting()
         {
-            Assert.Equal(7, IssueExportRows.Header.Length);
-            Assert.Equal(7, IssueExportRows.Cells(Sample()[0]).Length);
+            Assert.Equal(8, IssueExportRows.Header.Length);
+            Assert.Equal(8, IssueExportRows.Cells(Sample()[0]).Length);
             Assert.Equal("\"a,\"\"b\"\"\"", IssueExportRows.CsvCell("a,\"b\""));
             Assert.Equal("", IssueExportRows.CsvCell(null));
+        }
+
+        private static IssueVm Human(string id) => new IssueVm { Id = id, Title = "t" + id, Status = IssueStatus.Open, Verification = IssueVerification.Human };
+
+        /// <summary>AI-512: a mixed scan. Each status's rows in the CSV equal the tab counts, the total is the board total,
+        /// and Manual rows (needs a person, or marked manual) carry the "Manual" label, not "Open".</summary>
+        [Fact]
+        public void Csv_status_column_reconciles_with_the_board_tally()
+        {
+            var rows = new List<IssueVm>
+            {
+                I("o1", IssueStatus.Open), I("o2", IssueStatus.Open),
+                I("f1", IssueStatus.Fixed), new IssueVm { Id = "f2", Title = "t", Status = IssueStatus.Fixed, FixedVia = "Copilot" },
+                I("m1", IssueStatus.ManualFixNeeded), Human("m2"), Human("m3"),
+                I("i1", IssueStatus.Ignored), I("i2", IssueStatus.Approved),
+            };
+            var lines = IssueExportRows.CsvLines(IssueExportRows.Select(rows, true, true));
+            Assert.Equal(rows.Count + 1, lines.Length);
+            Assert.EndsWith(",Board status", lines[0]);
+            var status = lines.Skip(1).Select(l => l.Substring(l.LastIndexOf(',') + 1)).ToArray();
+            var t = JkrIssueCounts.Count(rows);
+            Assert.Equal(t.Open, status.Count(x => x == "Open"));
+            Assert.Equal(t.Resolved, status.Count(x => x == "Fixed"));
+            Assert.Equal(t.Manual, status.Count(x => x == "Manual"));
+            Assert.Equal(t.Ignored, status.Count(x => x == "Ignored"));
+            Assert.Equal(new[] { 2, 2, 3, 2 }, new[] { t.Open, t.Resolved, t.Manual, t.Ignored });
+            Assert.Equal(t.Total, status.Length);
+            Assert.Equal("Manual", IssueExportRows.BoardStatus(rows.First(r => r.Id == "m2")));
         }
     }
 }

@@ -156,6 +156,45 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             return prompts;
         }
 
+        /// <summary>AI-509: ONE set of facts for several rows of the same check ("Fix all elements via Copilot"): the ids of every row (distinct,
+        /// in row order), every label, the categories joined. Required / Actual are kept only when every row says the same (else left out of the
+        /// prompt rather than quoting one row for all). The prompt, the confirm and confirmed_write are all built from this one value, so the
+        /// three cannot disagree, and chunking into parts of <see cref="MaxIdsPerPrompt"/> happens in <see cref="Build(CopilotPromptFacts, bool)"/>.</summary>
+        public static CopilotPromptFacts MergeFacts(IEnumerable<CopilotPromptFacts> rows)
+        {
+            var list = (rows ?? Enumerable.Empty<CopilotPromptFacts>()).Where(r => r != null).ToList();
+            if (list.Count == 0) throw new ArgumentException("no rows", nameof(rows));
+            var ids = new List<long>();
+            var seen = new HashSet<long>();
+            var labels = new Dictionary<long, string>();
+            foreach (var r in list)
+            {
+                foreach (var id in r.ElementIds ?? new List<long>())
+                {
+                    if (id <= 0) continue;
+                    if (seen.Add(id)) ids.Add(id);
+                    string l = null;
+                    if (r.ElementLabels != null && r.ElementLabels.TryGetValue(id, out l) && !string.IsNullOrEmpty(l) && !labels.ContainsKey(id)) labels[id] = l;
+                }
+            }
+            string Same(Func<CopilotPromptFacts, string> pick)
+            {
+                var first = CleanLabel(pick(list[0]));
+                return list.All(r => string.Equals(CleanLabel(pick(r)), first, StringComparison.Ordinal)) ? first : "";
+            }
+            var cats = list.Select(r => CleanLabel(r.Category)).Where(c => c.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            return new CopilotPromptFacts
+            {
+                CheckId = list[0].CheckId,
+                Title = list[0].Title,
+                Category = string.Join(", ", cats),
+                Required = Same(r => r.Required),
+                Actual = Same(r => r.Actual),
+                ElementIds = ids,
+                ElementLabels = labels,
+            };
+        }
+
         /// <summary>The ids a prompt and the confirm list: every distinct positive id, except for a type-level family, where only the
         /// first id of each type (an element label is its type name; an id with no label counts as its own type).</summary>
         public static List<long> TargetIds(CopilotPromptFacts facts)
