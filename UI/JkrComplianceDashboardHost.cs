@@ -75,6 +75,12 @@ namespace RevitWebAppSync.UI
                     var issue = _panel.Issue(id);
                     if (issue != null && issue.CopilotFixable) Jkr.ViewModels.JkrCopilotFix.Request(issue.ToCopilotFixRequest());
                 };
+                // AI-509: the check header's "Fix all elements via Copilot": all its open rows, one confirm, one chat, one re-check.
+                results.CopilotFixCheckRequested += (checkId, ids) =>
+                {
+                    var request = _panel.CopilotFixRequestForCheck(checkId, ids);
+                    if (request != null) Jkr.ViewModels.JkrCopilotFix.Request(request);
+                };
                 // AI-494: the launcher (open pane, new chat, wait for indexing, send). Not set without a prompt builder (AI-493).
                 Jkr.ViewModels.JkrCopilotFixInstaller.Install(new Jkr.JkrCopilotSession(), id => _panel.Issue(id), message => _shell.ShowToast(message),
                     // AI-495: after the Copilot write, re-check the row; Fixed only if its rule re-passes.
@@ -84,6 +90,8 @@ namespace RevitWebAppSync.UI
                         Recheck = (ids, written) => _panel.RecheckAsync(ids, written),
                         RecheckByScan = issue => _panel.RecheckByScanAsync(issue),
                         MarkFixed = (issue, toast) => _panel.MarkFixedViaCopilot(issue, toast),
+                        MarkFixedMany = (issues, toast) => _panel.MarkFixedManyViaCopilot(issues, toast),               // AI-509
+                        MarkStillFailing = (issues, reason) => _panel.MarkStillFailingAfterCopilot(issues, reason),    // AI-509
                         Remember = (req, issue) => _panel.RememberCopilotFix(req, issue),   // AI-496: so Undo can reopen the row
                         Toast = message => _shell.ShowToast(message),
                         IsBm = () => !Jkr.Panel.Core.PaneLanguage.IsEn,
