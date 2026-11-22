@@ -342,6 +342,24 @@ namespace RevitWebAppSync.UI.Copilot.Model
             }
         }
 
+        /// <summary>C4.2.2: the real message of the newest write call Copilot's tool refused (a refusal at the plan, e.g. "No parameter named ..."),
+        /// rejected or not, or null. The loop guard ("same tool error repeated") says nothing of it; the pane toast must.</summary>
+        public string? LastToolError
+        {
+            get
+            {
+                lock (_sync)
+                {
+                    for (var i = _writes.Count - 1; i >= 0; i--)
+                    {
+                        var w = _writes[i];
+                        if (!w.Ok && !string.IsNullOrWhiteSpace(w.Error?.Message)) return w.Error!.Message;
+                    }
+                    return null;
+                }
+            }
+        }
+
         /// <summary>AI-dc1: "Copilot renamed X of N types; Revit refused: Type: Reason" for a partly done rename batch, else null.</summary>
         public string? RenameRefusal
         {

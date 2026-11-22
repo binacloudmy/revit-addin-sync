@@ -89,12 +89,21 @@ namespace BinaVibe.Copilot.Tools
             int typeOnly = 0, instanceOnly = 0, missing = 0, readOnly = 0, grouped = 0;
             string? display = null;
             int wrongType = 0;
+            int sheetSkips = 0;
+            string? firstSheetSkip = null;
+            SheetParams.NumberLedger? numbers = null;
             string? wrongTypeName = null, wrongTypeCategory = null;
             IReadOnlyList<string> wrongTypeNear = Array.Empty<string>();
             foreach (var t in picked)
             {
                 var el = t.Element;
                 Element owner;
+                // C4.2.2: a sheet has no type. type_param true on its name or number is never a type rename and is never silently skipped.
+                if (a.TypeParam && el is ViewSheet && SheetParams.Classify(a.Param) != SheetParamKind.None)
+                    throw new WriteRefusal(ErrorCodes.InvalidArgs,
+                        TypeRename.IsTypeNameParam(a.Param) ? SheetParams.TypeParamRefusal(a.Param)
+                        : string.Equals(a.Param.Trim(), "Name", StringComparison.OrdinalIgnoreCase) ? TypeRename.InstanceNameRefusal(el.Category?.Name)
+                        : SheetParams.TypeParamRefusal(a.Param));
                 if (a.TypeParam)
                 {
                     owner = el as ElementType ?? SetParameterTargets.TypeOf(doc, el)!;
@@ -119,7 +128,7 @@ namespace BinaVibe.Copilot.Tools
                     continue;
                 }
 
-                var p = owner.LookupParameter(a.Param);
+                var p = FindParam(owner, a.Param);
                 if (p == null)
                 {
                     if (!a.TypeParam && SetParameterTargets.TypeOf(doc, el)?.LookupParameter(a.Param) != null) typeOnly++;
@@ -135,6 +144,24 @@ namespace BinaVibe.Copilot.Tools
                 if (!parsed.Ok)
                     throw new WriteRefusal(ErrorCodes.InvalidArgs,
                         "Value " + Raw(t.Value) + " for '" + a.Param + "'" + (t.Row != null ? " (table row " + t.Row.Value.ToString(CultureInfo.InvariantCulture) + ")" : "") + ": " + parsed.Error + ".");
+                if (owner is ViewSheet sheetOwner && SheetParams.Classify(a.Param) is var sheetKind && sheetKind != SheetParamKind.None)
+                {
+                    // C4.2.2: one bad sheet is skipped with its reason; the others still change (receipt Partial).
+                    var sheetProblem = SheetParams.Check(sheetKind, parsed.Text);
+                    if (sheetProblem == null && sheetKind == SheetParamKind.Number)
+                    {
+                        numbers ??= new SheetParams.NumberLedger(new FilteredElementCollector(doc).OfClass(typeof(ViewSheet)).Cast<ViewSheet>()
+                            .Select(x => new KeyValuePair<long, string>((long)x.Id.Value, x.SheetNumber)));
+                        sheetProblem = numbers.Claim((long)sheetOwner.Id.Value, parsed.Text);
+                    }
+                    if (sheetProblem != null)
+                    {
+                        sheetSkips++;
+                        firstSheetSkip ??= "Value " + Raw(t.Value) + " for '" + a.Param + "' on sheet " + Id(sheetOwner) + ": " + sheetProblem;
+                        Skip(notes, sheetOwner, t.Row, sheetProblem);
+                        continue;
+                    }
+                }
                 if (!a.TypeParam && RevitParamValues.ChangesType(p))
                 {
                     // A type change: the name is matched among the types this element can take, never across
@@ -182,6 +209,8 @@ namespace BinaVibe.Copilot.Tools
 
             if (edits.Count == 0 && notes.Unchanged == 0)
             {
+                if (sheetSkips > 0)
+                    throw new WriteRefusal(ErrorCodes.InvalidArgs, firstSheetSkip + (sheetSkips > 1 ? " (" + sheetSkips.ToString(CultureInfo.InvariantCulture) + " sheets refused)" : ""));
                 if (wrongType > 0 && readOnly == 0 && grouped == 0)
                     throw new WriteRefusal(ErrorCodes.NotFound,
                         "No " + (wrongTypeCategory ?? "matched") + " type named '" + wrongTypeName + "' that the " +
@@ -254,7 +283,7 @@ namespace BinaVibe.Copilot.Tools
                     pendingRenames.Add(new TypeRenameItem(id, el.Name, rv.Text));
                     continue;
                 }
-                var p = el.LookupParameter(notes.Param)
+                var p = FindParam(el, notes.Param)
                         ?? throw new WriteRefusal(ErrorCodes.NotFound, "Element " + key + " no longer has '" + notes.Param + "'; nothing was changed.", Array.Empty<string>());
                 var v = ParsedValue.FromCanonical(plan.IntendedValues.TryGetValue(key, out var c) ? c : null);
                 if (!v.Ok) throw new WriteRefusal(ErrorCodes.InvalidArgs, "The plan holds no value for element " + key + ".");
@@ -288,7 +317,7 @@ namespace BinaVibe.Copilot.Tools
             {
                 // Read back through a fresh lookup: a type change (AI-328) can leave the Parameter
                 // object taken before the change stale.
-                var rp = doc.GetElement(ElemIds.From(w.id))?.LookupParameter(notes.Param) ?? w.p;
+                var rp = FindParam(doc.GetElement(ElemIds.From(w.id)), notes.Param) ?? w.p;
                 var after = RevitParamValues.Display(rp);
                 if (rows.Count < EnvelopeLimits.MaxRows)
                 {
@@ -332,6 +361,21 @@ namespace BinaVibe.Copilot.Tools
         }
 
         // ------------------------------------------------------------------
+
+        /// <summary>The parameter a name stands for. On a sheet, "Sheet Name" / "Name" / "Sheet Number" fall back to the built-in
+        /// SHEET_NAME / SHEET_NUMBER when LookupParameter misses (the label is localised, and "Name" is not its label). Never reaches a type.</summary>
+        private static Parameter? FindParam(Element? owner, string name)
+        {
+            if (owner == null) return null;
+            var p = owner.LookupParameter(name);
+            if (p != null || owner is not ViewSheet) return p;
+            return SheetParams.Classify(name) switch
+            {
+                SheetParamKind.Name => owner.get_Parameter(BuiltInParameter.SHEET_NAME),
+                SheetParamKind.Number => owner.get_Parameter(BuiltInParameter.SHEET_NUMBER),
+                _ => null,
+            };
+        }
 
         /// <summary>Renames one type inside its own SubTransaction, so a refusal (any exception) leaves the other renames alone.</summary>
         private static void RenameOne(Document doc, TypeRenameItem item)

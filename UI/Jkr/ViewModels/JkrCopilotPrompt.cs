@@ -98,8 +98,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     "Find the empty columns with inspect, then use set_parameters for each column on the room ids below. If a value cannot be taken from the model or from lookup, ask me once with ask_user; never guess.",
                     "Fill empty room parameters"),
                 ["C4.2.2"] = new CopilotPromptVariant(
-                    "Change the sheets below by filling the empty title block cells: drawing title, modelled by, timestamp. Set only values you know.",
-                    "Use set_parameters on the sheets' own parameters (e.g. Sheet Name, Drawn By) for the sheet ids below. Project-level values (Project Information) and title block type parameters are out of scope: do not change them and say which cells stay empty. If a value is not known, ask me once with ask_user.",
+                    "Change the sheets below by filling the empty title block cells: drawing title (Sheet Name) and Drawn By. Set only values you know.",
+                    "Use set_parameters with type_param false on the sheets' own parameters 'Sheet Name' (the drawing title) and 'Drawn By' for the sheet ids below; a sheet has no type, so never send type_param true. A sheet still called 'Unnamed' needs a real title: if you do not know it, ask me once with ask_user (never write 'Unnamed' again). Project-level values (Project Information) and title block type parameters are out of scope: do not change them and say which cells stay empty. If a value is not known, ask me once with ask_user.",
                     "Fill empty sheet parameters", CopilotWriteLevel.Instance, "Sheet Name", "Drawn By"),
             };
 

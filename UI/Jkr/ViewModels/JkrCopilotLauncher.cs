@@ -67,6 +67,13 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         string PartialNote { get; }
     }
 
+    /// <summary>C4.2.2: implemented by a session that can say which tool error a part ran into (a refused write never reaches a card).</summary>
+    public interface ICopilotToolError
+    {
+        /// <summary>The newest tool error of the current part, or null.</summary>
+        string LastToolError { get; }
+    }
+
     /// <summary>One card message on the Copilot thread (an ask card, the wide-write gate, or a committed write).</summary>
     public readonly struct CopilotCardInfo
     {
@@ -296,7 +303,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     var f = _session as ICopilotWriteFailure;
                     return await StopAsync(request, committed, Text.WriteFailed(i + 1, parts.Count, f?.WriteFailedCount ?? 0, f?.WriteFailure), CopilotLaunchOutcome.WriteFailed).ConfigureAwait(true);
                 }
-                if (end != CopilotCardState.Approved) return await StopAsync(request, committed, Text.NoWrite(i + 1, parts.Count), CopilotLaunchOutcome.NoWrite).ConfigureAwait(true);
+                if (end != CopilotCardState.Approved) return await StopAsync(request, committed, Text.NoWrite(i + 1, parts.Count, (_session as ICopilotToolError)?.LastToolError), CopilotLaunchOutcome.NoWrite).ConfigureAwait(true);
                 committed = true;
             }
 
@@ -399,7 +406,11 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             /// <param name="sent">How many parts went out.</param>
             public static string TurnTimeout(int sent, int total) => $"Copilot has not finished part {sent} of {total}.{NotSent(sent, total)}";
             public static string Declined(int sent, int total) => $"You answered No on part {sent}.{NotSent(sent, total)}";
-            public static string NoWrite(int sent, int total) => $"Part {sent} ended without a change. Check the Copilot chat: it may have asked a question.{NotSent(sent, total)}";
+            public static string NoWrite(int sent, int total, string toolError = null) =>
+                string.IsNullOrWhiteSpace(toolError)
+                    ? $"Part {sent} ended without a change. Check the Copilot chat: it may have asked a question.{NotSent(sent, total)}"
+                    : $"Part {sent} ended without a change: Copilot's write was refused: {Shorten(toolError)}. Check the Copilot chat: it may have asked a question.{NotSent(sent, total)}";
+            private static string Shorten(string s) { s = s.Trim().TrimEnd('.'); return s.Length <= 240 ? s : s.Substring(0, 239) + "…"; }
             /// <summary>The write was tried and Revit refused it (not a question, not "no change").</summary>
             public static string WriteFailed(int sent, int total, int failed, string reason)
             {
