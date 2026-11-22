@@ -26,10 +26,10 @@ namespace BinaVibe.DocState
         private static bool _subscribed;
 
         /// <summary>Raised after Revit applies an Undo or Redo, with the ids it added or
-        /// modified (AI-427: the JKR pane re-checks the rules on those elements).
+        /// modified and whether it was a Redo (AI-427, AI-515: the JKR pane re-checks the rules on those elements).
         /// Raised on Revit's thread inside DocumentChanged — handlers must only
         /// record and hand off, never touch the model. Own writes never raise it.</summary>
-        public static event Action<Autodesk.Revit.DB.Document, IReadOnlyList<long>> UndoRedoApplied;
+        public static event Action<Autodesk.Revit.DB.Document, IReadOnlyList<long>, bool> UndoRedoApplied;
 
         public static void EnsureSubscribed(UIApplication app)
         {
@@ -99,7 +99,7 @@ namespace BinaVibe.DocState
                 var deleted = e.GetDeletedElementIds().Count;
                 LedgerFor(doc).Record(added, modified, deleted, DateTime.UtcNow);
                 if (e.Operation == UndoOperation.TransactionUndone || e.Operation == UndoOperation.TransactionRedone)
-                    UndoRedoApplied?.Invoke(doc, added.Concat(modified).Distinct().ToArray());
+                    UndoRedoApplied?.Invoke(doc, added.Concat(modified).Distinct().ToArray(), e.Operation == UndoOperation.TransactionRedone);
             }
             catch { /* recorder must never break a commit */ }
         }
