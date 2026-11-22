@@ -100,6 +100,9 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         Declined,
         /// <summary>The turn ended with no write (no card); later parts were not sent.</summary>
         NoWrite,
+        /// <summary>AI-499: the turn ended with no card but Copilot is asking the person a question in plain text (a check that
+        /// needs a file path). No re-check runs: the answer turn is not tracked by the launcher.</summary>
+        WaitingForAnswer,
         /// <summary>The pane was closed mid-sequence; later parts were not sent.</summary>
         PaneClosed,
     }
@@ -253,6 +256,12 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 var end = await WaitForTurnAsync().ConfigureAwait(true);
                 if (end == null) { _notify(Text.TurnTimeout(bm, i + 1, parts.Count)); return CopilotLaunchOutcome.TurnTimeout; }
                 if (end == CopilotCardState.Declined) { RevitWebAppSync.Services.ForcedConfirm.EndTurn(); _notify(Text.Declined(bm, i + 1, parts.Count)); return CopilotLaunchOutcome.Declined; }
+                if (end == CopilotCardState.None && JkrCopilotPrompt.AsksPerson(request.CheckId))
+                {
+                    RevitWebAppSync.Services.ForcedConfirm.EndTurn();
+                    _notify(Text.WaitingForAnswer(bm));
+                    return CopilotLaunchOutcome.WaitingForAnswer;
+                }
                 if (end != CopilotCardState.Approved) { RevitWebAppSync.Services.ForcedConfirm.EndTurn(); _notify(Text.NoWrite(bm, i + 1, parts.Count)); return CopilotLaunchOutcome.NoWrite; }
             }
 
@@ -349,6 +358,9 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             public static string NoWrite(bool bm, int sent, int total) => bm
                 ? $"Bahagian {sent} selesai tanpa perubahan.{NotSent(bm, sent, total)}"
                 : $"Part {sent} ended without a change.{NotSent(bm, sent, total)}";
+            public static string WaitingForAnswer(bool bm) => bm
+                ? "Copilot menunggu jawapan anda dalam sembang."
+                : "Copilot is waiting for your answer in the chat.";
             public static string PaneClosed(bool bm, int sent, int total) => bm
                 ? $"Panel Copilot ditutup.{NotSent(bm, sent, total)}"
                 : $"The Copilot pane was closed.{NotSent(bm, sent, total)}";

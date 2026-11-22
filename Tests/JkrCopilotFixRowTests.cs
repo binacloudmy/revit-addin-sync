@@ -121,5 +121,18 @@ namespace RevitWebAppSync.Tests
             Assert.Equal("Fix via Copilot", d.CopilotFixLabel);
             Assert.Contains("new Copilot chat", d.CopilotFixTooltip);
         }
+
+        [Fact]
+        public void C511_keeps_Mark_manual_while_the_Copilot_button_shows_AI499()
+        {
+            var r = Row("C5.1.1", "Views", ids: 0);
+            r.Priority = IssuePriority.High;
+            Assert.True(r.CopilotFixable);
+            Assert.True(r.CanMarkManual);
+            // another High row whose only control is the Copilot button still has to be fixed, not deferred
+            var d = Row("Da.1"); d.Priority = IssuePriority.High;
+            Assert.True(d.CopilotFixable);
+            Assert.False(d.CanMarkManual);
+        }
     }
 }

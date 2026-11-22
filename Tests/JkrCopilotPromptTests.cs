@@ -362,19 +362,27 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void Links_prompt_asks_the_person_for_each_file_path_and_never_guesses_AI499()
+        public void Links_prompt_uses_the_HITL_card_for_each_file_path_and_never_guesses_AI499()
         {
             var en = Assert.Single(JkrCopilotPrompt.Build(NoIds("C5.1.1"), false));
-            Assert.Contains("Ask me for the file path of each missing discipline", en);
+            Assert.Contains("call get_user_input to ask me for the file path", en);
+            Assert.Contains("do not ask in plain text", en);
             Assert.Contains("never guess or invent a path", en);
             Assert.Contains("link_file", en);
-            Assert.Contains("do not move, change or delete any existing link", en);
-            Assert.Contains("name the disciplines that are missing or not loaded", en);
+            Assert.Contains("do not move, change, reload or delete any existing link", en);
+            Assert.Contains("name the disciplines that are missing and those that are linked but not Loaded", en);
+            Assert.Contains("do not call link_file for a discipline that is already linked but not Loaded; tell me to load it in Manage Links", en);
+            Assert.Contains("If a link fails (wrong file or version), stop and tell me the reason; do not try other paths or other tools", en);
             var bm = Assert.Single(JkrCopilotPrompt.Build(NoIds("C5.1.1"), true));
-            Assert.Contains("Tanya saya laluan fail bagi setiap disiplin yang tiada", bm);
+            Assert.Contains("panggil get_user_input untuk meminta laluan fail", bm);
             Assert.Contains("jangan teka atau cipta laluan", bm);
             Assert.Contains("link_file", bm);
-            Assert.Contains("jangan alih, ubah atau padam link yang sedia ada", bm);
+            Assert.Contains("jangan panggil link_file bagi disiplin yang sudah dipaut tetapi belum Loaded", bm);
+            Assert.Contains("Manage Links", bm);
+            Assert.Contains("berhenti dan beritahu saya puncanya", bm);
+            Assert.Contains("jangan alih, ubah, muat semula atau padam link yang sedia ada", bm);
+            Assert.True(JkrCopilotPrompt.AsksPerson("C5.1.1"));
+            Assert.False(JkrCopilotPrompt.AsksPerson("C1.3.1"));
         }
     }
 }
