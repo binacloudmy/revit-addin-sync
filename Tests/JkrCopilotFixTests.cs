@@ -26,14 +26,27 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void The_list_is_exactly_the_families_set_parameters_can_do_on_the_protocol_3_engine()
         {
-            var want = new[] { "Da.1", "Db.2", "Db.1", "Dc.1", "Dd.1", "A5.2", "C1.6.3", "C4.2.2", "C4.1.3", "E.1" };   // C4.1.3 and E.1: playbook runs (WP-4/5)
+var want = new[] { "Da.1", "Db.2", "Db.1", "Dc.1", "Dd.1", "A5.2", "C1.6.3", "C4.2.2", "C4.1.3", "E.1", "C1.5.2" };   // C4.1.3 and E.1: playbook runs (WP-4/5); C1.5.2: WP-3
             Assert.Equal(want.OrderBy(x => x), JkrCopilotFix.Allowed.OrderBy(x => x));
+        }
+
+        [Fact]
+        public void C1_5_2_WP3_shows_the_button_on_a_row_that_names_its_level_and_never_on_a_row_with_no_id()
+        {
+            Assert.True(JkrCopilotFix.IsListed("C1.5.2"));
+            Assert.True(JkrCopilotFix.IsAiClass("C1.5.2"));
+            Assert.True(Ok("C1.5.2", "Levels", ids: 1));     // SpecChecks.C1_5_2 gives every failing row its level's id and name
+            Assert.True(Ok("C1.5.2", "", ids: 4));
+            Assert.False(Ok("C1.5.2", "Levels", ids: 0));    // nothing to name: no scope for the prompt, so no button
+            Assert.False(Ok("C1.5.2", "Levels", person: true));
+            Assert.False(Ok("C1.5.2", "Levels", fix: true));
+            Assert.False(Ok("C1.5.2", "Levels", pick: true));
         }
 
         [Theory]
         // dropped: file rename / create-type (views, schedules, legend, sheets, links) / template views: need run_revit_code or a person
         [InlineData("A2.2")] [InlineData("A3.1")]
-        [InlineData("C1.3.1")] [InlineData("C1.4.1")] [InlineData("C1.5.2")] [InlineData("C1.6.1")] [InlineData("C1.6.2")] [InlineData("C2.1.1")]
+        [InlineData("C1.3.1")] [InlineData("C1.4.1")] [InlineData("C1.6.1")] [InlineData("C1.6.2")] [InlineData("C2.1.1")]
         [InlineData("C3.1.1")] [InlineData("C5.1.1")] [InlineData("C5.1.2")] [InlineData("C1.1.1")] [InlineData("C1.1.2")]
         public void Families_the_engine_cannot_do_with_set_parameters_are_hidden_with_and_without_ids(string id)
         {

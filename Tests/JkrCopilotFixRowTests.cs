@@ -72,6 +72,17 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
+        public void A_C1_5_2_row_is_one_level_and_shows_the_button_only_with_a_level_id_WP3()
+        {
+            var row = Row("C1.5.2", "Levels", ids: 1);
+            Assert.True(row.CopilotFixable);
+            Assert.Equal("C1.5.2", row.ToCopilotFixRequest().CheckId);
+            Assert.False(Row("C1.5.2", "Levels", ids: 0).CopilotFixable);
+            Assert.False(Row("C1.5.2", "Levels", human: true).CopilotFixable);
+            Assert.False(Row("C1.5.2", "Levels", fix: true).CopilotFixable);
+        }
+
+        [Fact]
         public void Rows_of_the_playbook_families_C413_and_E1_show_the_button_only_with_ids_WP45()
         {
             foreach (var id in new[] { "C4.1.3", "E.1" })
@@ -89,7 +100,7 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void Rows_of_the_hidden_families_never_show_the_button_even_with_ids()
         {
-            foreach (var id in new[] { "A2.2", "A3.1", "C1.3.1", "C1.4.1", "C1.5.2", "C1.6.1", "C2.1.1", "C3.1.1", "C5.1.1", "C5.1.2", "C1.1.1", "C1.1.2" })
+            foreach (var id in new[] { "A2.2", "A3.1", "C1.3.1", "C1.4.1", "C1.6.1", "C2.1.1", "C3.1.1", "C5.1.1", "C5.1.2", "C1.1.1", "C1.1.2" })
             {
                 Assert.False(Row(id, "Views", ids: 0).CopilotFixable, id);
                 Assert.False(Row(id, "Views", ids: 3).CopilotFixable, id);
