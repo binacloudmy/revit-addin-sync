@@ -558,6 +558,10 @@
                                     <TextBlock Text="{Binding LocateLabel}" VerticalAlignment="Center"/>
                                 </StackPanel>
                             </Button>
+                            <Button x:Name="CopilotFixBtn" Style="{StaticResource BtnSec}" Margin="0,0,6,0" Click="CopilotFix_Click" IsEnabled="{Binding CanAct}"
+                                    Content="{Binding CopilotFixLabel}" ToolTip="{Binding CopilotFixTooltip}"
+                                    AutomationProperties.Name="{Binding CopilotFixLabel}"
+                                    Visibility="{Binding Card.CanFixViaCopilot, Converter={StaticResource B2V}}"/>
                             <Button x:Name="IgnoreBtn" Style="{StaticResource BtnGh}" Click="Ignore_Click" IsEnabled="{Binding CanAct}"
                                     Visibility="{Binding Card.CanIgnore, Converter={StaticResource B2V}}">
                                 <StackPanel Orientation="Horizontal">

@@ -60,6 +60,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// <summary>Mark as Manual (text button beside Ignore): an open AI item, not marked yet,
         /// that <see cref="PanelItem.CanMarkManual"/> allows.</summary>
         public bool CanMarkManual { get; set; }
+        /// <summary>AI-492: "Fix via Copilot" shows on this card (open AI row on the code-side list, no Fix, no picker, has element ids).</summary>
+        public bool CanFixViaCopilot { get; set; }
         /// <summary>Reopen replaces Ignore / Apply: an Ignored or marked-manual item.</summary>
         public bool CanReopen { get; set; }
 
@@ -297,6 +299,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public string AiCanTitle => T("aiCanTitle");
         public string AiCanText => T("aiCanText");
         public string MarkManualLabel => T("markManual");
+        public string CopilotFixLabel => RevitWebAppSync.UI.Jkr.ViewModels.JkrCopilotFix.Label(_core.Lang);
+        public string CopilotFixTooltip => RevitWebAppSync.UI.Jkr.ViewModels.JkrCopilotFix.Tooltip(_core.Lang);
         public string ReopenLabel => T("reopen");
         public string LocateLabel => T("locate");
         public string IgnoreLabel => T("ignore");
@@ -361,6 +365,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 IsMarkedManual = marked,
                 ManualTag = marked ? T("manualTag") : "",
                 CanMarkManual = act && c.CanMarkManual,
+                CanFixViaCopilot = act && c.CopilotFixable,
                 CanReopen = !man && (c.Status == ItemStatus.Ignored || marked),
                 FixError = open ? c.FixError ?? "" : "",
                 Steps = steps,
@@ -415,6 +420,13 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         {
             var c = Current;
             if (c != null) _results.MarkManual(c.Id);
+        }
+
+        /// <summary>AI-492: hand the row to the Copilot launcher (a stub until AI-494).</summary>
+        public void FixViaCopilot()
+        {
+            var c = Current;
+            if (c != null) _results.FixViaCopilot(c.Id);
         }
 
         /// <summary>Reopen an Ignored or marked-manual issue (status only; the model is not touched).</summary>

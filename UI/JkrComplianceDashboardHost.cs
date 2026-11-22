@@ -68,6 +68,12 @@ namespace RevitWebAppSync.UI
                 results.FixCheckRequested += ids => _ = _panel.FixAllAsync(null, openOnly: true, onlyIds: ids);
                 results.IgnoreRequested += ids => _panel.IgnoreIssues(ids);
                 results.MarkManualRequested += id => _panel.SetManual(id, true);
+                // AI-492: Fix via Copilot. JkrCopilotFix.Launcher is set by the Copilot launcher (AI-494); until then a no-op.
+                results.CopilotFixRequested += id =>
+                {
+                    var issue = _panel.Issue(id);
+                    if (issue != null && issue.CopilotFixable) Jkr.ViewModels.JkrCopilotFix.Request(issue.ToCopilotFixRequest());
+                };
                 results.ReopenRequested += id => _panel.Reopen(id);
                 results.RescanRequested += (lod, disc) => { if (!_panel.RunFromStart(lod, disc)) results.EndBusy(); };
                 // The re-scan is over (done or failed): the Rescan button was busy until now. A scan

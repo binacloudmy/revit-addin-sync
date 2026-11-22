@@ -65,6 +65,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// <summary>No ready-made fix, but the row can ask the backend AI fixer for one (never Fix all).</summary>
         public bool AiFix;
 
+        /// <summary>AI-492: the row offers "Fix via Copilot" (<c>IssueVm.CopilotFixable</c>). Never part of Fix all.</summary>
+        public bool CopilotFixable;
+
         /// <summary>AI-434: several valid codes; the row's input is a dropdown of <see cref="Options"/> and
         /// <see cref="PickCode"/> (the AI's choice, or "") is preselected. Never in Fix all.</summary>
         public bool Pick;
