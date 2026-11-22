@@ -292,19 +292,20 @@ namespace RevitWebAppSync.Tests
         {
             var f = Facts(id, 3);
             var en = JkrCopilotConfirm.Build(f, false);
-            Assert.Equal($"Let Copilot change 3 types (and all their instances) for check {id}?", en.Heading);
+            Assert.Equal($"Let Copilot change 3 types (3 instances) for check {id}?", en.Heading);
             Assert.Contains("on the TYPE of each element listed below", en.Body);
-            Assert.Contains("EVERY instance of those types, listed or not", en.Body);
+            Assert.Contains("ALL 3 instances of those types, listed or not", en.Body);
+            Assert.Contains("Category:", en.Body);
             Assert.DoesNotContain("No other element is touched", en.Body);
             Assert.DoesNotContain("listed below only", en.Body);
-            Assert.Contains("Copilot may ask once more before changing a type", en.Body);
+            Assert.DoesNotContain("ask once more", en.Body);
             Assert.Contains("Undo", en.Body);
             var bm = JkrCopilotConfirm.Build(f, true);
-            Assert.Contains("(dan semua instancenya)", bm.Heading);
+            Assert.Contains("(3 instance)", bm.Heading);
             Assert.Contains("TYPE bagi elemen", bm.Body);
-            Assert.Contains("SEMUA instance type itu", bm.Body);
+            Assert.Contains("SEMUA 3 instance type itu", bm.Body);
             Assert.DoesNotContain("Tiada elemen lain disentuh", bm.Body);
-            Assert.Contains("bertanya sekali lagi sebelum menukar type", bm.Body);
+            Assert.DoesNotContain("bertanya sekali lagi", bm.Body);
         }
 
         [Theory]
@@ -316,7 +317,7 @@ namespace RevitWebAppSync.Tests
             Assert.Contains("on the elements listed below only", en.Body);
             Assert.Contains("If the parameter is a type parameter, it changes the element's type and so EVERY instance of that type, listed or not", en.Body);
             Assert.DoesNotContain("No other element is touched", en.Body);
-            Assert.Contains("Copilot may ask once more before changing a type", en.Body);
+            Assert.DoesNotContain("ask once more", en.Body);
             var bm = JkrCopilotConfirm.Build(Facts(id, 2), true);
             Assert.Contains("SEMUA instancenya", bm.Body);
             Assert.DoesNotContain("Tiada elemen lain disentuh", bm.Body);

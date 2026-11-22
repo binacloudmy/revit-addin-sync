@@ -298,6 +298,7 @@ namespace RevitWebAppSync.UI.Copilot
             // The turn's snapshot: sent once, then handed to every tool request (C1). Where the tools can, the view is re-read first (a tab
             // switch a moment ago must not leave the turn on the previous view).
             turn.Snapshot = SafeSnapshot();
+            turn.ConfirmedWrite = RevitWebAppSync.Services.ConfirmedWriteSlot.TakeFor(message);   // AI-490: only the Fix via Copilot prompt; any other text gets null
             var text = (message ?? "") + TurnNote();
             if (_tools is ISnapshotRefresher fresh) return StartWithFreshViewAsync(turn, text, attachments, fresh);
             return RunAsync(turn, (h, ct) => _client.StartTurnAsync(StartRequest(turn, text, attachments), h, ct));
@@ -311,6 +312,7 @@ namespace RevitWebAppSync.UI.Copilot
             Lang = PromptLanguage.Code(turn.Language),
             Snapshot = turn.Snapshot,
             Attachments = attachments,
+            ConfirmedWrite = turn.ConfirmedWrite,
         };
 
         /// <summary>How long a turn waits for Revit to re-read its view before it goes on with the snapshot it has.</summary>
@@ -709,6 +711,8 @@ namespace RevitWebAppSync.UI.Copilot
             public Turn(string id, ReceiptLanguage language) { Id = id; Language = language; }
 
             public string Id { get; }
+            /// <summary>AI-490: set only for a turn started by the Fix via Copilot launcher after Ya in its own dialog.</summary>
+            public ConfirmedWriteDto? ConfirmedWrite { get; set; }
             public ReceiptLanguage Language { get; }
             /// <summary>The chat (session epoch) the turn started under (I1).</summary>
             public long SessionEpoch { get; set; }

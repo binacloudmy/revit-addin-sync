@@ -221,6 +221,54 @@ namespace RevitAddinSync.Tests
             Assert.Equal(lang, body.RootElement.GetProperty("lang").GetString());
         }
 
+        // AI-490: confirmed_write rides only the turn whose message is the armed Fix via Copilot prompt.
+        [Fact]
+        public async Task Router_SendsConfirmedWriteOnlyOnTheArmedPromptTurn_AndNeverOnANormalChat()
+        {
+            ConfirmedWriteSlot.Clear();
+            try
+            {
+                var dto = new ConfirmedWriteDto { CheckId = "Db.2", Ids = new List<long> { 1, 2 }, Params = new List<string> { "Material" } };
+                var server = new Server().On(IsStart, Sse(Frame("turn_end", End(1)))).On(IsStart, Sse(Frame("turn_end", End(1))));
+                var (router, _) = RouterOn(server, new Tools());
+
+                ConfirmedWriteSlot.Arm("Fix prompt text", dto);
+                await router.RouteAsync("Fix prompt text", "ai-generated");
+                await router.RouteAsync("how many doors", "ai-generated");   // a normal turn after it
+
+                var starts = server.Requests.Where(r => IsStart(r.Path)).ToList();
+                using var first = JsonDocument.Parse(starts[0].Body);
+                var cw = first.RootElement.GetProperty("confirmed_write");
+                Assert.Equal("jkr_fix", cw.GetProperty("source").GetString());
+                Assert.Equal("set_parameters", cw.GetProperty("tool").GetString());
+                Assert.Equal("Db.2", cw.GetProperty("check_id").GetString());
+                Assert.Equal(new long[] { 1, 2 }, cw.GetProperty("ids").EnumerateArray().Select(e => e.GetInt64()).ToArray());
+                Assert.Equal("Material", cw.GetProperty("params")[0].GetString());
+                Assert.False(cw.TryGetProperty("type_level", out _));   // null fields are omitted
+                using var second = JsonDocument.Parse(starts[1].Body);
+                Assert.False(second.RootElement.TryGetProperty("confirmed_write", out _));
+                Assert.False(ConfirmedWriteSlot.IsArmed);
+            }
+            finally { ConfirmedWriteSlot.Clear(); }
+        }
+
+        [Fact]
+        public async Task Router_ANormalChatTurnNeverCarriesConfirmedWrite_EvenWhileAnotherPromptIsArmed()
+        {
+            ConfirmedWriteSlot.Clear();
+            try
+            {
+                ConfirmedWriteSlot.Arm("Fix prompt text", new ConfirmedWriteDto { CheckId = "A5.2", Ids = new List<long> { 5 }, Params = new List<string> { "Name" } });
+                var server = new Server().On(IsStart, Sse(Frame("turn_end", End(1))));
+                var (router, _) = RouterOn(server, new Tools());
+                await router.RouteAsync("something the person typed", "ai-generated");
+                using var body = JsonDocument.Parse(server.Requests.First(r => IsStart(r.Path)).Body);
+                Assert.False(body.RootElement.TryGetProperty("confirmed_write", out _));
+                Assert.True(ConfirmedWriteSlot.IsArmed);   // still waiting for its own prompt; the launcher clears it when it ends
+            }
+            finally { ConfirmedWriteSlot.Clear(); }
+        }
+
         [Fact]
         public async Task Router_RefusesASecondTurnWhileOneIsDriving()
         {

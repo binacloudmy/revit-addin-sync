@@ -36,6 +36,11 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 notify,
                 () => !PaneLanguage.IsEn,
                 afterWrite: recheck == null ? (Func<CopilotFixRequest, System.Threading.Tasks.Task>)null : new JkrCopilotRecheck<IssueVm>(recheck).RunAsync,
+                confirmedWrite: (req, part) =>
+                {
+                    var issue = issueById(req.IssueId);
+                    return issue == null ? null : JkrCopilotConfirmedWrite.ForPart(JkrCopilotPrompt.FactsOf(issue, !PaneLanguage.IsEn), part);
+                },
                 confirm: req =>
                 {
                     var issue = issueById(req.IssueId) ?? throw new InvalidOperationException("the row is no longer in the list");
