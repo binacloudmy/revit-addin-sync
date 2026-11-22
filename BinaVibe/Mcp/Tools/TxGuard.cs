@@ -75,6 +75,15 @@ namespace BinaVibe.Mcp.Tools
                 throw new RevitRolledBackException($"Revit error — {NotCommittedText(status)}");
         }
 
+        /// <summary>Commits a SubTransaction opened inside a swallowing transaction (AI-dc1: one rename per type). Any status other
+        /// than <c>Committed</c> throws, so the caller can skip that one item.</summary>
+        public static void CommitOrThrow(SubTransaction st)
+        {
+            var status = st.Commit();
+            if (status != TransactionStatus.Committed)
+                throw new RevitRolledBackException($"Revit error — {NotCommittedText(status)}");
+        }
+
         /// <summary>Commits an edit scope (StairsEditScope, …) with the same
         /// SwallowWarnings preprocessor. EditScope.Commit reports no status:
         /// an error the preprocessor captured means Revit rolled the merged
