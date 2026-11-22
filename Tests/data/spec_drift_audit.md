@@ -79,8 +79,8 @@ Remaining numbers that are NOT JKR rules and stay, named so: A1.1 geometry readi
 | B1.2 | one "Tidak patuh" row per discipline + unfilled fields | `BC.cs:397`; AR / CD → not applicable | MATCH |
 | B1.3 | List | `BC.cs:427`; percent rounded half-up | LIST ok |
 | C1.0.1 | List | `BC.cs:442` | LIST ok |
-| C1.1.1 | every JKR AR template view exists | `BC.cs:478`; template list is backend data → always unjudged | PARTIAL (backend) |
-| C1.1.2 | template views keep their names | `BC.cs:495`; unjudged (backend; spec H9 open) | PARTIAL (backend) |
+| C1.1.1 | every JKR AR template view exists | `BC.cs` C1_1_1; judged locally against the embedded AR27 list (67 `jkrAR_` view templates, `Services/JkrSpec/data/jkr_ar_template_views.csv`); one aggregate row; missing + unmatched project templates → Context (person), missing + none unmatched → fail; unread/zero → unjudged | MATCH (AI-482) |
+| C1.1.2 | template views keep their names | `BC.cs` C1_1_2; case/space/punctuation rename → one aggregate `warning` (scored pass, D3: no JKR document says a rename is wrong); other renames cannot be seen | MATCH (AI-482); rule from D3 |
 | C1.1.3 | Human | `BC.cs:554` | HUMAN ok |
 | C1.2.1 | List | `BC.cs:591` | LIST ok |
 | C1.3.1 | floor plan, elevation, section all present | `BC.cs:647` via SetChecklist (`:626`), one fail per missing kind | MATCH (H3: fail or list is open) Q17 |

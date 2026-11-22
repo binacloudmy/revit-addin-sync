@@ -214,7 +214,9 @@
     <Compile Include="..\Services\JkrSpec\SpecChecks.DE.cs" Link="JkrSpec\SpecChecks.DE.cs" />
     <Compile Include="..\Services\JkrSpec\SpecPbData.cs" Link="JkrSpec\SpecPbData.cs" />
     <Compile Include="..\Services\JkrSpec\SpecPbParameters.cs" Link="JkrSpec\SpecPbParameters.cs" />
+    <Compile Include="..\Services\JkrSpec\SpecTemplateViews.cs" Link="JkrSpec\SpecTemplateViews.cs" />
     <EmbeddedResource Include="..\Services\JkrSpec\data\jkr_pb_ar_parameters.csv" LogicalName="jkr_pb_ar_parameters.csv" Link="JkrSpec\jkr_pb_ar_parameters.csv" />
+    <EmbeddedResource Include="..\Services\JkrSpec\data\jkr_ar_template_views.csv" LogicalName="jkr_ar_template_views.csv" Link="JkrSpec\jkr_ar_template_views.csv" />
     <Compile Include="..\UI\Jkr\Panel\Core\DetailScreenModel.cs" Link="Panel\DetailScreenModel.cs" />
     <Compile Include="..\UI\Jkr\Panel\Core\FixResultModel.cs" Link="Panel\FixResultModel.cs" />
     <Compile Include="..\UI\Jkr\Panel\Core\PaneLanguage.cs" Link="Panel\PaneLanguage.cs" />
