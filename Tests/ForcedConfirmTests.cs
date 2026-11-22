@@ -125,10 +125,10 @@ namespace RevitAddinSync.Tests
         }
 
         // Source guard: every code read of AutoApproveWrites outside the settings UI must sit next to a
-        // ForcedConfirm call, so a new auto-approve path cannot skip the flag. (After the merge with feat/bina-ai-copilot
+        // ForcedConfirm call, so a new auto-approve path cannot skip the flag. (VACUOUS TODAY. After the merge with feat/bina-ai-copilot
         // the pane no longer reads AutoApproveWrites at all, so this passes vacuously until a client-side gate comes back.)
         [Fact]
-        public void Every_AutoApproveWrites_read_goes_through_ForcedConfirm()
+        public void Vacuous_today_guards_only_a_future_client_side_AutoApproveWrites_read_going_through_ForcedConfirm()
         {
             var dir = new DirectoryInfo(AppContext.BaseDirectory);
             while (dir != null && !File.Exists(Path.Combine(dir.FullName, "RevitWebAppSync.csproj"))) dir = dir.Parent;

@@ -6,7 +6,8 @@
 // AutoApproveWrites gate: writes apply by themselves and the only question before a wide or destructive write is the
 // server's "Needs your OK" ask card. The lifecycle below is still driven (ChatSend, CancelSend, Clear chat, sign-in
 // re-send) but nothing in the pane reads IsActive / ShouldAutoApprove / ShouldShowCodeCard any more, so a forced
-// card cannot be enforced from the client. It is kept so the launcher and tests stay wired for when a gate returns.
+// card cannot be enforced from the client. ForcedConfirm.ShouldAutoApprove / ShouldShowCodeCard have NO caller on this
+// engine: dead gate code. Decision pending: a server-side gate or an ask_user confirm (AI-490 follow-up). It is kept so the launcher and tests stay wired for when a gate returns.
 //
 // Where the gate lived: the backend tags each pending call with `mutate` and
 // `requires_confirmation`; the pane decides whether to skip the card
