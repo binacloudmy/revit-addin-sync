@@ -339,6 +339,9 @@ namespace RevitWebAppSync.Tests
             return t;
         }
 
+        /// <summary>A type whose parameters were read with the English built-in names (the guard for a localised Revit).</summary>
+        private static SpecType EnglishCarrier() => Read(T("Walls", "Basic Wall"), "Width");
+
         private static SpecReport FullReport(params SpecType[] types)
         {
             var results = Run("Dc.1", Model(types));
@@ -350,11 +353,14 @@ namespace RevitWebAppSync.Tests
         public void Dc1_ceiling_type_without_the_parameter_is_not_applicable_not_unjudged()
         {
             var ceiling = Read(T("Ceilings", "Compound Ceiling 600"), "Comments");
-            var r = Run("Dc.1", Model(ceiling));
+            var r = Run("Dc.1", Model(ceiling, EnglishCarrier()));
             Assert.DoesNotContain(r, x => x.Status == "cannot_verify");
             Assert.DoesNotContain(r, x => x.Status == "fail");
             Assert.True(r.Single().NotApplicable);
-            var res = Report("Dc.1", Model(ceiling));
+            Assert.Contains("name number cannot be checked", r.Single().Note);
+            Assert.Contains("no Thickness parameter", r.Single().Note);
+            Assert.Contains("1 type left out", r.Single().Note);
+            var res = Report("Dc.1", Model(ceiling, EnglishCarrier()));
             Assert.Equal(SpecState.NotApplicable, res.State);
             Assert.Equal(0, res.Unjudged);
         }
@@ -362,7 +368,7 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void Dc1_left_out_type_does_not_hold_back_the_pass_of_the_others()
         {
-            var ceiling = Read(T("Ceilings", "Compound Ceiling 600"));
+            var ceiling = Read(T("Ceilings", "Compound Ceiling 600"), "Comments");
             var door = Read(T("Doors", "(PT2p600a) 900 x 2100"), "Width", "Height");
             door.Numbers["Width"] = 900; door.Numbers["Height"] = 2100;
             var res = Report("Dc.1", Model(ceiling, door));
@@ -388,6 +394,35 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
+        public void Dc1_width_present_and_equal_but_height_absent_is_unjudged_not_pass()
+        {
+            var door = Read(T("Doors", "900 x 2100"), "Width", "Comments");
+            door.Numbers["Width"] = 900;
+            var res = Report("Dc.1", Model(door, EnglishCarrier()));
+            Assert.Equal(1, res.Unjudged);
+            Assert.NotEqual(SpecState.Pass, res.State);
+        }
+
+        [Fact]
+        public void Dc1_read_flag_with_an_empty_name_list_is_unjudged_not_na()
+        {
+            var door = Read(T("Doors", "900 x 2100"));
+            var res = Report("Dc.1", Model(door, EnglishCarrier()));
+            Assert.Equal(1, res.Unjudged);
+            Assert.NotEqual(SpecState.NotApplicable, res.State);
+        }
+
+        [Fact]
+        public void Dc1_localised_revit_without_any_english_name_keeps_unjudged()
+        {
+            var ceiling = Read(T("Ceilings", "Compound Ceiling 600"), "Komentar");
+            var door = Read(T("Doors", "900 x 2100"), "Lebar", "Tinggi");   // no Width / Height / Thickness anywhere
+            var res = Report("Dc.1", Model(ceiling, door));
+            Assert.Equal(2, res.Unjudged);
+            Assert.NotEqual(SpecState.NotApplicable, res.State);
+        }
+
+        [Fact]
         public void Dc1_parameters_not_read_by_the_reader_stay_unjudged()
         {
             var door = T("Doors", "900 x 2100");                           // old snapshot: ParamNamesRead false
@@ -399,7 +434,7 @@ namespace RevitWebAppSync.Tests
         {
             // Before: the ceiling is left out, the door's name still mismatches (Fail).
             // After the Copilot rename the name matches: Dc.1 is Pass and the headline % rises.
-            var ceiling = Read(T("Ceilings", "Compound Ceiling 600"));
+            var ceiling = Read(T("Ceilings", "Compound Ceiling 600"), "Comments");
             var door = Read(T("Doors", "800 x 2100"), "Width", "Height");
             door.Numbers["Width"] = 900; door.Numbers["Height"] = 2100;
             var before = FullReport(ceiling, door);

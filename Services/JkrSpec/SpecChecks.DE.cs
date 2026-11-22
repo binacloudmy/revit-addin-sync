@@ -415,6 +415,9 @@ namespace RevitWebAppSync.Services.JkrSpec
             var ok = new Dictionary<string, int>(StringComparer.Ordinal);
             var unread = 0;
             var notApplicable = new List<string>();
+            // Localised Revit guard: built-in parameter names are in the Revit UI language. Without
+            // any type carrying an English Width / Height / Thickness, "lacks Width" proves nothing.
+            var englishNames = m.Types.Any(x => x.ParamNamesRead && (x.ParamNames.Contains("Width") || x.ParamNames.Contains("Height") || x.ParamNames.Contains("Thickness")));
             var results = new List<SpecResult>();
             foreach (var t in TypesIn(m, SectionDCategories))
             {
@@ -422,14 +425,22 @@ namespace RevitWebAppSync.Services.JkrSpec
                 if (stated.Count == 0) { if (HasUnreadNumbers(t)) unread++; continue; }
                 // AI-518: a type that has none of the parameters its name number names (a ceiling
                 // type with no Width / Height / Thickness) has nothing to compare: Dc.1 does not
-                // apply to it. Only when the reader listed the parameters (ParamNamesRead); a type
-                // that carries the parameter but gave no value is still unjudged (a real gap).
-                if (stated.All(x => LacksParameter(t, x.Param)))
+                // apply to it. Only when ALL named parameters are absent, and only when the
+                // reader listed the parameters (see LacksParameter). Some absent, some present:
+                // a visible gap (unjudged), never a pass on half the name. A parameter that is
+                // carried but gave no value is unjudged too.
+                var lacking = stated.Where(x => LacksParameter(t, x.Param, englishNames)).Select(x => x.Param).ToList();
+                if (lacking.Count == stated.Count)
                 {
-                    notApplicable.Add(Label(t));
+                    notApplicable.Add(Label(t) + ": no " + string.Join("/", lacking) + " parameter");
                     continue;
                 }
-                stated = stated.Where(x => !LacksParameter(t, x.Param)).ToList();
+                if (lacking.Count > 0)
+                {
+                    results.Add(UnjudgedType(id, t,
+                        $"{t.Category}: type '{t.TypeName}' — no {string.Join(", ", lacking)} parameter, so the name number cannot be fully compared"));
+                    continue;
+                }
                 var badEn = new List<string>();
                 var missing = new List<string>();
                 foreach (var (param, value) in stated)
@@ -462,13 +473,13 @@ namespace RevitWebAppSync.Services.JkrSpec
             // One N/A result for the types left out: beside a pass it changes nothing; alone it makes
             // the check "does not apply" instead of leaving it unchecked.
             if (notApplicable.Count > 0)
-                yield return NotApplicable(id, $"{notApplicable.Count} types without the parameter their name number names are left out: {string.Join("; ", notApplicable.Take(5))}{(notApplicable.Count > 5 ? "; …" : "")}");
+                yield return NotApplicable(id, $"{notApplicable.Count} {(notApplicable.Count == 1 ? "type" : "types")} left out, name number cannot be checked: {string.Join("; ", notApplicable.Take(5))}{(notApplicable.Count > 5 ? "; …" : "")}");
         }
 
         /// <summary>The reader listed the type's parameters and <paramref name="param"/> is not one of
         /// them (not a number, not a text). False when the parameters were not read (old snapshot).</summary>
-        private static bool LacksParameter(SpecType t, string param) =>
-            t.ParamNamesRead && !t.Numbers.ContainsKey(param) && !t.Texts.ContainsKey(param) && !t.ParamNames.Contains(param);
+        private static bool LacksParameter(SpecType t, string param, bool englishNames) =>
+            englishNames && t.ParamNamesRead && t.ParamNames.Count > 0 && !t.Numbers.ContainsKey(param) && !t.Texts.ContainsKey(param) && !t.ParamNames.Contains(param);
 
         /// <summary>The type's name has a number in a category Dc.1 judges, but
         /// <see cref="NameNumbers"/> could not read it (several candidates, out of range): that
