@@ -114,7 +114,7 @@ namespace BinaVibe.Copilot.Code
                 if (use.Symbol.ContainingType != null)
                 {
                     var key = SymbolKeys.MemberKey(use.Symbol);
-                    var rule = writeOnlyRules.FirstOrDefault(r => r.Match.Any(m => CodePolicy.KeyMatches(key, m)));
+                    var rule = !policy.Enforce ? null : writeOnlyRules.FirstOrDefault(r => r.Match.Any(m => CodePolicy.KeyMatches(key, m)));
                     if (rule != null)
                     {
                         var pos = use.Location.GetLineSpan().StartLinePosition;

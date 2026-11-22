@@ -480,6 +480,7 @@
     <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" Version="2027.*" />
     <Compile Include="..\BinaVibe\Copilot\Code\CodePolicyData.cs" Link="Copilot\Code\CodePolicyData.cs" />
     <Compile Include="..\BinaVibe\Copilot\Code\CodePolicyTable.cs" Link="Copilot\Code\CodePolicyTable.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Code\CopilotSafety.cs" Link="Copilot\Code\CopilotSafety.cs" />
     <Compile Include="..\BinaVibe\Copilot\Code\CodePolicySet.cs" Link="Copilot\Code\CodePolicySet.cs" />
     <Compile Include="..\BinaVibe\Copilot\Code\StatementWrapper.cs" Link="Copilot\Code\StatementWrapper.cs" />
     <Compile Include="..\BinaVibe\Copilot\Code\SymbolUses.cs" Link="Copilot\Code\SymbolUses.cs" />

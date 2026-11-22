@@ -22,8 +22,11 @@ namespace BinaVibe.Copilot.Code
         private readonly Dictionary<(string Kind, string Construct), string> _constructCategory;
         private readonly Dictionary<string, HashSet<string>> _allowOnly;
 
-        public CodePolicySet(CodePolicyData data)
+        /// <param name="enforce">Whether this policy's checks reject code. Null = the process-wide
+        /// CopilotSafety flag (default OFF). Tests pass true/false to pin a state.</param>
+        public CodePolicySet(CodePolicyData data, bool? enforce = null)
         {
+            Enforce = enforce ?? CopilotSafety.Enabled;
             Data = data ?? throw new ArgumentNullException(nameof(data));
             LanguageVersion = (LanguageVersion)Enum.Parse(typeof(LanguageVersion), data.LanguageVersion);
 
@@ -61,6 +64,9 @@ namespace BinaVibe.Copilot.Code
             DetachedSuffixes = data.Mode.DetachedSuffixes.ToArray();
             UiShimMembers = Set(data.Mode.UiShimMembers);
         }
+
+        /// <summary>False: every policy rejection (symbols, banned statement forms, write-only uses) is bypassed.</summary>
+        public bool Enforce { get; }
 
         public CodePolicyData Data { get; }
         public LanguageVersion LanguageVersion { get; }
