@@ -218,6 +218,20 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// Locate goes to the first). 1 for a single-element issue.</summary>
         public int LocateCount { get; set; } = 1;
 
+        /// <summary>AI-491: every element id behind the row (a spec row can cover 46 doors), in Locate order;
+        /// empty for a model-level row. When filled, Count == <see cref="LocateCount"/>.</summary>
+        public List<long> ElementIds { get; set; } = new List<long>();
+
+        /// <summary>AI-491: label per id in <see cref="ElementIds"/> ("Doors · PT1p_850x2100"); an id with no label is absent.</summary>
+        public Dictionary<long, string> ElementLabels { get; set; } = new Dictionary<long, string>();
+
+        /// <summary>AI-491: add element ids (positive, new ones only) with one label for them, and keep
+        /// <see cref="LocateCount"/> equal to the id count. A label already set for an id is kept.</summary>
+        public void AddElements(IEnumerable<long> ids, string label)
+        {
+            if (IssueElementIds.Add(ElementIds, ElementLabels, ids, label) > 0) LocateCount = ElementIds.Count;
+        }
+
         /// <summary>The row can ask the backend AI fixer (/jkr-autofix) for this issue (never Fix all; AI-435):
         /// AI-judged, no ready-made fix, a real element and a backend check id. Not the
         /// local BIM010 rows, the add-in's own spec checks ("SPEC-") or test-fixture
@@ -260,6 +274,15 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// several subtypes: wall b/k/d, door k/g/b, window b/k), not codes for a parameter. The subtype is the person's
         /// call: no option is ever preselected, not by the AI and not by position.</summary>
         public bool IsNamePick => IsPick && string.IsNullOrEmpty(JkrManualFix.ParameterOf(RawRule));
+
+        /// <summary>AI-492: the row offers "Fix via Copilot": its check is on the code-side list, no ready fix, no picker,
+        /// at least one element id, and never a person-decides row (<see cref="JkrCopilotFix.Eligible(string, string, bool, bool, bool, int)"/>).
+        /// Hidden while no Copilot launcher is set (no dead button). Not persisted: ids are not in the audit snapshot, so a restored row shows no button until a re-scan.</summary>
+        public bool CopilotFixable => JkrCopilotFix.LauncherReady && JkrCopilotFix.Eligible(SpecCheckId, RevitCategory, NeedsPerson,
+            AutoFixable || !string.IsNullOrEmpty(FixAction), IsPick || ValidOptions.Count > 0, ElementIds?.Count ?? 0);
+
+        /// <summary>AI-492: what the Copilot launcher gets for this row.</summary>
+        public CopilotFixRequest ToCopilotFixRequest() => new CopilotFixRequest(Id, SpecCheckId, ElementIds, Title);
 
         /// <summary>Fix all (and the checklist's Fix n) may write this row: a ready-made fix, never a pick row.</summary>
         public bool BulkFixable => AutoFixable && !IsPick;
@@ -391,7 +414,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public bool IsResolved => Status == IssueStatus.Fixed || Status == IssueStatus.Approved;
         public bool CanIgnore  => JkrTierMap.CanIgnore(Priority);
         public bool CanApprove => JkrTierMap.CanApprove(Priority);
-        public bool CanMarkManual => JkrRowControls.CanMarkManual(JkrTierMap.CanMarkManual(Priority), JkrRowControls.HasFixControl(AutoFixable, JkrRowControls.AiStillOffers(AiFixCandidate, AiAsked, AiProposal != null && !string.IsNullOrEmpty(AiProposal.Value)), IsPick));
+        public bool CanMarkManual => JkrRowControls.CanMarkManual(JkrTierMap.CanMarkManual(Priority), JkrRowControls.HasFixControl(AutoFixable, JkrRowControls.AiStillOffers(AiFixCandidate, AiAsked, AiProposal != null && !string.IsNullOrEmpty(AiProposal.Value)), IsPick, CopilotFixable));
         public bool ShowAutoFixButton => IsActionable && AutoFixable;
         public bool ShowIgnoreButton  => IsAiOpen && CanIgnore;  // only from Open → Ignored
         public bool ShowApproveButton => IsActionable && CanApprove;

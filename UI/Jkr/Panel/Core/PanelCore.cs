@@ -268,9 +268,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         }
 
         /// <summary>Fix all scope: open AI items with a plain fix in the current
-        /// section .</summary>
+        /// section. A CopilotFixable row (AI-492) is never in it: Copilot proposes and a person confirms.</summary>
         public List<PanelItem> FixableOpen() =>
-            InCat.Where(x => !x.IsHuman && x.Status == ItemStatus.Open && !x.MarkedManual && x.Fix == FixKind.Fix).ToList();
+            InCat.Where(x => !x.IsHuman && x.Status == ItemStatus.Open && !x.MarkedManual && x.Fix == FixKind.Fix && !x.CopilotFixable).ToList();
 
         /// <summary>AI-442: Fix all (n) in changes, the unit of the batch, progress, toast and result
         /// window: rows that ask for the same write are one change, a rename with no name is none.</summary>

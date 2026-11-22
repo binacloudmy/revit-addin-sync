@@ -130,6 +130,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 LocateTarget = dto.ElementId > 0 ? JkrLocateTarget.Element : JkrRowControls.LocateTargetOf(category, dto.CheckId),
                 FixReference = dto.FixReference ?? "",
             };
+            if (dto.ElementId > 0) vm.AddElements(new[] { dto.ElementId }, vm.Element.Name);   // AI-491
             // AI-434: several valid codes → a picker row (never auto-fixable, never in Fix all).
             vm.SetPick(dto.ValidOptions, dto.AiSuggestedCode, dto.AiSuggestionReason, dto.RequiresUserChoice);
             // AI-479: the spec check this rule answers (null = a family with no spec id: "extra").
@@ -260,6 +261,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     if (description.Length > 0 && (same.Description ?? "").IndexOf(description, StringComparison.Ordinal) < 0)
                         same.Description = string.IsNullOrEmpty(same.Description) ? description : same.Description + "\n" + description;
                     if (ai) same.Verification = IssueVerification.Ai;
+                    same.AddElements(RevitWebAppSync.UI.Jkr.Panel.Core.SpecModelIssues.ElementIdsOf(r), (r.ElementName ?? "").Trim());   // AI-491
                     continue;
                 }
 
@@ -302,6 +304,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     Spec = new SpecRef { Doc = "", Clause = RevitWebAppSync.UI.Jkr.Panel.Core.SpecCatalog.ShownReference(check?.Reference) },
                 };
                 vm.SpecCheckId = check?.Id ?? "";   // AI-479
+                vm.AddElements(ids, elementName);   // AI-491
                 byId[id] = vm;
                 list.Add(vm);
             }
@@ -328,7 +331,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 if (Bim010Form.Find(key) == null) continue;
                 var firstId = r.ElementIds != null && r.ElementIds.Count > 0 ? r.ElementIds[0] : 0;
                 var category = "Borang " + r.Row.Section;
-                list.Add(new IssueVm
+                var audit = new IssueVm
                 {
                     Id = JkrComplianceService.ComputeIssueId("BIM010", key, 0),
                     CheckId = "BIM010-" + key,
@@ -355,7 +358,9 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                             ? $"{r.ElementIds.Count} elements" : (firstId > 0 ? "Element" : "Model"),
                     },
                     Spec = new SpecRef { Doc = "", Clause = r.Row.GuidelineRef ?? "" },
-                });
+                };
+                audit.AddElements(r.ElementIds ?? new List<long>(), "");   // AI-491
+                list.Add(audit);
             }
             return list;
         }
