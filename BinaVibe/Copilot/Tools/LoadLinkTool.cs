@@ -308,7 +308,7 @@ namespace BinaVibe.Copilot.Tools
             using var tx = new Transaction(doc, BinaTransactionNames.For("Place link " + name));
             try
             {
-                tx.Start();
+                BinaVibe.Mcp.Tools.TxGuard.StartSwallowing(tx);
                 RevitLinkInstance.Create(doc, typeId);
                 BinaVibe.Mcp.Tools.TxGuard.CommitOrThrow(tx);
             }
