@@ -108,16 +108,21 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             (specCheckId ?? "").Trim() == "Db.2" && string.Equals((revitCategory ?? "").Trim(), "Walls", StringComparison.OrdinalIgnoreCase);
 
         /// <summary>The whole rule, on plain values (the table test drives this).</summary>
-        public static bool Eligible(string specCheckId, string revitCategory, bool needsPerson, bool hasFix, bool isPick, int elementIdCount, string renameTo = "") =>
+        public static bool Eligible(string specCheckId, string revitCategory, bool needsPerson, bool hasFix, bool isPick, int elementIdCount, string renameTo = "", string viewSet = "") =>
             !needsPerson && !hasFix && !isPick && elementIdCount >= 1
             && IsListed(specCheckId) && IsAiClass(specCheckId) && !IsWallMaterial(specCheckId, revitCategory)
-            && IsDerivableRename(specCheckId, renameTo);
+            && IsDerivableRename(specCheckId, renameTo) && IsDerivableSet(specCheckId, viewSet);
 
         /// <summary>WP-6: Dd.1 shows the button only when the add-in derived the new name (<c>SpecChecks.ProposeRename</c>): the NAME is the
         /// odd one out, not the JKR code and not the family. Without it the family may really be of another category, a rename would hide
         /// that model error, and a person decides. True for every other check.</summary>
         public static bool IsDerivableRename(string specCheckId, string renameTo) =>
             (specCheckId ?? "").Trim() != "Dd.1" || !string.IsNullOrWhiteSpace(renameTo);
+
+        /// <summary>E.1: the button shows only when the evaluator named the set (BOMBA, PBT or Dokumen) of the failing row ("required: template X"):
+        /// without it Copilot would have to read the set from a view name, so a person decides. True for every other check.</summary>
+        public static bool IsDerivableSet(string specCheckId, string viewSet) =>
+            (specCheckId ?? "").Trim() != "E.1" || !string.IsNullOrWhiteSpace(viewSet);
 
         public static string Label() =>
             "Fix via Copilot";

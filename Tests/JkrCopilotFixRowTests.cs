@@ -29,13 +29,13 @@ namespace RevitWebAppSync.Tests
             Assert.True(ResultsAdapter.FromIssue(row).CopilotFixable);
         }
 
-        private static IssueVm Row(string check, string cat = "Doors", bool fix = false, bool pick = false, int ids = 2, bool human = false, string rename = "")
+        private static IssueVm Row(string check, string cat = "Doors", bool fix = false, bool pick = false, int ids = 2, bool human = false, string rename = "", string required = "template BOMBA")
         {
             var i = new IssueVm
             {
                 Id = "r-" + check, CheckId = "SPEC-" + check, SpecCheckId = check, Title = check, RevitCategory = cat,
                 Verification = human ? IssueVerification.Human : IssueVerification.Ai,
-                RenameTo = rename, RevitElementId = ids > 0 ? 100 : 0, AutoFixable = fix, FixAction = fix ? "rename_type" : "", FixValue = fix ? "x" : "",
+                RenameTo = rename, Required = required, RevitElementId = ids > 0 ? 100 : 0, AutoFixable = fix, FixAction = fix ? "rename_type" : "", FixValue = fix ? "x" : "",
             };
             for (var k = 0; k < ids; k++) i.AddElements(new long[] { 100 + k }, "Doors · d" + k);
             if (pick) i.SetPick(new[] { "a", "b" }, "", "", true);
@@ -82,6 +82,8 @@ namespace RevitWebAppSync.Tests
                 Assert.False(Row(id, "Views", fix: true).CopilotFixable, id);
                 Assert.False(Row(id, "Views", pick: true).CopilotFixable, id);
             }
+            Assert.False(Row("E.1", "Views", required: "").CopilotFixable);              // the evaluator named no set: a person decides
+            Assert.False(Row("E.1", "Views", required: "template WIP").CopilotFixable);
         }
 
         [Fact]

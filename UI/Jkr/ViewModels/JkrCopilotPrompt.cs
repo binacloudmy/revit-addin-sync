@@ -24,6 +24,10 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// <summary>WP-6: the add-in's derived new name per listed id (Dd.1 only). A family with <see cref="CopilotPromptVariant.NamesFromFacts"/>
         /// lists only the ids that have one, each with its "old -> new" line.</summary>
         public IReadOnlyDictionary<long, CopilotRename> Renames { get; set; } = new Dictionary<long, CopilotRename>();
+        /// <summary>E.1: the view set (BOMBA, PBT or Dokumen) the JKR check decided for each listed view id, read from the failing row's
+        /// "required: template X" (<c>SpecViewSets.SetFromRequired</c>). A family with <see cref="CopilotPromptVariant.SetFromFacts"/> lists only the ids
+        /// that have one; the model never reads a set from a view name.</summary>
+        public IReadOnlyDictionary<long, string> Sets { get; set; } = new Dictionary<long, string>();
     }
 
     /// <summary>WP-6 (Dd.1): one type rename the add-in derived (a pure function, never the model): the type's old name, the exact new name,
@@ -65,6 +69,9 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// <c>set_parameters</c>: the ids are only used to read names (the playbook takes names), and the confirm says what the playbook
         /// does. Null for a <c>set_parameters</c> family. The name of the playbook in bina-ai <c>data/copilot/playbooks</c>.</summary>
         public string Playbook { get; set; }
+        /// <summary>E.1: the set of each view comes from the facts (the evaluator decided it): the prompt and the confirm list "id — label — set X
+        /// (required: template X)" and only ids that have one.</summary>
+        public bool SetFromFacts { get; set; }
     }
 
     /// <summary>
@@ -125,9 +132,9 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     "Read each id's sheet number and name with inspect. Then use run_revit_code with playbook \"place-view-on-sheet\" and no code: inputs sheets = those sheet numbers. If the result has ASK lines, ask me once with ask_user which view goes on each sheet, offering only the view names it lists, then run it again with viewFor from my answer. Never choose a view yourself and never create a view. Pass expected {adds: N}, N = the number of sheets that get a view. Never delete a sheet, even an empty one: a person decides that.",
                     "Place a view on each empty sheet", CopilotWriteLevel.Instance) { Playbook = "place-view-on-sheet" },
                 ["E.1"] = new CopilotPromptVariant(
-                    "Apply the view template of its own set (BOMBA, PBT or Dokumen) to each view below. Change the view template only.",
-                    "Read each id's view name with inspect. Then use run_revit_code with playbook \"apply-view-template\" and no code: inputs views = those names, without template on the first run; each ASK line of the result lists the view templates that fit that view. Take the template whose name carries the view's own set only when exactly one name does; otherwise ask me once with ask_user. Then run it again with template, or templateFor when the views differ, and expected {modifies: N}, N = the number of views. Never create, duplicate or change a view template. If the result says a template is not in this project, leave that view as it is and say so: the template views are copied in by check C1.1.1.",
-                    "Apply the view template to the views", CopilotWriteLevel.Instance) { Playbook = "apply-view-template" },
+                    "Apply to each view below the view template of the set named on its line (BOMBA, PBT or Dokumen). Change the view template only.",
+                    "Each line gives the set the JKR check decided for that view: use it, and never read the set from the view's name. Read each id's view name with inspect. Then use run_revit_code with playbook \"apply-view-template\" and no code: inputs views = those names, without template on the first run; each ASK line of the result lists the view templates that fit that view. For each view take the template whose name carries that line's set, only when exactly one name does. When none or several do, ask me once with ask_user which one, listing only the names the result gave. Then run it again with templateFor (view name to template name; one entry per view) and expected {modifies: N}, N = the number of views. Never create, duplicate or change a view template. If the result says a template is not in this project, leave that view as it is and say so: the template views are copied in by check C1.1.1.",
+                    "Apply the view template of its set to the views", CopilotWriteLevel.Instance) { Playbook = "apply-view-template", SetFromFacts = true },
                 ["C4.2.2"] = new CopilotPromptVariant(
                     "Change the sheets below by filling the empty title block cells: drawing title (Sheet Name) and Drawn By. Set only values you know.",
                     "Use set_parameters with type_param false on the sheets' own parameters 'Sheet Name' (the drawing title) and 'Drawn By' for the sheet ids below; a sheet has no type, so never send type_param true. A sheet still called 'Unnamed' needs a real title: if you do not know it, ask me once with ask_user (never write 'Unnamed' again). Project-level values (Project Information) and title block type parameters are out of scope: do not change them and say which cells stay empty. If a value is not known, ask me once with ask_user.",
@@ -176,8 +183,10 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             var seen = new HashSet<long>();
             var labels = new Dictionary<long, string>();
             var renames = new Dictionary<long, CopilotRename>();
+            var sets = new Dictionary<long, string>();
             foreach (var r in list)
             {
+                foreach (var kv in r.Sets ?? new Dictionary<long, string>()) if (!sets.ContainsKey(kv.Key)) sets[kv.Key] = kv.Value;
                 foreach (var kv in r.Renames ?? new Dictionary<long, CopilotRename>()) if (!renames.ContainsKey(kv.Key)) renames[kv.Key] = kv.Value;
                 foreach (var id in r.ElementIds ?? new List<long>())
                 {
@@ -203,6 +212,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 ElementIds = ids,
                 ElementLabels = labels,
                 Renames = renames,
+                Sets = sets,
             };
         }
 
@@ -214,6 +224,9 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             // WP-6: a family whose names come from the add-in lists only the ids that have a derived name (none: no prompt, no write).
             if (VariantFor(facts.CheckId).NamesFromFacts)
                 ids = ids.Where(i => RenameOf(facts, i) != null).ToList();
+            // E.1: a view with no evaluator set gets no line and no write: a person decides which template it takes.
+            if (VariantFor(facts.CheckId).SetFromFacts)
+                ids = ids.Where(i => SetOf(facts, i).Length > 0).ToList();
             if (VariantFor(facts.CheckId).Level != CopilotWriteLevel.Type) return ids;
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var one = new List<long>();
@@ -225,6 +238,20 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 if (label.Length == 0 || seen.Add(label)) one.Add(id);
             }
             return one;
+        }
+
+        /// <summary>The set the evaluator decided for an id (E.1), or "".</summary>
+        public static string SetOf(CopilotPromptFacts facts, long id)
+        {
+            string s = null;
+            return facts?.Sets != null && facts.Sets.TryGetValue(id, out s) ? CleanLabel(s) : "";
+        }
+
+        /// <summary>"set BOMBA (required: template BOMBA)": the evaluator's decision for a view, as a prompt or confirm line tail.</summary>
+        public static string SetLine(CopilotPromptFacts facts, long id)
+        {
+            var s = SetOf(facts, id);
+            return s.Length == 0 ? "" : "set " + s + " (required: template " + s + ")";
         }
 
         /// <summary>The derived rename of an id, or null (also null for a blank or unchanged new name).</summary>
@@ -292,6 +319,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 sb.Append("- ").Append(id);
                 label = CleanLabel(label);
                 if (variant.NamesFromFacts) sb.Append(" — ").Append(RenameLine(f, id));
+                else if (variant.SetFromFacts) sb.Append(label.Length > 0 ? " — " + label : "").Append(" — ").Append(SetLine(f, id));
                 else if (label.Length > 0) sb.Append(" — ").Append(label);
                 sb.AppendLine();
             }
