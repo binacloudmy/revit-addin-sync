@@ -1,0 +1,75 @@
+{
+  "description": "Contract example of attachments in a turn request (AI-297). valid: each entry must satisfy protocol3.schema.json#/$defs/attachment and round-trip through both implementations. invalid: each must be rejected by the schema and the bina-ai model; in the add-in, add_in says what happens: violation (AttachmentRules names the broken rule), unreadable (the JSON cannot be read into the types, so the attachment is never built from it) or ignored (readers skip unknown keys by design).",
+  "valid": {
+    "table": {
+      "name": "doors.xlsx",
+      "kind": "table",
+      "columns": ["Mark", "Fire Rating"],
+      "rows": [["D-01", 30], ["D-02", "60 min"]]
+    },
+    "image": { "name": "screenshot-1.png", "kind": "image", "image_b64": "iVBORw0KGgo=" },
+    "document": {
+      "name": "PCO_broucher_Downlight_2026.pdf",
+      "kind": "document",
+      "page_count": 8,
+      "pages": [
+        { "page": 1, "text": "PCO Lite Electrical Sdn. Bhd. Downlight catalogue 2026" },
+        { "page": 2, "text": "" },
+        { "page": 3, "text": "Model Adrino LED 601/10/840 Ra 80 4000K 983 lm 0.04 A" },
+        { "page": 8, "text": "Contact us at www.pcolite.com" }
+      ]
+    },
+    "document_minimal": {
+      "name": "spec.pdf",
+      "kind": "document",
+      "pages": [{ "page": 1, "text": "Fire rating 60 min" }]
+    }
+  },
+  "invalid": {
+    "document_without_pages": {
+      "why": "a document attachment needs pages",
+      "add_in": "violation",
+      "attachment": { "name": "spec.pdf", "kind": "document" }
+    },
+    "document_with_no_pages": {
+      "why": "pages is not empty",
+      "add_in": "violation",
+      "attachment": { "name": "spec.pdf", "kind": "document", "pages": [] }
+    },
+    "page_zero": {
+      "why": "pages are 1-based",
+      "add_in": "violation",
+      "attachment": { "name": "spec.pdf", "kind": "document", "pages": [{ "page": 0, "text": "x" }] }
+    },
+    "page_without_text": {
+      "why": "every page has text, empty for a scan",
+      "add_in": "violation",
+      "attachment": { "name": "spec.pdf", "kind": "document", "pages": [{ "page": 1 }] }
+    },
+    "page_text_not_a_string": {
+      "why": "page text is a string",
+      "add_in": "unreadable",
+      "attachment": { "name": "spec.pdf", "kind": "document", "pages": [{ "page": 1, "text": 5 }] }
+    },
+    "page_count_zero": {
+      "why": "page_count is at least 1",
+      "add_in": "violation",
+      "attachment": { "name": "spec.pdf", "kind": "document", "page_count": 0, "pages": [{ "page": 1, "text": "x" }] }
+    },
+    "unknown_page_key": {
+      "why": "a page object is closed",
+      "add_in": "ignored",
+      "attachment": { "name": "spec.pdf", "kind": "document", "pages": [{ "page": 1, "text": "x", "words": [] }] }
+    },
+    "document_without_name": {
+      "why": "name is required",
+      "add_in": "violation",
+      "attachment": { "kind": "document", "pages": [{ "page": 1, "text": "x" }] }
+    },
+    "unknown_kind": {
+      "why": "kind is table, image or document",
+      "add_in": "violation",
+      "attachment": { "name": "a.dwg", "kind": "drawing" }
+    }
+  }
+}

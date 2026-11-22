@@ -167,22 +167,23 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void The_fixed_Slate_keys_are_the_Copilot_dark_palette()
+        public void The_fixed_Slate_keys_are_all_present_and_do_not_follow_the_Copilot_theme_switch()
         {
-            // CopilotTheme.Palette holds ("light", "dark") per Cp key; Cp.Dark.<Name> must
-            // be that key's dark value, so the always-dark JKR pane tracks Copilot's Slate.
-            var theme = File.ReadAllText(Path.Combine(RepoRoot(), "UI", "Copilot", "CopilotTheme.cs"));
-            var rx = new System.Text.RegularExpressions.Regex("\\[\"Cp\\.([A-Za-z0-9]+)\"\\]\\s*=\\s*\\(\"#[0-9A-Fa-f]+\",\\s*\"(#[0-9A-Fa-f]+)\"\\)");
-            var dark = rx.Matches(theme).Cast<System.Text.RegularExpressions.Match>()
-                .ToDictionary(m => m.Groups[1].Value, m => m.Groups[2].Value.ToUpperInvariant());
+            // Merge with feat/bina-ai-copilot: Copilot's dark column moved to a new palette (ThemeTokens: #15181E ground, lime
+            // accent), so Cp.Dark.* no longer equals it. The JKR pane keeps the Slate values it was designed on (contrast of
+            // Cp.Jkr.Dark.* is checked against them); whether it adopts Copilot's new dark palette is a design call, not made here.
+            // What stays pinned: every key the pane uses exists, and ThemeTokens holds it with the SAME value in both
+            // columns, so the theme switch cannot repaint the always-dark pane.
             var cp = CopilotBrushes();
-            var pairs = new[] { ("Bg", "Bg"), ("Sunken", "Sunken"), ("Menu", "Menu"), ("Ink", "Ink"), ("Ink2", "Ink2"),
-                                ("Muted", "Muted"), ("Line", "Line"), ("Hair2", "Hair2"), ("LineSoft", "LineSoft"),
-                                ("Hover", "Hover"), ("Accent", "Accent"), ("BlueSoft", "BlueSoft"), ("BlueText", "BlueText"),
-                                ("CodeFg", "CodeFg") };
-            foreach (var (fixedName, themeKey) in pairs)
-                Assert.True(cp["Cp.Dark." + fixedName] == dark[themeKey],
-                    "Cp.Dark." + fixedName + " = " + cp["Cp.Dark." + fixedName] + " but CopilotTheme dark Cp." + themeKey + " = " + dark[themeKey]);
+            foreach (var name in new[] { "Bg", "Sunken", "Menu", "Ink", "Ink2", "Muted", "Line", "Hair2", "LineSoft",
+                                         "Hover", "Accent", "BlueSoft", "BlueLine", "BlueText", "CodeFg" })
+            {
+                var key = "Cp.Dark." + name;
+                Assert.True(cp.ContainsKey(key), key + " missing from CopilotTokens.xaml");
+                var t = RevitWebAppSync.UI.Copilot.Model.ThemeTokens.Solid[key];
+                Assert.Equal(t.Light, t.Dark);
+                Assert.Equal(cp[key], t.Dark.ToUpperInvariant());
+            }
         }
 
         [Fact]

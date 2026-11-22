@@ -58,9 +58,11 @@ namespace RevitWebAppSync.UI.Jkr
         // Thread position when the current part was sent (and at NewChat): only cards after it belong to this part.
         private int _mark;
 
-        /// <summary>Ya/Tidak (and question / code) cards added since the last Send: any open one wins, else the newest
-        /// resolved one. Counting from each Send, not from NewChat, keeps the previous part's Approved card from reading
-        /// as this part's write.</summary>
+        /// <summary>Where this part's turn stands, read from the thread since the last Send. The merged Copilot has no Ya/Tidak
+        /// card: a write applies by itself, and the only questions are the ask card (a parked question, including the wide-write
+        /// gate "Needs your OK"). So: an unanswered ask card = Open; an ask answered with a decline or with the gate's write_cancel
+        /// = Declined; a committed write in the turn's evidence = Approved (the write ran, by itself or after the gate's
+        /// write_all); otherwise None. Newest event wins, an open ask beats all.</summary>
         public CopilotCardState Cards
         {
             get
@@ -71,11 +73,31 @@ namespace RevitWebAppSync.UI.Jkr
                 for (var i = Math.Min(_mark, vm.Thread.Count); i < vm.Thread.Count; i++)
                 {
                     var m = vm.Thread[i];
-                    if (!(m.Kind == CpMsgKind.ConfirmActions || m.ChoiceBatch != null || m.PendingCode != null)) continue;
-                    cards.Add(new CopilotCardInfo(m.ActionsResolved, m.ActionsApproved));
+                    var ask = m.Ask;
+                    if (ask != null)
+                    {
+                        if (ask.AnsweredSummary == null) { cards.Add(new CopilotCardInfo(false, null)); continue; }
+                        if (AnsweredNo(ask)) cards.Add(new CopilotCardInfo(true, false));   // an answered, non-declined question is no state: only a committed write is Approved
+                    }
+                    var ev = m.Evidence;
+                    if (ev != null)
+                    {
+                        if (ev.AnyCommitted) cards.Add(new CopilotCardInfo(true, true));
+                        else if (ev.Receipt.Declined > 0 && ev.Receipt.Done == 0) cards.Add(new CopilotCardInfo(true, false));
+                    }
                 }
                 return CopilotCards.Read(cards);
             }
+        }
+
+        /// <summary>The ask was answered "no": the gate's write_cancel, or any option that reads like declining.</summary>
+        private static bool AnsweredNo(AskCardModel ask)
+        {
+            var said = ask.AnsweredSummary;
+            foreach (var o in ask.Options)
+                if (string.Equals(o.Label, said, StringComparison.OrdinalIgnoreCase))
+                    return o.Id == WideWriteModel.WriteCancelId || AskCardModel.IsDeclineLike(o.Label);
+            return AskCardModel.IsDeclineLike(said);
         }
 
         public bool IsPaneVisible => App.CopilotPaneHost?.IsVisible ?? false;

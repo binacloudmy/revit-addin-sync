@@ -1,0 +1,688 @@
+#nullable enable
+// Result marks in the model, build step 1 ("Name it and keep it"): the mark groups from a turn's result and the
+// add-in's own commit lists, the key's words and counts for each state this round covers, the corner the key takes,
+// the mark size, and the life of the result (nothing fades; hide, show again, gone after Undo).
+// Fixtures copy the shape of the live round-9 exports (a code write that tags every door of a plan: one commit whose
+// envelope lists 50 of its 58 added ids, touched_by_category 58, and a server result with a view row and one tag row
+// per door type whose ids are cut to what the envelope showed). The names are invented.
+
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text.Json;
+using BinaVibe.Copilot.Contracts;
+using BinaVibe.Copilot.Writes;
+using RevitWebAppSync.UI.Copilot.Highlights;
+using RevitWebAppSync.UI.Copilot.Model;
+using Xunit;
+
+namespace RevitAddinSync.Tests
+{
+    public class ResultMarksTests
+    {
+        private const long ThisView = 7001, SitePlan = 9001;
+        private const string ThisViewName = "Level 1 - Plan (WIP)";
+
+        // Ten door types, 58 tags: the counts of the live run, invented names.
+        private static readonly (string Type, int Count)[] DoorTypes =
+        {
+            ("(DA20) 750 x 2100 single", 20), ("(DB12) 3700 x 2100 double", 12), ("(DC08) 900 x 2100 single", 8),
+            ("(DD04) 1000 x 2100 sliding", 4), ("(DE04) 450 x 2100 access", 4), ("(DF03) 1800 x 2100 pair", 3),
+            ("(DG02) 900 x 2100 glazed", 2), ("(DH02) 1500 x 2100 pair", 2), ("(DI02) 1950 x 2400 pair", 2),
+            ("(DJ01) 900 x 2100 access", 1),
+        };
+
+        private static List<long> AllTagIds() => Enumerable.Range(0, 58).Select(i => 300000L + i).ToList();
+
+        /// <summary>The commit as the engine leaves it: 50 rows in touched.added, the full 58 kept by CommitIds when
+        /// <paramref name="keepFull"/> (the add-in's own commit), not when the envelope came from elsewhere (history).</summary>
+        internal static (ResultCardModel Card, Envelope Env) TagRun(bool keepFull = true, string viewRowTitle = ThisViewName)
+        {
+            var ids = AllTagIds();
+            var env = new Envelope
+            {
+                Ok = true, Status = EnvelopeStatus.Done, Phase = EnvelopePhase.Commit, Summary = "Ran: Tag all untagged doors (added 58).",
+                Data = JsonDocument.Parse("{\"mode\":\"write\"}").RootElement.Clone(),
+                Changes = new ChangeReportDto
+                {
+                    Touched = new ChangesDto { Added = ids.Take(EnvelopeLimits.MaxRows).Select(i => new ElementRef(i, null)).ToList() },
+                    TouchedByCategory = new SideEffectsDto { AddedByCategory = { ["Door Tags"] = 58 } },
+                },
+            };
+            if (keepFull)
+                CommitIds.Remember(env, new ChangesDto { Added = ids.Select(i => new ElementRef(i, null)).ToList() },
+                    ids.ToDictionary(i => i, _ => "Door Tags"));
+            var call = new ToolCallDto { CallId = "c1", IdempotencyKey = "k", Tool = ToolNames.RunRevitCode, Args = JsonDocument.Parse("{\"intent\":\"Tag doors\"}").RootElement.Clone() };
+            var ev = new TurnEvidence();
+            ev.Add(new ToolRequestDto { RequestId = "r1", Kind = ToolRequestKinds.Write, Calls = { call } }, new[] { env });
+
+            // The server's rows: a view row, then one tag row per door type whose ids stop where the envelope's 50 stopped.
+            var items = new List<object> { new { kind = "view", title = viewRowTitle, ids = new[] { ThisView }, cells = new Dictionary<string, string> { ["tags added"] = "58" } } };
+            var at = 0;
+            foreach (var (type, n) in DoorTypes)
+            {
+                var rowIds = ids.Skip(at).Take(n).Where(i => i < 300000 + EnvelopeLimits.MaxRows).ToList();
+                if (type.StartsWith("(DD04)")) rowIds = rowIds.Take(1).ToList();   // the live "count 4 with 1 id"
+                items.Add(new { kind = "tag", title = type, count = n, ids = rowIds });
+                at += n;
+            }
+            var json = JsonSerializer.Serialize(new { kind = "created", lang = "en", reply = "Added 58 door tags in " + viewRowTitle + ".", items, counts = new { created = 58 } });
+            var result = CopilotJson.Deserialize<TurnResultDto>(json);
+            var card = ResultCardModel.From(ev, ReceiptLanguage.En).WithServerResult(result);
+            return (card, env);
+        }
+
+        internal static HighlightSet Set(bool keepFull = true)
+        {
+            var (card, env) = TagRun(keepFull);
+            var set = HighlightSet.From(card, new[] { env });
+            set.TurnId = "t1"; set.Time = "2:35 PM";
+            return set;
+        }
+
+        private static List<ElementPlace> Places(HighlightSet set, System.Func<long, ElementPlace> where)
+        {
+            var list = new List<ElementPlace>();
+            for (var g = 0; g < set.Kinds.Count; g++)
+                foreach (var id in set.Kinds[g].Ids) { var p = where(id); p.Id = id; p.Group = g; list.Add(p); }
+            return list;
+        }
+
+        // ─── Mark groups ──────────────────────────────────────────────────────
+
+        [Fact]
+        public void TheTagRun_IsOneMadeGroupOf58_FromTheAddInsOwnList_NotTheEnvelopes50()
+        {
+            var set = Set();
+
+            Assert.Equal(50, TagRun().Env.Changes!.Touched.Added.Count);   // what goes to the backend is unchanged
+            var made = Assert.Single(set.Kinds);
+            Assert.Equal(MarkOutcome.Made, made.Outcome);
+            Assert.Equal(MarkKind.Annotation, made.Kind);
+            Assert.Equal("Door Tags", made.Category);
+            Assert.Equal(58, made.Count);
+            Assert.Equal(58, made.Ids.Distinct().Count());
+            Assert.True(set.FullLists);
+        }
+
+        [Fact]
+        public void WithoutTheAddInsList_AnEnvelopeFromHistory_MarksWhatTheEnvelopeListed()
+        {
+            var set = Set(keepFull: false);
+            Assert.Equal(50, Assert.Single(set.Kinds).Count);
+            Assert.False(set.FullLists);
+        }
+
+        [Fact]
+        public void EachCardRow_IsItsOwnGroup_WithItsTitleCountAndIds_AndTheViewRowIsNone()
+        {
+            var set = Set();
+
+            Assert.Equal(10, set.Rows.Count);
+            Assert.DoesNotContain(set.Rows, r => r.Title == ThisViewName);
+            Assert.Equal(DoorTypes.Select(t => t.Type), set.Rows.Select(r => r.Title));
+            Assert.Equal(DoorTypes.Select(t => t.Count), set.Rows.Select(r => r.Count));
+            var dd = set.Rows.Single(r => r.Title.StartsWith("(DD04)"));
+            Assert.Equal(4, dd.Count);            // the row's own count …
+            Assert.Single(dd.Ids);                // … though the server kept one id (step 2 asks the backend for the rest)
+            Assert.All(set.Rows, r => Assert.Equal(MarkOutcome.Made, r.Outcome));
+            Assert.Equal(20, set.Rows[0].Ids.Count);
+        }
+
+        [Fact]
+        public void TheCardAndTheKey_AgreeOn58()
+        {
+            var (card, env) = TagRun();
+            var set = HighlightSet.From(card, new[] { env });
+            var key = MarkKey.Build(set, null, ThisViewName);
+
+            Assert.Equal(58, card.CreatedBy!.Total);
+            Assert.Equal(58, key.Total);
+            Assert.StartsWith("58 ", key.Title);
+        }
+
+        [Fact]
+        public void AChangeByCode_IsVioletByCategory_WithTheFullCount()
+        {
+            var ids = Enumerable.Range(0, 120).Select(i => 500000L + i).ToList();
+            var env = new Envelope
+            {
+                Ok = true, Status = EnvelopeStatus.Done, Phase = EnvelopePhase.Commit, Summary = "Ran: set comments.",
+                Data = JsonDocument.Parse("{\"mode\":\"write\"}").RootElement.Clone(),
+                Changes = new ChangeReportDto { TouchedByCategory = new SideEffectsDto { ModifiedByCategory = { ["Walls"] = 120 } } },
+            };
+            CommitIds.Remember(env, new ChangesDto { Modified = ids.Select(i => new FieldChangeDto { Id = i }).ToList() }, ids.ToDictionary(i => i, _ => "Walls"));
+            var card = new ResultCardModel { Kind = ResultKind.Changes, CategoryCounts = { ("Walls", 120) } };
+
+            var set = HighlightSet.From(card, new[] { env });
+
+            var g = Assert.Single(set.Kinds);
+            Assert.Equal(MarkOutcome.Changed, g.Outcome);
+            Assert.Equal(120, g.Count);
+            var key = MarkKey.Build(set, null, ThisViewName);
+            Assert.Equal("120 walls changed", key.Title);
+            Assert.Equal("Changed wall", MarkKey.LineLabel(g));
+        }
+
+        // ─── The key, state by state ──────────────────────────────────────────
+
+        [Fact]
+        public void JustFinished_AllInThisView_TheBarIsTheTitleAlone()
+        {
+            var set = Set();
+            var key = MarkKey.Build(set, Places(set, _ => new ElementPlace { InActiveView = true }), ThisViewName);
+
+            Assert.Equal(MarkOutcome.Made, key.HeadOutcome);
+            Assert.Equal("58 door tags made", key.Title);
+            Assert.Equal("", key.Look);
+            Assert.Equal("", key.State);                                 // every mark here: nothing more to say
+            Assert.Equal("in " + ThisViewName + ", this view", key.Where);   // the card's header
+            Assert.Null(key.OpenViewId);
+            Assert.Null(key.ZoomLabel);
+            Assert.Equal(58, key.Here);
+        }
+
+        [Fact]
+        public void InAnotherView_NothingHere_SaysWhichView_WithGoToView()
+        {
+            var set = Set();
+            var key = MarkKey.Build(set, Places(set, _ => new ElementPlace { InActiveView = false, ViewId = SitePlan, ViewName = "Site Plan", IsPlan = true }), "Level 2 - Plan");
+
+            Assert.Equal("58 door tags made", key.Title);
+            Assert.Equal("in Site Plan", key.State);
+            Assert.Equal("in Site Plan", key.Where);
+            Assert.Equal(SitePlan, key.OpenViewId);
+            Assert.Equal("Site Plan", key.OpenViewName);
+            Assert.Equal(0, key.Here);
+        }
+
+        [Fact]
+        public void SeveralViews_SomeHere_SaysHowManyOfAllAreHere()
+        {
+            // 412 room tags: 64 here, 348 in five other plans.
+            var ids = Enumerable.Range(0, 412).Select(i => 800000L + i).ToList();
+            var set = new HighlightSet { Time = "2:35 PM" };
+            set.Kinds.Add(new MarkGroup { Title = "Room Tags", Category = "Room Tags", Outcome = MarkOutcome.Made, Kind = MarkKind.Annotation, Ids = ids, Count = 412 });
+            var split = new[] { (0L, 64), (101L, 72), (102L, 81), (103L, 69), (104L, 66), (105L, 60) };
+            var places = new List<ElementPlace>();
+            var at = 0;
+            foreach (var (view, n) in split)
+            {
+                foreach (var id in ids.Skip(at).Take(n))
+                    places.Add(view == 0
+                        ? new ElementPlace { Id = id, InActiveView = true }
+                        : new ElementPlace { Id = id, ViewId = view, ViewName = "Plan " + view, IsPlan = true });
+                at += n;
+            }
+
+            var key = MarkKey.Build(set, places, ThisViewName);
+
+            Assert.Equal("412 room tags made", key.Title);
+            Assert.Equal("64 of 412 in this view", key.State);
+            Assert.Null(key.OpenViewId);                                  // some are here: no Go to view
+            Assert.Equal(64, key.Here);
+            Assert.Equal(412, key.Total);
+        }
+
+        [Fact]
+        public void SeveralViews_NoneHere_GoesToTheViewWithTheMost()
+        {
+            var set = Set();
+            var key = MarkKey.Build(set, Places(set, id => new ElementPlace { ViewId = id % 2 == 0 ? 11 : 12, ViewName = id % 2 == 0 ? "North Plan" : "South Plan", IsPlan = true }), ThisViewName);
+
+            Assert.Equal("in 2 plans", key.State);
+            Assert.Equal(11, key.OpenViewId);                             // 29 each: the first by name
+        }
+
+        [Fact]
+        public void ModelElementsNotVisibleHere_AreSaidSo_WithNoViewToGoTo()
+        {
+            var set = Set();
+            Assert.Equal("40 of 58 in this view", MarkKey.Build(set, Places(set, id => new ElementPlace { InActiveView = id < 300040 }), ThisViewName).State);
+            var none = MarkKey.Build(set, Places(set, _ => new ElementPlace()), ThisViewName);
+            Assert.Equal("None of the 58 is visible in this view", none.State);
+            Assert.Null(none.OpenViewId);
+        }
+
+        [Fact]
+        public void SomethingNeedsALook_BesideAChange_IsSaidAfterTheTitle()
+        {
+            var set = new HighlightSet
+            {
+                Kinds =
+                {
+                    new MarkGroup { Title = "Lighting Fixtures", Category = "Lighting Fixtures", Outcome = MarkOutcome.Changed, Ids = Enumerable.Range(1, 52).Select(i => (long)i).ToList(), Count = 52 },
+                    new MarkGroup { Title = "Read back different", Outcome = MarkOutcome.NeedsLook, Ids = { 3, 17 }, Count = 2 },
+                },
+            };
+            var key = MarkKey.Build(set, null, "{3D}");
+            Assert.Equal("52 lighting fixtures changed", key.Title);
+            Assert.Equal(" · 2 need a look", key.Look);
+            Assert.Equal(2, key.Looks);
+            Assert.Equal(MarkOutcome.Changed, key.HeadOutcome);
+
+            set.Kinds.RemoveAt(0);
+            var only = MarkKey.Build(set, null, "{3D}");
+            Assert.Equal("2 elements need a look", only.Title);
+            Assert.Equal("", only.Look);                                  // the title already says it
+            Assert.Equal(MarkOutcome.NeedsLook, only.HeadOutcome);
+        }
+
+        [Fact]
+        public void Hidden_IsThePillWithTheSameWords()
+        {
+            var key = MarkKey.Build(Set(), null, ThisViewName);
+            Assert.Equal("Copilot result hidden · 58 door tags made", key.Pill);
+        }
+
+        [Fact]
+        public void NoFixedLabel_IsMalay_AndNoneSaysItFades()
+        {
+            var src = File.ReadAllText(Path.Combine(Root(), "UI/Copilot/Highlights/MarkKey.cs"));
+            foreach (var word in new[] { "dicipta", "diubah", "Buka", "Sembunyi", "fades", "seconds" })
+                Assert.DoesNotContain(word, src);
+        }
+
+        // ─── Life of the result: nothing fades ───────────────────────────────
+
+        // ─── The mark's file: Revit takes a .bmp only (live round 13: PNG files, no mark was ever drawn) ───
+
+        private static string RepoFile(params string[] parts)
+        {
+            var root = new System.IO.DirectoryInfo(System.IO.Directory.GetCurrentDirectory());
+            while (root != null && !System.IO.File.Exists(System.IO.Path.Combine(root.FullName, "RevitWebAppSync.csproj"))) root = root.Parent;
+            return System.IO.File.ReadAllText(System.IO.Path.Combine(new[] { root!.FullName }.Concat(parts).ToArray())).Replace("\r\n", "\n");
+        }
+
+        [Fact]
+        public void AMark_IsA24BitBitmap_WithRevitsClearColour_AndNoBlendWithIt()
+        {
+            // 3 x 2 premultiplied BGRA, rows top-down: clear, opaque violet, a faint edge / half-opaque green, the clear colour itself, clear.
+            var px = new byte[]
+            {
+                0, 0, 0, 0,        237, 58, 124, 255,   20, 5, 10, 60,
+                0, 80, 0, 128,     128, 128, 0, 255,    0, 0, 0, 0,
+            };
+            var bmp = MarkBitmap.Encode(px, 3, 2);
+            Assert.Equal((byte)'B', bmp[0]); Assert.Equal((byte)'M', bmp[1]);
+            Assert.Equal(54 + 2 * 12, bmp.Length);                                  // each row of 9 bytes is padded to 12
+            Assert.Equal(bmp.Length, System.BitConverter.ToInt32(bmp, 2));
+            Assert.Equal(54, System.BitConverter.ToInt32(bmp, 10));
+            Assert.Equal(3, System.BitConverter.ToInt32(bmp, 18)); Assert.Equal(2, System.BitConverter.ToInt32(bmp, 22));
+            Assert.Equal(24, System.BitConverter.ToInt16(bmp, 28)); Assert.Equal(0, System.BitConverter.ToInt32(bmp, 30));
+            (byte B, byte G, byte R) At(int x, int y) { var at = 54 + (2 - 1 - y) * 12 + x * 3; return (bmp[at], bmp[at + 1], bmp[at + 2]); }
+            var clear = (MarkBitmap.ClearB, MarkBitmap.ClearG, MarkBitmap.ClearR);
+            Assert.Equal(clear, At(0, 0));                                          // nothing there
+            Assert.Equal(((byte)237, (byte)58, (byte)124), At(1, 0));               // the colour as it is
+            Assert.Equal(clear, At(2, 0));                                          // a faint edge is dropped, never blended
+            Assert.Equal(((byte)0, (byte)159, (byte)0), At(0, 1));                  // half opaque: the colour at full strength
+            Assert.NotEqual(clear, At(1, 1));                                       // a real pixel is never the clear colour
+            Assert.Equal(clear, At(2, 1));
+            Assert.Equal((0, 128, 128), ((int)MarkBitmap.ClearR, (int)MarkBitmap.ClearG, (int)MarkBitmap.ClearB));
+            Assert.Throws<System.ArgumentException>(() => MarkBitmap.Encode(new byte[4], 2, 2));
+
+            var images = RepoFile("UI", "Copilot", "Highlights", "MarkImages.cs");
+            Assert.Contains("MarkFocus.ToneSuffix(tone) + MarkBitmap.Extension;", images);
+            Assert.Contains("return MarkBitmap.Encode(pixels, w, h);", images);
+            Assert.DoesNotContain("PngBitmapEncoder", images);
+            Assert.DoesNotContain(".png", images);
+            Assert.Equal(".bmp", MarkBitmap.Extension);
+        }
+
+        [Fact]
+        public void TheBar_NeverClaimsMarks_WhenRevitDrewNone()
+        {
+            var key = new KeyText { State = "14 of 16 on screen", ZoomLabel = "Zoom to all", ZoomProminent = true };
+            MarkKey.ApplyNotDrawn(key, places: 16, drawn: 0);
+            Assert.Equal("the marks could not be drawn in this view", key.State);
+            Assert.Null(key.ZoomLabel); Assert.False(key.ZoomProminent);
+
+            var drawn = new KeyText { State = "" };
+            MarkKey.ApplyNotDrawn(drawn, places: 16, drawn: 16);
+            Assert.Equal("", drawn.State);
+            var none = new KeyText { State = "in Aras 01" };
+            MarkKey.ApplyNotDrawn(none, places: 0, drawn: 0);                       // nothing of it is in this view: no mark was due
+            Assert.Equal("in Aras 01", none.State);
+
+            var inModel = RepoFile("UI", "Copilot", "Highlights", "InModelResult.cs");
+            Assert.Contains("if (!Hidden) MarkKey.ApplyNotDrawn(key, _marks.Count, _controls.Count);", inModel);
+        }
+
+        [Fact]
+        public void AMarkThatWasAddedChangedOrRemoved_IsPainted_ByARealRedrawOfTheView()
+        {
+            // The 0.0.110 probe in Revit: AddControl took 16 marks, RefreshActiveView painted none, one notch of zoom painted all.
+            var s = RepoFile("UI", "Copilot", "Highlights", "InModelResult.cs");
+            var add = s.Substring(s.IndexOf("private void AddMarks(", System.StringComparison.Ordinal));
+            add = add.Substring(0, add.IndexOf("\n        }\n", System.StringComparison.Ordinal));
+            Assert.Contains("Repaint(uidoc, view);", add);
+            Assert.DoesNotContain("RefreshActiveView", add);                                     // it painted nothing
+            var repaint = s.Substring(s.IndexOf("private void Repaint(", System.StringComparison.Ordinal));
+            repaint = repaint.Substring(0, repaint.IndexOf("\n        }\n", System.StringComparison.Ordinal));
+            Assert.Contains("ui.ZoomAndCenterRectangle(corners[0] - nudge, corners[1] + nudge);", repaint);
+            Assert.Contains("_nudgeOut = !_nudgeOut;", repaint);                                 // out and in by turns: the view never drifts
+            Assert.Contains("_ownMove = true;", repaint);
+            Assert.Contains("Redraw(app);", s.Substring(s.IndexOf("private void ApplyTones(", System.StringComparison.Ordinal)));   // a tone change draws again (AddMarks repaints)
+            Assert.Contains("app => { RemoveMarks(app, ids); RepaintActive(app); }", s);         // marks taken away
+            Assert.Contains("if (!own && !Hidden && _controls.Count > 0 && Relaid(uidoc, view)) Redraw(app);", s);   // the nudge never lays out and draws again
+            Assert.InRange(MarkKey.RepaintNudge, 0.0001, 0.005);
+        }
+
+        [Fact]
+        public void ASelectionFromThePane_ActivatesTheView_AndHandsTheKeyboardBack()
+        {
+            // Live round 15, three probe runs: with no click in the canvas since the model was opened, Revit held the
+            // card's selection ("Revit holds 38") and showed none of it, whatever the remedy (made in the event or in
+            // Idling, a refresh, focus on the view's own window). One real click in the canvas, or WM_MOUSEACTIVATE sent to
+            // the view's window, and it showed. The activation gives the view the keyboard: it must go back to the pane,
+            // where the drafter types (in Revit letters start commands and arrow keys move the selection).
+            var s = RepoFile("UI", "Copilot", "Highlights", "InModelResult.cs");
+            Assert.Contains("if (select) Select(app, eids, \"focus-select\", generation);", s);
+            var select = s.Substring(s.IndexOf("private void Select(UIApplication app, List<ElementId> ids", System.StringComparison.Ordinal));
+            select = select.Substring(0, select.IndexOf("public void ZoomGroup(", System.StringComparison.Ordinal));
+            Assert.True(select.IndexOf("uidoc.Selection.SetElementIds(ids);", System.StringComparison.Ordinal)
+                        < select.IndexOf("BinaVibe.Copilot.Writes.ViewActivation.Show(app);", System.StringComparison.Ordinal));
+            Assert.DoesNotContain("BINA_SELECT_PROBE", s);                       // the probes are gone with their answer
+            // Live round 17 (P2): after a click in the Project Browser Revit took no selection ("Revit holds 0" for 126 pipes).
+            Assert.Contains("if (ids.Count > 0 && held == 0)", select);
+            Assert.Contains("if (held == 0) { _selectAgain = ids; _selectAgainWhy = why; }", select);
+            Assert.Contains("uidoc.Selection.SetElementIds(again);", s);
+            var a = RepoFile("BinaVibe", "Copilot", "Writes", "ViewActivation.cs");
+            Assert.Contains("private const uint WmMouseActivate = 0x0021;", a);
+            var show = a.Substring(a.IndexOf("public static string Show(UIApplication app)", System.StringComparison.Ordinal));
+            show = show.Substring(0, show.IndexOf("private static void OnIdle(", System.StringComparison.Ordinal));
+            Assert.Contains("if (had == view) return \"the view has the keyboard\";", show);          // a click in the canvas: nothing to do
+            // No key may reach Revit while the view holds the keyboard: the keys are dropped BEFORE the view is activated.
+            Assert.True(show.IndexOf("DropKeys(true);", System.StringComparison.Ordinal) < show.IndexOf("SendMessage(view, WmMouseActivate", System.StringComparison.Ordinal));
+            Assert.Contains("RevitThread.Idle += OnIdle;", show);
+            var idle = a.Substring(a.IndexOf("private static void OnIdle(", System.StringComparison.Ordinal));
+            idle = idle.Substring(0, idle.IndexOf("private static void Tick(", System.StringComparison.Ordinal));
+            Assert.Contains("if (++_idles < HoldIdleCalls)", idle);                                    // Revit shows it while its view is active and it is idle
+            Assert.True(idle.IndexOf("if (was && _had != IntPtr.Zero) SetFocus(_had);", System.StringComparison.Ordinal)
+                        < idle.IndexOf("DropKeys(false);", System.StringComparison.Ordinal));          // keys flow again only once the pane has them
+            var look = a.Substring(a.IndexOf("private static void Look()", System.StringComparison.Ordinal));
+            Assert.Contains("var most = _holdTest > 0 ? _holdTest : HoldAtMostSeconds;", look);          // never longer than a second, idle or not
+            Assert.Contains("if (Elapsed > most) Back(", look);
+            Assert.Contains("BINA_VIEW_HOLD_TEST_SECONDS", a);                                         // the live test of the key drop; unset otherwise
+            Assert.Contains("if (!over && !clicked && now == _view && _had != IntPtr.Zero) { SetFocus(_had); _taken++; return; }", look);
+            Assert.Contains("BinaVibe.Copilot.Writes.ViewActivation.Show(app);", s);
+            Assert.Contains("if (selected > 0) ViewActivation.Show(uidoc.Application);", RepoFile("BinaVibe", "Copilot", "Read", "FindExecutor.cs"));
+            // The event-only lane of the first guess is gone again.
+            Assert.DoesNotContain("RunInEvent", RepoFile("BinaVibe", "Copilot", "Writes", "RevitThread.cs"));
+        }
+
+        [Fact]
+        public void ANudgeAfterARealZoom_DoesNotHideIt()
+        {
+            // The selection's repaint now comes after the row's zoom: the marks must still be sized for that zoom.
+            Assert.True(MarkKey.IsNudge(0.002 * 100, 100));      // the nudge itself: each corner a thousandth of the diagonal
+            Assert.True(MarkKey.IsNudge(0, 100));
+            Assert.False(MarkKey.IsNudge(0.05 * 100, 100));      // a wheel notch, a row's zoom
+            Assert.False(MarkKey.IsNudge(1, 0));
+            var s = RepoFile("UI", "Copilot", "Highlights", "InModelResult.cs");
+            Assert.Contains("_settleOwn = _dirty ? _settleOwn && own : own; _ownMove = false;", s);
+            Assert.Contains("var own = _ownMove && (_c0 == null || MarkKey.IsNudge(", s);
+        }
+
+        [Fact]
+        public void TheTurnsUndo_WakesRevit_SoItNeverWaitsForAMouseMove()
+        {
+            // Live round 14: the card's Undo stayed on "an undo is already running" although Revit had undone the write.
+            // The job advances only in Idling; with no input Revit raises none.
+            var thread = RepoFile("BinaVibe", "Copilot", "Writes", "RevitThread.cs");
+            Assert.Contains("public static void Wake()", thread);
+            Assert.Contains("RaiseKick(force: true);", thread.Substring(thread.IndexOf("public static void Wake()", System.StringComparison.Ordinal)));   // not coalesced (KickPolicy)
+            var undo = RepoFile("BinaVibe", "Copilot", "Undo", "UndoService.cs");
+            var start = undo.Substring(undo.IndexOf("private static Task<Envelope> Start(", System.StringComparison.Ordinal));
+            Assert.True(start.IndexOf("RevitThread.Wake();", System.StringComparison.Ordinal) < start.IndexOf("return job.Done.Task;", System.StringComparison.Ordinal));
+            var changed = undo.Substring(undo.IndexOf("private static void OnDocumentChanged(", System.StringComparison.Ordinal));
+            changed = changed.Substring(0, changed.IndexOf("private static void OnRedone(", System.StringComparison.Ordinal));
+            Assert.Contains("if (waiting) RevitThread.Wake();", changed);
+        }
+
+        [Fact]
+        public void TheOverlay_UsesTheDisplaysRealScale_InsideRevit()
+        {
+            // Live round 13 on a 4K monitor at 200 %: the key sat over the rings, a view's offset away from its corner.
+            Assert.Equal(1.0, MarkKey.ScaleOf(96)); Assert.Equal(1.25, MarkKey.ScaleOf(120));
+            Assert.Equal(1.5, MarkKey.ScaleOf(144)); Assert.Equal(2.0, MarkKey.ScaleOf(192));
+            Assert.Equal(0, MarkKey.ScaleOf(0)); Assert.Equal(0, MarkKey.ScaleOf(100000));
+            var overlay = RepoFile("UI", "Copilot", "Highlights", "HighlightOverlay.cs");
+            var scale = overlay.Substring(overlay.IndexOf("public static double DeviceScale()", System.StringComparison.Ordinal));
+            Assert.True(scale.IndexOf("MarkKey.ScaleOf(GetDpiForWindow(hwnd))", System.StringComparison.Ordinal) >= 0);
+            Assert.True(scale.IndexOf("GetDpiForWindow(hwnd)", System.StringComparison.Ordinal) < scale.IndexOf("Application.Current?.MainWindow", System.StringComparison.Ordinal));
+            Assert.DoesNotContain("PresentationSource.FromVisual(Application.Current?.MainWindow)", overlay);   // null inside Revit: it threw and 1.0 came back
+            // the window's place and size, and the marks' images, all divide by it
+            Assert.Contains("win.Left = rect.Left / scale;", overlay);
+            Assert.Contains("_dpi = HighlightOverlay.DeviceScale();", RepoFile("UI", "Copilot", "Highlights", "InModelResult.cs"));
+            // The bitmaps themselves are made at 100 %: Revit scales an in-canvas image on a scaled display (a 24 px dot drew 40 px).
+            Assert.Equal(1.0, MarkKey.ImageScale);
+            Assert.Contains("MarkImages.DotPath(g.Key.Outcome, _darkCanvas, MarkKey.ImageScale, g.Key.Tone)", RepoFile("UI", "Copilot", "Highlights", "InModelResult.cs"));
+        }
+
+        [Fact]
+        public void AMarksTooltip_SaysWhatItIs_NotRevitsControl()
+        {
+            var look = new MarkGroup { Title = "Can't keep elements joined.", Outcome = MarkOutcome.NeedsLook, Kind = MarkKind.Element, Count = 16, Named = true };
+            Assert.Equal(MarkKey.LineLabel(look).TrimEnd('.') + " · click to select", MarkKey.Tooltip(look));
+            Assert.EndsWith(" · click to select", MarkKey.Tooltip(look));
+            Assert.DoesNotContain(". ·", MarkKey.Tooltip(look));
+            var inModel = RepoFile("UI", "Copilot", "Highlights", "InModelResult.cs");
+            Assert.Contains("SetTooltip?.Invoke(tgm, new object[] { index, tip });", inModel);
+            Assert.Contains("MarkKey.Tooltip(_set.Kinds[g])", inModel);
+            Assert.Equal("4 marks here · click to select them", MarkKey.BadgeTooltip(4));
+            Assert.Contains("typeof(TemporaryGraphicsManager).GetMethod(\"SetTooltip\"", inModel);   // not in the older hosts' API: never linked
+        }
+
+        [Fact]
+        public void TheKeyFollowsTheView_ThroughTheAddInsOnePermanentIdlingSubscription()
+        {
+            // Live round 13. From the pane's thread Revit's Idling event never took (0.0.107: plan -> 3D -> plan and the
+            // key named the old view). From the work Revit runs it is refused whenever that work runs inside an Idling
+            // call (0.0.112's log: "Can not subscribe to an event during execution of that event!"), so it only worked
+            // when the work happened to run from the kick (0.0.109, 0.0.110). The dispatcher's own subscription, made at
+            // startup, hands every Idling call on.
+            var s = RepoFile("UI", "Copilot", "Highlights", "InModelResult.cs");
+            Assert.Contains("BinaVibe.Copilot.Writes.RevitThread.Idle += OnIdle;", s);
+            Assert.DoesNotContain("app.Idling +=", s);                                          // never Revit's own event here
+            Assert.DoesNotContain("Idling -= OnIdling", s);
+            Assert.Contains("if (_idlingApp != null) return;", s);                              // one listener for the session
+            Assert.Contains("if (_idlingApp == null) StartIdling(app);", s);
+            Assert.Contains("if (_set == null) return;", s.Substring(s.IndexOf("private void OnIdling(", System.StringComparison.Ordinal)));
+            var thread = RepoFile("BinaVibe", "Copilot", "Writes", "RevitThread.cs");
+            Assert.Contains("public static event Action<UIApplication, IdlingEventArgs>? Idle;", thread);
+            var idling = thread.Substring(thread.IndexOf("private static void OnIdling(", System.StringComparison.Ordinal));
+            idling = idling.Substring(0, idling.IndexOf("\n        }\n", System.StringComparison.Ordinal));
+            Assert.True(idling.IndexOf("DrainOne(app);", System.StringComparison.Ordinal) < idling.IndexOf("Idle?.Invoke(app, e);", System.StringComparison.Ordinal));
+            Assert.Contains("try { Idle?.Invoke(app, e); }", idling);                           // a listener's fault never reaches Revit
+            Assert.Contains("app.Idling += OnIdling;", thread.Substring(thread.IndexOf("public static void Attach(", System.StringComparison.Ordinal)));
+        }
+
+        [Fact]
+        public void AnUndoOfTheShownTurn_ByRevitsOwnCtrlZToo_TakesTheResultOutOfTheView()
+        {
+            // Live round 13: Ctrl+Z after "Set Comments to Done on the doors": the card said Undone, the key still read
+            // "60 doors changed" and offered Undo.
+            BinaVibe.Copilot.Undo.UndoChange Change(BinaVibe.Copilot.Undo.UndoChangeKind kind, string turn, bool byPane = false) =>
+                new BinaVibe.Copilot.Undo.UndoChange { Kind = kind, TurnId = turn, ByPane = byPane };
+            var s = new MarkSession();
+            Assert.False(s.GoneWith(Change(BinaVibe.Copilot.Undo.UndoChangeKind.Undone, "t1")));   // nothing is shown
+            s.Show("t1");
+            Assert.True(s.GoneWith(Change(BinaVibe.Copilot.Undo.UndoChangeKind.Undone, "t1")));                // Revit's Ctrl+Z
+            Assert.True(s.GoneWith(Change(BinaVibe.Copilot.Undo.UndoChangeKind.Undone, "t1", byPane: true)));  // the card's button
+            Assert.False(s.GoneWith(Change(BinaVibe.Copilot.Undo.UndoChangeKind.Undone, "t0")));               // another turn's change
+            Assert.False(s.GoneWith(Change(BinaVibe.Copilot.Undo.UndoChangeKind.Redone, "t1")));
+            Assert.False(s.GoneWith(null));
+            s.Hide();
+            Assert.True(s.GoneWith(Change(BinaVibe.Copilot.Undo.UndoChangeKind.Undone, "t1")));                // the pill goes too
+
+            var root = new System.IO.DirectoryInfo(System.IO.Directory.GetCurrentDirectory());
+            while (root != null && !System.IO.File.Exists(System.IO.Path.Combine(root.FullName, "RevitWebAppSync.csproj"))) root = root.Parent;
+            var vm = System.IO.File.ReadAllText(System.IO.Path.Combine(root!.FullName, "UI", "Copilot", "CopilotViewModel.cs"));
+            Assert.Contains("if (InModel?.GoneWith(change) == true) Revit.ClearMarks(); UndoStateChanged?.Invoke();", vm);
+        }
+
+        [Fact]
+        public void TheResult_StaysUntilHidden_ShowsAgain_AndIsGoneAfterUndo()
+        {
+            var s = new MarkSession();
+            Assert.Equal(MarksState.None, s.StateOf("t1"));
+            Assert.Equal("Show in model", s.CardButton("t1", undone: false));
+
+            s.Show("t1");
+            Assert.True(s.KeyVisible);
+            Assert.Equal(MarksState.Shown, s.StateOf("t1"));
+            Assert.Equal(MarksState.None, s.StateOf("t0"));                       // an older turn's card
+            Assert.Equal("Hide marks", s.CardButton("t1", undone: false));
+
+            Assert.True(s.Hide());                                                // the key's close, or the card's Hide marks
+            Assert.True(s.PillVisible);
+            Assert.False(s.KeyVisible);
+            Assert.Equal("Show in model", s.CardButton("t1", undone: false));
+
+            Assert.True(s.ShowAgain());                                           // the pill's Show again
+            Assert.Equal(MarksState.Shown, s.StateOf("t1"));
+            Assert.False(s.ShowAgain());
+
+            s.Clear();                                                            // Undo (cleared first), the next turn, the pill's close
+            Assert.Equal(MarksState.None, s.StateOf("t1"));
+            Assert.False(s.KeyVisible || s.PillVisible);
+            Assert.Null(s.CardButton("t1", undone: true));                        // undone: nothing left to show
+        }
+
+        [Fact]
+        public void InModelResult_HasNoFadeTimer_KeepsTheResultOnAViewChange_AndClearsBeforeUndo()
+        {
+            var s = File.ReadAllText(Path.Combine(Root(), "UI/Copilot/Highlights/InModelResult.cs"));
+            Assert.DoesNotContain("FadeSeconds", s);
+            Assert.DoesNotContain("DispatcherTimer", s);
+            Assert.DoesNotContain("StartFade", s);
+            // A view change re-resolves; it does not clear.
+            var idle = s.Substring(s.IndexOf("private void OnIdling", System.StringComparison.Ordinal));
+            var change = idle.Substring(idle.IndexOf("if (view.Id.Value != _viewId)", System.StringComparison.Ordinal));
+            change = change.Substring(0, change.IndexOf("return;", System.StringComparison.Ordinal));
+            Assert.Contains("Resolve(app, _set);", change);
+            Assert.DoesNotMatch(@"(?<![\w.])Clear\(\)", change);
+            // Undo from the key: Clear first, then Undo.
+            var undo = s.Substring(s.IndexOf("private void UndoFromKey", System.StringComparison.Ordinal));
+            Assert.True(undo.IndexOf("Clear();", System.StringComparison.Ordinal) < undo.IndexOf("u();", System.StringComparison.Ordinal));
+            // Marks only for elements in the active view: a view-filtered collector and the owner view.
+            Assert.Contains("new FilteredElementCollector(doc, view.Id).WherePasses(new ElementIdSetFilter(all))", s);
+            Assert.Contains("e.OwnerViewId", s);
+            Assert.Contains("uidoc.RequestViewChange(v)", s);
+        }
+
+        [Fact]
+        public void TheKey_ShowsWithThePaneOpen_TheToastAndCalloutsAreGone()
+        {
+            var w = File.ReadAllText(Path.Combine(Root(), "UI/Copilot/Highlights/HighlightOverlayWindow.xaml.cs"))
+                    + File.ReadAllText(Path.Combine(Root(), "UI/Copilot/Highlights/HighlightOverlayWindow.xaml"));
+            Assert.DoesNotContain("ToastPolicy", w);
+            Assert.DoesNotContain("CopilotPaneOpen", w);
+            Assert.DoesNotContain("Callout", w);
+            Assert.DoesNotContain("x:Name=\"Toast\"", w);
+            Assert.Contains("x:Name=\"KeyLayer\"", w);
+            Assert.Contains("Canvas.SetLeft(_key, MarkKey.Margin)", w);
+        }
+
+        [Fact]
+        public void TheBar_IsOneLine_TheKeysListHeaderFocusLineAndLabelAreGone()
+        {
+            // Gabung, G5: the floating card repeated the pane's card; one slim line replaces it.
+            var w = File.ReadAllText(Path.Combine(Root(), "UI/Copilot/Highlights/HighlightOverlayWindow.xaml.cs"));
+            Assert.Contains("public static FrameworkElement Bar(OverlayModel model)", w);
+            foreach (var label in new[] { "\"Select all\"", "\"Hide\"", "\"Undo\"", "\"✕\"", "MarkKey.GoToView", "k.ZoomLabel" })
+                Assert.Contains(label, w);
+            foreach (var gone in new[] { "KeyLine", "MarkLabel", "\"Show all\"", "Swatch(", "KeyWidth", "PlaceLabel", "ToUpperInvariant" })
+                Assert.DoesNotContain(gone, w);
+            var focus = File.ReadAllText(Path.Combine(Root(), "UI/Copilot/Highlights/MarkFocus.cs"));
+            foreach (var gone in new[] { "GroupLabel", "FocusLine", "LabelAt", "ClickLabel" })
+                Assert.DoesNotContain(gone, focus);
+            Assert.Equal("Go to view", MarkKey.GoToView);
+        }
+
+        [Fact]
+        public void AtTheEndOfATurnThatChangedOrMadeElements_RevitsSelectionBecomesThem_WithNoZoom()
+        {
+            // Gabung, G1: as after Paste in Revit.
+            Assert.True(Set().SelectsAtTheEnd);                                                      // 58 door tags made
+            var look = new HighlightSet { Kinds = { new MarkGroup { Title = "Read back different", Outcome = MarkOutcome.NeedsLook, Ids = { 1, 2 }, Count = 2 } } };
+            Assert.False(look.SelectsAtTheEnd);                                                      // a check's findings alone
+            Assert.False(new HighlightSet().SelectsAtTheEnd);                                        // a find: no marks, it selected already
+
+            var s = File.ReadAllText(Path.Combine(Root(), "UI/Copilot/Highlights/InModelResult.cs")).Replace("\r\n", "\n");
+            var show = s.Substring(s.IndexOf("public void Show(HighlightSet set", System.StringComparison.Ordinal));
+            show = show.Substring(0, show.IndexOf("public void Hide()", System.StringComparison.Ordinal));
+            Assert.Contains("if (selectAll && _resultIds.Count > 0) Select(app, _resultIds.Select(ElemIds.From).ToList(), \"turn-end\", generation);", show);
+            Assert.DoesNotContain("ZoomTo", show);                                                   // G9: nothing moves the camera
+            Assert.DoesNotContain("RequestViewChange", show);
+            var panel = File.ReadAllText(Path.Combine(Root(), "UI/Copilot/CopilotPanel.xaml.cs"));
+            Assert.Contains("_inModel.Show(set, () => _vm.UndoTurn(msg), () => _vm.CanUndoTurn(msg), select: true);", panel);
+            // "Show in model" on an older card draws without selecting (the port has no way to ask for it).
+            Assert.Contains("public void ShowMarks(HighlightSet set, Action undo, Func<bool> canUndo) => _inModel()?.Show(set, undo, canUndo);",
+                File.ReadAllText(Path.Combine(Root(), "UI/Copilot/Ports/RevitActions.cs")));
+            // Select all on the bar is the same selection again.
+            var all = s.Substring(s.IndexOf("public void SelectAll()", System.StringComparison.Ordinal));
+            all = all.Substring(0, all.IndexOf("public void Step(int delta)", System.StringComparison.Ordinal));
+            Assert.Contains("Select(app, ids, \"select-all\", generation);", all);
+            Assert.DoesNotContain("ZoomTo", all);
+        }
+
+        [Fact]
+        public void TheResultLeavesTheView_WhenTheNextPromptIsSent()
+        {
+            // Gabung, G9: a prompt that is really sent clears the marks and the bar before the turn starts.
+            var vm = File.ReadAllText(Path.Combine(Root(), "UI/Copilot/CopilotViewModel.cs")).Replace("\r\n", "\n");
+            var send = vm.Substring(vm.IndexOf("public void ChatSend(string text", System.StringComparison.Ordinal));
+            send = send.Substring(0, send.IndexOf("private async System.Threading.Tasks.Task SendWithAttachmentsAsync(", System.StringComparison.Ordinal));
+            var stale = send.IndexOf("ModelResultStale?.Invoke();", System.StringComparison.Ordinal);
+            Assert.True(stale > send.IndexOf("Auth gate", System.StringComparison.Ordinal));          // after every early return
+            Assert.True(stale < send.IndexOf("_ = SendWithAttachmentsAsync(", System.StringComparison.Ordinal));
+            Assert.Contains("else ModelResultStale?.Invoke();", vm);                                  // a turn with nothing to draw clears too
+            Assert.Contains("_vm.ModelResultStale += () => _inModel.Clear();", File.ReadAllText(Path.Combine(Root(), "UI/Copilot/CopilotPanel.xaml.cs")));
+        }
+
+        // ─── Corner, pill, size ──────────────────────────────────────────────
+
+        [Fact]
+        public void TheBar_AlwaysSitsTopLeft_AndTheStepperNeverMoves()
+        {
+            // Live G-E and G-G: the bar changed corner three times in one session and the pill sat in a fourth; after the
+            // first step the bar's text grew and the arrow moved from under the pointer.
+            var w = RepoFile("UI", "Copilot", "Highlights", "HighlightOverlayWindow.xaml.cs");
+            Assert.Contains("Canvas.SetLeft(_key, MarkKey.Margin); Canvas.SetTop(_key, MarkKey.Margin);", w);
+            Assert.DoesNotContain("MarkKey.Corner(", w);
+            Assert.DoesNotContain("PillAt(", RepoFile("UI", "Copilot", "Highlights", "MarkKey.cs"));
+            var bar = w.Substring(w.IndexOf("public static FrameworkElement Bar(OverlayModel model)", System.StringComparison.Ordinal));
+            Assert.True(bar.IndexOf("KeyButton(\"›\"", System.StringComparison.Ordinal) < bar.IndexOf("k.State, FontSize", System.StringComparison.Ordinal));
+            Assert.Contains("at.MinWidth = 66;", bar);
+            // A click in the Project Browser is no change of view for the result.
+            Assert.Contains("if (view.ViewType == ViewType.ProjectBrowser || view.ViewType == ViewType.SystemBrowser) return;",
+                RepoFile("UI", "Copilot", "Highlights", "InModelResult.cs"));
+        }
+
+        [Theory]
+        [InlineData(0, 0, 22)]
+        [InlineData(10, 6, 22)]
+        [InlineData(20, 10, 30)]
+        [InlineData(30, 12, 40)]
+        [InlineData(40, 20, 52)]
+        [InlineData(400, 8, 52)]
+        public void TheMark_IsALittleBiggerThanTheThing_WithinBounds(double w, double h, int size) => Assert.Equal(size, MarkKey.SizeFor(w, h));
+
+        [Fact]
+        public void TagsAndDimensions_GetAFrame_ElementsADot()
+        {
+            Assert.True(MarkKey.IsFrame(MarkKind.Annotation));
+            Assert.False(MarkKey.IsFrame(MarkKind.Dimension));   // a string of dimensions: a dot at its middle, never a square over its numbers
+            Assert.False(MarkKey.IsFrame(MarkKind.Element));
+        }
+
+        private static string Root()
+        {
+            var dir = new DirectoryInfo(Directory.GetCurrentDirectory());
+            while (dir != null && !File.Exists(Path.Combine(dir.FullName, "RevitWebAppSync.csproj"))) dir = dir.Parent;
+            return dir!.FullName;
+        }
+    }
+}

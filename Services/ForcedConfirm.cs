@@ -2,7 +2,13 @@
 // Ya/Tidak card, even when CopilotPrefs.AutoApproveWrites is on. Set by the
 // JKR "Fix via Copilot" launcher; normal chats never touch it.
 //
-// Where the gate lives: the backend tags each pending call with `mutate` and
+// MERGE NOTE (feat/bina-ai-copilot): the merged Copilot pane has no client-side Ya/Tidak card and no
+// AutoApproveWrites gate: writes apply by themselves and the only question before a wide or destructive write is the
+// server's "Needs your OK" ask card. The lifecycle below is still driven (ChatSend, CancelSend, Clear chat, sign-in
+// re-send) but nothing in the pane reads IsActive / ShouldAutoApprove / ShouldShowCodeCard any more, so a forced
+// card cannot be enforced from the client. It is kept so the launcher and tests stay wired for when a gate returns.
+//
+// Where the gate lived: the backend tags each pending call with `mutate` and
 // `requires_confirmation`; the pane decides whether to skip the card
 // (CopilotViewModel.RenderRouteResult). Skipping is a client-only decision, so
 // forcing the card is a client-only change — no bina-ai change needed.

@@ -17,12 +17,25 @@ namespace RevitWebAppSync.UI.Copilot.Model
     {
         public string StepId { get; init; } = "";
         public string Phase { get; init; } = "";
+        /// <summary>The model step the server said this row belongs to (progress.step), 0 when it said none.</summary>
+        public int ModelStep { get; set; }
 
         private string _label = "";
         public string Label { get => _label; set { _label = value; Raise(nameof(Label)); } }
 
         private string _detail = "";
         public string Detail { get => _detail; set { _detail = value; Raise(nameof(Detail)); } }
+
+        private string _outcome = "";
+        /// <summary>The short result of a finished tool step ("62 elements"), shown right-docked in the running card.</summary>
+        public string Outcome { get => _outcome; set { _outcome = value ?? ""; Raise(nameof(Outcome)); } }
+
+        private string _note = "";
+        /// <summary>The plain line under the active step's label ("Looking through the model in {3D}").</summary>
+        public string Note { get => _note; set { _note = value ?? ""; Raise(nameof(Note)); } }
+
+        /// <summary>The values a write step is about to set (the "What I will write" card); null on every other step.</summary>
+        public System.Collections.Generic.IReadOnlyList<PreviewRecord> Preview { get; set; }
 
         private StepState _state = StepState.Running;
         public StepState State { get => _state; set { _state = value; Raise(nameof(State)); Raise(nameof(ElapsedText)); } }
@@ -219,6 +232,25 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return StepState.Running;
         }
 
+        /// <summary>A step for the developer, not the drafter: the turn budget ("Tools 1/60 · 0.0/2.0 MB ·
+        /// images 0/8"). It stays out of every list the pane draws.</summary>
+        public static bool IsDevStep(ProgressStep s) =>
+            s != null && string.Equals(s.StepId, "budget", StringComparison.Ordinal);
+
+        /// <summary>A step that only says the model is working ("Thinking"): fine while it runs, never
+        /// the summary of a finished turn.</summary>
+        public static bool IsWaitStep(ProgressStep s) =>
+            s != null && (string.Equals(s.Phase, "thinking", StringComparison.OrdinalIgnoreCase)
+                          || string.Equals(s.StepId, "thinking", StringComparison.Ordinal));
+
+        public static List<ProgressStep> UserVisible(IEnumerable<ProgressStep> steps)
+        {
+            var list = new List<ProgressStep>();
+            if (steps == null) return list;
+            foreach (var s in steps) if (s != null && !IsDevStep(s)) list.Add(s);
+            return list;
+        }
+
         public static string Glyph(StepState st) =>
             st == StepState.Done ? "✓" : st == StepState.Error ? "✗" : "▶";
 
@@ -313,17 +345,9 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// out as "0.0s" on every status row, because those steps are progress
         /// markers that open and close in the same tick rather than units of
         /// work; nine rows of "0.0s" told the drafter nothing.</summary>
-        public static string TotalElapsedText(IReadOnlyList<ProgressStep> steps)
-        {
-            if (steps == null || steps.Count == 0) return "";
-            var start = steps[0].StartedUtc;
-            var end = DateTime.UtcNow;
-            foreach (var s in steps)
-                if (s.EndedUtc != null && s.EndedUtc.Value > end) end = s.EndedUtc.Value;
-            var secs = (end - start).TotalSeconds;
-            if (secs < 0) secs = 0;
-            return secs < 10 ? secs.ToString("0.#") + "s" : ((int)secs) + "s";
-        }
+        /// A finished turn's time is fixed (TurnClock): only a running turn counts to now.
+        public static string TotalElapsedText(IReadOnlyList<ProgressStep> steps, bool running = false) =>
+            TurnClock.Text(steps, running, DateTime.UtcNow);
 
         /// <summary>Short hint at WHAT ran, for the collapsed chip: the last
         /// meaningful step's label plus "+N" for the rest. Empty when there is
@@ -338,14 +362,19 @@ namespace RevitWebAppSync.UI.Copilot.Model
             if (steps == null || steps.Count == 0) return "";
             // Prefer a running step (that is what the user is waiting on), else
             // the last one that carries a real label.
+            // The budget line and "Thinking" rows say nothing about WHAT ran: left out of the pick
+            // and of the "+N" count.
             ProgressStep pick = null;
+            var shown = 0;
             foreach (var s in steps)
             {
+                if (IsDevStep(s) || IsWaitStep(s)) continue;
+                shown++;
                 if (s.State == StepState.Running && !string.IsNullOrWhiteSpace(s.Label)) { pick = s; break; }
                 if (!string.IsNullOrWhiteSpace(s.Label)) pick = s;
             }
             if (pick == null) return "";
-            var extra = steps.Count - 1;
+            var extra = shown - 1;
             return extra > 0 ? pick.Label + "  +" + extra : pick.Label;
         }
     }

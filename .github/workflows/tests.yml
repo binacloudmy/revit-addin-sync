@@ -1,7 +1,7 @@
 # Unit tests (Tests/Tests.csproj, net10.0-windows) on every PR.
-# SkipRevitSources drops the deprecated DocumentChangedIndexer link — its
-# tests construct types that load RevitAPI.dll at RUNTIME, which only a
-# machine with Revit installed has (the NuGet package is compile-only).
+# SkipRevitSources is a no-op since the deprecated DocumentChangedIndexer link
+# (whose tests loaded RevitAPI.dll at runtime) was deleted; kept so the
+# command line stays stable.
 name: tests
 
 on:
@@ -26,14 +26,10 @@ jobs:
   # Installer scripts are PowerShell that only ever runs on a drafter's box or
   # a release runner — neither of which is where they get written. Two gates:
   #
-  #   parse   — every installer/*.ps1 must at least PARSE. engine-boot.ps1
-  #             shipped in v0.0.58-staging having never been fed to a
-  #             PowerShell parser (no pwsh on the dev Mac). A syntax error
-  #             there fails closed (the logon task never registers, logged)
-  #             but it fails on the fleet, not here.
-  #   gate    — fetch-engine-bundle.ps1's sha/manifest verification, dry-run
-  #             with a synthetic bundle and no network. This is what stops a
-  #             release from seeding corrupt or substituted engine bytes.
+  #   parse   — every installer/*.ps1 must at least PARSE, under pwsh 7 and
+  #             Windows PowerShell 5.1 (no pwsh on the dev Mac; a script once
+  #             shipped having never been fed to a parser).
+  # (The engine-bundle fetch gate went with the retired engine.)
   installer-scripts:
     runs-on: windows-latest
     steps:
@@ -44,11 +40,6 @@ jobs:
         run: installer/tests/parse-check.ps1
 
       - name: Parse every installer script (Windows PowerShell 5.1)
-        # The host the ONLOGON scheduled task actually runs engine-boot.ps1
-        # under. 5.1 rejects syntax pwsh 7 accepts, so both must pass.
+        # 5.1 rejects syntax pwsh 7 accepts, so both must pass.
         shell: powershell
         run: installer/tests/parse-check.ps1
-
-      - name: Engine fetch verification gate (dry-run)
-        shell: pwsh
-        run: installer/tests/fetch-engine-bundle.tests.ps1

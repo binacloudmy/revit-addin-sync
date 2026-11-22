@@ -1,0 +1,19 @@
+{
+  "model": "JKR EL test model",
+  "note": "Ordered steps. Each step is one Copilot turn or UI action in live Revit. 'expect' is what the driver must observe for PASS.",
+  "steps": [
+    { "id": "01-find",        "area": "FindExecutor",     "action": "prompt", "text": "Find all doors on Level 1",                          "expect": "Result card lists doors; count > 0; elements highlighted in the view" },
+    { "id": "02-find-empty",  "area": "FindExecutor",     "action": "prompt", "text": "Find all elements with Mark equal to ZZZ-NOT-REAL", "expect": "Result card reports 0 matches; no exception in the add-in log" },
+    { "id": "03-highlight",   "area": "Highlights",       "action": "ui",     "text": "Click a row in the find result card",                "expect": "That element is selected and zoomed in the active view" },
+    { "id": "04-write",       "area": "RevitWriteEngine", "action": "prompt", "text": "Set Comments to SMOKE-TEST on the doors on Level 1", "expect": "The change applies at once: no preview card and no Apply button appear; the result card reports N applied, 0 failed" },
+    { "id": "05-result",      "area": "RevitWriteEngine", "action": "ui",     "text": "Look at the result card",                            "expect": "Result card shows N applied, 0 failed and an Undo button; Comments read SMOKE-TEST on the doors" },
+    { "id": "06-undo",        "area": "UndoService",      "action": "ui",     "text": "Click Undo on the result card",                      "expect": "Comments restored to the pre-commit values; one Revit undo entry consumed" },
+    { "id": "07-redo",        "area": "UndoService",      "action": "ui",     "text": "Click Redo on the result card",                      "expect": "Comments read SMOKE-TEST again" },
+    { "id": "08-undo-cleanup","area": "UndoService",      "action": "ui",     "text": "Click Undo again to leave the model clean",          "expect": "Comments restored; model has no net change" },
+    { "id": "09-revit-thread","area": "RevitThread",      "action": "prompt", "text": "How many walls are in the model?",                   "expect": "Answer arrives while Revit stays responsive (no 'Not Responding'); count matches Revit schedule" },
+    { "id": "10-bulk-type-doors", "area": "run_revit_code",  "action": "prompt", "text": "Change all doors of the most used door type to another door type in the same category that fits their host walls", "expect": "Result card reports N changed (N = the Revit schedule count of doors of that type; aim for 100+) and names any skipped; in Revit every one of those doors now has the new type and is still hosted in its wall; no door was deleted or re-placed" },
+    { "id": "11-bulk-type-undo",  "area": "UndoService",     "action": "ui",     "text": "Click Undo on the result card",                    "expect": "All those doors are back on the original type; one Revit undo entry consumed" },
+    { "id": "12-bulk-type-walls", "area": "run_revit_code",  "action": "prompt", "text": "Change all walls of the most used basic wall type to another basic wall type", "expect": "Result card reports the exact count changed; the wall type matched is a wall type (not a door or floor type with the same name); doors and windows stay in those walls" },
+    { "id": "13-bulk-type-cleanup", "area": "UndoService",   "action": "ui",     "text": "Click Undo on the result card",                    "expect": "Those walls are back on the original type; model has no net change" }
+  ]
+}

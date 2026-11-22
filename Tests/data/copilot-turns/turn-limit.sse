@@ -1,0 +1,6 @@
+event: reply_delta
+data: {"seq":1,"text":"Separuh jawapan."}
+
+event: turn_end
+data: {"seq":2,"status":"limit","session_id":"ses_limit","receipt_ids":[]}
+

@@ -124,7 +124,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             RowsHost.Children.Add(new TextBlock
             {
                 Text = "RECENT CONVERSATIONS", FontSize = 10.5, FontWeight = FontWeights.SemiBold,
-                Foreground = CopilotColors.From("#99a3b3"),
+                Foreground = CopilotColors.Token("Cp.Faint"),
                 Margin = new Thickness(16, 12, 16, 4),
             });
             foreach (var h in Vm.History)
@@ -214,10 +214,10 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 Visibility = Visibility.Collapsed,
                 Margin = new Thickness(0, 0, 6, 0),
                 VerticalAlignment = VerticalAlignment.Center,
-                Background = CopilotColors.From("#ffffff"),
-                Foreground = CopilotColors.From("#131c2b"),
-                CaretBrush = CopilotColors.From("#131c2b"),
-                BorderBrush = CopilotColors.From("#1d4ed8"),
+                Background = CopilotColors.Token("Cp.Menu"),
+                Foreground = CopilotColors.Token("Cp.Ink"),
+                CaretBrush = CopilotColors.Token("Cp.Ink"),
+                BorderBrush = CopilotColors.Token("Cp.Accent"),
                 BorderThickness = new Thickness(1),
                 Padding = new Thickness(4, 2, 4, 2),
             };
@@ -231,7 +231,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 Text = rowTitle,
                 FontSize = 12.5,
                 FontWeight = FontWeights.SemiBold,
-                Foreground = CopilotColors.From("#131c2b"),
+                Foreground = CopilotColors.Token("Cp.Ink"),
                 TextTrimming = TextTrimming.CharacterEllipsis,
                 TextWrapping = TextWrapping.NoWrap,
                 ToolTip = MakeTitleTooltip(rowTitle),
@@ -282,7 +282,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             {
                 Width = 16, Height = 16, Stretch = Stretch.Uniform, StrokeThickness = 1.8,
                 StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round, StrokeLineJoin = PenLineJoin.Round,
-                Stroke = CopilotColors.From("#99a3b3"),
+                Stroke = CopilotColors.Token("Cp.Faint"),
                 Data = Geometry.Parse("M21,15 a2,2 0 0 1 -2,2 H8 l-4,4 V5 a2,2 0 0 1 2,-2 h13 a2,2 0 0 1 2,2 Z"),
                 HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
             };
@@ -298,7 +298,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             {
                 Text = h.Time + (msgCount > 0 ? $" · {msgCount / 2} message{(msgCount / 2 == 1 ? "" : "s")}" : ""),
                 FontSize = 11,
-                Foreground = CopilotColors.From("#99a3b3"),
+                Foreground = CopilotColors.Token("Cp.Faint"),
                 Margin = new Thickness(0, 2, 0, 0),
                 TextWrapping = TextWrapping.Wrap,
             });
@@ -307,7 +307,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             var dotsPath = new Path
             {
                 Width = 13, Height = 13, Stretch = Stretch.Uniform,
-                Fill = CopilotColors.From("#99a3b3"),
+                Fill = CopilotColors.Token("Cp.Faint"),
                 Data = Geometry.Parse(
                     "M12,5 m-1.5,0 a1.5,1.5,0,1,0,3,0 a1.5,1.5,0,1,0,-3,0 " +
                     "M12,12 m-1.5,0 a1.5,1.5,0,1,0,3,0 a1.5,1.5,0,1,0,-3,0 " +
@@ -342,7 +342,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             var chev = new Path
             {
                 Width = 13, Height = 13, Stretch = Stretch.Uniform,
-                Stroke = CopilotColors.From("#99a3b3"),
+                Stroke = CopilotColors.Token("Cp.Faint"),
                 StrokeThickness = 1.6,
                 Data = CopilotIcons.Get("chevronRight"),
             };
@@ -442,7 +442,22 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                     msg.Text, Vm?.UserFirstName, null,
                     msg.Files, DetailMaxWidth()));
             else
-                wrap.Children.Add(CopilotMessageBubble.Ai(msg.Text, DetailMaxWidth()));
+            {
+                // N-4: the model's reply only when it wrote one (no empty bubble), and
+                // the add-in's own note or receipt on its own labelled line.
+                var (reply, addin) = Model.ReceiptTemplates.BotLines(msg.Text, msg.PaneNote);
+                if (reply != null) wrap.Children.Add(CopilotMessageBubble.Ai(reply, DetailMaxWidth()));
+                if (addin != null)
+                {
+                    var note = new TextBlock
+                    {
+                        Text = addin, FontSize = 11, FontStyle = FontStyles.Italic, TextWrapping = TextWrapping.Wrap,
+                        MaxWidth = DetailMaxWidth(), Margin = new Thickness(0, 2, 0, 6), HorizontalAlignment = HorizontalAlignment.Left,
+                    };
+                    note.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Muted");
+                    wrap.Children.Add(note);
+                }
+            }
             return wrap;
         }
 
@@ -464,10 +479,10 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             var outer = new Border
             {
                 Margin = new Thickness(12, 2, 12, 8),
-                BorderBrush = CopilotColors.From("#bfdbfe"),
+                BorderBrush = CopilotColors.Token("Cp.PurpleLine"),
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(8),
-                Background = CopilotColors.From("#eff6ff"),
+                Background = CopilotColors.Token("Cp.AccentWash"),
                 Padding = new Thickness(10, 8, 10, 8),
             };
 
@@ -477,7 +492,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             header.Children.Add(new Path
             {
                 Width = 11, Height = 11, Stretch = Stretch.Uniform,
-                Fill = CopilotColors.From("#1d4ed8"),
+                Fill = CopilotColors.Token("Cp.Accent"),
                 Data = CopilotIcons.Get("sparkleSolid"),
                 Margin = new Thickness(0, 0, 5, 0),
                 VerticalAlignment = VerticalAlignment.Center,
@@ -487,7 +502,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 Text = tool.Title,
                 FontSize = 11.5,
                 FontWeight = FontWeights.SemiBold,
-                Foreground = CopilotColors.From("#1e40af"),
+                Foreground = CopilotColors.Token("Cp.BlueText"),
             });
             sp.Children.Add(header);
 
@@ -498,7 +513,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 {
                     Text = $"{i++}. {step}",
                     FontSize = 11,
-                    Foreground = CopilotColors.From("#3d4a5f"),
+                    Foreground = CopilotColors.Token("Cp.TextSecondary"),
                     TextWrapping = TextWrapping.Wrap,
                     Margin = new Thickness(0, 0, 0, 2),
                 });
@@ -512,7 +527,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                     FontSize = 11,
                     Background = Brushes.Transparent,
                     BorderThickness = new Thickness(0),
-                    Foreground = CopilotColors.From("#1d4ed8"),
+                    Foreground = CopilotColors.Token("Cp.Accent"),
                     Cursor = Cursors.Hand,
                     Margin = new Thickness(0, 4, 0, 0),
                     HorizontalAlignment = HorizontalAlignment.Left,
@@ -521,7 +536,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 var codeBorder = new Border
                 {
                     Visibility = Visibility.Collapsed,
-                    Background = CopilotColors.From("#f3f6f9"),
+                    Background = CopilotColors.Token("Cp.Sunken"),
                     CornerRadius = new CornerRadius(6),
                     Padding = new Thickness(10, 8, 10, 8),
                     Margin = new Thickness(0, 4, 0, 0),
@@ -531,7 +546,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                     Text = tool.Code,
                     FontFamily = new FontFamily("Consolas, Courier New"),
                     FontSize = 10.5,
-                    Foreground = CopilotColors.From("#1e40af"),
+                    Foreground = CopilotColors.Token("Cp.BlueText"),
                     Background = Brushes.Transparent,
                     BorderThickness = new Thickness(0),
                     IsReadOnly = true,

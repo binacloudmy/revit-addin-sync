@@ -30,15 +30,15 @@ namespace RevitAddinSync.Tests
         private static string AppCs() => File.ReadAllText(Path.Combine(RepoRoot(), "App.cs")).Replace("\r\n", "\n");
 
         [Fact]
-        public void Ribbon_HasACadToBimPanel_BetweenAiAndCompliance()
+        public void Ribbon_HasACadToBimPanel_AfterAi()
         {
             var app = AppCs();
             int ai = app.IndexOf("CreateRibbonPanel(tabName, \"BINA AI\")", StringComparison.Ordinal);
             int cad = app.IndexOf("CreateRibbonPanel(tabName, \"CAD to BIM\")", StringComparison.Ordinal);
-            int compliance = app.IndexOf("CreateRibbonPanel(tabName, \"Compliance\")", StringComparison.Ordinal);
+            int about = app.IndexOf("CreateRibbonPanel(tabName, \"BINA Sync\")", StringComparison.Ordinal);
             Assert.True(ai > 0, "BINA AI panel missing");
             Assert.True(cad > ai, "CAD to BIM panel must be created after BINA AI");
-            Assert.True(compliance > cad, "CAD to BIM panel must be created before Compliance");
+            Assert.True(about > cad, "CAD to BIM panel must be created before the About panel");
             Assert.Contains("cadPanel.AddItem(cadToBimButtonData);", app);
         }
 

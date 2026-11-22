@@ -1,0 +1,261 @@
+#nullable enable
+// What the turn measured, under the reply (lean-harness spec §7.11; W5 Task 3):
+//   - the caution line whenever any write is not done (never decided from text);
+//   - the receipt headline as fractions ("30/34 done · 4 failed (not owned)"),
+//     with Undo (W3's UndoService, one entry per batch);
+//   - the evidence strip of every read: count, what was searched, what was NOT
+//     searched (in the warning colour), highlighted / visible counts;
+//   - a thumbnail of every image a read returned (look; click to enlarge), so the
+//     drafter sees what the model saw (§7.7);
+//   - a check's rules, one line each, with Highlight on a failing rule (§21);
+//   - Export to Excel for tables a read returned, check results included.
+// All text comes from ReceiptTemplates over TurnEvidence.
+
+using System;
+using System.Linq;
+using System.Windows;
+using System.Windows.Controls;
+using RevitWebAppSync.UI.Copilot.Model;
+
+namespace RevitWebAppSync.UI.Copilot.Controls
+{
+    public sealed class TurnEvidenceActions
+    {
+        public Func<bool>? CanUndo;
+        /// <summary>Why Undo is off (W3's UndoModel kind); None when it is available (L19).</summary>
+        public Func<BinaVibe.Copilot.Undo.UndoBlock>? WhyNotUndo;
+        public Action? Undo;
+        /// <summary>Undo only the newest batch (offered when the turn has several).</summary>
+        public Func<bool>? CanUndoLast;
+        public Action? UndoLast;
+        /// <summary>Redo what Undo took back.</summary>
+        public Func<bool>? CanRedo;
+        public Action? Redo;
+        public Action<ResultTable>? Export;
+        /// <summary>Select a handle's elements in Revit (find_elements highlight).</summary>
+        public Action<string>? Highlight;
+        /// <summary>Result card: show this turn's marks and key in the model ("Show in model"; Show again when hidden).</summary>
+        public Action? ShowMarks;
+        /// <summary>Result card: hide this turn's marks and key ("Hide marks"); the pill stays in the view.</summary>
+        public Action? HideMarks;
+        /// <summary>What the model shows of this turn's result now.</summary>
+        public Func<Highlights.MarksState>? MarksState;
+        /// <summary>Something of the shown result is drawn in the view; false: Hide marks has nothing to hide (the button says so).</summary>
+        public Func<bool>? MarksDrawn;
+        /// <summary>The turn has something to mark in the model.</summary>
+        public Func<bool>? HasMarks;
+        /// <summary>Run the callback whenever the model's marks change (the card's button relabels); it answers false once its
+        /// button is gone, and is then dropped.</summary>
+        public Action<Func<bool>>? WatchMarks;
+        /// <summary>One way in (the "Gabung" view, G6): a card row's elements become Revit's selection and the view zooms to
+        /// them (their view opens first when they are in another one); the other groups' marks dim.</summary>
+        public Action<Highlights.MarkGroup>? ShowGroup;
+        /// <summary>A on the card (the bar's Select all): every element of the result is Revit's selection again.</summary>
+        public Action? SelectAll;
+        /// <summary>The card's "Zoom to all" (the removed key's): the view fits every mark of the result.</summary>
+        public Action? ZoomAll;
+        /// <summary>Run the callback when a mark of this turn is clicked in the model (the card scrolls to its row and flashes
+        /// it); it answers false once the card is gone.</summary>
+        public Action<Func<Highlights.MarkClick, bool>>? WatchMarkClicks;
+        /// <summary>The section header's title ("58 door tags made") and where the marks are now ("" when not shown).</summary>
+        public Func<string>? MarksTitle;
+        public Func<string>? MarksWhere;
+        /// <summary>The stepper's words ("2 of 5") and its previous / next; "" while this turn has no marks that need a look.</summary>
+        public Func<string>? StepLabel;
+        public Action<int>? StepMarks;
+        /// <summary>The view holding this turn's marked elements when none is in the open view; null otherwise ("Go to view").</summary>
+        public Func<(long Id, string Name)?>? OtherView;
+        public Action<long>? GoToView;
+        /// <summary>The rows of the card being drawn, in order (the keys move between them; a mark click finds its row).</summary>
+        internal CardRows? Rows;
+        /// <summary>Select the elements of a result group (instances of a type group).</summary>
+        public Action<TypeGroup>? SelectGroup;
+        public Action<TypeGroup>? ZoomGroup;
+        public Action<TypeGroup>? OpenTypeProperties;
+        /// <summary>Select and zoom to element ids (created items, a finding's elements).</summary>
+        public Action<long[]>? ShowElements;
+        /// <summary>Write a value the drafter typed into a result row (one more batch of the same turn); returns an error line, or null when it was written.</summary>
+        public Func<TypeGroup, ChangeRow, string, System.Threading.Tasks.Task<string?>>? EditValue;
+        /// <summary>The positioned words of one page (1-based) of an attached PDF, or null when the file is not available (Source panel).</summary>
+        public Func<string, int, System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<BinaVibe.Mcp.Tools.PdfWord>?>>? SourcePageWords;
+        /// <summary>Open an attached PDF in the default viewer (attachment name, page for the label).</summary>
+        public Action<string, int?>? OpenSource;
+        /// <summary>Reset the active view's Temporary Hide/Isolate; null when done, "none" when the view was not isolated, else why not.</summary>
+        public Func<System.Threading.Tasks.Task<string?>>? ResetIsolate;
+        /// <summary>Open a sheet or view in Revit from its id; null when done, else why not.</summary>
+        public Func<long, bool, System.Threading.Tasks.Task<string?>>? OpenView;
+        /// <summary>What these element ids are in the model that is open: used to show a row's button only when the id is what
+        /// the row says it is. Null when Revit cannot say.</summary>
+        public Func<System.Collections.Generic.IReadOnlyCollection<long>, System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyDictionary<long, ItemClass>?>>? ClassifyIds;
+        /// <summary>Ask the pane to draw this card again (its state changed).</summary>
+        public Action? Redraw;
+        /// <summary>Run a check's button (set_parameters or prompt); null when done, else why not.</summary>
+        public Func<CheckAction, System.Threading.Tasks.Task<string?>>? RunCheckAction;
+        /// <summary>Send a next-step chip as the next message.</summary>
+        public Action<string>? SendPrompt;
+        /// <summary>What the "Steps" toggle opens under the headline (the activity card and the evidence lines); null when there is nothing.</summary>
+        public FrameworkElement? StepsPanel;
+        /// <summary>The turn's finished steps, for the Steps list of an answer without a result card; null when the turn has none.</summary>
+        public System.Collections.Generic.IReadOnlyList<ProgressStep>? Steps;
+        /// <summary>The server's info lines about the run (turn_end.result checks of severity info on a prose answer), shown muted in the Steps list.</summary>
+        public System.Collections.Generic.IReadOnlyList<string>? Notes;
+        /// <summary>"Save as command" on the card's action row; null when this turn does not qualify.</summary>
+        public Action? SaveAsCommand;
+        /// <summary>The "Rules checked" block of a rule-set result, drawn inside the card (RulesBlock); null when the turn ran no rule set.</summary>
+        public FrameworkElement? RulesBlock;
+        /// <summary>The ids of the rules the Rules block lists: a check that only restates one is not drawn again.</summary>
+        public System.Collections.Generic.IReadOnlyList<string>? RuleIds;
+        /// <summary>The tables the one "Export" button offers (a menu when there are several); null or empty when none.</summary>
+        public System.Collections.Generic.IReadOnlyList<ResultTable>? ExportTables;
+    }
+
+    public static class TurnEvidenceView
+    {
+        private const int MaxEvidenceRows = 6;
+        private const int MaxExports = 3;
+        private const int MaxCheckRows = 12;
+
+        public static FrameworkElement? Build(TurnEvidence? ev, ReceiptLanguage lang, TurnEvidenceActions actions, ResultCardModel? card = null,
+            Func<ResultCardModel, TurnEvidenceActions, bool, string?, FrameworkElement?>? cardBuilder = null)
+        {
+            if (ev == null) return null;
+            var ms = lang == ReceiptLanguage.Ms;
+            var sp = new StackPanel { Margin = new Thickness(0, 6, 0, 4) };
+
+            if (ev.Caution)
+            {
+                var caution = CardKit.Card("Cp.AmberLn", "Cp.AmberBg", new Thickness(0, 0, 0, 6), 9);
+                caution.Padding = new Thickness(10, 6, 10, 6);
+                caution.Child = CardKit.Text("⚠  " + ReceiptTemplates.Caution(ev.Receipt, lang), 11.5, "Cp.AmberFg", FontWeights.Medium);
+                sp.Children.Add(caution);
+            }
+
+            // Pane-owned facts that qualify the receipt (a cut table, M5).
+            foreach (var note in ev.Notes)
+                sp.Children.Add(CardKit.Text("⚠  " + note, 11, "Cp.AmberFg", margin: new Thickness(0, 0, 0, 4)));
+
+            // The result card (result pattern) replaces the receipt headline and the
+            // evidence strip; what it does not show moves under a Details toggle.
+            var hasCard = card != null && card.Kind != ResultKind.None;
+            var tablesOnce = EvidenceDedupe.DistinctTables(ev.Tables);
+            // The card's rows (one way in): made before the Rules block, whose rows are rows of the card too.
+            if (hasCard) actions.Rows ??= new CardRows(actions);
+            // A rule-set result is one "Rules checked" block (inside the card when there is one), never a title plus a line per rule.
+            actions.RuleIds = RulesBlockText.Rows(tablesOnce.Where(t => t.Kind == ResultTable.CheckKind)).Select(r => r.Id).Where(i => i.Length > 0).ToList();
+            actions.RulesBlock = RulesBlock.Build(tablesOnce.Where(t => t.Kind == ResultTable.CheckKind), lang, actions);
+            actions.ExportTables = actions.Export == null ? null : EvidenceDedupe.ExportTables(ev.Tables).Take(MaxExports).ToList();
+            if (hasCard)
+            {
+                var canUndo = ev.AnyCommitted && actions.Undo != null && SafeCanUndo(actions);
+                var undoOff = ev.AnyCommitted && actions.Undo != null && !canUndo ? ReceiptTemplates.UndoStatusLine(SafeWhyNot(actions), lang) : null;
+                var details = new StackPanel();
+                foreach (var item in EvidenceDedupe.DistinctBy(ev.Evidence, e => ReceiptTemplates.EvidenceLine(e, lang) + "\u0001" + ReceiptTemplates.NotSearchedLine(e, lang)).Take(MaxEvidenceRows))
+                {
+                    var line = ReceiptTemplates.EvidenceLine(item, lang);
+                    if (line.Length > 0) details.Children.Add(CardKit.Text("⌕  " + line, 10.5, item.FailedReason != null ? "Cp.AmberFg" : "Cp.Muted"));
+                    var missing = ReceiptTemplates.NotSearchedLine(item, lang);
+                    if (missing.Length > 0) details.Children.Add(CardKit.Text("   " + missing, 10.5, "Cp.Muted"));
+                }
+                // The turn's steps and what it searched sit behind the card's "Steps" toggle (not a stock Expander).
+                if (actions.StepsPanel != null || details.Children.Count > 0)
+                {
+                    var steps = new StackPanel();
+                    if (actions.StepsPanel != null) steps.Children.Add(actions.StepsPanel);
+                    if (details.Children.Count > 0) { details.Margin = new Thickness(0, 8, 0, 0); steps.Children.Add(details); }
+                    actions.StepsPanel = steps;
+                }
+                var cardView = cardBuilder != null ? cardBuilder(card!, actions, canUndo, undoOff) : ResultCardView.Build(card, lang, actions, canUndo, undoOff);
+                if (cardView != null) sp.Children.Add(cardView);
+            }
+
+            if (ev.HasWrites && !hasCard && !ev.OnlyNoopCode)
+            {
+                var (toneLine, toneBg) = ReceiptTemplates.ToneTokens(ReceiptTemplates.Tone(ev.Receipt, ev.Caution));
+                var receipt = CardKit.Card(toneLine, toneBg, new Thickness(0, 0, 0, 6), 10);
+                receipt.Padding = new Thickness(12, 8, 12, 8);
+                var rs = new StackPanel();
+                rs.Children.Add(CardKit.Text(ReceiptTemplates.Headline(ev.Receipt, lang), 12.5, "Cp.Ink", FontWeights.SemiBold));
+                var buttons = new WrapPanel { Margin = new Thickness(0, 6, 0, 0) };
+                if (ev.AnyCommitted && actions.Undo != null && SafeCanUndo(actions))
+                    buttons.Children.Add(CardKit.Secondary("Undo", actions.Undo));
+                if (buttons.Children.Count > 0) rs.Children.Add(buttons);
+                // L19: Undo is off (an edit in Revit after this turn, Revit's own Undo,
+                // already undone): say why in one line instead of a button that vanished.
+                var undoOff = ev.AnyCommitted && actions.Undo != null && !SafeCanUndo(actions)
+                    ? ReceiptTemplates.UndoStatusLine(SafeWhyNot(actions), lang)
+                    : null;
+                if (undoOff != null)
+                    rs.Children.Add(CardKit.Text(undoOff, 10.5, "Cp.AmberFg", margin: new Thickness(0, 4, 0, 0)));
+                if (ev.AnyCommitted && (undoOff != null || buttons.Children.Count == 0 || actions.Undo == null))
+                    rs.Children.Add(CardKit.Text(ms
+                            ? "Untuk membuat asal, guna senarai Undo Revit (entri bermula dengan \"BINA:\")."
+                            : "To undo, use Revit's Undo list (entries start with \"BINA:\").",
+                        10.5, "Cp.Muted", margin: new Thickness(0, 2, 0, 0)));
+                receipt.Child = rs;
+                sp.Children.Add(receipt);
+            }
+
+            // What the turn ran, read and searched (no card): behind the same quiet "Steps" toggle, not loose lines under the reply.
+            // Successful steps are listed; failed attempts collapse into one muted line.
+            if (!hasCard)
+            {
+                var distinct = EvidenceDedupe.DistinctBy(ev.Evidence, e => ReceiptTemplates.EvidenceLine(e, lang) + "\u0001" + ReceiptTemplates.NotSearchedLine(e, lang)).Take(MaxEvidenceRows).ToList();
+                var lines = new System.Collections.Generic.List<string>();
+                var failedEvidence = 0;
+                foreach (var item in distinct)
+                {
+                    if (item.FailedReason != null) { failedEvidence++; continue; }
+                    var line = ReceiptTemplates.EvidenceLine(item, lang);
+                    if (line.Length > 0) lines.Add("\u2315  " + line);
+                    var missing = ReceiptTemplates.NotSearchedLine(item, lang);
+                    if (missing.Length > 0) lines.Add("   " + missing);
+                }
+                var panel = actions.StepsPanel ?? StepsListView.Build(actions.Steps, failedEvidence, lines, lang, actions.Notes);
+                if (panel != null)
+                {
+                    panel.Visibility = Visibility.Collapsed;
+                    var toggle = ResultCardView.StepsToggle(panel, ms);
+                    toggle.HorizontalAlignment = HorizontalAlignment.Left;
+                    toggle.Margin = new Thickness(0, 4, 0, 0);
+                    sp.Children.Add(toggle);
+                    sp.Children.Add(panel);
+                }
+            }
+
+            // Every image the model saw, under the reply (look).
+            foreach (var img in EvidenceDedupe.DistinctImages(ev.Images))
+            {
+                var picture = ConfirmCard.Thumbnail(img, expandable: true);
+                if (picture != null) sp.Children.Add(picture);
+            }
+
+            // No card: the rules block stands as its own card, and the export is one ghost button under it.
+            if (!hasCard)
+            {
+                if (actions.RulesBlock != null)
+                {
+                    var frame = CardKit.Card("Cp.Line", "Cp.Bg", new Thickness(0, 6, 0, 6), 12);
+                    frame.Child = actions.RulesBlock;
+                    sp.Children.Add(frame);
+                }
+                var exportButton = ResultCardView.ExportButton(actions, ms);
+                if (exportButton != null) sp.Children.Add(new WrapPanel { Margin = new Thickness(0, 4, 0, 0), Children = { exportButton } });
+            }
+
+            return sp.Children.Count == 0 ? null : sp;
+        }
+
+        private static BinaVibe.Copilot.Undo.UndoBlock SafeWhyNot(TurnEvidenceActions a)
+        {
+            try { return a.WhyNotUndo?.Invoke() ?? BinaVibe.Copilot.Undo.UndoBlock.Other; }
+            catch { return BinaVibe.Copilot.Undo.UndoBlock.Other; }
+        }
+
+        private static bool SafeCanUndo(TurnEvidenceActions a)
+        {
+            try { return a.CanUndo?.Invoke() ?? false; }
+            catch { return false; }
+        }
+
+    }
+}
