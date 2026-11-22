@@ -111,6 +111,15 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         private static IEnumerable<SpecDedupe.Row> Rows(IEnumerable<IssueVm> issues) =>
             (issues ?? Enumerable.Empty<IssueVm>()).Where(i => i != null).Select(ToRow);
 
+        /// <summary>AI-506b: a spec row's element label is "Category · Type"; a backend row carries the type name, or the category when it has none.</summary>
+        private static string TypeNameOf(IssueVm i)
+        {
+            var n = (i.Element?.Name ?? "").Trim();
+            var dot = n.IndexOf(" · ", StringComparison.Ordinal);
+            if (dot > 0) return n.Substring(dot + 3).Trim();
+            return string.Equals(n, i.RevitCategory ?? "", StringComparison.OrdinalIgnoreCase) || string.Equals(n, i.Category ?? "", StringComparison.OrdinalIgnoreCase) ? "" : n;
+        }
+
         private static SpecDedupe.Row ToRow(IssueVm i) => new SpecDedupe.Row
         {
             Tag = i,
@@ -123,6 +132,9 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             Fixable = i.AutoFixable || i.IsPick || !string.IsNullOrEmpty(i.FixAction),
             Param = SpecDedupe.ParamOfRule(i.RawRule, i.Required),
             ElementId = i.RevitElementId,
+            ParamRule = SpecDedupe.RuleNamesParameter(i.RawRule),
+            Category = i.RevitCategory ?? "",
+            TypeName = TypeNameOf(i),
             Params = SpecDedupe.ParamsOfActual(i.Actual),
             ElementIds = i.ElementIds != null && i.ElementIds.Count > 0 ? (IReadOnlyCollection<long>)i.ElementIds : new[] { i.RevitElementId },
             Bucket = BucketOf(i),
