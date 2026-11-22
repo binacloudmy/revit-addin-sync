@@ -121,7 +121,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// <summary>AI-531: how a room schedule that lacks columns is fixed: the stored edit-schedule playbook, one call per schedule, fields only.</summary>
         private const string ScheduleColumnsHow =
             // No "make", "new" or "create" next to "schedule" anywhere: the backend's playbook suggestion vetoes edit-schedule on those words (its not_for list).
-            "For each schedule line above (its name between the quotes, with the columns it lacks), use run_revit_code with the stored playbook \"edit-schedule\" and no code of your own: inputs target = that schedule name and add = the columns on its line, exactly as written; one call per schedule, all in one message. " +
+            "For each schedule line above (its name between the quotes, with the columns it lacks), use run_revit_code with the stored playbook \"edit-schedule\" and no code of your own: inputs target = that schedule name, add = the columns on its line, exactly as written, and addOnly = true (the playbook then ignores every input but target and add); one call per schedule, all in one message. " +
             "The playbook adds the fields to the schedule that exists and skips a field the schedule already has, so a second run changes nothing. Never add a schedule, and never delete, rename, filter or sort one. " +
             "If the result has a SKIP line for a column (the project has no such room parameter), say which column and stop for that column: never bind or add a parameter yourself. " +
             "Say a column was added only if the result shows an EDITED line with it; never claim a column was added when it was not.";
