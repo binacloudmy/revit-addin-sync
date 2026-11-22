@@ -1602,8 +1602,10 @@ namespace RevitWebAppSync.UI
         {
             try
             {
-                if (doc == null || ids == null || ids.Count == 0) return;
+                if (doc == null || ids == null) return;
                 if ((doc.PathName ?? "") != _scannedDocPath) return;
+                // AI-496: undoing a creation reports no added/modified ids; a Copilot-fixed create-type row still needs its re-check.
+                if (ids.Count == 0 && _copilotUndo.Ledger.ScanOnly(_scannedDocPath).Count == 0) return;
                 Dispatcher.BeginInvoke(new Action(() =>
                 {
                     foreach (var id in ids) _undoIds.Add(id);
@@ -1622,48 +1624,97 @@ namespace RevitWebAppSync.UI
                 {
                     _undoTimer.Stop();
                     if (_vm.Scanning) { _undoTimer.Start(); return; }   // wait out a running scan
-                    var rowElements = new HashSet<long>(_vm.Issues.Select(i => i.RevitElementId));
-                    var ids = _undoIds.Where(rowElements.Contains).ToList();
+                    var undone = _undoIds.ToList();
                     _undoIds.Clear();
-                    if (ids.Count == 0) return;
-                    var outcome = await RecheckAsync(ids);
-                    if (outcome != null && outcome.Reopened.Count > 0)
-                        _vm.ShowToast(Jkr.Panel.Core.PaneText.FixUndone(outcome.Reopened.Count));
+                    // AI-496: the Copilot-fixed rows the Undo touched are re-checked in the same pass.
+                    await _copilotUndo.RunAsync(_scannedDocPath, undone);
                 };
             }
             _undoTimer.Stop();
             _undoTimer.Start();
         }
 
+        // AI-496: Undo v1. Remembers the rows Copilot fixed; after an Undo, reopens those whose rule fails again.
+        private JkrCopilotUndo<IssueVm> _copilotUndoField;
+        private JkrCopilotUndo<IssueVm> _copilotUndo => _copilotUndoField ?? (_copilotUndoField = new JkrCopilotUndo<IssueVm>(new JkrCopilotUndoHost<IssueVm>
+        {
+            Issue = id => FindIssue(id),
+            RowElementIds = () => new HashSet<long>(_vm.Issues.Select(i => i.RevitElementId)),
+            Recheck = async ids =>
+            {
+                var outcome = await RecheckAsync(ids);
+                if (outcome != null)
+                    foreach (var r in outcome.Reopened.Where(r => r.FixedVia == "Copilot"))
+                        try { JkrAuditStore.Remove(_scannedDocPath, r.Id); } catch { /* audit is best-effort */ }
+                return outcome;
+            },
+            RecheckByScan = rows => RecheckRowsByScanAsync(rows),
+            Reopen = issue => ReopenCopilotFixed(issue),
+            ToastUndone = n => _vm.ShowToast(Jkr.Panel.Core.PaneText.FixUndone(n)),
+        }));
+
+        /// <summary>AI-496: remember a row Copilot just fixed so an Undo can reopen it.</summary>
+        public void RememberCopilotFix(CopilotFixRequest request, IssueVm issue)
+        {
+            if (request == null || issue == null) return;
+            _copilotUndo.Ledger.Remember(_scannedDocPath, issue.Id, issue.RevitElementId, request.ElementIds);
+        }
+
+        /// <summary>AI-496: a Copilot-fixed row whose write was undone (create-type rows): back to Open, score and board together, audit entry dropped.</summary>
+        private void ReopenCopilotFixed(IssueVm issue)
+        {
+            if (issue == null || issue.Status != IssueStatus.Fixed) return;
+            issue.FixedVia = "";
+            issue.FixVerified = false;
+            _vm.ApplyDecisions(new[] { issue }, IssueStatus.Open, Jkr.Panel.Core.PaneText.FixUndone(1));
+            try { JkrAuditStore.Remove(_scannedDocPath, issue.Id); } catch { /* audit is best-effort */ }
+            RenderAll();
+        }
+
         private bool _lastScanComplete;
 
-        /// <summary>AI-495: a row with no element id to target (create-type checks: views, schedules, sheets, links) cannot go
-        /// through <see cref="RecheckAsync"/>. There is no per-check re-run, so this runs a full re-scan and reports whether the
-        /// row's rule still fails in it: true = passes (row absent from the fresh list), false = still failing, null = nothing
-        /// could be checked (scan running, no scan yet, other model, error, or a partial scan). The row stays Open meanwhile.</summary>
-        public async Task<bool?> RecheckByScanAsync(IssueVm issue)
+        /// <summary>AI-495/496: rows with no element id to target (create-type checks: views, schedules, sheets, links) cannot go
+        /// through <see cref="RecheckAsync"/>. This runs ONE full re-scan and judges each row from it (<see cref="JkrScanJudge"/>):
+        /// true = the row's spec check was judged and passes, false = still failing, null = could not verify (scan running, no scan
+        /// yet, other model, error, partial scan, check not judged). A row absent from the fresh list is NOT a pass by itself.</summary>
+        public async Task<IReadOnlyDictionary<string, bool?>> RecheckRowsByScanAsync(IReadOnlyList<IssueVm> rows)
         {
-            if (issue == null || string.IsNullOrEmpty(issue.Id)) return null;
+            var result = new Dictionary<string, bool?>();
+            if (rows == null || rows.Count == 0) return result;
             await _recheckGate.WaitAsync();
             try
             {
-                if (_vm.Scanning || _vm.Spec == null) return null;
+                if (_vm.Scanning || _vm.Spec == null) return result;
                 _vm.Scanning = true;
                 BusyChanged?.Invoke(Jkr.Panel.Core.PaneText.Rescanning());
                 _lastScanComplete = false;
                 try
                 {
-                    if (!await RunScanInner(isRecheck: true) || !_lastScanComplete) return null;
-                    return _vm.Issues.Any(i => i.Id == issue.Id && i.Status != IssueStatus.Fixed);
+                    if (!await RunScanInner(isRecheck: true)) return result;
+                    foreach (var row in rows)
+                    {
+                        if (string.IsNullOrEmpty(row?.Id)) continue;
+                        var listed = _vm.Issues.Any(i => i.Id == row.Id && i.Status != IssueStatus.Fixed);
+                        var check = string.IsNullOrEmpty(row.SpecCheckId) ? null : _vm.Spec?.For(row.SpecCheckId);
+                        result[row.Id] = JkrScanJudge.ToBool(JkrScanJudge.Judge(_lastScanComplete, row.Id, listed, check));
+                    }
+                    return result;
                 }
                 catch (Exception ex)
                 {
                     System.Diagnostics.Debug.WriteLine($"[BINA JKR] re-scan after Copilot failed: {ex.Message}");
-                    return null;
+                    return new Dictionary<string, bool?>();
                 }
                 finally { _vm.Scanning = false; BusyChanged?.Invoke(null); }
             }
             finally { _recheckGate.Release(); }
+        }
+
+        public async Task<bool?> RecheckByScanAsync(IssueVm issue)
+        {
+            if (issue == null || string.IsNullOrEmpty(issue.Id)) return null;
+            var r = await RecheckRowsByScanAsync(new[] { issue });
+            return r.TryGetValue(issue.Id, out var v) ? v : null;
         }
 
         /// <summary>AI-495: a Copilot write re-passed its rule: mark the row Fixed (via Copilot), score and board move together, audit saved.</summary>

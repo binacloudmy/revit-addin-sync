@@ -29,6 +29,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public Action<T, string> MarkFixed { get; set; }
         /// <summary>For a row with no element id (create-type checks): a full re-scan; true = the rule passes, false = still fails, null = could not check.</summary>
         public Func<T, Task<bool?>> RecheckByScan { get; set; }
+        /// <summary>AI-496: called once a row was marked Fixed via Copilot, so a later Undo can reopen it (optional).</summary>
+        public Action<CopilotFixRequest, T> Remember { get; set; }
         /// <summary>Show a toast.</summary>
         public Action<string> Toast { get; set; }
         /// <summary>The pane language is Bahasa Melayu.</summary>
@@ -76,6 +78,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 if (passes == false) { _host.Toast(JkrCopilotRecheckText.StillFailing(bm, issue.Title, issue.Required)); return CopilotRecheckResult.StillFailing; }
                 issue.FixVerified = true;
                 _host.MarkFixed(issue, JkrCopilotRecheckText.Fixed(bm, request.ElementIds.Count));
+                _host.Remember?.Invoke(request, issue);
                 return CopilotRecheckResult.Fixed;
             }
             JkrRecheckOutcome<T> outcome;
@@ -95,6 +98,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             }
             issue.FixVerified = true;
             _host.MarkFixed(issue, JkrCopilotRecheckText.Fixed(bm, ids.Count));
+            _host.Remember?.Invoke(request, issue);
             return CopilotRecheckResult.Fixed;
         }
     }

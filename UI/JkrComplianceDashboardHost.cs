@@ -83,6 +83,7 @@ namespace RevitWebAppSync.UI
                         Recheck = (ids, written) => _panel.RecheckAsync(ids, written),
                         RecheckByScan = issue => _panel.RecheckByScanAsync(issue),
                         MarkFixed = (issue, toast) => _panel.MarkFixedViaCopilot(issue, toast),
+                        Remember = (req, issue) => _panel.RememberCopilotFix(req, issue),   // AI-496: so Undo can reopen the row
                         Toast = message => _shell.ShowToast(message),
                         IsBm = () => !Jkr.Panel.Core.PaneLanguage.IsEn,
                     });
