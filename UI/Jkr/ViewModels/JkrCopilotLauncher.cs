@@ -409,8 +409,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             public static string NoWrite(int sent, int total, string toolError = null) =>
                 string.IsNullOrWhiteSpace(toolError)
                     ? $"Part {sent} ended without a change. Check the Copilot chat: it may have asked a question.{NotSent(sent, total)}"
-                    : $"Part {sent} ended without a change: Copilot's write was refused: {Shorten(toolError)}{NotSent(sent, total)}";
-            private static string Shorten(string s) { s = s.Trim(); return s.Length <= 240 ? s : s.Substring(0, 239) + "…"; }
+                    : $"Part {sent} ended without a change: Copilot's write was refused: {Shorten(toolError)}. Check the Copilot chat: it may have asked a question.{NotSent(sent, total)}";
+            private static string Shorten(string s) { s = s.Trim().TrimEnd('.'); return s.Length <= 240 ? s : s.Substring(0, 239) + "…"; }
             /// <summary>The write was tried and Revit refused it (not a question, not "no change").</summary>
             public static string WriteFailed(int sent, int total, int failed, string reason)
             {

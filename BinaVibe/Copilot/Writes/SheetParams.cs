@@ -29,24 +29,43 @@ namespace BinaVibe.Copilot.Writes
             return SheetParamKind.None;
         }
 
-        /// <summary>Why a sheet name or number cannot be used (null when it can). Same characters Revit refuses in any element name.</summary>
+        /// <summary>Why a sheet name or number cannot be used (null when it can). The 255-character limit holds for both. The characters Revit
+        /// refuses in element names apply to the sheet NUMBER only: a sheet NAME such as "Plan: Level 1" may be accepted by Revit (to be
+        /// verified live), and if Revit does refuse one, Parameter.Set fails and the batch reports it.</summary>
         public static string? Check(SheetParamKind kind, string? value)
         {
             var what = kind == SheetParamKind.Number ? "A sheet number" : "A sheet name";
             var v = (value ?? "").Trim();
             if (v.Length == 0) return what + " cannot be empty.";
-            var bad = v.IndexOfAny(TypeRename.ForbiddenChars);
-            if (bad >= 0) return what + " cannot contain '" + v[bad] + "' (Revit refuses \\ : { } [ ] | ; < > ? ` ~).";
+            if (kind == SheetParamKind.Number)
+            {
+                var bad = v.IndexOfAny(TypeRename.ForbiddenChars);
+                if (bad >= 0) return what + " cannot contain '" + v[bad] + "' (Revit refuses \\ : { } [ ] | ; < > ? ` ~).";
+            }
             if (v.Length > TypeRename.MaxNameLength) return what + " is at most " + TypeRename.MaxNameLength + " characters; this one has " + v.Length + ".";
             return null;
         }
 
-        /// <summary>A sheet number must be unique. Sheet NAMES may repeat. Returns the refusal, or null.</summary>
-        public static string? DuplicateNumber(string? value, IEnumerable<string> otherNumbers)
+        /// <summary>Sheet numbers must be unique (names may repeat). Built once from the document's sheets; each planned number is claimed in
+        /// turn, so two sheets of one call cannot take the same number.</summary>
+        public sealed class NumberLedger
         {
-            var v = (value ?? "").Trim();
-            var clash = otherNumbers.FirstOrDefault(n => string.Equals(n, v, StringComparison.OrdinalIgnoreCase));
-            return clash == null ? null : "Another sheet already has the number '" + clash + "'; sheet numbers must be unique, give a different one.";
+            private readonly Dictionary<string, long> _owner = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+
+            public NumberLedger(IEnumerable<KeyValuePair<long, string>> existing)
+            {
+                foreach (var kv in existing) _owner[(kv.Value ?? "").Trim()] = kv.Key;
+            }
+
+            /// <summary>The refusal when another sheet holds (or was just given) the number, else null and the number is claimed for the sheet.</summary>
+            public string? Claim(long sheetId, string? number)
+            {
+                var v = (number ?? "").Trim();
+                if (_owner.TryGetValue(v, out var holder) && holder != sheetId)
+                    return "Another sheet already has the number '" + v + "'; sheet numbers must be unique, give a different one.";
+                _owner[v] = sheetId;
+                return null;
+            }
         }
 
         /// <summary>Why type_param true is refused on a sheet: it has no type; the name and number belong to the sheet itself.</summary>

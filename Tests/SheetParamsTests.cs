@@ -1,4 +1,5 @@
 #nullable enable
+using System.Collections.Generic;
 using BinaVibe.Copilot.Writes;
 using RevitWebAppSync.UI.Jkr.ViewModels;
 using Xunit;
@@ -43,20 +44,46 @@ namespace RevitAddinSync.Tests
 
         [Theory]
         [InlineData("A:B")] [InlineData("A{B}")] [InlineData("A[1]")] [InlineData("A|B")] [InlineData("A;B")] [InlineData("A<B>")] [InlineData("A?")] [InlineData("A\\B")]
-        public void A_sheet_name_with_a_character_revit_refuses_is_refused_before_the_write(string v) =>
-            Assert.Contains("cannot contain", SheetParams.Check(SheetParamKind.Name, v));
+        public void A_sheet_number_with_a_character_revit_refuses_is_refused_before_the_write(string v) =>
+            Assert.Contains("cannot contain", SheetParams.Check(SheetParamKind.Number, v));
+
+        [Theory]
+        [InlineData("Plan: Level 1")] [InlineData("A{B}")] [InlineData("A|B")]
+        public void A_sheet_NAME_with_those_characters_is_not_refused_by_us_until_verified_live(string v) =>
+            Assert.Null(SheetParams.Check(SheetParamKind.Name, v));
 
         [Fact]
-        public void A_sheet_name_over_255_characters_is_refused() =>
+        public void A_sheet_name_or_number_over_255_characters_is_refused()
+        {
             Assert.Contains("at most 255", SheetParams.Check(SheetParamKind.Name, new string('a', 256)));
+            Assert.Contains("at most 255", SheetParams.Check(SheetParamKind.Number, new string('a', 256)));
+        }
 
         [Fact]
         public void A_sheet_number_another_sheet_holds_is_a_duplicate_even_with_other_case()
         {
-            var v = SheetParams.DuplicateNumber("a-101", new[] { "A-100", "A-101" });
+            var ledger = new SheetParams.NumberLedger(new[] { new KeyValuePair<long, string>(1, "A-100"), new KeyValuePair<long, string>(2, "A-101") });
+            var v = ledger.Claim(3, "a-101");
             Assert.NotNull(v);
             Assert.Contains("already has the number", v);
-            Assert.Null(SheetParams.DuplicateNumber("A-102", new[] { "A-100", "A-101" }));
+            Assert.Null(ledger.Claim(3, "A-102"));
+        }
+
+        [Fact]
+        public void A_sheet_keeping_its_own_number_is_not_a_duplicate()
+        {
+            var ledger = new SheetParams.NumberLedger(new[] { new KeyValuePair<long, string>(1, "A-100") });
+            Assert.Null(ledger.Claim(1, "A-100"));
+        }
+
+        [Fact]
+        public void Two_sheets_of_one_call_cannot_take_the_same_number_but_the_first_is_kept()
+        {
+            // the planner skips the refused sheet with this reason; the other sheets still change (Partial)
+            var ledger = new SheetParams.NumberLedger(new[] { new KeyValuePair<long, string>(1, "A-100"), new KeyValuePair<long, string>(2, "A-101"), new KeyValuePair<long, string>(3, "A-102") });
+            Assert.Null(ledger.Claim(1, "B-1"));
+            Assert.NotNull(ledger.Claim(2, "B-1"));
+            Assert.Null(ledger.Claim(3, "B-3"));
         }
 
         [Fact]

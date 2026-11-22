@@ -468,7 +468,8 @@ namespace RevitWebAppSync.Tests
             var real = JkrCopilotFixLauncher.Text.NoWrite(1, 1, "No parameter named 'Sheet Name' on the 1 matched element(s) or their types; the name is wrong.");
             Assert.Contains("was refused", real);
             Assert.Contains("No parameter named 'Sheet Name'", real);
-            Assert.DoesNotContain("may have asked a question", real);
+            Assert.Contains("the name is wrong. Check the Copilot chat: it may have asked a question.", real);   // one refused try, then a question: keep the hint
+            Assert.DoesNotContain("..", real);
         }
     }
 }

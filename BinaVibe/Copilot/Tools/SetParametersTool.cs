@@ -89,6 +89,9 @@ namespace BinaVibe.Copilot.Tools
             int typeOnly = 0, instanceOnly = 0, missing = 0, readOnly = 0, grouped = 0;
             string? display = null;
             int wrongType = 0;
+            int sheetSkips = 0;
+            string? firstSheetSkip = null;
+            SheetParams.NumberLedger? numbers = null;
             string? wrongTypeName = null, wrongTypeCategory = null;
             IReadOnlyList<string> wrongTypeNear = Array.Empty<string>();
             foreach (var t in picked)
@@ -143,13 +146,21 @@ namespace BinaVibe.Copilot.Tools
                         "Value " + Raw(t.Value) + " for '" + a.Param + "'" + (t.Row != null ? " (table row " + t.Row.Value.ToString(CultureInfo.InvariantCulture) + ")" : "") + ": " + parsed.Error + ".");
                 if (owner is ViewSheet sheetOwner && SheetParams.Classify(a.Param) is var sheetKind && sheetKind != SheetParamKind.None)
                 {
+                    // C4.2.2: one bad sheet is skipped with its reason; the others still change (receipt Partial).
                     var sheetProblem = SheetParams.Check(sheetKind, parsed.Text);
                     if (sheetProblem == null && sheetKind == SheetParamKind.Number)
-                        sheetProblem = SheetParams.DuplicateNumber(parsed.Text, new FilteredElementCollector(doc).OfClass(typeof(ViewSheet)).Cast<ViewSheet>()
-                            .Where(x => x.Id != sheetOwner.Id).Select(x => x.SheetNumber)
-                            .Concat(edits.Where(kv => kv.Key != (long)sheetOwner.Id.Value).Select(kv => ParsedValue.FromCanonical(kv.Value).Text)));
+                    {
+                        numbers ??= new SheetParams.NumberLedger(new FilteredElementCollector(doc).OfClass(typeof(ViewSheet)).Cast<ViewSheet>()
+                            .Select(x => new KeyValuePair<long, string>((long)x.Id.Value, x.SheetNumber)));
+                        sheetProblem = numbers.Claim((long)sheetOwner.Id.Value, parsed.Text);
+                    }
                     if (sheetProblem != null)
-                        throw new WriteRefusal(ErrorCodes.InvalidArgs, "Value " + Raw(t.Value) + " for '" + a.Param + "' on sheet " + Id(sheetOwner) + ": " + sheetProblem);
+                    {
+                        sheetSkips++;
+                        firstSheetSkip ??= "Value " + Raw(t.Value) + " for '" + a.Param + "' on sheet " + Id(sheetOwner) + ": " + sheetProblem;
+                        Skip(notes, sheetOwner, t.Row, sheetProblem);
+                        continue;
+                    }
                 }
                 if (!a.TypeParam && RevitParamValues.ChangesType(p))
                 {
@@ -198,6 +209,8 @@ namespace BinaVibe.Copilot.Tools
 
             if (edits.Count == 0 && notes.Unchanged == 0)
             {
+                if (sheetSkips > 0)
+                    throw new WriteRefusal(ErrorCodes.InvalidArgs, firstSheetSkip + (sheetSkips > 1 ? " (" + sheetSkips.ToString(CultureInfo.InvariantCulture) + " sheets refused)" : ""));
                 if (wrongType > 0 && readOnly == 0 && grouped == 0)
                     throw new WriteRefusal(ErrorCodes.NotFound,
                         "No " + (wrongTypeCategory ?? "matched") + " type named '" + wrongTypeName + "' that the " +
