@@ -342,6 +342,31 @@ namespace RevitWebAppSync.UI.Copilot.Model
             }
         }
 
+        /// <summary>AI-dc1: "Copilot renamed X of N types; Revit refused: Type: Reason" for a partly done rename batch, else null.</summary>
+        public string? RenameRefusal
+        {
+            get
+            {
+                lock (_sync)
+                {
+                    foreach (var w in _writes)
+                    {
+                        if (w.Data is not JsonElement d || d.ValueKind != JsonValueKind.Object) continue;
+                        if (!d.TryGetProperty("rename_failed", out var rf) || rf.ValueKind != JsonValueKind.Array || rf.GetArrayLength() == 0) continue;
+                        var first = rf[0];
+                        var type = first.TryGetProperty("type", out var t) && t.ValueKind == JsonValueKind.String ? t.GetString() : "";
+                        var reason = first.TryGetProperty("reason", out var r) && r.ValueKind == JsonValueKind.String ? r.GetString() : "";
+                        var total = d.TryGetProperty("rename_total", out var tt) && tt.ValueKind == JsonValueKind.Number ? tt.GetInt32() : rf.GetArrayLength();
+                        return RenameRefusalText(total - rf.GetArrayLength(), total, type ?? "", reason ?? "");
+                    }
+                    return null;
+                }
+            }
+        }
+
+        public static string RenameRefusalText(int renamed, int total, string type, string reason) =>
+            "Copilot renamed " + renamed + " of " + total + " types; Revit refused: " + type + ": " + reason;
+
         /// <summary>True when a write committed (an Undo may apply).</summary>
         public bool AnyCommitted { get { lock (_sync) return _writes.Any(IsCommitted); } }
 

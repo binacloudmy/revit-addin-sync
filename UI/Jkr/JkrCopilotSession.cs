@@ -107,6 +107,22 @@ namespace RevitWebAppSync.UI.Jkr
             }
         }
 
+        /// <summary>AI-dc1: the partial-rename note of this part ("Copilot renamed 8 of 9 types; Revit refused: ..."), or null.</summary>
+        public string PartialNote
+        {
+            get
+            {
+                var vm = Vm;
+                if (vm == null) return null;
+                for (var i = Math.Min(_mark, vm.Thread.Count); i < vm.Thread.Count; i++)
+                {
+                    var note = vm.Thread[i].Evidence?.RenameRefusal;
+                    if (note != null) return note;
+                }
+                return null;
+            }
+        }
+
         /// <summary>AI-dc1: how many changes failed since this part was sent.</summary>
         public int WriteFailedCount
         {

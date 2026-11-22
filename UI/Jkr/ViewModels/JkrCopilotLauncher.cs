@@ -63,6 +63,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         string WriteFailure { get; }
         /// <summary>How many changes failed in the current part's receipt.</summary>
         int WriteFailedCount { get; }
+        /// <summary>A write that partly worked: what Revit refused ("Copilot renamed 8 of 9 types; Revit refused: Type: Exception: message"), or null.</summary>
+        string PartialNote { get; }
     }
 
     /// <summary>One card message on the Copilot thread (an ask card, the wide-write gate, or a committed write).</summary>
@@ -301,6 +303,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             // 6. every part wrote: re-check ONCE, after the last part. The parts are one row's element ids
             //    split by the id cap, so a check per part would flicker the same row and could report "still failing"
             //    while later parts are still to come.
+            var partial = (_session as ICopilotWriteFailure)?.PartialNote;
+            if (!string.IsNullOrWhiteSpace(partial)) _notify(partial);
             if (_afterWrite != null)
             {
                 try { await _afterWrite(request).ConfigureAwait(true); }

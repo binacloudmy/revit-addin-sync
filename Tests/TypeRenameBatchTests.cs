@@ -99,7 +99,63 @@ namespace RevitAddinSync.Tests
             public CopilotCardState Cards => _sends == 0 ? CopilotCardState.None : CopilotCardState.WriteFailed;
             public string WriteFailure => "rename of TKm481a failed";
             public int WriteFailedCount => 1;
+            public string PartialNote { get; set; } = null!;
             public void Send(string text) { Log.Add(text); _sends++; _n = 0; }
+        }
+
+        [Fact]
+        public void A_throwing_rollback_does_not_hide_the_original_exception()
+        {
+            var ex = Assert.Throws<System.Runtime.InteropServices.ExternalException>(() =>
+                TypeRenameBatch.ApplyWithRollback(
+                    () => throw new System.Runtime.InteropServices.ExternalException("real reason"),
+                    () => { },
+                    () => throw new InvalidOperationException("transaction is not active")));
+            Assert.Equal("real reason", ex.Message);
+        }
+
+        [Fact]
+        public void A_throwing_rollback_still_fails_only_that_type()
+        {
+            var r = TypeRenameBatch.Run(Nine(), item => TypeRenameBatch.ApplyWithRollback(
+                () => { if (item.Id == 2) throw new System.Runtime.InteropServices.ExternalException("real reason"); },
+                () => { },
+                () => throw new InvalidOperationException("transaction is not active")));
+            Assert.Equal(8, r.Done.Count);
+            Assert.Contains("ExternalException: real reason", Assert.Single(r.Failed).Reason);
+        }
+
+        [Fact]
+        public void Partial_note_text_names_the_counts_the_type_and_the_exception()
+        {
+            Assert.Equal("Copilot renamed 8 of 9 types; Revit refused: TKm481a: ExternalException: boom",
+                RevitWebAppSync.UI.Copilot.Model.TurnEvidence.RenameRefusalText(8, 9, "TKm481a", "ExternalException: boom"));
+        }
+
+        [Fact]
+        public async Task A_partly_done_write_adds_the_refused_type_to_the_done_toast()
+        {
+            var s = new PartialSession();
+            var toasts = new List<string>();
+            var l = new JkrCopilotFixLauncher(s, _ => new[] { "A" }, toasts.Add, _ => Task.CompletedTask, turnTimeout: TimeSpan.FromMinutes(5));
+            Assert.Equal(CopilotLaunchOutcome.Sent, await l.LaunchAsync(new CopilotFixRequest("i1", "Dc.1", new long[] { 1 }, "T")));
+            Assert.Equal("Copilot renamed 8 of 9 types; Revit refused: TKm481a: ExternalException: boom", Assert.Single(toasts));
+        }
+
+        private sealed class PartialSession : ICopilotSession, ICopilotWriteFailure
+        {
+            private int _sends, _n;
+            public Task<string> OpenPaneAsync() => Task.FromResult<string>(null!);
+            public void NewChat() { }
+            public bool IsIndexing => false;
+            public bool IsSignedIn => true;
+            public bool IsPaneVisible => true;
+            public bool IsSending => _sends > 0 && _n++ < 2;
+            public CopilotCardState Cards => _sends == 0 ? CopilotCardState.None : CopilotCardState.Approved;
+            public string WriteFailure => null!;
+            public int WriteFailedCount => 0;
+            public string PartialNote => "Copilot renamed 8 of 9 types; Revit refused: TKm481a: ExternalException: boom";
+            public void Send(string text) { _sends++; _n = 0; }
         }
 
         [Fact]

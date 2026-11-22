@@ -58,6 +58,23 @@ namespace BinaVibe.Copilot.Writes
             return result;
         }
 
+        /// <summary>Runs one item's change; when it throws, rolls back (a rollback that throws too is ignored) and rethrows the ORIGINAL
+        /// exception, so its text, not the rollback's, reaches the receipt.</summary>
+        public static void ApplyWithRollback(Action change, Action commit, Action rollback)
+        {
+            try
+            {
+                change();
+                commit();
+            }
+            catch
+            {
+                try { rollback(); }
+                catch (Exception) { /* the transaction is already invalid; the first exception is the one that matters */ }
+                throw;
+            }
+        }
+
         /// <summary>The real reason, with the exception type so "external exception" style errors say what they are.</summary>
         public static string Describe(Exception ex)
         {
