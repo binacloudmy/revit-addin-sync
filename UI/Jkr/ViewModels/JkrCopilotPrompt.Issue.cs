@@ -23,6 +23,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 Renames = RenamesOf(issue),
                 Sets = SetsOf(issue),
                 Columns = ColumnsOfIssue(issue),
+                Materials = MaterialsOf(issue),
             };
         }
 
@@ -46,6 +47,19 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             var set = RevitWebAppSync.Services.JkrSpec.SpecViewSets.SetFromRequired(issue.Required);
             if (set.Length == 0) return map;
             foreach (var id in issue.ElementIds ?? new List<long>()) if (id > 0) map[id] = set;
+            return map;
+        }
+
+        /// <summary>Db.2: the failing row's material-parameter plan (read by the add-in), on every id of the row.</summary>
+        private static IReadOnlyDictionary<long, CopilotMaterialPlan> MaterialsOf(IssueVm issue)
+        {
+            var map = new Dictionary<long, CopilotMaterialPlan>();
+            if ((issue.SpecCheckId ?? "").Trim() != "Db.2") return map;
+            var fill = issue.ParamsToFill ?? new List<RevitWebAppSync.UI.Jkr.Panel.Core.SpecParamTarget>();
+            var skipped = issue.ParamsSkipped ?? new List<RevitWebAppSync.UI.Jkr.Panel.Core.SpecParamTarget>();
+            if (fill.Count == 0 && skipped.Count == 0) return map;
+            var plan = new CopilotMaterialPlan { Fill = fill, Skipped = skipped };
+            foreach (var id in issue.ElementIds ?? new List<long>()) if (id > 0) map[id] = plan;
             return map;
         }
 

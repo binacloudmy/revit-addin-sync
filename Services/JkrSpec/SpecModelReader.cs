@@ -924,6 +924,27 @@ namespace RevitWebAppSync.Services.JkrSpec
             catch { }
         }
 
+        /// <summary>Db.2: list the material-typed parameters of the type (<paramref name="onType"/>) or of the first instance with their
+        /// writability, so a fix never plans a write Revit refuses (read-only: computed, locked or family-defined).</summary>
+        private static void ReadMaterialParamList(Document doc, Element e, bool onType, SpecType t)
+        {
+            if (e == null) return;
+            try
+            {
+                foreach (Parameter p in e.Parameters)
+                {
+                    if (!IsMaterialParam(p)) continue;
+                    var name = p.Definition?.Name ?? "";
+                    if (name.Length == 0 || t.MaterialParams.Any(x => x.OnType == onType && string.Equals(x.Name, name, StringComparison.Ordinal))) continue;
+                    var value = "";
+                    try { var id = p.AsElementId(); if (id != null && id != ElementId.InvalidElementId && doc.GetElement(id) is Material m) value = NameOf(m); } catch { }
+                    t.MaterialParams.Add(new SpecMaterialParam { Name = name, OnType = onType, ReadOnly = p.IsReadOnly, Value = value });
+                }
+                t.MaterialParamsRead = true;
+            }
+            catch { }
+        }
+
         private static void AddGeometryMaterials(Document doc, Element e, SpecType t)
         {
             if (e == null) return;
@@ -940,6 +961,8 @@ namespace RevitWebAppSync.Services.JkrSpec
             catch { }
             AddMaterialParams(doc, type, t);
             AddMaterialParams(doc, first, t);
+            ReadMaterialParamList(doc, type, true, t);
+            ReadMaterialParamList(doc, first, false, t);
             AddGeometryMaterials(doc, first, t);
             try
             {

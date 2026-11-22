@@ -123,6 +123,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 else if (variant.SetFromFacts) d.Append(label.Length > 0 ? " — " + label : "").Append(" — ").Append(JkrCopilotPrompt.SetLine(facts, id));
                 else if (scheduleIds.Contains(id)) d.Append(" — schedule \"").Append(JkrCopilotPrompt.ScheduleNameOf(facts, id)).Append("\" — add columns: ").Append(string.Join(", ", JkrCopilotPrompt.ColumnsOf(facts, id)));
                 else if (label.Length > 0) d.Append(" — ").Append(label);
+                var matLine = checkId == "Db.2" ? JkrCopilotPrompt.MaterialLine(facts, id) : "";
+                if (matLine.Length > 0) d.Append(" — ").Append(matLine);
                 d.AppendLine();
             }
             if (ids.Count > MaxListed)

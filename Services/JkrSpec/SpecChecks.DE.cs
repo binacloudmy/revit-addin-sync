@@ -421,20 +421,40 @@ namespace RevitWebAppSync.Services.JkrSpec
                     .Distinct(StringComparer.Ordinal).ToList();
                 if (mats.Count == 0)
                 {
-                    yield return FailType(id, t,
+                    yield return WithMaterialPlan(FailType(id, t,
                         $"{t.Category}: type '{t.TypeName}' has no material",
-                        SpecCoverage.Full, actual: "no material", required: "a material jkrAR_…", keySuffix: ":none");
+                        SpecCoverage.Full, actual: "no material", required: "a material jkrAR_…", keySuffix: ":none"), t);
                     continue;
                 }
                 var bad = mats.Where(x => !IsJkrMaterial(x)).ToList();
                 if (bad.Count == 0) { Bump(ok, t.Category); continue; }
                 var list = string.Join(", ", bad.Take(5).Select(x => "'" + x + "'")) + (bad.Count > 5 ? " …" : "");
-                yield return FailType(id, t,
+                yield return WithMaterialPlan(FailType(id, t,
                     $"{t.Category}: type '{t.TypeName}' uses materials not JKR-coded: {list}",
-                    SpecCoverage.Full, actual: string.Join(", ", bad), required: "jkrAR_…", keySuffix: ":code");
+                    SpecCoverage.Full, actual: string.Join(", ", bad), required: "jkrAR_…", keySuffix: ":code"), t);
             }
             foreach (var kv in ok)
                 yield return Pass(id, $"{kv.Key}: {kv.Value} types: materials filled and JKR-prefixed", kv.Value, SpecCoverage.Full).InCat(kv.Key);
+        }
+
+        /// <summary>
+        /// Db.2 fix plan: which material parameters of the failing type a fix writes, and which it must leave alone. Read from the type's
+        /// own parameter list (<see cref="SpecType.MaterialParams"/>), never from the model's say-so: a WRITABLE parameter whose material is
+        /// empty or not JKR-coded is to be filled (a door carries Kaca / Bingkai / Panel_jkr_stm, not "Material"); a READ-ONLY one that would
+        /// need a value is skipped with its reason ("can't be written here"). The row's verdict is untouched: a skipped parameter keeps
+        /// the row failing. No list read (old snapshot) or no material parameter at all: no plan, the fix falls back to "Material".
+        /// </summary>
+        internal static SpecResult WithMaterialPlan(SpecResult r, SpecType t)
+        {
+            if (r == null || t == null || !t.MaterialParamsRead || t.MaterialParams.Count == 0) return r;
+            foreach (var p in t.MaterialParams)
+            {
+                var value = (p.Value ?? "").Trim();
+                if (value.Length > 0 && IsJkrMaterial(value)) continue;   // already JKR-coded: nothing to change
+                if (p.ReadOnly) r.ParamsSkipped.Add(new SpecParamTarget { Name = p.Name, OnType = p.OnType, Reason = "read-only" });
+                else r.ParamsToFill.Add(new SpecParamTarget { Name = p.Name, OnType = p.OnType });
+            }
+            return r;
         }
 
         // ─── Dc.1 — numbers in the type name tally with the geometry ───
