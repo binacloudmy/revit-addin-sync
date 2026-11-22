@@ -324,7 +324,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             var lang = _core.Lang;
             string sv, kind;
             if (man) { sv = T("manualRow"); kind = "man"; }
-            else if (c.Status == ItemStatus.Resolved) { sv = T("resolvedRow"); kind = "ok"; }
+            else if (c.Status == ItemStatus.Resolved) { sv = c.FixedViaCopilot ? PaneText.FixedViaCopilotRow(lang) : T("resolvedRow"); kind = "ok"; }
             else if (c.Status == ItemStatus.Ignored) { sv = T("ignoredRow"); kind = "ign"; }
             else { sv = PanelStrings.Severity[c.Sev].In(lang); kind = c.Sev; }
             var open = !man && c.Status == ItemStatus.Open;

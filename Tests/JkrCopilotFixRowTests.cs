@@ -56,6 +56,19 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
+        public void A_create_type_row_with_no_element_id_shows_the_button_AI498()
+        {
+            foreach (var id in new[] { "C1.3.1", "C1.4.1", "C1.5.2", "C1.6.1", "C3.1.1", "C4.1.3" })
+                Assert.True(Row(id, "Views", ids: 0).CopilotFixable, id);
+            Assert.False(Row("C2.1.1", "Views", ids: 0).CopilotFixable);
+            Assert.False(Row("C5.1.1", "Views", ids: 0).CopilotFixable);
+            Assert.False(Row("C1.1.1", "Views", ids: 0).CopilotFixable);
+            Assert.False(Row("C1.3.1", "Views", ids: 0, human: true).CopilotFixable);
+            JkrCopilotFix.Launcher = null;
+            Assert.False(Row("C1.3.1", "Views", ids: 0).CopilotFixable);
+        }
+
+        [Fact]
         public void Mark_manual_follows_the_tier_once_the_button_is_a_control_AI480()
         {
             var noControl = Row("B1.1"); noControl.Priority = IssuePriority.High;

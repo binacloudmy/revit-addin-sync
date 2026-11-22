@@ -43,7 +43,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public string Reason { get; set; } = "";
     }
 
-    public class IssueVm : INotifyPropertyChanged, IRecheckRow
+    public class IssueVm : INotifyPropertyChanged, ICopilotRecheckRow
     {
         public string Id { get; set; } = "";
 
@@ -276,7 +276,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public bool IsNamePick => IsPick && string.IsNullOrEmpty(JkrManualFix.ParameterOf(RawRule));
 
         /// <summary>AI-492: the row offers "Fix via Copilot": its check is on the code-side list, no ready fix, no picker,
-        /// at least one element id, and never a person-decides row (<see cref="JkrCopilotFix.Eligible(string, string, bool, bool, bool, int)"/>).
+        /// at least one element id (model-level create-type checks need none, AI-498), and never a person-decides row (<see cref="JkrCopilotFix.Eligible(string, string, bool, bool, bool, int)"/>).
         /// Hidden while no Copilot launcher is set (no dead button). Not persisted: ids are not in the audit snapshot, so a restored row shows no button until a re-scan.</summary>
         public bool CopilotFixable => JkrCopilotFix.LauncherReady && JkrCopilotFix.Eligible(SpecCheckId, RevitCategory, NeedsPerson,
             AutoFixable || !string.IsNullOrEmpty(FixAction), IsPick || ValidOptions.Count > 0, ElementIds?.Count ?? 0);
@@ -363,6 +363,9 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// fails): counts as passed. A fix not yet re-scanned is "fixed, re-scan
         /// pending" (prototype: fixed ≠ passed until re-scan).</summary>
         public bool FixVerified { get; set; }
+
+        /// <summary>AI-495: how a Fixed row was fixed when not by the ready-made Fix: "Copilot". Empty otherwise. Saved in the audit record.</summary>
+        public string FixedVia { get; set; } = "";
 
         /// <summary>How the targeted re-check (JkrRecheck) treats this row.</summary>
         public RecheckState RecheckState =>

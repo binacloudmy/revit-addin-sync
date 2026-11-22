@@ -32,6 +32,8 @@ namespace RevitWebAppSync.Services
             [JsonProperty("status")] public string Status { get; set; }
             [JsonProperty("at")] public string At { get; set; }
             [JsonProperty("user")] public string User { get; set; }
+            /// <summary>AI-495: "Copilot" when a Fixed row was fixed through Fix via Copilot.</summary>
+            [JsonProperty("via", NullValueHandling = NullValueHandling.Ignore)] public string Via { get; set; }
 
             // Only populated for Fixed entries — we need the row's display data
             // back even when the fresh check no longer returns this issue.
@@ -135,6 +137,7 @@ namespace RevitWebAppSync.Services
                     if (s != wanted) continue;
                     if (kv.Value?.Snapshot == null) continue; // legacy entry — nothing to reconstruct
                     var vm = kv.Value.Snapshot.ToIssueVm(kv.Key);
+                    vm.FixedVia = kv.Value.Via ?? "";
                     vm.Status = wanted; // ToIssueVm hardcodes Fixed; override for Manual.
                     result.Add(vm);
                 }
@@ -226,6 +229,7 @@ namespace RevitWebAppSync.Services
                     Status = issue.Status.ToString(),
                     At = DateTime.UtcNow.ToString("o"),
                     User = Environment.UserName ?? "",
+                    Via = issue.Status == IssueStatus.Fixed && !string.IsNullOrEmpty(issue.FixedVia) ? issue.FixedVia : null,
                     Snapshot = IssueSnapshot.From(issue),
                 };
             }

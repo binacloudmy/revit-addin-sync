@@ -309,7 +309,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 c.IsActive = c.IsAll ? _activeCategory == null : c.Label == _activeCategory;
         }
 
-        public void ApplyAction(IssueVm issue, IssueStatus newStatus, bool advance)
+        public void ApplyAction(IssueVm issue, IssueStatus newStatus, bool advance, string toastOverride = null)
         {
             if (issue == null) return;
 
@@ -334,7 +334,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             var title = RevitWebAppSync.UI.Jkr.Panel.Core.ResultsAdapter.TitleIn(issue);
             var titleShort = title.Length > 40 ? title.Substring(0, 40) + "…" : title;
             // prototype: a fix says "1 change(s) written to model".
-            var message = newStatus == IssueStatus.Fixed
+            var message = toastOverride != null ? toastOverride : newStatus == IssueStatus.Fixed
                 ? RevitWebAppSync.UI.Jkr.Panel.Core.PaneText.ChangesWritten(1)
                 : RevitWebAppSync.UI.Jkr.Panel.Core.PaneText.Decision(newStatus.ToString(), titleShort);
             ShowToast(message);

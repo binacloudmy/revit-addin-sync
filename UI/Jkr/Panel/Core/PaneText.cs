@@ -91,6 +91,10 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             return msg;
         }
 
+        /// <summary>AI-495: the status of a row fixed through Fix via Copilot.</summary>
+        public static string FixedViaCopilotRow(string lang = null) =>
+            L(lang, "Dibaiki melalui Copilot", "Fixed via Copilot");
+
         /// <summary>AI-479: the row's mark for a fixable family with no spec id (outside the %).</summary>
         public static string ExtraTag(string lang = null) =>
             L(lang, "Tambahan · di luar %", "Extra · outside the %");
