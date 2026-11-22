@@ -336,6 +336,34 @@ namespace RevitWebAppSync.Tests
         public void The_word_list_catches_the_known_Malay_terms(string text) =>
             Assert.NotEmpty(MalayIn(text));
 
+        /// <summary>The scan above reads .cs / .xaml only; the how-to-fix steps are data (csv) and reach the pane,
+        /// so the same word list runs over its steps, why and source columns (proper names allow-listed above).</summary>
+        // Malay on purpose in the how-to-fix data: JKR document names, table titles and the exact wording of a
+        // JKR title-block parameter. Keyed by phrase (removed before the check), so any other Malay still fails.
+        private static readonly (string Phrase, string Why)[] HowToFixAllowed =
+        {
+            (@"Jadual\s+[\d.]+", "citation of a table of the Piawaian (JKR document): 'Jadual 2.8' is the table's own title"),
+            (@"Penjana Nama Projek", "name of the JKR file-name generator tool the Piawaian names"),
+            (@"Keseluruhan / Zon / Sistem / Aras", "the BPEP Section J1 column headings, quoted as printed so the user finds them"),
+            (@"Dimodelkan oleh", "the JKR title-block parameter label, quoted so the user finds it in the sheet's Properties"),
+        };
+
+        [Fact]
+        public void The_how_to_fix_steps_data_holds_no_Malay()
+        {
+            var csv = File.ReadAllText(Path.Combine(Root(), "Services", "JkrSpec", "data", "jkr_howto_fix_steps.csv"), Encoding.UTF8);
+            var bad = new List<string>();
+            foreach (var e in RevitWebAppSync.Services.JkrSpec.SpecHowToFix.Parse(csv).Values)
+                foreach (var t in e.Steps.Concat(new[] { e.Why, e.Source }))
+                {
+                    var clean = t;
+                    foreach (var a in HowToFixAllowed) clean = Regex.Replace(clean, a.Phrase, " ", RegexOptions.IgnoreCase);
+                    var w = MalayIn(clean);
+                    if (w.Count > 0) bad.Add(e.CheckId + ": " + string.Join(", ", w) + "  in  " + t);
+                }
+            Assert.True(bad.Count == 0, "Malay in how-to-fix data:\n" + string.Join("\n", bad));
+        }
+
         [Theory]
         [InlineData("Open")]
         [InlineData("Done")]

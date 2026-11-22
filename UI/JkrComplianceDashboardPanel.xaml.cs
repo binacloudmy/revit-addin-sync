@@ -117,6 +117,9 @@ namespace RevitWebAppSync.UI
         public IReadOnlyList<string> HowToFixSteps(string id) =>
             (IReadOnlyList<string>)FindIssue(id)?.ManualFixSteps ?? Array.Empty<string>();
 
+        /// <summary>"Why: … Source: …" of the issue's check, shown under the steps.</summary>
+        public string HowToFixNote(string id) => FindIssue(id)?.HowToFixNote ?? "";
+
         /// <summary>Locate in 3D from the detail view.</summary>
         public Task LocateIssueAsync(string id)
         {

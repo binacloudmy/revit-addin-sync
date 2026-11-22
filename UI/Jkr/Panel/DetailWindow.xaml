@@ -437,6 +437,8 @@
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
+                                <TextBlock Text="{Binding Card.StepsNote}" FontSize="12" LineHeight="17" Foreground="{StaticResource Bz.Text2}" TextWrapping="Wrap" Margin="0,10,0,0"
+                                           Visibility="{Binding Card.HasStepsNote, Converter={StaticResource B2V}}"/>
                             </StackPanel>
                         </Border>
 

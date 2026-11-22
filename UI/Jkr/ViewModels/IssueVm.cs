@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Windows.Media;
@@ -113,9 +114,61 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// backend wrote them.</summary>
         public List<string> StepsIn()
         {
-            if (Steps != null && Steps.Count > 0) return Steps;
-            if (!string.IsNullOrWhiteSpace(HowToFix)) return new List<string> { HowToFix.Trim() };
+            var check = CheckSteps();
+            var backend = BackendSteps();
+            if (backend.Count > 0)
+            {
+                if (check.Count == 0) return backend;
+                // The backend's specific steps stay first; the check's own steps follow (no repeats).
+                var all = new List<string>(backend);
+                all.AddRange(check.Where(c => !backend.Any(b => string.Equals(b.Trim(), c, System.StringComparison.OrdinalIgnoreCase))));
+                return all;
+            }
+            var built = BuildSteps(check.Count > 0);
+            return built.Count > 0 ? built : check;
+        }
 
+        /// <summary>The spec check's manual steps (SpecHowToFix); empty when the issue has no check id or the id has none.</summary>
+        private List<string> CheckSteps()
+        {
+            var e = CheckEntry();
+            return e == null ? new List<string>() : new List<string>(e.Steps);
+        }
+
+        private Services.JkrSpec.HowToFixEntry CheckEntry() =>
+            Services.JkrSpec.SpecHowToFix.Find(SpecCheckId) ?? Services.JkrSpec.SpecHowToFix.Find(CheckId);
+
+        /// <summary>"Why: … Source: …" for the line under the steps; "" when the issue has no check text.</summary>
+        public string HowToFixNote => CheckEntry()?.Note ?? "";
+
+        /// <summary>The generic lines the add-in writes itself when it knows nothing else. A backend
+        /// text equal to one of them is not "specific".</summary>
+        private static readonly string[] GenericLines =
+        {
+            "Select the element in Revit (Locate in 3D).",
+            "Select it in Revit (Locate in 3D).",
+            "Check this item against the JKR requirement and correct it in Revit.",
+        };
+
+        private static bool IsGeneric(string s) =>
+            string.IsNullOrWhiteSpace(s) || GenericLines.Any(g => string.Equals(g, s.Trim(), System.StringComparison.OrdinalIgnoreCase));
+
+        /// <summary>Backend steps or suggestion that say something specific: non-empty and not a generic line.</summary>
+        private List<string> BackendSteps()
+        {
+            if (Steps != null)
+            {
+                var specific = Steps.Where(x => !IsGeneric(x)).ToList();
+                if (specific.Count > 0) return Steps.Count == specific.Count ? Steps : specific;
+            }
+            if (!IsGeneric(HowToFix)) return new List<string> { HowToFix.Trim() };
+            return new List<string>();
+        }
+
+        /// <summary>Steps built from the fix data. With check steps at hand, the generic fallback
+        /// ("Select the element… / Change it so it meets…") is not built: the check's steps replace it.</summary>
+        private List<string> BuildSteps(bool haveCheckSteps)
+        {
             var select = "Select the element in Revit (Locate in 3D).";
 
             var steps = new List<string>();
@@ -163,6 +216,10 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     steps.Add($"'{FixParameterName}' is read-only: Revit calculates it from the element. Change the element itself (for example its size or geometry), or check with the BIM manager whether this requirement applies.");
                 if (err.IndexOf("not found on element", System.StringComparison.OrdinalIgnoreCase) >= 0)
                     steps.Add($"'{FixParameterName}' is not on this element: add it from the JKR shared parameter file (Manage → Project Parameters), then set the value.");
+            }
+            else if (haveCheckSteps)
+            {
+                return new List<string>();
             }
             else if (!string.IsNullOrEmpty(Required))
             {

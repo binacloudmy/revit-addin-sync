@@ -72,6 +72,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// <summary>How to fix it by hand: open AI items without a ready-made fix.</summary>
         public IReadOnlyList<string> Steps { get; set; } = Array.Empty<string>();
         public bool HasSteps => Steps.Count > 0;
+        /// <summary>"Why: … Source: …" under the steps; "" when the check has no text.</summary>
+        public string StepsNote { get; set; } = "";
+        public bool HasStepsNote => HasSteps && !string.IsNullOrEmpty(StepsNote);
 
 
         public bool CanLocate { get; set; }
@@ -155,6 +158,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// <summary>How-to-fix steps per item (set by the host).</summary>
         public Func<string, IReadOnlyList<string>> StepsOf { get => _stepsOf; set { _stepsOf = value ?? (_ => Array.Empty<string>()); _card = null; } }
         private Func<string, IReadOnlyList<string>> _stepsOf = _ => Array.Empty<string>();
+        /// <summary>The "Why: … Source: …" line under an issue's steps.</summary>
+        public Func<string, string> StepsNoteOf { get => _stepsNoteOf; set { _stepsNoteOf = value ?? (_ => ""); _card = null; } }
+        private Func<string, string> _stepsNoteOf = _ => "";
 
         private string T(string key) =>
             Extra.TryGetValue(key, out var p) ? p : _core.T(key);
@@ -363,6 +369,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 CanReopen = !man && (c.Status == ItemStatus.Ignored || marked),
                 FixError = open ? c.FixError ?? "" : "",
                 Steps = steps,
+                StepsNote = steps.Count > 0 ? StepsNoteOf(c.Id) ?? "" : "",
                 CanLocate = IsLocatable(c.Id),
                 CanIgnore = act,
                 Cite = c.Cite ?? "",
