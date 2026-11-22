@@ -157,6 +157,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             Family = FamilyOf(i),
             Params = SpecDedupe.ParamsOfActual(i.Actual),
             ElementIds = i.ElementIds != null && i.ElementIds.Count > 0 ? (IReadOnlyCollection<long>)i.ElementIds : new[] { i.RevitElementId },
+            Required = i.Required ?? "", Title = i.Title ?? "", RuleText = i.RawRule ?? "", ElementLabel = (i.Element?.Name ?? "") + " [" + (i.Element?.Id ?? "") + "]", FixAction = i.FixAction ?? "",
             Bucket = BucketOf(i),
             Extra = i.IsExtra,
             // What Fix all counts: an open AI row with a plain fix (a Copilot row never); one change per distinct write.
