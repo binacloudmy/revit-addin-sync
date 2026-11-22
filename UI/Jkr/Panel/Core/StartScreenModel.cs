@@ -7,7 +7,7 @@ using BinaVibe.Mcp.Tools.Audit;
 namespace RevitWebAppSync.UI.Jkr.Panel.Core
 {
     /// <summary>One choice in a Start-screen dropdown. The same objects live for
-    /// the whole session; only the label changes with BM / EN, so the dropdown
+    /// the whole session; only the label can change, so the dropdown
     /// never loses its selection.</summary>
     public sealed class StartOption : INotifyPropertyChanged
     {
@@ -154,7 +154,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         }
 
         /// <summary>The chosen LOD ("" = none yet). Bound by value, so the option
-        /// list can be rebuilt (BM / EN) without losing the choice.</summary>
+        /// list can be rebuilt without losing the choice.</summary>
         public string LodValue
         {
             get => _core.Lod ?? "";

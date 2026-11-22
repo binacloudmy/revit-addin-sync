@@ -19,7 +19,7 @@ namespace RevitWebAppSync.UI
                 _panel = new JkrComplianceDashboardPanel();
                 _panel.HideOwnTitleBar();
                 // The Binazone pane shell (step 7) frames the panel: title bar,
-                // project + BM/EN bar, "No model open" and login-required states.
+                // project bar, "No model open" and login-required states.
                 // Steps 8–10 replace the panel inside it screen by screen.
                 // Hosted directly (no Frame): a Frame let the content size to itself,
                 // so the issue-list ScrollViewer never got a bounded height.

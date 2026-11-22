@@ -7,7 +7,7 @@
         ShowInTaskbar="False" FontFamily="{DynamicResource Bz.Font.Sans}" FontSize="13" Foreground="{DynamicResource Bz.Text}"
         TextOptions.TextFormattingMode="Display" UseLayoutRounding="True" SnapsToDevicePixels="True">
     <!-- Borang BIM010 preview (Clear Sheet): a card over a scrim. Header: title, the model's
-         file name in mono, BM / EN, close. Body: the PDF's own pages, one at a time with a
+         file name in mono, close. Body: the PDF's own pages, one at a time with a
          page counter (the pages are rendered by the same engine as the PDF and shown as they
          are). Footer: Export issues (a small menu: Excel / CSV with their issue counts) and
          Save PDF in ink. -->

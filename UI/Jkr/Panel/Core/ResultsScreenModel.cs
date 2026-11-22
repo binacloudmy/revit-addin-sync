@@ -243,7 +243,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         }
 
         // ── tools bar ──
-        // Same option objects as the Start screen (relabelled on BM / EN), created once:
+        // Same option objects as the Start screen (relabelled when needed), created once:
         // a new list on every refresh made a dropdown lose its selection.
         private IReadOnlyList<StartOption> _lodOptions;
         public IReadOnlyList<StartOption> LodOptions => _lodOptions ?? (_lodOptions = _start.LodOptions.Skip(1).ToList());

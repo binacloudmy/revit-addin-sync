@@ -17,8 +17,7 @@ namespace RevitWebAppSync.UI.Jkr.Export
     /// Borang BIM010 preview (Clear Sheet). Shows the PDF's own pages one at a time
     /// over Revit's window; Save PDF writes them (and opens the file); Export issues
     /// opens a small menu, Excel / CSV with the number of issues each would write, and
-    /// a choice opens the export dialog with that format; Close / Esc leaves. The BM / EN
-    /// switch is the pane's own.
+    /// a choice opens the export dialog with that format; Close / Esc leaves.
     /// </summary>
     public partial class BorangPreviewWindow : Window
     {

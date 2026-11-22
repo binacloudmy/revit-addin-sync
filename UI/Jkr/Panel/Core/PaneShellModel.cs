@@ -81,7 +81,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
 
     /// <summary>
     /// The pane shell (prototype .tb title bar + .ctx context bar + body): which
-    /// body state shows, the BM / EN switch and the shell's strings. WPF-free.
+    /// body state shows and the shell's strings. WPF-free.
     /// </summary>
     public sealed class PaneShellModel : INotifyPropertyChanged
     {

@@ -64,7 +64,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public string Tone { get; set; } = "none";
         /// <summary>Why it has this state, in one line ("2 of 5 results fail · 2 elements.").</summary>
         public string Detail { get; set; } = "";
-        /// <summary>The run's remarks (what was found), one per line, in the pane's language.</summary>
+        /// <summary>The run's remarks (what was found), one per line, in English.</summary>
         public string Notes { get; set; } = "";
         public bool HasNotes => !string.IsNullOrEmpty(Notes);
         /// <summary>"Spec — does not comply when:" / "— comply when:" / "— a person checks:".</summary>
@@ -159,7 +159,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
 
     /// <summary>
     /// Builds the Checklist from a <see cref="SpecReport"/> and the pane's items, in
-    /// the pane's language, and the spec-based headline (two numbers, rule R2).
+    /// English, and the spec-based headline (two numbers, rule R2).
     /// WPF-free; ResultsScreenModel keeps which sections are open, which checks show
     /// every element or their "why", and the state filter.
     /// </summary>
