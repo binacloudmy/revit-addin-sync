@@ -246,13 +246,64 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void Ignore_all_covers_open_ai_items_in_the_section_only()
+        public void Ignore_all_covers_open_ai_items_in_the_section_only_and_never_High()
         {
             var (core, _) = AtResults();
             core.SetCat("D");
             core.IgnoreAll();
-            Assert.All(new[] { "16", "17", "18" }, id => Assert.Equal(ItemStatus.Ignored, core.Issues.First(x => x.Id == id).Status));
+            Assert.All(new[] { "16", "17" }, id => Assert.Equal(ItemStatus.Ignored, core.Issues.First(x => x.Id == id).Status));
+            Assert.Equal(ItemStatus.Open, core.Issues.First(x => x.Id == "18").Status);   // High: no Ignore (AI-505)
             Assert.All(core.Issues.Where(x => x.Sec != "D"), x => Assert.Equal(ItemStatus.Open, x.Status));
+        }
+
+        [Fact]
+        public void Ignore_all_acts_only_on_the_rows_the_search_shows()
+        {
+            var (core, _) = AtResults();
+            core.SetQuery("door");                                     // AI-505: was the whole section / board
+            var shown = core.Filtered().Where(x => x.Sev != "High").Select(x => x.Id).OrderBy(x => x).ToArray();
+            Assert.NotEmpty(shown);
+            Assert.True(shown.Length < core.Issues.Count(x => !x.IsHuman && x.Status == ItemStatus.Open && x.Sev != "High"));
+            Assert.Equal(shown, core.IgnorableVisible().Select(x => x.Id).OrderBy(x => x).ToArray());
+            core.IgnoreAll();
+            Assert.Equal(shown, core.Issues.Where(x => x.Status == ItemStatus.Ignored).Select(x => x.Id).OrderBy(x => x).ToArray());
+            Assert.DoesNotContain(core.Issues, x => x.Sev == "High" && x.Status == ItemStatus.Ignored);
+        }
+
+        [Fact]
+        public void Ignore_all_with_a_search_that_shows_nothing_ignores_nothing()
+        {
+            var (core, _) = AtResults();
+            core.SetQuery("zzz-no-such-row");
+            core.IgnoreAll();
+            Assert.DoesNotContain(core.Issues, x => x.Status == ItemStatus.Ignored);
+        }
+
+        [Fact]
+        public void Ignore_all_and_Fix_all_scope_is_empty_off_the_Open_tab()
+        {
+            var (core, _) = AtResults();
+            foreach (var tab in new[] { PanelTab.Ignore, PanelTab.Resolved, PanelTab.Manual })
+            {
+                core.SetTab(tab);
+                Assert.Empty(core.IgnorableVisible());
+                Assert.Empty(core.FixableOpen());
+                Assert.Equal(0, core.IgnoreSkipped());
+                core.IgnoreAll();
+                Assert.DoesNotContain(core.Issues, x => x.Status == ItemStatus.Ignored);
+            }
+        }
+
+        [Fact]
+        public void Fix_all_scope_follows_the_search()
+        {
+            var (core, _) = AtResults();
+            var all = core.FixableOpen().Count;
+            Assert.True(all > 1);
+            core.SetQuery("zzz-no-such-row");
+            Assert.Empty(core.FixableOpen());
+            core.SetQuery("");
+            Assert.Equal(all, core.FixableOpen().Count);
         }
 
         // ── Fix all scope, confirm ──

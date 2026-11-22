@@ -817,7 +817,7 @@
                 </WrapPanel>
                 <StackPanel Orientation="Horizontal">
                     <Button Content="{Binding IgnoreAllLabel}" Style="{StaticResource TextBtn}" Click="IgnoreAll_Click" Padding="10,0,10,0" MinHeight="32"
-                            IsEnabled="{Binding CanAct}" Margin="0,0,8,0" AutomationProperties.Name="{Binding IgnoreAllLabel}"/>
+                            IsEnabled="{Binding CanIgnoreAll}" Margin="0,0,8,0" AutomationProperties.Name="{Binding IgnoreAllLabel}"/>
                     <Button Style="{StaticResource Bz.Btn.Primary}" Click="FixAll_Click" IsEnabled="{Binding CanFixAll}" Padding="12,0,12,0" MinHeight="32" FontSize="13"
                             AutomationProperties.Name="{Binding FixAllLabel}">
                         <StackPanel Orientation="Horizontal">
