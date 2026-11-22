@@ -169,7 +169,7 @@ namespace RevitWebAppSync.Tests
             Assert.Contains("stored playbook", c.Body);
             Assert.DoesNotContain("works out the new values", c.Body);
             Assert.Contains("nothing is deleted", c.Body);
-            Assert.Contains("7001 — Views · v1 — set PBT (required: template PBT)", c.Details);
+            Assert.Contains("7001 — Views · v7001 — set PBT (required: template PBT)", c.Details);
         }
 
         private static CopilotPromptFacts Dd1Facts(params (long Id, string Label, string Old, string New)[] rows) => new CopilotPromptFacts
