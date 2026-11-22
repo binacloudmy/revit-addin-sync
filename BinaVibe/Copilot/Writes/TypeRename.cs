@@ -26,6 +26,25 @@ namespace BinaVibe.Copilot.Writes
             return p.Equals("Type Name", StringComparison.OrdinalIgnoreCase) || p.Equals("Name", StringComparison.OrdinalIgnoreCase);
         }
 
+        /// <summary>True for "Type Name" only: it always means the type.</summary>
+        public static bool IsTypeNameParam(string? param) =>
+            (param ?? "").Trim().Equals("Type Name", StringComparison.OrdinalIgnoreCase);
+
+        private static readonly string[] InstanceNameCategories = { "Grids", "Levels", "Views", "Sheets", "Rooms", "Areas", "Spaces", "Schedules", "Scope Boxes", "Reference Planes", "Revision Clouds", "Matchline" };
+
+        /// <summary>True for categories whose elements carry an instance-level "Name" (grids, levels, views, sheets, rooms...).</summary>
+        public static bool NameIsInstanceProperty(string? category) =>
+            InstanceNameCategories.Any(c => string.Equals(c, (category ?? "").Trim(), StringComparison.OrdinalIgnoreCase));
+
+        /// <summary>Why "Name" with type_param true is refused on such an element (BM and EN; nothing is written).</summary>
+        public static string InstanceNameRefusal(string? category) =>
+            "'Name' is an instance property of " + (string.IsNullOrWhiteSpace(category) ? "these elements" : category) +
+            ", so type_param true would rename their TYPE (every instance). Resend with type_param false to rename the element, or use 'Type Name' to rename the type; nothing was changed. " +
+            "('Name' ialah sifat instance bagi elemen ini; type_param true akan menukar nama TYPE. Hantar semula dengan type_param false, atau guna 'Type Name'; tiada apa-apa diubah.)";
+
+        /// <summary>Revit's limit on an element name.</summary>
+        public const int MaxNameLength = 255;
+
         /// <summary>The name to apply, or null when it is not a usable name; <paramref name="problem"/> says why.</summary>
         public static string? Normalize(string? given, out string? problem)
         {
@@ -35,6 +54,11 @@ namespace BinaVibe.Copilot.Writes
             if (bad >= 0)
             {
                 problem = "A type name cannot contain '" + name[bad] + "' (Revit refuses \\ : { } [ ] | ; < > ? ` ~).";
+                return null;
+            }
+            if (name.Length > MaxNameLength)
+            {
+                problem = "A type name is at most " + MaxNameLength + " characters; this one has " + name.Length + ".";
                 return null;
             }
             problem = null;

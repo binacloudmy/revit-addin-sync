@@ -108,6 +108,11 @@ namespace BinaVibe.Copilot.Tools
 
                 if (notes.Rename && owner is ElementType renamed)
                 {
+                    // AI-510: plain "Name" with type_param renames a type only when it clearly means the type. A grid, level, view or
+                    // sheet has its own instance "Name": a wrong type_param true must never rename its TYPE (every grid).
+                    if (!TypeRename.IsTypeNameParam(a.Param) && !(el is ElementType) &&
+                        (TypeRename.NameIsInstanceProperty(el.Category?.Name) || el.LookupParameter("Name") != null))
+                        throw new WriteRefusal(ErrorCodes.InvalidArgs, TypeRename.InstanceNameRefusal(el.Category?.Name));
                     PlanRename(doc, notes, t, renamed, renamedTo, edits, seen);
                     continue;
                 }

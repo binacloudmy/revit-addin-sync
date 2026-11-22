@@ -22,6 +22,47 @@ namespace RevitAddinSync.Tests
         [InlineData(null, false)]
         public void Rename_param_names(string? param, bool expected) => Assert.Equal(expected, TypeRename.IsRenameParam(param));
 
+        [Theory]
+        [InlineData("Grids")]
+        [InlineData("Levels")]
+        [InlineData("Views")]
+        [InlineData("Sheets")]
+        [InlineData("grids")]
+        public void Plain_name_with_type_param_on_an_instance_name_category_is_refused_in_bm_and_en(string category)
+        {
+            Assert.True(TypeRename.NameIsInstanceProperty(category));
+            Assert.False(TypeRename.IsTypeNameParam("Name"));
+            var msg = TypeRename.InstanceNameRefusal(category);
+            Assert.Contains("nothing was changed", msg);
+            Assert.Contains("tiada apa-apa diubah", msg);
+            Assert.Contains("type_param false", msg);
+        }
+
+        [Theory]
+        [InlineData("Doors")]
+        [InlineData("Stairs")]
+        [InlineData(null)]
+        public void A_door_or_stair_category_is_not_an_instance_name_category(string? category) => Assert.False(TypeRename.NameIsInstanceProperty(category));
+
+        [Theory]
+        [InlineData("Type Name")]
+        [InlineData(" type name ")]
+        public void Type_name_always_renames_the_type(string param)
+        {
+            Assert.True(TypeRename.IsTypeNameParam(param));
+            Assert.True(TypeRename.IsRenameParam(param));
+            Assert.Null(TypeRename.Check("(PT2p600a) 900 x 2325 a", "Old door type", new[] { "Other" }, out var name));
+            Assert.Equal("(PT2p600a) 900 x 2325 a", name);
+        }
+
+        [Fact]
+        public void A_name_over_255_characters_is_refused()
+        {
+            Assert.Null(TypeRename.Check(new string('a', 255), "Old", new string[0], out _));
+            var v = TypeRename.Check(new string('a', 256), "Old", new string[0], out _);
+            Assert.Contains("at most 255", v);
+        }
+
         [Fact]
         public void A_new_name_is_accepted_and_trimmed()
         {
