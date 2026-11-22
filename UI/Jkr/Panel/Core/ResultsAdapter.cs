@@ -64,6 +64,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 Options = i.IsPick ? i.ValidOptions : i.ReferenceValues ?? Array.Empty<string>(),
                 Status = human ? (i.Reviewed ? ItemStatus.Reviewed : ItemStatus.Open) : StatusOf(i.Status),
                 Passed = i.Status == IssueStatus.Fixed && i.FixVerified,
+                FixedViaCopilot = i.Status == IssueStatus.Fixed && i.FixedVia == "Copilot",
                 MarkedManual = i.Status == IssueStatus.ManualFixNeeded,
                 CanMarkManual = !human && i.CanMarkManual,
             };

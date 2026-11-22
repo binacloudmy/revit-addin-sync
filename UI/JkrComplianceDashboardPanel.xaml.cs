@@ -1532,6 +1532,7 @@ namespace RevitWebAppSync.UI
                 }
             }
 
+            _lastScanComplete = backendError == null;
             if (onlyElements != null)
             {
                 var outcome = JkrRecheck.Reconcile(_vm.Issues.ToList(), onlyElements, issues, backendError == null, justWritten);
@@ -1632,6 +1633,49 @@ namespace RevitWebAppSync.UI
             }
             _undoTimer.Stop();
             _undoTimer.Start();
+        }
+
+        private bool _lastScanComplete;
+
+        /// <summary>AI-495: a row with no element id to target (create-type checks: views, schedules, sheets, links) cannot go
+        /// through <see cref="RecheckAsync"/>. There is no per-check re-run, so this runs a full re-scan and reports whether the
+        /// row's rule still fails in it: true = passes (row absent from the fresh list), false = still failing, null = nothing
+        /// could be checked (scan running, no scan yet, other model, error, or a partial scan). The row stays Open meanwhile.</summary>
+        public async Task<bool?> RecheckByScanAsync(IssueVm issue)
+        {
+            if (issue == null || string.IsNullOrEmpty(issue.Id)) return null;
+            await _recheckGate.WaitAsync();
+            try
+            {
+                if (_vm.Scanning || _vm.Spec == null) return null;
+                _vm.Scanning = true;
+                BusyChanged?.Invoke(Jkr.Panel.Core.PaneText.Rescanning());
+                _lastScanComplete = false;
+                try
+                {
+                    if (!await RunScanInner(isRecheck: true) || !_lastScanComplete) return null;
+                    return _vm.Issues.Any(i => i.Id == issue.Id && i.Status != IssueStatus.Fixed);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[BINA JKR] re-scan after Copilot failed: {ex.Message}");
+                    return null;
+                }
+                finally { _vm.Scanning = false; BusyChanged?.Invoke(null); }
+            }
+            finally { _recheckGate.Release(); }
+        }
+
+        /// <summary>AI-495: a Copilot write re-passed its rule: mark the row Fixed (via Copilot), score and board move together, audit saved.</summary>
+        public void MarkFixedViaCopilot(IssueVm issue, string toast)
+        {
+            if (issue == null) return;
+            issue.FixedVia = "Copilot";
+            // A re-scan that passed the rule dropped the row from the list: put it back as Fixed.
+            if (!_vm.Issues.Contains(issue)) _vm.ReplaceIssues(_vm.Issues.Concat(new[] { issue }).ToList());
+            _vm.ApplyAction(issue, IssueStatus.Fixed, false, toast);
+            try { JkrAuditStore.Save(_scannedDocPath, issue); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[BINA] audit save failed: {ex.Message}"); }
         }
 
         /// <summary>After a single auto-fix wrote: resolve the row only if its rule re-passed.</summary>

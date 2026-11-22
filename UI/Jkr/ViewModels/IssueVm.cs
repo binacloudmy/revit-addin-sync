@@ -43,7 +43,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public string Reason { get; set; } = "";
     }
 
-    public class IssueVm : INotifyPropertyChanged, IRecheckRow
+    public class IssueVm : INotifyPropertyChanged, ICopilotRecheckRow
     {
         public string Id { get; set; } = "";
 
@@ -363,6 +363,9 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// fails): counts as passed. A fix not yet re-scanned is "fixed, re-scan
         /// pending" (prototype: fixed ≠ passed until re-scan).</summary>
         public bool FixVerified { get; set; }
+
+        /// <summary>AI-495: how a Fixed row was fixed when not by the ready-made Fix: "Copilot". Empty otherwise. Saved in the audit record.</summary>
+        public string FixedVia { get; set; } = "";
 
         /// <summary>How the targeted re-check (JkrRecheck) treats this row.</summary>
         public RecheckState RecheckState =>
