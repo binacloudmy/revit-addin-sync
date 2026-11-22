@@ -76,6 +76,19 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     "the legend name and what it shows (for example the symbols or statuses)",
                     "satu legend baharu sahaja; jangan letak pada sheet melainkan saya minta",
                     "one new legend only; do not place it on a sheet unless I ask"),
+                // AI-500 (C1.1.1 only). tools.py (bina-ai ai-423-test, checked 2026-11-22) has list_view_templates (read) and
+                // apply_view_template (uses an existing one); NO tool creates or duplicates a view template, so this prompt
+                // makes Copilot say so and stop, like the legend (C2.1.1). It is not on the zero-id button list.
+                // The missing names are in Required (original JKR names from SpecTemplateViews).
+                // C1.1.2 has no entry: see JkrCopilotFix.ModelLevel.
+                ["C1.1.1"] = new CreateTypeSpec(
+                    new CopilotPromptVariant(
+                        "Buat view template JKR AR yang tiada, dengan nama asal tepat seperti dalam Diperlukan di bawah. Tiada tool yang membuat atau menduplikasi view template (list_view_templates dan apply_view_template hanya membaca atau menggunakan yang sedia ada): jika tiada tool boleh membuatnya, beritahu saya dan jangan buat apa-apa; jangan ganti dengan view biasa dan jangan tukar nama template lain. Buat paling banyak 10 nama bagi setiap pengesahan; tanya saya untuk selebihnya.",
+                        "Create the missing JKR AR view templates, with the exact original names given under Required below. No tool creates or duplicates a view template (list_view_templates and apply_view_template only read or use an existing one): if no tool can create them, tell me and do not create anything; never substitute an ordinary view and never rename another template. Create at most 10 names per confirmation; ask me before doing the rest."),
+                    "nama view template yang tiada (nama asal JKR)",
+                    "the names of the missing view templates (original JKR names)",
+                    "view template baharu bagi nama yang tiada sahaja; jangan ubah, tukar nama atau padam sebarang view template atau view yang sedia ada",
+                    "new view templates for the missing names only; do not modify, rename or delete any existing view template or view"),
                 ["C3.1.1"] = new CreateTypeSpec(
                     new CopilotPromptVariant(
                         "Buat schedule bagi kategori yang dimodelkan tetapi belum ada schedule. Namakan kategori itu dan cadangkan dahulu. Guna create_schedule dengan dry_run=true dahulu bagi setiap satu dan tunjukkan medan yang selesai dan tidak selesai. Cipta paling banyak 10 schedule bagi setiap pengesahan; tanya saya untuk selebihnya.",

@@ -1,3 +1,5 @@
+using System;
+using RevitWebAppSync.Services.JkrSpec;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
@@ -221,7 +223,7 @@ namespace RevitWebAppSync.Tests
 
         // ── AI-498: create-type families ──
 
-        private static readonly string[] CreateTypes = { "C1.3.1", "C1.4.1", "C1.5.2", "C1.6.1", "C2.1.1", "C3.1.1", "C4.1.3", "C5.1.1" };
+        private static readonly string[] CreateTypes = { "C1.3.1", "C1.4.1", "C1.5.2", "C1.6.1", "C2.1.1", "C3.1.1", "C4.1.3", "C5.1.1", "C1.1.1" };
         public static IEnumerable<object[]> CreateTypeIds() => CreateTypes.Select(i => new object[] { i });
 
         private static CopilotPromptFacts NoIds(string check) => new CopilotPromptFacts
@@ -349,8 +351,39 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void Other_families_still_give_no_prompt_without_ids()
         {
-            foreach (var id in new[] { "Da.1", "C1.6.3", "C1.1.1", "C1.1.2", "C5.1.2" })
+            foreach (var id in new[] { "Da.1", "C1.6.3", "C1.1.2", "C5.1.2" })
                 Assert.Empty(JkrCopilotPrompt.Build(NoIds(id), false));
+        }
+
+        // ── AI-500: template views ──
+
+        [Fact]
+        public void Template_views_C111_prompt_has_the_names_from_the_data_a_cap_and_says_no_tool_AI500()
+        {
+            var names = SpecTemplateViews.Judged.Take(3).ToList();
+            var f = NoIds("C1.1.1");
+            f.Required = string.Join(" | ", names);
+            f.Actual = "3 tiada";
+            foreach (var bm in new[] { true, false })
+            {
+                var t = JkrCopilotPrompt.VariantFor("C1.1.1").Task(bm);
+                Assert.Contains(bm ? "paling banyak 10 nama" : "at most 10 names per confirmation", t);
+                Assert.Contains(bm ? "tiada tool" : "No tool creates", t, StringComparison.OrdinalIgnoreCase);
+                Assert.Contains(bm ? "jangan buat apa-apa" : "do not create anything", t);
+                Assert.Contains("list_view_templates", t);
+                var p = Assert.Single(JkrCopilotPrompt.Build(f, bm));
+                foreach (var n in names) Assert.Contains(n, p);
+                Assert.DoesNotMatch(new Regex(@"\b(the selection|current selection|this view|active view|current view)\b", RegexOptions.IgnoreCase), p);
+                Assert.Contains(bm ? "tukar nama atau padam" : "do not modify, rename or delete any existing view template", p);
+            }
+        }
+
+        [Fact]
+        public void Template_views_C112_has_no_prompt_because_no_tool_renames_a_view_template_AI500()
+        {
+            // rename_elements("Views") skips view templates (Mutators.cs RenameElements: !v.IsTemplate): nothing can rename one.
+            Assert.False(JkrCopilotPrompt.HasVariant("C1.1.2"));
+            Assert.False(JkrCopilotPrompt.IsCreateType("C1.1.2"));
         }
 
         [Fact]
