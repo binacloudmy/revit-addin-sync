@@ -312,6 +312,14 @@ namespace RevitWebAppSync.Services.JkrSpec
                 if (bp.IsShared) continue;
                 var p = bp.Position;
                 m.ProjectBasePoint = new SpecPoint { X = Math.Round(Mm(p.X), 1), Y = Math.Round(Mm(p.Y), 1) };
+                // AI-517: keep a non-zero shared position as DATA for a person row. It is NOT proof that coordinates were acquired (moving the point also makes it non-zero).
+                try
+                {
+                    var s = bp.SharedPosition;
+                    var e = Math.Round(Mm(s.X), 1); var n = Math.Round(Mm(s.Y), 1); var z = Math.Round(Mm(s.Z), 1);
+                    m.ProjectBaseSurvey = e != 0 || n != 0 || z != 0 ? new SpecPoint3 { X = e, Y = n, Z = z } : null;
+                }
+                catch { m.ProjectBaseSurvey = null; /* shared position not readable: the grid rule decides */ }
             }
         }
 

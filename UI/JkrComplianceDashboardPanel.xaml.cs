@@ -117,6 +117,9 @@ namespace RevitWebAppSync.UI
         public IReadOnlyList<string> HowToFixSteps(string id) =>
             (IReadOnlyList<string>)FindIssue(id)?.ManualFixSteps ?? Array.Empty<string>();
 
+        /// <summary>"Why: … Source: …" of the issue's check, shown under the steps.</summary>
+        public string HowToFixNote(string id) => FindIssue(id)?.HowToFixNote ?? "";
+
         /// <summary>Locate in 3D from the detail view.</summary>
         public Task LocateIssueAsync(string id)
         {
@@ -1490,7 +1493,7 @@ namespace RevitWebAppSync.UI
             var modelIssues = IssueMapper.FromModelResults(modelResults);
             // AI-479 / AI-506: one list from the three sources, one row per problem (A2.1 / A4.1 / B1.1 and
             // Db.1 against the backend's "Missing ... Parameter" rows), one tier. Same input, same list.
-            var issues = JkrIssueCounts.MergeSources(backendIssues, auditIssues, modelIssues);
+            var issues = JkrIssueCounts.MergeSources(backendIssues, auditIssues, modelIssues, Jkr.Panel.Core.SpecDedupe.PassedByEvaluator(modelResults));
             // The same run against the spec's 61 checks (Checklist tab). Built from
             // every result — MapAll above drops passes — plus the BIM010 records and
             // the spec evaluators' results.

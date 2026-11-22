@@ -52,6 +52,7 @@ namespace RevitWebAppSync.UI
                 detail.IsLocatable = id => _panel.Issue(id)?.Locatable == true;
                 detail.HasSourcePdf = id => !string.IsNullOrEmpty(_panel.Issue(id)?.Spec?.Doc);
                 detail.StepsOf = id => _panel.HowToFixSteps(id);
+                detail.StepsNoteOf = id => _panel.HowToFixNote(id);
                 detail.LocateRequested += id => _ = _panel.LocateIssueAsync(id);
                 detail.SourceRequested += id => _panel.OpenIssueSource(id);
                 results.FixRequested += ids => _ = _panel.FixIssuesAsync(ids);
