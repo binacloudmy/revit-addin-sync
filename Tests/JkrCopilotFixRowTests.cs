@@ -66,7 +66,8 @@ namespace RevitWebAppSync.Tests
             Assert.False(Row("C5.1.1", "Views", ids: 0, human: true).CopilotFixable);
             Assert.False(Row("C5.1.1", "Views", ids: 0, fix: true).CopilotFixable);
             Assert.False(Row("C5.1.1", "Views", ids: 0, pick: true).CopilotFixable);
-            Assert.False(Row("C1.1.1", "Views", ids: 0).CopilotFixable);
+            Assert.False(Row("C1.1.1", "Views", ids: 0).CopilotFixable);   // AI-500: no tool creates a view template
+            Assert.False(Row("C1.1.2", "Views", ids: 0).CopilotFixable);   // AI-500: no tool renames one (warning class too)
             Assert.False(Row("C1.3.1", "Views", ids: 0, human: true).CopilotFixable);
             JkrCopilotFix.Launcher = null;
             Assert.False(Row("C1.3.1", "Views", ids: 0).CopilotFixable);

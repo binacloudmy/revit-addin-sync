@@ -47,8 +47,9 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         {
             // naming / code-in-name, material code, missing params, name vs geometry, model code, grids, title block
             "Da.1", "Dd.1", "Db.2", "Db.1", "Dc.1", "A2.2", "A3.1", "A5.2", "C1.6.3", "C4.2.2",
-            // create-type rows: views, schedules, legends, sheets, links, template views
-            "C1.3.1", "C1.4.1", "C1.5.2", "C1.6.1", "C2.1.1", "C3.1.1", "C4.1.3", "C5.1.1", "C1.1.1", "C1.1.2", "C5.1.2",
+            // create-type rows: views, schedules, legends, sheets, links. C1.1.1 / C1.1.2 (template views) are off until
+            // bina-ai has a create / rename tool for view templates (AI-500); re-add them then.
+            "C1.3.1", "C1.4.1", "C1.5.2", "C1.6.1", "C2.1.1", "C3.1.1", "C4.1.3", "C5.1.1", "C5.1.2",
         };
 
         /// <summary>Never offered, whatever <see cref="Allowed"/> says: a person decides. Project Information (B1.1),

@@ -27,7 +27,7 @@ namespace RevitWebAppSync.Tests
         public void The_v1_list_is_exactly_the_umbrella_table()
         {
             var want = new[] { "Da.1", "Dd.1", "Db.2", "Db.1", "Dc.1", "A2.2", "A3.1", "A5.2", "C1.6.3", "C4.2.2",
-                               "C1.3.1", "C1.4.1", "C1.5.2", "C1.6.1", "C2.1.1", "C3.1.1", "C4.1.3", "C5.1.1", "C1.1.1", "C1.1.2", "C5.1.2" };
+                               "C1.3.1", "C1.4.1", "C1.5.2", "C1.6.1", "C2.1.1", "C3.1.1", "C4.1.3", "C5.1.1", "C5.1.2" };
             Assert.Equal(want.OrderBy(x => x), JkrCopilotFix.Allowed.OrderBy(x => x));
         }
 
@@ -88,6 +88,17 @@ namespace RevitWebAppSync.Tests
         {
             Assert.False(Ok("C2.1.1", "Views", ids: 0));
             Assert.True(Ok("C2.1.1", "Views", ids: 1));
+        }
+
+        [Theory]
+        [InlineData(0)] [InlineData(1)] [InlineData(5)]
+        public void Template_view_rows_never_show_the_button_AI500(int ids)
+        {
+            foreach (var id in new[] { "C1.1.1", "C1.1.2" })
+            {
+                Assert.False(JkrCopilotFix.IsListed(id), id);
+                Assert.False(Ok(id, "Views", ids: ids), id);
+            }
         }
 
         [Fact]
