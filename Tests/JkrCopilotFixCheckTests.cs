@@ -21,7 +21,7 @@ namespace RevitWebAppSync.Tests
     [Collection("ForcedConfirmStatic")]
     public class JkrCopilotFixCheckTests
     {
-        private static readonly string[] EightChecks = { "Da.1", "Db.1", "Db.2", "Dc.1", "Dd.1", "A5.2", "C1.6.3", "C4.2.2" };
+        private static readonly string[] FixChecks = { "Da.1", "Db.1", "Db.2", "Dc.1", "Dd.1", "A5.2", "C1.6.3", "C4.2.2", "C4.1.3", "E.1" };   // the last two: playbook runs (WP-4/5)
 
         // ── fixture: a failing spec check with N element rows, as the pane holds them ──
 
@@ -84,14 +84,14 @@ namespace RevitWebAppSync.Tests
         // ── eligibility, label ──
 
         [Fact]
-        public void The_header_offers_it_for_the_eight_checks_only()
+        public void The_header_offers_it_for_the_listed_checks_only()
         {
             foreach (var id in SpecCatalog.Checks.Select(c => c.Id))
             {
                 var items = new List<PanelItem> { Item("a", id, 1), Item("b", id, 2) };
                 var spec = SpecReport.Build(new[] { FailResult(id, 1, "a"), FailResult(id, 2, "b") });
                 var row = SpecChecklist.CheckRow(spec.For(id), spec, items.ToDictionary(i => i.Id), _ => true);
-                Assert.Equal(EightChecks.Contains(id), row.CanFixViaCopilot);
+                Assert.Equal(FixChecks.Contains(id), row.CanFixViaCopilot);
                 if (!row.CanFixViaCopilot) Assert.Empty(row.CopilotFixIds);
             }
         }
