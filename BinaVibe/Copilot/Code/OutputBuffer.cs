@@ -75,7 +75,7 @@ namespace BinaVibe.Copilot.Code
                 case float f: return f.ToString("R", CultureInfo.InvariantCulture);
             }
             // An exception prints as its type and message only: frames would carry Revit and add-in internals.
-            if (value is Exception ex) return ex.GetType().Name + ": " + ex.Message;
+            if (value is Exception ex) return ex.GetType().Name + ": " + BinaVibe.Copilot.Writes.DialogRedaction.RedactPaths(ex.Message);   // r24: exception text redacted (printed strings are not)
             var special = _special?.Invoke(value);
             if (special != null) return special;
             if (value is IFormattable formattable) return formattable.ToString(null, CultureInfo.InvariantCulture);

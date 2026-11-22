@@ -246,7 +246,7 @@ namespace BinaVibe.Copilot.Code
             }
             catch (Exception ex)
             {
-                return Internal(prepared, ex.GetType().Name + ": " + ex.Message);
+                return Internal(prepared, ex.GetType().Name + ": " + BinaVibe.Copilot.Writes.DialogRedaction.RedactPaths(ex.Message));
             }
         }
 

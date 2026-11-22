@@ -230,7 +230,8 @@ namespace BinaVibe.Copilot.Code
 
             var typeName = ex.GetType().FullName ?? ex.GetType().Name;
             var shortType = ex.GetType().Name;
-            var message = Clip(ex.Message, MaxMessageChars);
+            // r24 privacy (0.0.174): the exception's own text can name a file or a worksharing user; the model's printed output is not touched.
+            var message = Clip(BinaVibe.Copilot.Writes.DialogRedaction.RedactPaths(ex.Message), MaxMessageChars);
             var modificationOutside = shortType.EndsWith("ModificationOutsideTransactionException", StringComparison.Ordinal);
             var frames = lines.Count > 0 ? "\nIn your code: " + string.Join(" <- ", lines.Select(l => "line " + l)) : "";
             return new CodeFailure

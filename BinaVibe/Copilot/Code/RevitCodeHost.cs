@@ -169,7 +169,7 @@ namespace BinaVibe.Copilot.Code
                     }
                     catch (Autodesk.Revit.Exceptions.ApplicationException ex)
                     {
-                        return Busy(ex.Message, EnvelopePhase.Read);
+                        return Busy(BinaVibe.Copilot.Writes.DialogRedaction.RedactPaths(ex.Message), EnvelopePhase.Read);
                     }
                 }
                 try
