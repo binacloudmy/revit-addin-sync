@@ -102,6 +102,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             var c = i.Clone();
             c.Status = ItemStatus.Open;
             c.Passed = false;
+            c.FixedViaCopilot = false;
             return c;
         }
 
@@ -226,13 +227,13 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public List<PanelItem> Filtered()
         {
             return Issues
-                .Where(x => !x.Passed)
+                .Where(x => !Hidden(x))
                 .Where(x => Cat == AllSections || x.Sec == Cat)
                 .Where(x =>
                 {
-                    if (Tab == PanelTab.Manual) return x.IsHuman;
+                    if (Tab == PanelTab.Manual) return x.IsHuman || x.MarkedManual;   // AI-445: as TabCounts
                     if (x.IsHuman) return false;
-                    if (Tab == PanelTab.Open) return x.Status == ItemStatus.Open;
+                    if (Tab == PanelTab.Open) return x.Status == ItemStatus.Open && !x.MarkedManual;
                     if (Tab == PanelTab.Ignore) return x.Status == ItemStatus.Ignored;
                     return x.Status == ItemStatus.Resolved;
                 })
@@ -250,7 +251,11 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         }
 
         // ── derived (prototype renderVals) ──
-        private List<PanelItem> Live => Issues.Where(x => !x.Passed).ToList();
+        private List<PanelItem> Live => Issues.Where(x => !Hidden(x)).ToList();
+
+        /// <summary>AI-507: a row a re-scan proved compliant drops out of every list, except one fixed via Copilot:
+        /// it stays on the board as Selesai with its "Fixed via Copilot" mark (it still counts as a passing cell).</summary>
+        public static bool Hidden(PanelItem x) => x.Passed && !x.FixedViaCopilot;
         private List<PanelItem> InCat => Live.Where(x => Cat == AllSections || x.Sec == Cat).ToList();
 
         public int AiPass => Stats().Values.Sum(s => s.Pass);
