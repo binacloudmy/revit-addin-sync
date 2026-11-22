@@ -29,7 +29,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
 
         private static string Cat(CopilotPromptFacts f) { var c = JkrCopilotPrompt.CleanLabel(f.Category); return c.Length > 0 ? c : "-"; }
 
-        public static CopilotConfirmContent Build(CopilotPromptFacts facts, bool bm)
+        public static CopilotConfirmContent Build(CopilotPromptFacts facts)
         {
             if (facts == null) throw new ArgumentNullException(nameof(facts));
             var ids = JkrCopilotPrompt.TargetIds(facts);
@@ -45,37 +45,27 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
 
             var c = new CopilotConfirmContent();
             if (typeLevel)
-                c.Heading = bm
-                    ? $"Benarkan Copilot mengubah {ids.Count} type ({instances} instance) untuk semakan {checkId}?"
-                    : $"Let Copilot change {ids.Count} type{(ids.Count == 1 ? "" : "s")} ({instances} instance{(instanceNo == 1 && !capped ? "" : "s")}) for check {checkId}?";
+                c.Heading = $"Let Copilot change {ids.Count} type{(ids.Count == 1 ? "" : "s")} ({instances} instance{(instanceNo == 1 && !capped ? "" : "s")}) for check {checkId}?";
             else
-                c.Heading = bm
-                    ? $"Benarkan Copilot mengubah {ids.Count} elemen untuk semakan {checkId}?"
-                    : $"Let Copilot change {ids.Count} element{(ids.Count == 1 ? "" : "s")} for check {checkId}?";
+                c.Heading = $"Let Copilot change {ids.Count} element{(ids.Count == 1 ? "" : "s")} for check {checkId}?";
 
             var body = new StringBuilder();
             if (typeLevel)
             {
-                body.Append(variant.Change).Append(bm
-                    ? $" pada TYPE bagi elemen yang disenaraikan di bawah (satu id bagi setiap type). Perubahan ini terpakai pada SEMUA {(atLeast ? "sekurang-kurangnya " : "")}{instances} instance type itu, yang disenaraikan atau tidak. Kategori: {Cat(facts)}. Tiada apa dipadam. "
-                    : $" on the TYPE of each element listed below (one id per type). The change applies to ALL {(atLeast ? "at least " : "")}{instances} instance{(instanceNo == 1 && !atLeast ? "" : "s")} of those types, listed or not. Category: {Cat(facts)}. Nothing is deleted. ");
+                body.Append(variant.Change).Append($" on the TYPE of each element listed below (one id per type). The change applies to ALL {(atLeast ? "at least " : "")}{instances} instance{(instanceNo == 1 && !atLeast ? "" : "s")} of those types, listed or not. Category: {Cat(facts)}. Nothing is deleted. ");
             }
             else
             {
-                body.Append(variant.Change).Append(bm ? " pada elemen yang disenaraikan di bawah sahaja. " : " on the elements listed below only. ");
+                body.Append(variant.Change).Append(" on the elements listed below only. ");
                 if (level == CopilotWriteLevel.Either)
-                    body.Append(bm
-                        ? "Jika parameter itu ialah parameter type, ia mengubah type elemen itu dan SEMUA instancenya, yang disenaraikan atau tidak. "
-                        : "If the parameter is a type parameter, it changes the element's type and so EVERY instance of that type, listed or not. ");
+                    body.Append("If the parameter is a type parameter, it changes the element's type and so EVERY instance of that type, listed or not. ");
                 else
-                    body.Append(bm ? "Tiada elemen lain disentuh dan tiada apa dipadam. " : "No other element is touched and nothing is deleted. ");
+                    body.Append("No other element is touched and nothing is deleted. ");
             }
-            body.Append(bm
-                ? "Copilot menentukan nilai baharu daripada model dan melaksanakannya serta-merta; anda boleh Undo dalam sembang Copilot. "
-                : "Copilot works out the new values from the model and applies them at once; you can Undo from the Copilot chat. ");
+            body.Append("Copilot works out the new values from the model and applies them at once; you can Undo from the Copilot chat. ");
             if (parts > 1)
-                body.Append(bm ? $"Dihantar dalam {parts} bahagian, dengan satu pengesahan ini. " : $"Sent in {parts} parts, with this one confirmation. ");
-            body.Append(bm ? "Semakan semula JKR yang memutuskan sama ada baris ini selesai." : "The JKR re-check decides whether the row is fixed.");
+                body.Append($"Sent in {parts} parts, with this one confirmation. ");
+            body.Append("The JKR re-check decides whether the row is fixed.");
             c.Body = body.ToString();
 
             var d = new StringBuilder();
@@ -89,7 +79,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 d.AppendLine();
             }
             if (ids.Count > MaxListed)
-                d.AppendLine(bm ? $"... dan {ids.Count - MaxListed} lagi" : $"... and {ids.Count - MaxListed} more");
+                d.AppendLine($"... and {ids.Count - MaxListed} more");
             c.Details = d.ToString().TrimEnd();
             return c;
         }

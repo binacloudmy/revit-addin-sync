@@ -828,7 +828,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             CheckIdPrefix + (SpecReport.ResolveCheckId(r?.CheckId) ?? (r?.CheckId ?? "").Trim());
 
         /// <summary>"A1.2 · Door size (NS §5.8.5)"; the id alone when it is not in the catalog.</summary>
-        public static string Title(SpecResult r, string lang)
+        public static string Title(SpecResult r)
         {
             var id = SpecReport.ResolveCheckId(r?.CheckId);
             var check = id == null ? null : SpecCatalog.Find(id);
@@ -843,7 +843,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         }
 
         /// <summary>The result's note. <paramref name="lang"/> is ignored: English only (AI-513).</summary>
-        public static string Note(SpecResult r, string lang = null) => r == null ? "" : SpecReport.Clean(r.Note);
+        public static string Note(SpecResult r) => r == null ? "" : SpecReport.Clean(r.Note);
 
         /// <summary>Element ids behind the result: ElementIds, else ElementId (positive, distinct, in order).</summary>
         public static List<long> ElementIdsOf(SpecResult r)
@@ -858,18 +858,18 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
 
         /// <summary>What the model has (<see cref="SpecResult.Actual"/>). <paramref name="lang"/> is
         /// ignored: the pane is English only (AI-513).</summary>
-        public static string ActualIn(SpecResult r, string lang = null) => r?.Actual ?? "";
+        public static string ActualIn(SpecResult r) => r?.Actual ?? "";
 
         /// <summary>
         /// The issue text: the note; then what the model has against what the spec
         /// requires when the issue needs a person (an AI verdict shows that pair on
         /// its own row line); then the element ids when there are several.
         /// </summary>
-        public static string Description(SpecResult r, string lang)
+        public static string Description(SpecResult r)
         {
             if (r == null) return "";
             var parts = new List<string>();
-            var note = Note(r, lang);
+            var note = Note(r);
             if (note.Length > 0) parts.Add(note);
             var actual = SpecReport.Clean(r.Actual);
             var required = SpecReport.Clean(r.Required);

@@ -75,32 +75,23 @@ namespace RevitWebAppSync.Tests
         // ── allow-list 2: JKR proper names, removed from a literal before checking ──
         private static readonly Regex ProperNames = new Regex(
             @"Borang(?:\s+BIM010)?|Buku\s+Parameter|Piawaian|Dokumen|Need\s+Statement|Kod_\w+|\w+_jkr_\w+|jkr\w*_[\w\-\(\)\.]+|"
-            + @"Dimodel\w*|Tajuk_\w+|Maklumat_\w+|Bahan_\w+|Luas_\w+",
+            + @"Dimodel\w*|Tajuk_\w+|Maklumat_\w+|Bahan_\w+|Luas_\w+|Aras\s+[\w\-]+",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
         // ── allow-list 3: literals that MATCH or PARSE Malay on purpose (file + substring of the literal) ──
         private static readonly (string File, string Contains, string Why)[] ExemptLiterals =
         {
-            ("Services/JkrSpec/SpecChecks.A.cs", "tangga|", "regex: finds stairs / lifts by their Malay or English names in the model"),
-            ("Services/JkrSpec/SpecChecks.A.cs", "|tangga", "regex: finds stairs by their Malay or English names"),
-            ("Services/JkrSpec/SpecChecks.A.cs", "(tangga", "regex: finds stairs by their Malay or English names"),
-            ("Services/JkrSpec/SpecChecks.A.cs", "bawah\\s*tanah", "regex: finds a basement level by its Malay or English name"),
+            ("Services/JkrSpec/SpecChecks.A.cs", "tangga", "regex / space-kind word: finds stairs by their Malay or English names in the model"),
+            ("Services/JkrSpec/SpecChecks.A.cs", "Aras ", "level names a model writes as 'Aras 01' keep their own name"),
             ("Services/JkrSpec/SpecChecks.A.cs", "|masuk|", "regex: finds a main entrance door by its Malay or English name"),
-            ("Services/JkrSpec/SpecChecks.A.cs", "berongga", "regex: finds a hollow-core door by its Malay or English name"),
-            ("Services/JkrSpec/SpecChecks.A.cs", "padu", "regex: finds a solid-core door by its Malay or English name"),
-            ("Services/JkrSpec/SpecChecks.A.cs", "kalis air", "regex: finds a waterproofing material by its Malay or English name"),
-            ("Services/JkrSpec/SpecChecks.A.cs", "konkrit", "regex: finds a concrete material by its Malay or English name"),
-            ("Services/JkrSpec/SpecChecks.A.cs", "pagar", "regex: finds a fence by its Malay or English name"),
-            ("Services/JkrSpec/SpecChecks.A.cs", "hiasan", "regex: finds a decorative fence by its Malay or English name"),
             ("Services/JkrSpec/SpecChecks.A.cs", "utama", "regex: finds a main door by its Malay or English name"),
             ("Services/JkrSpec/SpecChecks.A.cs", "susur", "regex: finds a handrail / balcony by its Malay or English name"),
-            ("Services/JkrSpec/SpecChecks.BC.cs", "aras", "view / level name matching: Malay level names (Aras 01) in a model"),
+            ("Services/JkrSpec/SpecChecks.BC.cs", "lantai", "level-word list: matches Malay level names in a model"),
+            ("Services/JkrSpec/SpecChecks.BC.cs", "aras", "level-word list: matches Malay level names in a model"),
             ("Services/JkrSpec/SpecChecks.BC.cs", "pintu", "sheet / view name matching: 'Butiran Pintu', 'detail pintu' in a model"),
             ("Services/JkrSpec/SpecChecks.BC.cs", "tingkap", "sheet / view name matching: 'Butiran Tingkap' in a model"),
-            ("Services/JkrSpec/SpecChecks.BC.cs", "butiran", "sheet name matching: 'Butiran' in a model"),
             ("Services/JkrSpec/SpecChecks.BC.cs", "Tajuk", "title-block parameter names: Tajuk_Projek, Tajuk Lukisan"),
             ("Services/JkrSpec/SpecChecks.BC.cs", "Oleh", "title-block parameter names: Dimodel_Oleh, Dilukis Oleh"),
-            ("Services/JkrSpec/SpecChecks.BC.cs", "Tarikh", "title-block parameter name: Tarikh"),
             ("Services/JkrSpec/SpecChecks.DE.cs", "pintu", "type-name keyword table: Malay and English words that name a Revit category"),
             ("Services/JkrSpec/SpecChecks.DE.cs", "tingkap", "type-name keyword table"),
             ("Services/JkrSpec/SpecChecks.DE.cs", "dinding", "type-name keyword table"),
@@ -108,25 +99,17 @@ namespace RevitWebAppSync.Tests
             ("Services/JkrSpec/SpecChecks.DE.cs", "siling", "type-name keyword table"),
             ("Services/JkrSpec/SpecChecks.DE.cs", "bumbung", "type-name keyword table"),
             ("Services/JkrSpec/SpecChecks.DE.cs", "tangga", "type-name keyword table"),
-            ("Services/JkrSpec/SpecChecks.DE.cs", "tiang", "type-name keyword table"),
             ("Services/JkrSpec/SpecChecks.DE.cs", "generic|default", "generic-name regex: also catches Malay generic names"),
+            ("UI/Jkr/ViewModels/JkrFixerRow.cs", "Pintu Kayu", "the JKR example material name (a Malay material description in JKR's own coding)"),
             ("Services/JkrFixApplicator.cs", "ya", "parses a Yes/No value the backend may send as Ya/Tidak"),
             ("Services/JkrFixApplicator.cs", "tidak", "parses a Yes/No value the backend may send as Ya/Tidak"),
+            ("BinaVibe/Mcp/Tools/Audit/AuditCheckers.cs", "aras", "keyword that matches a Malay Borang row description"),
             ("BinaVibe/Mcp/Tools/Audit/AuditCheckers.cs", "ralat", "keyword that matches a Malay Borang row description"),
             ("BinaVibe/Mcp/Tools/Audit/AuditCheckers.cs", "amaran", "keyword that matches a Malay Borang row description"),
-            ("BinaVibe/Mcp/Tools/Audit/AuditCheckers.cs", "kerja bersama", "keyword that matches a Malay Borang row description"),
-            ("BinaVibe/Mcp/Tools/Audit/AuditCheckers.cs", "pilihan reka", "keyword that matches a Malay Borang row description"),
-            ("BinaVibe/Mcp/Tools/Audit/AuditCheckers.cs", "kotak skop", "keyword that matches a Malay Borang row description"),
-            ("BinaVibe/Mcp/Tools/Audit/AuditCheckers.cs", "parameter kongsi", "keyword that matches a Malay Borang row description"),
             ("BinaVibe/Mcp/Tools/Audit/AuditCheckers.cs", "keluarga", "keyword that matches a Malay Borang row description"),
             ("BinaVibe/Mcp/Tools/Audit/AuditCheckers.cs", "helaian", "keyword that matches a Malay Borang row description"),
             ("BinaVibe/Mcp/Tools/Audit/AuditCheckers.cs", "jadual", "keyword that matches a Malay Borang row description"),
-            ("BinaVibe/Mcp/Tools/Audit/AuditCheckers.cs", "legenda", "keyword that matches a Malay Borang row description"),
-            ("BinaVibe/Mcp/Tools/Audit/AuditCheckers.cs", "pautan", "keyword that matches a Malay Borang row description"),
-            ("BinaVibe/Mcp/Tools/Audit/AuditCheckers.cs", "pelan keluasan", "keyword that matches a Malay Borang row description"),
-            ("BinaVibe/Mcp/Tools/Audit/AuditCheckers.cs", "zon", "keyword that matches a Malay Borang row description"),
             ("BinaVibe/Mcp/Tools/Audit/AuditTools.cs", "Semak manual", "the Borang docx/pdf remark fallback (Borang export, Malay form)"),
-            ("BinaVibe/Mcp/Tools/Audit/AuditTools.cs", "KRITIKAL", "the Borang docx/pdf severity prefix (Borang export, Malay form)"),
         };
 
         // ── allow-list 4: part A files still holding Malay in this branch (must shrink to empty) ──
@@ -294,7 +277,7 @@ namespace RevitWebAppSync.Tests
         {
             var bad = ScannedFiles().Where(f => !PartAPending.Contains(f)).SelectMany(Findings).ToList();
             Assert.True(bad.Count == 0, "Bahasa Malaysia text in the JKR pane (AI-513: English only; Borang export and JKR names are allow-listed in this test):\n"
-                                         + string.Join("\n", bad.Take(60)) + (bad.Count > 60 ? $"\n… and {bad.Count - 60} more" : ""));
+                                         + string.Join("\n", bad.Take(400)));
         }
 
         [Fact]
@@ -318,13 +301,15 @@ namespace RevitWebAppSync.Tests
             var root = Root();
             foreach (var e in ExemptFiles) Assert.True(File.Exists(Path.Combine(root, e.File)), e.File + " does not exist");
             foreach (var e in ExemptLiterals) Assert.True(File.Exists(Path.Combine(root, e.File)), e.File + " does not exist");
-            // every exempt literal still matches something, so a stale entry cannot hide a new one
+            // every exempt literal is still needed: removing it makes the scan fire, so a stale entry cannot hide a new one
+            var stale = new List<string>();
             foreach (var e in ExemptLiterals)
             {
                 var src = File.ReadAllText(Path.Combine(root, e.File));
-                Assert.True(CSharpLiterals(src).Any(l => l.Text.IndexOf(e.Contains, StringComparison.OrdinalIgnoreCase) >= 0),
-                            e.File + " has no literal containing \"" + e.Contains + "\": remove the exemption");
+                var needed = CSharpLiterals(src).Any(l => l.Text.IndexOf(e.Contains, StringComparison.OrdinalIgnoreCase) >= 0 && MalayIn(l.Text).Count > 0);
+                if (!needed) stale.Add(e.File + " \"" + e.Contains + "\"");
             }
+            Assert.True(stale.Count == 0, "exemptions no literal needs any more (remove them):\n" + string.Join("\n", stale));
         }
 
         [Theory]

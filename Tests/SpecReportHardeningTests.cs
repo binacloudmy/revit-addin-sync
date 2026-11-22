@@ -625,18 +625,16 @@ namespace RevitWebAppSync.Tests
             var r = SpecChecks.Fail("A1.2", "Door 850 mm", elementId: 11, elementName: "Doors · PT1p_850x2100",
                                     actual: "850 mm", required: "≥ 900 mm");
             Assert.Equal("SPEC-A1.2", SpecModelIssues.CheckIdOf(r));
-            Assert.Equal("A1.2 · " + SpecCatalog.Find("A1.2").Title.Ms, SpecModelIssues.Title(r, PanelStrings.Ms));
-            Assert.Equal("A1.2 · " + SpecCatalog.Find("A1.2").Title.En, SpecModelIssues.Title(r, PanelStrings.En));
-            Assert.Equal("Door 850 mm", SpecModelIssues.Description(r, PanelStrings.Ms));   // AI verdict: actual/required on the row line
-            Assert.Equal("Door 850 mm", SpecModelIssues.Description(r, PanelStrings.En));
+            Assert.Equal("A1.2 · " + SpecCatalog.Find("A1.2").Title.En, SpecModelIssues.Title(r));
+            Assert.Equal("Door 850 mm", SpecModelIssues.Description(r));
             Assert.Equal("Doors", SpecModelIssues.RevitCategoryOf(r));
             Assert.Equal(new long[] { 11 }, SpecModelIssues.ElementIdsOf(r));
 
             var unknown = new SpecResult { CheckId = " Z9 ", Rule = "Odd", Status = "fail" };
             Assert.Equal("SPEC-Z9", SpecModelIssues.CheckIdOf(unknown));
-            Assert.Equal("Z9 · Odd", SpecModelIssues.Title(unknown, PanelStrings.En));
-            Assert.Equal("", SpecModelIssues.Title(AllNull(), PanelStrings.En));
-            Assert.Equal("", SpecModelIssues.Description(AllNull(), PanelStrings.En));
+            Assert.Equal("Z9 · Odd", SpecModelIssues.Title(unknown));
+            Assert.Equal("", SpecModelIssues.Title(AllNull()));
+            Assert.Equal("", SpecModelIssues.Description(AllNull()));
             Assert.Empty(SpecModelIssues.ElementIdsOf(AllNull()));
         }
 
@@ -649,7 +647,7 @@ namespace RevitWebAppSync.Tests
                 CheckId = "A1.1", Status = "cannot_verify", Note = "Ceiling not read", Actual = "?", Required = "≥ 3000 mm",
                 ElementIds = ids.Concat(new long[] { 3, 0, -1 }).ToList(), IssueId = "SPEC-A1.1-z",
             };
-            var d = SpecModelIssues.Description(r, PanelStrings.En);
+            var d = SpecModelIssues.Description(r);
             Assert.Contains("Ceiling not read", d);
             Assert.Contains("Model: ? · Required: ≥ 3000 mm", d);
             Assert.Contains("Elements: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 … (12 in all)", d);
@@ -667,8 +665,8 @@ namespace RevitWebAppSync.Tests
             return r;
         }
 
-        private static ChecklistCheck Row(SpecReport report, string id, string lang) =>
-            SpecChecklist.CheckRow(report.For(id), report, new Dictionary<string, PanelItem>(), lang, null);
+        private static ChecklistCheck Row(SpecReport report, string id) =>
+            SpecChecklist.CheckRow(report.For(id), report, new Dictionary<string, PanelItem>(), null);
 
         [Fact]
         public void C4_1_3_counts_the_four_empty_sheets_once_not_again_with_the_checker_record()
@@ -691,9 +689,8 @@ namespace RevitWebAppSync.Tests
             Assert.Empty(c.NotCounted);                        // dropped, not kept as context
             Assert.Equal((0, 1), (SpecChecklist.TallyOf(r, "C").AiPass, SpecChecklist.TallyOf(r, "C").Fail));   // one failing check, not 4 results
 
-            var bm = Row(r, "C4.1.3", PanelStrings.Ms);
-            var en = Row(r, "C4.1.3", PanelStrings.En);
-            Assert.Equal("Gagal: 4 daripada 4 keputusan · 4 elemen.", bm.Detail);
+            var bm = Row(r, "C4.1.3");
+            var en = Row(r, "C4.1.3");
             Assert.Equal("Failed: 4 of 4 results · 4 elements.", en.Detail);
             Assert.DoesNotContain("BIM010", bm.Tested);
             Assert.DoesNotContain("4/25", bm.Notes + en.Notes);
@@ -747,7 +744,7 @@ namespace RevitWebAppSync.Tests
                 var c = r.For(id);
                 Assert.DoesNotContain(c.IssueIds, x => x.StartsWith("BIM010-"));
                 Assert.Empty(c.NotCounted);
-                Assert.Equal("", SpecChecklist.NotCountedLine(c, PanelStrings.En));
+                Assert.Equal("", SpecChecklist.NotCountedLine(c));
             }
         }
 
@@ -778,10 +775,9 @@ namespace RevitWebAppSync.Tests
             Assert.DoesNotContain("BIM010-D10", c.IssueIds);
             Assert.Equal(new[] { "backend: Element naming adoption" }, c.NotCounted);
             Assert.Equal((0, 1), (SpecChecklist.TallyOf(r, "D").AiPass, SpecChecklist.TallyOf(r, "D").Fail));   // one check: Da.1
-            var en = Row(r, "Da.1", PanelStrings.En).Tested;
-            var bm = Row(r, "Da.1", PanelStrings.Ms).Tested;
+            var en = Row(r, "Da.1").Tested;
+            var bm = Row(r, "Da.1").Tested;
             Assert.Contains("Also reported by backend: Element naming adoption — not counted", en);
-            Assert.Contains("Juga dilapor oleh backend: Element naming adoption — tidak dikira", bm);
 
             // An evaluator that tests the whole check: backend element results add nothing.
             var full = SpecReport.Build(new[]
@@ -877,16 +873,16 @@ namespace RevitWebAppSync.Tests
             foreach (var id in new[] { "A5.1", "C1.2.1", "C1.5.1", "De.1", "A3.4" })
             {
                 Assert.Equal(SpecState.Listed, r.For(id).State);
-                foreach (var lang in new[] { PanelStrings.Ms, PanelStrings.En })
+                foreach (var lang in new[] { PanelStrings.En })
                 {
-                    var row = Row(r, id, lang);
+                    var row = Row(r, id);
                     var shown = new[] { row.Notes }.Concat(row.ListRows.Select(x => x.Lead + " " + x.Rest)).ToList();
                     Assert.True(shown.Any(s => !string.IsNullOrWhiteSpace(s)), id + " shows nothing in " + lang);
                     Assert.DoesNotContain(shown, s => verdict.IsMatch(s ?? ""));
                 }
             }
             // No local result for C1.5.1 / De.1 here: the checker remark stays, without its verdict.
-            Assert.Contains("Found 2 views (e.g. ABC01 West (07d_Dokumen - Data Ruang)).", Row(r, "C1.5.1", PanelStrings.En).Notes);
+            Assert.Contains("Found 2 views (e.g. ABC01 West (07d_Dokumen - Data Ruang)).", Row(r, "C1.5.1").Notes);
             Assert.Contains(r.For("De.1").Notes, n => n.EndsWith("have a Number and a Name. (Quality / information / geometry: check manually.)"));
             // A local listing for A5.1 / C1.2.1: the checker remark is dropped.
             Assert.DoesNotContain(r.For("A5.1").Notes, n => n.StartsWith("Rule"));
@@ -915,9 +911,9 @@ namespace RevitWebAppSync.Tests
             Assert.All(c.Notes, n => Assert.StartsWith("PTBR_Aras", n));
             Assert.Empty(c.NotCounted);
             Assert.DoesNotContain(c.Rules, x => x.StartsWith("C1.2:"));
-            foreach (var lang in new[] { PanelStrings.Ms, PanelStrings.En })
+            foreach (var lang in new[] { PanelStrings.En })
             {
-                var row = Row(r, "C1.2.1", lang);
+                var row = Row(r, "C1.2.1");
                 Assert.Equal("", row.Notes);
                 Assert.Equal(new[] { "PTBR_Aras Tanah", "PTBR_Aras 01" }, row.ListRows.Select(x => x.Lead));
                 Assert.DoesNotContain("'WIP' in its name", (row.Tested ?? "") + row.Notes);
@@ -942,14 +938,13 @@ namespace RevitWebAppSync.Tests
                 Model(SpecChecks.Fail("A1.2", "Pintu 850 mm", elementId: 11)),
                 Model(SpecChecks.Fail("A1.2", "Pintu 800 mm", elementId: 12)),
             });
-            var bm = SpecChecklist.ResultsLabel(r, PanelStrings.Ms);
-            var en = SpecChecklist.ResultsLabel(r, PanelStrings.En);
+            var bm = SpecChecklist.ResultsLabel(r);
+            var en = SpecChecklist.ResultsLabel(r);
             // 22 List/Human + A2.1 passed; A1.2 fails (two results, one check).
-            Assert.Equal("23 / 61 semakan lulus\n(Senarai/manusia dikira lulus)", bm);
             Assert.Equal("23 / 61 checks pass\n(List and Human count as pass)", en);
             // Each line fits the pane's summary line (about 30 characters before "…").
             Assert.All(bm.Split('\n').Concat(en.Split('\n')), line => Assert.True(line.Length <= 30, line));
-            Assert.Equal("1 / 1 check passes\n(List and Human count as pass)", SpecChecklist.Plural("hResults", PanelStrings.En, 1, 1, 1));
+            Assert.Equal("1 / 1 check passes\n(List and Human count as pass)", SpecChecklist.Plural("hResults", 1, 1, 1));
         }
 
         // ── "Show all" lists everything, or says plainly that it does not ──
@@ -974,10 +969,8 @@ namespace RevitWebAppSync.Tests
             return new Text(c.Id + " · " + c.Title.Ms, c.Id + " · " + c.Title.En);
         }
 
-        [Theory]
-        [InlineData("ms")]
-        [InlineData("en")]
-        public void Show_all_lists_every_one_of_56_failed_elements(string lang)
+        [Fact]
+        public void Show_all_lists_every_one_of_56_failed_elements()
         {
             var (r, items, _) = SlabsWithoutRoom(56);
             var c = r.For("A6.2");
@@ -985,21 +978,20 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(56, c.AllNotes.Count);                               // every remark kept
             Assert.Equal(SpecReport.MaxNotes, c.Notes.Count);                // the Borang's few
 
-            var collapsed = SpecChecklist.CheckRow(c, r, items, lang, id => false);
+            var collapsed = SpecChecklist.CheckRow(c, r, items, id => false);
             Assert.Equal(SpecChecklist.ElementsShown, collapsed.Elements.Count);
-            Assert.Equal(lang == "en" ? "Show all 56" : "Tunjuk semua 56", collapsed.MoreLabel);
+            Assert.Equal("Show all 56", collapsed.MoreLabel);
 
-            var all = SpecChecklist.CheckRow(c, r, items, lang, id => true);
+            var all = SpecChecklist.CheckRow(c, r, items, id => true);
             Assert.Equal(56, all.Elements.Count);                            // not 40
             Assert.Equal(items.Keys, all.Elements.Select(e => e.Id));
             Assert.False(all.HasElementsCut);
-            Assert.Equal(lang == "en" ? "Show less" : "Tunjuk kurang", all.MoreLabel);
+            Assert.Equal("Show less", all.MoreLabel);
             // Three remarks (table rows: "Level 01 | grid 1/E: …"), then a line that says how
             // many there are and where the rest are.
             Assert.Equal(SpecReport.MaxNotes, all.ListRows.Count);
-            Assert.Equal(lang == "en" ? "Level 01" : "Level 01", all.ListRows[0].Lead);
-            Assert.Equal(lang == "en" ? "Showing 3 of 56 remarks — every element is listed below."
-                                      : "Menunjukkan 3 daripada 56 catatan — setiap elemen disenaraikan di bawah.", all.ListCutLabel);
+            Assert.Equal("Level 01", all.ListRows[0].Lead);
+            Assert.Equal("Showing 3 of 56 remarks — every element is listed below.", all.ListCutLabel);
             Assert.False(all.HasListMore);                                   // the remarks have no "Show all" of their own
         }
 
@@ -1008,14 +1000,13 @@ namespace RevitWebAppSync.Tests
         {
             var n = SpecChecklist.ElementsMax + 100;
             var (r, items, _) = SlabsWithoutRoom(n);
-            var en = SpecChecklist.CheckRow(r.For("A6.2"), r, items, PanelStrings.En, id => true);
+            var en = SpecChecklist.CheckRow(r.For("A6.2"), r, items, id => true);
             Assert.Equal(SpecChecklist.ElementsMax, en.Elements.Count);
             Assert.True(en.HasElementsCut);
             Assert.Equal($"Showing {SpecChecklist.ElementsMax} of {n} — the rest are on the issue tabs (Open, Manual).", en.ElementsCutLabel);
-            var ms = SpecChecklist.CheckRow(r.For("A6.2"), r, items, PanelStrings.Ms, id => true);
-            Assert.Equal($"Menunjukkan {SpecChecklist.ElementsMax} daripada {n} — selebihnya dalam tab isu (Terbuka, Manual).", ms.ElementsCutLabel);
+            var ms = SpecChecklist.CheckRow(r.For("A6.2"), r, items, id => true);
             // Collapsed, nothing is cut: "Show all n" says how many there are.
-            Assert.False(SpecChecklist.CheckRow(r.For("A6.2"), r, items, PanelStrings.En, id => false).HasElementsCut);
+            Assert.False(SpecChecklist.CheckRow(r.For("A6.2"), r, items, id => false).HasElementsCut);
         }
 
         [Fact]
@@ -1027,11 +1018,11 @@ namespace RevitWebAppSync.Tests
             var c = r.For("C1.2.1");
             Assert.Equal(SpecReport.MaxListNotes, c.Notes.Count);            // the Borang's cap is unchanged
             Assert.Equal(n, c.AllNotes.Count);
-            var all = SpecChecklist.CheckRow(c, r, new Dictionary<string, PanelItem>(), PanelStrings.En, id => true);
+            var all = SpecChecklist.CheckRow(c, r, new Dictionary<string, PanelItem>(), id => true);
             Assert.Equal(n, all.ListRows.Count);                             // not 60
             Assert.False(all.HasListCut);
             Assert.Equal("Floor plan", all.ListRows[0].Lead);
-            Assert.Equal($"Show all {n}", SpecChecklist.CheckRow(c, r, new Dictionary<string, PanelItem>(), PanelStrings.En, id => false).ListMoreLabel);
+            Assert.Equal($"Show all {n}", SpecChecklist.CheckRow(c, r, new Dictionary<string, PanelItem>(), id => false).ListMoreLabel);
         }
 
         [Fact]
@@ -1040,11 +1031,10 @@ namespace RevitWebAppSync.Tests
             var n = SpecChecklist.ListMax + 7;
             var results = Enumerable.Range(1, n).Select(i => Model(SpecChecks.Listing("C1.2.1", $"Pelan lantai | Aras {i} | WIP"))).ToList();
             var r = SpecReport.Build(results);
-            var en = SpecChecklist.CheckRow(r.For("C1.2.1"), r, new Dictionary<string, PanelItem>(), PanelStrings.En, id => true);
+            var en = SpecChecklist.CheckRow(r.For("C1.2.1"), r, new Dictionary<string, PanelItem>(), id => true);
             Assert.Equal(SpecChecklist.ListMax, en.ListRows.Count);
             Assert.Equal($"Showing {SpecChecklist.ListMax} of {n} rows.", en.ListCutLabel);
-            var ms = SpecChecklist.CheckRow(r.For("C1.2.1"), r, new Dictionary<string, PanelItem>(), PanelStrings.Ms, id => true);
-            Assert.Equal($"Menunjukkan {SpecChecklist.ListMax} daripada {n} baris.", ms.ListCutLabel);
+            var ms = SpecChecklist.CheckRow(r.For("C1.2.1"), r, new Dictionary<string, PanelItem>(), id => true);
         }
 
         [Fact]
@@ -1052,7 +1042,7 @@ namespace RevitWebAppSync.Tests
         {
             var results = Enumerable.Range(1, 9).Select(i => Model(SpecChecks.Fail("A6.2", "Level " + i + ": floor has no room", key: "lv" + i))).ToList();
             var r = SpecReport.Build(results);
-            var row = SpecChecklist.CheckRow(r.For("A6.2"), r, new Dictionary<string, PanelItem>(), PanelStrings.En, id => true);
+            var row = SpecChecklist.CheckRow(r.For("A6.2"), r, new Dictionary<string, PanelItem>(), id => true);
             Assert.Equal("Showing 3 of 9 remarks.", row.Notes.Split('\n').Last());
         }
 
@@ -1091,14 +1081,14 @@ namespace RevitWebAppSync.Tests
         {
             var (r, items, _) = TwelveWarnings();
             Assert.Equal(12, SpecChecklist.WarningCount(r.For("A7.2")));
-            var en = SpecChecklist.CheckRow(r.For("A7.2"), r, items, PanelStrings.En, id => true);
+            var en = SpecChecklist.CheckRow(r.For("A7.2"), r, items, id => true);
             Assert.Equal(12, en.Elements.Count);
             for (var i = 0; i < 12; i++)
                 Assert.Equal($"WARNING: Material \"Mat {i + 1}\" (Ceilings), {i + 1} elements: not JKR naming", en.Elements[i].Detail);
             Assert.All(RunTexts(en), t => Assert.False(BmWords.IsMatch(t), t));
             Assert.False(en.HasNotes);                                       // each remark is on its row, once
             // Collapsed (4 rows), the hidden rows' remarks are not printed as notes either.
-            Assert.False(SpecChecklist.CheckRow(r.For("A7.2"), r, items, PanelStrings.En, id => false).HasNotes);
+            Assert.False(SpecChecklist.CheckRow(r.For("A7.2"), r, items, id => false).HasNotes);
         }
 
         [Fact]
@@ -1117,12 +1107,12 @@ namespace RevitWebAppSync.Tests
 
             foreach (var id in new[] { "A6.2", "A7.2", "Dc.1", "C1.2.1" })
             {
-                var row = SpecChecklist.CheckRow(r.For(id), r, items, PanelStrings.En, x => true);
+                var row = SpecChecklist.CheckRow(r.For(id), r, items, x => true);
                 Assert.NotEmpty(RunTexts(row));
                 Assert.All(RunTexts(row), t => Assert.False(BmWords.IsMatch(t), id + ": " + t));
             }
             // The whole Checklist too, every section open and every list shown.
-            var sections = SpecChecklist.Build(r, items.Values, PanelStrings.En, PanelCore.AllSections, k => true, k => true);
+            var sections = SpecChecklist.Build(r, items.Values, PanelCore.AllSections, k => true, k => true);
             var shown = sections.SelectMany(s => s.Items).SelectMany(i => i.Checks)
                                 .Where(c => new[] { "A6.2", "A7.2", "Dc.1", "C1.2.1" }.Contains(c.Id)).ToList();
             Assert.Equal(4, shown.Count);
@@ -1144,8 +1134,7 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(SpecState.Fail, c.State);
             Assert.Equal(3, c.Failed);
             Assert.Equal(297, c.Elements);
-            Assert.Equal("Failed: 3 of 3 results · 297 elements.", Row(r, "Da.1", PanelStrings.En).Detail);
-            Assert.Equal("Gagal: 3 daripada 3 keputusan · 297 elemen.", Row(r, "Da.1", PanelStrings.Ms).Detail);
+            Assert.Equal("Failed: 3 of 3 results · 297 elements.", Row(r, "Da.1").Detail);
         }
 
         // ── live test F4: meeting-transcript times are not shown ──
@@ -1175,9 +1164,9 @@ namespace RevitWebAppSync.Tests
             var r = SpecReport.Build(Enumerable.Empty<SpecResult>());
             var transcript = new System.Text.RegularExpressions.Regex(@"\bT \d{1,2}:\d{2}");
             foreach (var c in SpecCatalog.Checks)
-                foreach (var lang in new[] { PanelStrings.Ms, PanelStrings.En })
-                    Assert.DoesNotMatch(transcript, Row(r, c.Id, lang).Meta);
-            Assert.Equal("", Row(r, "Da.1", PanelStrings.En).Meta);
+                foreach (var lang in new[] { PanelStrings.En })
+                    Assert.DoesNotMatch(transcript, Row(r, c.Id).Meta);
+            Assert.Equal("", Row(r, "Da.1").Meta);
             // the data keeps it
             Assert.Equal("T 22:27–22:28", SpecCatalog.Find("Da.1").Reference);
         }

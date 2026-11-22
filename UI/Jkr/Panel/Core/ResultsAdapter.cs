@@ -14,12 +14,10 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
     /// </summary>
     public static class ResultsAdapter
     {
-        /// <param name="lang">Language for the text the add-in writes (fix-failure
-        /// reasons, element words); null = the pane's language.</param>
         /// <param name="notes">BM / EN pairs of the run's remarks (<see cref="NoteTexts"/>):
         /// an issue from the add-in's own spec evaluators, written in one language at scan
         /// time, shows its text in both. Null = as written.</param>
-        public static PanelItem FromIssue(IssueVm i, string lang = null, IReadOnlyDictionary<string, Text> notes = null)
+        public static PanelItem FromIssue(IssueVm i, IReadOnlyDictionary<string, Text> notes = null)
         {
             if (i == null) throw new ArgumentNullException(nameof(i));
             var human = i.NeedsPerson;
@@ -40,7 +38,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 V = human ? Verify.Human : Verify.Ai,
                 Title = (spec ? SpecTitle(i.CheckId) : null) ?? Text.Same(i.Title ?? ""),
                 Desc = desc,
-                El = ElementLabel(i, lang),
+                El = ElementLabel(i),
                 Req = i.Required ?? "",
                 Act = Text.Same(string.IsNullOrEmpty(actual) ? "—" : actual),
                 Prop = !human && i.AutoFixable && !string.IsNullOrEmpty(i.FixValue) ? i.FixValue
@@ -52,7 +50,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 Extra = !human && i.IsExtra,
                 Hash = i.Id ?? "",
                 Reason = human ? desc : null,
-                FixError = PaneText.FixReason(i.FixError ?? "", lang),
+                FixError = i.FixError ?? "",
                 AiFix = i.AiFixCandidate,
                 CopilotFixable = !human && i.CopilotFixable,
                 ElementIds = i.ElementIds != null && i.ElementIds.Count > 0 ? i.ElementIds.ToArray() : (i.RevitElementId > 0 ? new[] { i.RevitElementId } : Array.Empty<long>()),
@@ -93,14 +91,14 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             return c == null ? null : new Text(c.Id + " · " + c.Title.Ms, c.Id + " · " + c.Title.En);
         }
 
-        /// <summary>The issue's title in <paramref name="lang"/> (null = the pane's): a spec
+        /// <summary>The issue's title: a spec
         /// evaluator's issue from the catalog ("A1.1 · Ceiling height (NS §4.1.9)"), any
-        /// other as it came. For toasts, which name the issue in the pane's language.</summary>
-        public static string TitleIn(IssueVm i, string lang = null)
+        /// other as it came. For toasts.</summary>
+        public static string TitleIn(IssueVm i)
         {
             if (i == null) return "";
             var t = IsSpecIssue(i) ? SpecTitle(i.CheckId) : null;
-            return t != null ? t.In(lang ?? PaneLanguage.Current) : i.Title ?? "";
+            return t != null ? t.En : i.Title ?? "";
         }
 
         /// <summary>Every remark of a run that has an English text, by its BM and by its
@@ -130,23 +128,6 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 var t = new Text(ms, en);
                 if (!d.ContainsKey(ms)) d[ms] = t;
                 if (!d.ContainsKey(en)) d[en] = t;
-            }
-        }
-
-        /// <summary>
-        /// Put the text the add-in writes in one language at load time (element words
-        /// "Elemen" / "3 elemen", fix-failure reasons) in <paramref name="lang"/> again, on
-        /// the pane's items, after a BM / EN switch: the items are not rebuilt, so their
-        /// status, selection and the open detail stay. Items with no issue are left as they are.
-        /// </summary>
-        public static void Relabel(IEnumerable<PanelItem> items, IReadOnlyDictionary<string, IssueVm> issues, string lang)
-        {
-            if (items == null || issues == null) return;
-            foreach (var x in items)
-            {
-                if (x?.Id == null || !issues.TryGetValue(x.Id, out var i) || i == null) continue;
-                x.El = ElementLabel(i, lang);
-                x.FixError = PaneText.FixReason(i.FixError ?? "", lang);
             }
         }
 
@@ -192,9 +173,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         }
 
         /// <summary>prototype el: "Doors [204511] PT2p600a".</summary>
-        public static string ElementLabel(IssueVm i, string lang = null)
+        public static string ElementLabel(IssueVm i)
         {
-            var name = PaneText.ElementName(i.Element?.Name ?? "", lang);
+            var name = i.Element?.Name ?? "";
             var id = i.Element?.Id;
             var parts = new List<string>();
             if (!string.IsNullOrEmpty(i.RevitCategory) && !name.StartsWith(i.RevitCategory, StringComparison.OrdinalIgnoreCase))

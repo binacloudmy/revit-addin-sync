@@ -41,7 +41,7 @@ namespace RevitWebAppSync.Tests
         private static (JkrCopilotFixLauncher l, List<string> toasts) Make(FakeSession s, params string[] parts)
         {
             var toasts = new List<string>();
-            var l = new JkrCopilotFixLauncher(s, _ => parts, toasts.Add, () => false, _ => Task.CompletedTask,
+            var l = new JkrCopilotFixLauncher(s, _ => parts, toasts.Add, _ => Task.CompletedTask,
                 indexingTimeout: TimeSpan.FromSeconds(1), turnTimeout: TimeSpan.FromSeconds(5), settle: TimeSpan.FromMilliseconds(500));
             return (l, toasts);
         }
@@ -137,7 +137,7 @@ namespace RevitWebAppSync.Tests
 
         private static JkrCopilotFixLauncher Timed(FakeSession s, List<string> toasts, string[] parts, Action tick = null,
             TimeSpan? turnTimeout = null) =>
-            new JkrCopilotFixLauncher(s, _ => parts, toasts.Add, () => false, _ => { tick?.Invoke(); return Task.CompletedTask; },
+            new JkrCopilotFixLauncher(s, _ => parts, toasts.Add, _ => { tick?.Invoke(); return Task.CompletedTask; },
                 turnTimeout: turnTimeout ?? TimeSpan.FromMinutes(5));
 
         [Fact]
@@ -310,7 +310,7 @@ namespace RevitWebAppSync.Tests
         {
             var s = new FakeSession();
             var toasts = new List<string>();
-            var l = new JkrCopilotFixLauncher(s, _ => throw new InvalidOperationException("row gone"), toasts.Add, () => false, _ => Task.CompletedTask);
+            var l = new JkrCopilotFixLauncher(s, _ => throw new InvalidOperationException("row gone"), toasts.Add, _ => Task.CompletedTask);
             Assert.Equal(CopilotLaunchOutcome.SendFailed, await l.LaunchAsync(Req));
             Assert.Empty(s.Log);
             Assert.Contains("row gone", Assert.Single(toasts));
@@ -322,7 +322,7 @@ namespace RevitWebAppSync.Tests
             var gate = new TaskCompletionSource<string>();
             var s = new SlowOpen(gate.Task);
             var toasts = new List<string>();
-            var l = new JkrCopilotFixLauncher(s, _ => new[] { "A" }, toasts.Add, () => false, _ => Task.CompletedTask);
+            var l = new JkrCopilotFixLauncher(s, _ => new[] { "A" }, toasts.Add, _ => Task.CompletedTask);
             var first = l.LaunchAsync(Req);
             Assert.Equal(CopilotLaunchOutcome.Busy, await l.LaunchAsync(Req));
             gate.SetResult(null);
@@ -347,17 +347,13 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public async Task Messages_follow_the_pane_language()
+        public async Task The_pane_could_not_be_opened_message_is_English()
         {
             var s = new FakeSession { OpenError = "x" };
             var toasts = new List<string>();
-            var bm = true;
-            var l = new JkrCopilotFixLauncher(s, _ => new[] { "A" }, toasts.Add, () => bm, _ => Task.CompletedTask);
+            var l = new JkrCopilotFixLauncher(s, _ => new[] { "A" }, toasts.Add, _ => Task.CompletedTask);
             await l.LaunchAsync(Req);
-            bm = false;
-            await l.LaunchAsync(Req);
-            Assert.Contains("tidak dapat dibuka", toasts[0]);
-            Assert.Contains("could not be opened", toasts[1]);
+            Assert.Contains("could not be opened", toasts[0]);
         }
 
         [Fact]
@@ -365,7 +361,7 @@ namespace RevitWebAppSync.Tests
         {
             var s = new FakeSession();
             CopilotFixRequest got = null;
-            var l = new JkrCopilotFixLauncher(s, r => { got = r; return new[] { "A" }; }, _ => { }, () => false, _ => Task.CompletedTask);
+            var l = new JkrCopilotFixLauncher(s, r => { got = r; return new[] { "A" }; }, _ => { }, _ => Task.CompletedTask);
             ICopilotFixLauncher seam = l;
             seam.Launch(Req);
             Assert.Same(Req, got);
@@ -389,7 +385,7 @@ namespace RevitWebAppSync.Tests
         }
 
         private static JkrCopilotFixLauncher WithConfirm(ICopilotSession s, Func<CopilotFixRequest, bool> confirm, List<string> toasts = null, params string[] parts) =>
-            new JkrCopilotFixLauncher(s, _ => parts, m => toasts?.Add(m), () => false, _ => Task.CompletedTask,
+            new JkrCopilotFixLauncher(s, _ => parts, m => toasts?.Add(m), _ => Task.CompletedTask,
                 indexingTimeout: TimeSpan.FromSeconds(1), turnTimeout: TimeSpan.FromSeconds(2),
                 startGrace: TimeSpan.FromSeconds(1), settle: TimeSpan.FromSeconds(1), confirm: confirm);
 
@@ -445,7 +441,7 @@ namespace RevitWebAppSync.Tests
         public async Task A_prompt_build_failure_never_shows_the_confirm()
         {
             var s = new OrderSession(); var asked = 0;
-            var l = new JkrCopilotFixLauncher(s, _ => throw new InvalidOperationException("row gone"), _ => { }, () => false, _ => Task.CompletedTask,
+            var l = new JkrCopilotFixLauncher(s, _ => throw new InvalidOperationException("row gone"), _ => { }, _ => Task.CompletedTask,
                 confirm: r => { asked++; return true; });
             Assert.Equal(CopilotLaunchOutcome.SendFailed, await l.LaunchAsync(Req));
             Assert.Equal(0, asked);

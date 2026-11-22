@@ -105,30 +105,26 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// <summary>Most dots shown; a longer list shows a window around the current issue.</summary>
         public const int MaxDots = 15;
 
-        private static readonly Dictionary<string, (string Ms, string En)> Extra = new Dictionary<string, (string, string)>
+        private static readonly Dictionary<string, string> Extra = new Dictionary<string, string>
         {
-            ["fixFailed"] = ("Auto-fix gagal", "Auto-fix failed"),
-            ["howToFix"] = ("Cara membaiki secara manual", "How to fix manually"),
+            ["fixFailed"] = "Auto-fix failed",
+            ["howToFix"] = "How to fix manually",
             // Clear Sheet detail: "Issue 1 of 99 open" / "Issue 1 of 17 in Manual".
-            ["idxOpen"] = ("Isu {0} daripada {1} terbuka", "Issue {0} of {1} open"),
-            ["idxIgnore"] = ("Isu {0} daripada {1} diabaikan", "Issue {0} of {1} ignored"),
-            ["idxResolved"] = ("Isu {0} daripada {1} selesai", "Issue {0} of {1} resolved"),
-            ["idxManual"] = ("Isu {0} daripada {1} dalam Manual", "Issue {0} of {1} in Manual"),
+            ["idxOpen"] = "Issue {0} of {1} open",
+            ["idxIgnore"] = "Issue {0} of {1} ignored",
+            ["idxResolved"] = "Issue {0} of {1} resolved",
+            ["idxManual"] = "Issue {0} of {1} in Manual",
             // The shown issue changed state while the detail is open (live F11).
-            ["idxMarked"] = ("Isu {0} daripada {1} ditanda manual", "Issue {0} of {1} marked manual"),
-            ["idxReviewed"] = ("Isu {0} daripada {1} disemak", "Issue {0} of {1} reviewed"),
-            ["manualNote"] = ("Item ini tidak dikira dalam peratus patuh dan tidak dikira gagal. Ia dicetak sebagai “semak manual” dalam Borang.",
-                              "This item is not counted in the compliance % and not counted as a failure. It prints as “semak manual” on the Borang."),
-            ["applyFix"] = ("Guna pembaikan", "Apply fix"),
-            ["applyAiFix"] = ("Guna pembaikan AI", "Apply AI fix"),
-            ["seeAgain"] = ("Anda melihat setiap perubahan sekali lagi sebelum apa-apa ditulis.",
-                            "You see every change again before anything is written."),
-            ["aiProposed"] = ("Dicadangkan oleh pembaiki AI", "Proposed by the AI fixer"),
-            ["aiCaution"] = ("Ini padanan terbaik pembaiki AI, bukan peraturan sedia. Semak sebelum anda guna; anda melihatnya sekali lagi sebelum apa-apa ditulis.",
-                             "This is the AI fixer's best match, not a ready-made rule. Check it before you apply; you see it again before anything is written."),
-            ["aiCanTitle"] = ("Pembaiki AI boleh mencadangkan", "AI fixer can propose"),
-            ["aiCanText"] = ("Belum ada pembaikan sedia. Minta pembaiki AI mencadangkannya, atau masukkan nilai sendiri; anda melihatnya sebelum apa-apa ditulis.",
-                             "No ready-made fix yet. Ask the AI fixer for one, or enter the value yourself; you see it before anything is written."),
+            ["idxMarked"] = "Issue {0} of {1} marked manual",
+            ["idxReviewed"] = "Issue {0} of {1} reviewed",
+            ["manualNote"] = "This item is not counted in the compliance % and not counted as a failure. It prints as “manual review” on the Borang.",
+            ["applyFix"] = "Apply fix",
+            ["applyAiFix"] = "Apply AI fix",
+            ["seeAgain"] = "You see every change again before anything is written.",
+            ["aiProposed"] = "Proposed by the AI fixer",
+            ["aiCaution"] = "This is the AI fixer's best match, not a ready-made rule. Check it before you apply; you see it again before anything is written.",
+            ["aiCanTitle"] = "AI fixer can propose",
+            ["aiCanText"] = "No ready-made fix yet. Ask the AI fixer for one, or enter the value yourself; you see it before anything is written.",
         };
 
         private readonly PanelCore _core;
@@ -161,7 +157,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         private Func<string, IReadOnlyList<string>> _stepsOf = _ => Array.Empty<string>();
 
         private string T(string key) =>
-            Extra.TryGetValue(key, out var p) ? (_core.Lang == PanelStrings.En ? p.En : p.Ms) : _core.T(key);
+            Extra.TryGetValue(key, out var p) ? p : _core.T(key);
 
         // ── open / close ──
         public bool IsOpen => _core.DetailId != null && Current != null;
@@ -258,15 +254,14 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 var state = c.Prop != null ? FixerAiState.Suggested : c.AiAsked ? FixerAiState.NoSuggestion : FixerAiState.NotAsked;
                 if (_fixer != null && _fixer.IssueId == c.Id && _fixer.AiState == state && _fixer.AiValue == (c.Prop ?? "")
                     && _fixer.IsPick == c.Pick && _fixer.PickCode == (c.Pick ? c.PickCode ?? "" : "")
-                    && _fixer.Lang == _core.Lang && _fixer.Options.SequenceEqual(c.Options ?? Array.Empty<string>()))
+                    && _fixer.Options.SequenceEqual(c.Options ?? Array.Empty<string>()))
                     return _fixer;
                 // What a person typed or chose survives a rebuild; a picker's untouched preselect does not
                 // (a new AI code must win over the first option).
                 var keep = _fixer != null && _fixer.IssueId == c.Id && (!_fixer.IsPick || _fixer.ManualTouched);
                 var typed = keep ? _fixer.ManualValue : null;
-                var reason = c.AiReason?.In(_core.Lang) ?? "";
-                _fixer = new JkrFixerRow(c.Id, RuleOf(c.Id), CategoryOf(c.Id), state, c.Prop ?? "", reason, c.Options, _core.Lang,
-                                         isPick: c.Pick, pickCode: c.PickCode ?? "", pickReason: reason);
+                var reason = c.AiReason?.En ?? "";
+                _fixer = new JkrFixerRow(c.Id, RuleOf(c.Id), CategoryOf(c.Id), state, c.Prop ?? "", reason, c.Options, isPick: c.Pick, pickCode: c.PickCode ?? "", pickReason: reason);
                 if (typed != null) _fixer.ManualValue = typed;
                 return _fixer;
             }
@@ -299,8 +294,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public string AiCanTitle => T("aiCanTitle");
         public string AiCanText => T("aiCanText");
         public string MarkManualLabel => T("markManual");
-        public string CopilotFixLabel => RevitWebAppSync.UI.Jkr.ViewModels.JkrCopilotFix.Label(_core.Lang);
-        public string CopilotFixTooltip => RevitWebAppSync.UI.Jkr.ViewModels.JkrCopilotFix.Tooltip(_core.Lang);
+        public string CopilotFixLabel => RevitWebAppSync.UI.Jkr.ViewModels.JkrCopilotFix.Label();
+        public string CopilotFixTooltip => RevitWebAppSync.UI.Jkr.ViewModels.JkrCopilotFix.Tooltip();
         public string ReopenLabel => T("reopen");
         public string LocateLabel => T("locate");
         public string IgnoreLabel => T("ignore");
@@ -321,12 +316,11 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         private DetailCard MakeCard(PanelItem c)
         {
             var man = c.IsHuman;
-            var lang = _core.Lang;
             string sv, kind;
             if (man) { sv = T("manualRow"); kind = "man"; }
-            else if (c.Status == ItemStatus.Resolved) { sv = c.FixedViaCopilot ? PaneText.FixedViaCopilotRow(lang) : T("resolvedRow"); kind = "ok"; }
+            else if (c.Status == ItemStatus.Resolved) { sv = c.FixedViaCopilot ? PaneText.FixedViaCopilotRow() : T("resolvedRow"); kind = "ok"; }
             else if (c.Status == ItemStatus.Ignored) { sv = T("ignoredRow"); kind = "ign"; }
-            else { sv = PanelStrings.Severity[c.Sev].In(lang); kind = c.Sev; }
+            else { sv = PanelStrings.Severity[c.Sev].En; kind = c.Sev; }
             var open = !man && c.Status == ItemStatus.Open;
             // Marked as manual (option b): still open and a fail, but out of every fix request.
             var marked = open && c.MarkedManual;
@@ -343,21 +337,21 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 SvKind = kind,
                 Where = string.Join(" · ", where),
                 Hash = c.Hash ?? "",
-                Title = c.Title.In(lang),
+                Title = c.Title.En,
                 // A person-decided item shows its reason in the manual block, not twice.
-                Desc = man && c.Reason != null && c.Reason.In(lang) == c.Desc.In(lang) ? "" : c.Desc.In(lang),
+                Desc = man && c.Reason != null && c.Reason.En == c.Desc.En ? "" : c.Desc.En,
                 El = string.IsNullOrEmpty(c.El) ? "—" : c.El,
                 Req = string.IsNullOrEmpty(c.Req) ? "—" : c.Req,
-                Act = string.IsNullOrEmpty(c.Act.In(lang)) ? "—" : c.Act.In(lang),
+                Act = string.IsNullOrEmpty(c.Act.En) ? "—" : c.Act.En,
                 ActKind = man ? "man" : "bad",
                 IsManual = man,
-                Reason = man ? c.Reason?.In(lang) ?? "" : "",
+                Reason = man ? c.Reason?.En ?? "" : "",
                 IsReviewed = man && c.Status == ItemStatus.Reviewed,
                 ReviewLabel = c.Status == ItemStatus.Reviewed ? T("reviewed") : T("markReviewed"),
                 CanFix = act && c.Fix == FixKind.Fix,
                 Prop = c.Prop ?? "",
                 IsAiProposal = aiProposal,
-                AiReason = aiProposal ? c.AiReason?.In(lang) ?? "" : "",
+                AiReason = aiProposal ? c.AiReason?.En ?? "" : "",
                 IsAiCanPropose = act && c.AiFix && c.Prop == null,
                 IsFixerRow = act && c.AiFix,
                 ApplyLabel = aiProposal ? T("applyAiFix") : T("applyFix"),
@@ -378,7 +372,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         }
 
         private string SectionName(string s) =>
-            Bim010Form.SectionNames.TryGetValue(s, out var n) ? (_core.Lang == PanelStrings.En ? n.En : n.Ms) : s;
+            Bim010Form.SectionNames.TryGetValue(s, out var n) ? n.En : s;
 
         // ── actions ──
         /// <summary>Apply fix / Apply AI fix (F): the host confirms and writes; the issue moves to Resolved.</summary>

@@ -325,7 +325,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             new SpecCheck("C1.5.2", "C1.5", Same("3D view for every level (Dokumen set)"), Ai, "T 22:39–22:40")
             {
                 Comply = Same("The Dokumen view set has one 3D view for every level"),
-                NotComply = Same("A level without a Dokumen 3D view — e.g. '3D view for every level: 3/4 ✗ (Aras 03 missing)'; state the reason"),
+                NotComply = Same("A level without a Dokumen 3D view — e.g. '3D view for every level: 3/4 ✗ (Level 03 missing)'; state the reason"),
                 Manual = Dash,
             },
             new SpecCheck("C1.6.1", "C1.6", Same("Room schedule exists"), Ai, "T 21:36–22:08")

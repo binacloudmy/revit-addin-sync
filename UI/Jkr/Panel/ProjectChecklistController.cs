@@ -43,7 +43,6 @@ namespace RevitWebAppSync.UI.Jkr.Panel
 
         private static Handlers.RevitDispatcher Revit => App.RevitDispatcher;
 
-        private static string L(string ms, string en) => PaneText.IsEn(null) ? en : ms;
 
         // ── rule 26: every element-rule run ──
 
@@ -80,7 +79,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel
                     return doc == null ? null : JkrBuildingInfoExtractor.ExtractProject(doc, lod, disc);
                 });
                 answer = project == null
-                    ? new JkrProjectRecheckResponse { RuleNumber = rule, Error = L("Tiada model dibuka.", "No model is open.") }
+                    ? new JkrProjectRecheckResponse { RuleNumber = rule, Error = "No model is open." }
                     : await _service.ProjectRecheckAsync(rule, project);
             }
             catch (Exception ex)
@@ -89,7 +88,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel
             }
             _model.ApplyRecheck(rule, answer);
             var shown = _model.Item(rule);
-            if (notify && shown.ShowError) _toast?.Invoke(ProjectChecklistText.RecheckFailedToast(rule, shown.Error, _model.Lang));
+            if (notify && shown.ShowError) _toast?.Invoke(ProjectChecklistText.RecheckFailedToast(rule, shown.Error));
         }
 
         // ── buttons ──
@@ -137,7 +136,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel
                 app.PostCommand(id);
                 return true;
             });
-            if (!posted) _toast?.Invoke(L("Perintah ini tidak tersedia sekarang di Revit.", "Revit cannot run this command right now."));
+            if (!posted) _toast?.Invoke("Revit cannot run this command right now.");
         }
 
         private async Task WatchSaveAsAsync()
@@ -158,9 +157,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel
         private static string WriteBpepConfirmed(UIApplication app)
         {
             var doc = app.ActiveUIDocument?.Document;
-            if (doc == null) return L("Tiada model dibuka.", "No model is open.");
+            if (doc == null) return "No model is open.";
             var info = doc.ProjectInformation;
-            if (info == null) return L("Model tiada Project Information.", "The model has no Project Information.");
+            if (info == null) return "The model has no Project Information.";
 
             using (var tx = new Transaction(doc, "BINA: confirm BPEP"))
             {
@@ -176,8 +175,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel
                     if (p == null || p.IsReadOnly || p.StorageType != StorageType.String)
                     {
                         tx.RollBack();
-                        return L("Parameter BPEP_Confirmed tidak boleh ditulis (mesti teks, boleh diubah).",
-                                 "BPEP_Confirmed cannot be written (it must be an editable text parameter).");
+                        return "BPEP_Confirmed cannot be written (it must be an editable text parameter).";
                     }
                     p.Set("Yes");
                     tx.Commit();

@@ -75,35 +75,32 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public static readonly TimeSpan SectionTime = PanelCore.SectionTime;
         public static readonly TimeSpan ResultsDelay = PanelCore.ResultsDelay;
 
-        private static readonly Dictionary<string, (string Ms, string En)> Extra = new Dictionary<string, (string, string)>
+        private static readonly Dictionary<string, string> Extra = new Dictionary<string, string>
         {
-            ["failRead"] = ("Tidak dapat dibaca", "Couldn’t read"),
-            ["failTitle"] = ("Audit tidak dapat diselesaikan.", "The audit couldn’t finish."),
-            ["retry"] = ("Cuba semula", "Retry"),
-            ["back"] = ("Kembali ke mula", "Back to start"),
+            ["failRead"] = "Couldn’t read",
+            ["failTitle"] = "The audit couldn’t finish.",
+            ["retry"] = "Retry",
+            ["back"] = "Back to start",
             // Clear Sheet copy
-            ["checksDoneOf"] = ("{0} daripada {1} semakan selesai", "{0} of {1} checks done"),
-            ["headingSection"] = ("Menyemak seksyen {0}", "Checking section {0}"),
-            ["headingDone"] = ("Audit selesai", "Audit finished"),
-            ["subScan"] = ("Menyemak lima seksyen terhadap LOD {0} untuk {1}.", "Checking the five sections against LOD {0} for {1}."),
-            ["subSection"] = ("Seksyen {0} daripada 5, terhadap LOD {1} untuk {2}.", "Section {0} of 5, against LOD {1} for {2}."),
-            ["subDone"] = ("Kelima-lima seksyen telah selesai.", "All five sections are done."),
-            ["backendNote"] = ("Semakan peraturan bahagian belakang BINA berjalan bersama lima seksyen.",
-                               "BINA backend rule checks run alongside the five sections."),
-            ["noOverall"] = ("Keputusan keseluruhan dipaparkan apabila kelima-lima seksyen selesai.",
-                             "The overall result appears when all five sections finish."),
-            ["failHeading"] = ("Audit terhenti di seksyen {0}", "The audit stopped in section {0}"),
-            ["failDetail"] = ("Revit memulangkan: {0}", "Revit returned: {0}"),
-            ["stoppedIn"] = ("Terhenti di {0}", "Stopped in {0}"),
-            ["rowStopped"] = ("Terhenti", "Stopped"),
-            ["rowNotRun"] = ("Tidak dijalankan", "Not run"),
-            ["discAR"] = ("AR · Arkitek", "AR · Architect"),
-            ["discNameAR"] = ("Arkitek", "Architect"),
+            ["checksDoneOf"] = "{0} of {1} checks done",
+            ["headingSection"] = "Checking section {0}",
+            ["headingDone"] = "Audit finished",
+            ["subScan"] = "Checking the five sections against LOD {0} for {1}.",
+            ["subSection"] = "Section {0} of 5, against LOD {1} for {2}.",
+            ["subDone"] = "All five sections are done.",
+            ["backendNote"] = "BINA backend rule checks run alongside the five sections.",
+            ["noOverall"] = "The overall result appears when all five sections finish.",
+            ["failHeading"] = "The audit stopped in section {0}",
+            ["failDetail"] = "Revit returned: {0}",
+            ["stoppedIn"] = "Stopped in {0}",
+            ["rowStopped"] = "Stopped",
+            ["rowNotRun"] = "Not run",
+            ["discAR"] = "AR · Architect",
+            ["discNameAR"] = "Architect",
         };
 
         private readonly IPanelClock _clock;
         private IDisposable _timer;
-        private string _lang = PanelStrings.Ms;
         private string _lod = "", _disc = "";
         private int _runDone;
         private int _pendLive;
@@ -124,22 +121,15 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public event Action RetryRequested;
         public event Action BackRequested;
 
-        public void SetLang(string lang)
-        {
-            _lang = string.Equals(lang, PanelStrings.En, StringComparison.OrdinalIgnoreCase) ? PanelStrings.En : PanelStrings.Ms;
-            Relabel();
-            Raise();
-        }
-
         private string T(string key) =>
-            Extra.TryGetValue(key, out var p) ? (_lang == PanelStrings.En ? p.En : p.Ms) : PanelStrings.Get(_lang, key);
+            Extra.TryGetValue(key, out var p) ? p : PanelStrings.Get(key);
 
         private void Relabel()
         {
             foreach (var r in Rows)
             {
                 var names = Bim010Form.SectionNames[r.Key];
-                r.Name = _lang == PanelStrings.En ? names.En : names.Ms;
+                r.Name = names.En;
                 r.ManualShort = T("manualShort");
             }
         }

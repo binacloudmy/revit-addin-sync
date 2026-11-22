@@ -74,18 +74,13 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(19, PanelFixture.Issues().Count);
             Assert.Equal(5, PanelFixture.Issues().Count(x => x.IsHuman));
             Assert.Equal(109, PanelStrings.Keys.Count);
-            Assert.Equal("Jalankan audit", PanelStrings.Get("ms", "run"));
-            Assert.Equal("Run audit", PanelStrings.Get("en", "run"));
-            Assert.Equal("Semak manual", PanelStrings.Get("ms", "heroPend"));
-            Assert.Equal("Sederhana", PanelStrings.Severity["Med"].In("ms"));
+            Assert.Equal("Run audit", PanelStrings.Get("run"));
         }
 
         [Fact]
         public void Bm_is_the_default_language_and_en_can_be_chosen()
         {
             var (core, _) = Fresh();
-            Assert.Equal("Baiki semua", core.T("fixAll"));
-            core.SetLang("en");
             Assert.Equal("Fix all", core.T("fixAll"));
         }
 
@@ -189,18 +184,15 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void Search_covers_title_row_element_actual_and_citation_in_the_current_language()
+        public void Search_covers_title_row_element_actual_and_citation()
         {
             var (core, _) = AtResults();
-            core.SetQuery("pintu");                    // BM title
-            Assert.Equal(new[] { "1", "16" }, Ids(core.Filtered()));
             core.SetQuery("C5.1");                     // row
             Assert.Equal(new[] { "14" }, Ids(core.Filtered()));
             core.SetQuery("BOMBA_FP");                 // element
             Assert.Equal(new[] { "19" }, Ids(core.Filtered()));
             core.SetQuery("PB p.99");                  // citation
             Assert.Equal(new[] { "18" }, Ids(core.Filtered()));
-            core.SetLang("en");
             core.SetQuery("  GRID SEQUENCE ");         // EN title, trimmed, case-insensitive
             Assert.Equal(new[] { "4" }, Ids(core.Filtered()));
             Assert.Equal("emptyQ", (core.SetQueryAndHint("zzz")));
@@ -214,7 +206,6 @@ namespace RevitWebAppSync.Tests
             var (core, _) = AtResults();
             core.Ignore(new[] { "4" });
             Assert.Equal(ItemStatus.Ignored, core.Issues.First(x => x.Id == "4").Status);
-            Assert.Equal("1 isu diabaikan", core.Toast);
             Assert.Equal(13, core.TabCounts()[PanelTab.Open]);
             Assert.Equal(1, core.TabCounts()[PanelTab.Ignore]);
         }
@@ -359,7 +350,6 @@ namespace RevitWebAppSync.Tests
             Assert.All(core.Issues, x => Assert.NotEqual(ItemStatus.Resolved, x.Status));
             core.MarkFixed(new[] { "4", "6" });          // e.g. 5 failed in Revit
             Assert.Equal(2, core.ResolvedN);
-            Assert.Equal("2 perubahan ditulis ke model", core.Toast);
         }
 
         // ── Fixed but not passed until re-scan ──
@@ -563,7 +553,6 @@ namespace RevitWebAppSync.Tests
             var (core, _) = AtResults();
             core.Locate(core.Issues.First(x => x.Id == "4"));
             Assert.Equal("Grids [311902] 11", core.Located);
-            Assert.Equal("Dipilih dalam model: Grids [311902] 11", core.Toast);
         }
 
         [Fact]

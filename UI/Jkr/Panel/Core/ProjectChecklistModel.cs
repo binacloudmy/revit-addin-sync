@@ -83,10 +83,10 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public bool Busy => State == ProjectCheckState.Checking;
         public bool Idle => !Busy;
 
-        public string Title => ProjectChecklistText.Title(Rule, _owner.Lang);
-        public string Guidance => ProjectChecklistText.Guidance(Rule, _owner.Lang);
-        public string ActionLabel => ProjectChecklistText.ActionLabel(Action, _owner.Lang);
-        public string StateText => ProjectChecklistText.StateText(State, _owner.Lang);
+        public string Title => ProjectChecklistText.Title(Rule);
+        public string Guidance => ProjectChecklistText.Guidance(Rule);
+        public string ActionLabel => ProjectChecklistText.ActionLabel(Action);
+        public string StateText => ProjectChecklistText.StateText(State);
         /// <summary>"pass" / "fail" / "muted": the view colours the mark by it.</summary>
         public string Tone => State == ProjectCheckState.Pass ? "pass"
             : State == ProjectCheckState.Fail ? "fail" : "muted";
@@ -94,7 +94,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public bool ShowGuidance => State != ProjectCheckState.Pass;
         /// <summary>The action button: for a rule that is not passing now.</summary>
         public bool ShowAction => HasAction && State != ProjectCheckState.Pass;
-        public string RecheckLabel => ProjectChecklistText.RecheckLabel(_owner.Lang);
+        public string RecheckLabel => ProjectChecklistText.RecheckLabel();
 
         public event PropertyChangedEventHandler PropertyChanged;
         internal void Raise() => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(string.Empty));
@@ -108,8 +108,6 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// The backend's own warn line is 80%; this is the line for "done" on the checklist.</summary>
         public const double NamingPassPercent = 100.0;
 
-        private string _lang;
-
         public ProjectChecklistModel()
         {
             Items = new[] { 1, 21, 22, 23, 24, NamingRule }.Select(r => new ProjectCheckItem(this, r)).ToList();
@@ -117,9 +115,6 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
 
         public IReadOnlyList<ProjectCheckItem> Items { get; }
         public ProjectCheckItem Item(int rule) => Items.First(i => i.Rule == rule);
-
-        public string Lang => _lang ?? PaneLanguage.Current;
-        public void SetLang(string lang) { _lang = lang; RaiseAll(); }
 
         /// <summary>The user pressed an item's action button (rule). The host does the work, then re-checks.</summary>
         public event Action<int> ActionRequested;
@@ -139,9 +134,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
 
         public int FailCount => Items.Count(i => i.State == ProjectCheckState.Fail);
         public int PassCount => Items.Count(i => i.State == ProjectCheckState.Pass);
-        public string Summary => ProjectChecklistText.Summary(PassCount, Items.Count, Lang);
-        public string Heading => ProjectChecklistText.Heading(Lang);
-        public string Intro => ProjectChecklistText.Intro(Lang);
+        public string Summary => ProjectChecklistText.Summary(PassCount, Items.Count);
+        public string Heading => ProjectChecklistText.Heading();
+        public string Intro => ProjectChecklistText.Intro();
 
         /// <summary>A re-check of this rule started. The item shows "Checking…" until its answer.</summary>
         public void Begin(int rule)
@@ -165,7 +160,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             {
                 it.State = ProjectCheckState.Unavailable;
                 it.Detail = "";
-                it.Error = string.IsNullOrEmpty(r?.Error) ? ProjectChecklistText.NoAnswer(Lang) : r.Error;
+                it.Error = string.IsNullOrEmpty(r?.Error) ? ProjectChecklistText.NoAnswer() : r.Error;
             }
             else if (!r.Applicable)
             {
@@ -192,7 +187,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public void ApplyActionError(int rule, string message)
         {
             var it = Item(rule);
-            it.Error = string.IsNullOrEmpty(message) ? ProjectChecklistText.NoAnswer(Lang) : message;
+            it.Error = string.IsNullOrEmpty(message) ? ProjectChecklistText.NoAnswer() : message;
             it.Raise();
             RaiseAll();
         }
@@ -233,7 +228,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             {
                 it.PercentValue = a.Percent;
                 it.State = a.Percent >= NamingPassPercent ? ProjectCheckState.Pass : ProjectCheckState.Fail;
-                it.Detail = ProjectChecklistText.NamingDetail(a.Named, a.Total, Lang);
+                it.Detail = ProjectChecklistText.NamingDetail(a.Named, a.Total);
             }
             it.Raise();
             RaiseAll();
@@ -281,91 +276,74 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         }
     }
 
-    /// <summary>BM / EN text of the Project Checklist.</summary>
+    /// <summary>Text of the Project Checklist.</summary>
     public static class ProjectChecklistText
     {
-        private static string L(string lang, string ms, string en) =>
-            string.Equals(lang, PanelStrings.En, StringComparison.OrdinalIgnoreCase) ? en : ms;
+        public static string Heading() => "Project checklist";
+        public static string Intro() => "Checks on the project, not on elements. Each one changes only after it is checked again.";
+        public static string Summary(int pass, int total) => $"{pass} of {total} pass";
+        public static string RecheckLabel() => "Check again";
 
-        public static string Heading(string lang) => L(lang, "Senarai semak projek", "Project checklist");
-        public static string Intro(string lang) => L(lang,
-            "Semakan tahap projek — bukan elemen. Setiap satu berubah hanya selepas disemak semula.",
-            "Checks on the project, not on elements. Each one changes only after it is checked again.");
-        public static string Summary(int pass, int total, string lang) => L(lang, $"{pass} daripada {total} lulus", $"{pass} of {total} pass");
-        public static string RecheckLabel(string lang) => L(lang, "Semak semula", "Check again");
-
-        public static string Title(int rule, string lang)
+        public static string Title(int rule)
         {
             switch (rule)
             {
-                case 1: return L(lang, "Nama fail mengikut format JKR", "File name follows the JKR format");
-                case 21: return L(lang, "LOD memenuhi minimum fasa", "LOD meets the phase minimum");
-                case 22: return L(lang, "BPEP disahkan", "BPEP confirmed");
-                case 23: return L(lang, "Templat JKR digunakan", "JKR template used");
-                case 24: return L(lang, "Parameter dikongsi JKR dimuatkan", "JKR shared parameters loaded");
-                case ProjectChecklistModel.NamingRule: return L(lang, "Penggunaan penamaan JKR", "JKR naming adoption");
+                case 1: return "File name follows the JKR format";
+                case 21: return "LOD meets the phase minimum";
+                case 22: return "BPEP confirmed";
+                case 23: return "JKR template used";
+                case 24: return "JKR shared parameters loaded";
+                case ProjectChecklistModel.NamingRule: return "JKR naming adoption";
                 default: return "";
             }
         }
 
-        public static string Guidance(int rule, string lang)
+        public static string Guidance(int rule)
         {
             switch (rule)
             {
-                case 1: return L(lang,
-                    "Revit tidak boleh menamakan semula fail yang dibuka. Guna Simpan Sebagai dengan nama JKR, kemudian semak semula.",
-                    "Revit cannot rename the open file. Use Save As with a JKR name, then check again.");
-                case 21: return L(lang,
-                    "Ditetapkan secara manual: pilih LOD di kotak LOD pada bar alat di atas, kemudian semak semula.",
-                    "Set by hand: pick the LOD in the LOD box on the tools bar above, then check again.");
-                case 22: return L(lang,
-                    "Sahkan bahawa BPEP wujud. Ini menulis BPEP_Confirmed = Yes pada Project Information.",
-                    "Confirm that a BPEP exists. This writes BPEP_Confirmed = Yes on Project Information.");
-                case 23: return L(lang,
-                    "Mulakan dari templat JKR: Simpan Sebagai daripada fail templat JKR, kemudian semak semula.",
-                    "Start from the JKR template: Save As from the JKR template file, then check again.");
-                case 24: return L(lang,
-                    "Muatkan fail parameter dikongsi JKR (Manage > Shared Parameters), kemudian semak semula.",
-                    "Load the JKR shared parameter file (Manage > Shared Parameters), then check again.");
-                case ProjectChecklistModel.NamingRule: return L(lang,
-                    "Berubah sendiri apabila semakan elemen dijalankan semula. Tiada tindakan di sini.",
-                    "Updates by itself whenever the element checks run again. Nothing to press here.");
+                case 1: return "Revit cannot rename the open file. Use Save As with a JKR name, then check again.";
+                case 21: return "Set by hand: pick the LOD in the LOD box on the tools bar above, then check again.";
+                case 22: return "Confirm that a BPEP exists. This writes BPEP_Confirmed = Yes on Project Information.";
+                case 23: return "Start from the JKR template: Save As from the JKR template file, then check again.";
+                case 24: return "Load the JKR shared parameter file (Manage > Shared Parameters), then check again.";
+                case ProjectChecklistModel.NamingRule: return "Updates by itself whenever the element checks run again. Nothing to press here.";
                 default: return "";
             }
         }
 
-        public static string ActionLabel(ProjectCheckAction a, string lang)
+        public static string ActionLabel(ProjectCheckAction a)
         {
             switch (a)
             {
-                case ProjectCheckAction.SaveAs: return L(lang, "Simpan Sebagai…", "Save As…");
-                case ProjectCheckAction.FocusLod: return L(lang, "Ke kotak LOD", "Go to LOD box");
-                case ProjectCheckAction.ConfirmBpep: return L(lang, "Sahkan BPEP", "Confirm BPEP");
-                case ProjectCheckAction.LoadSharedParams: return L(lang, "Muat parameter dikongsi", "Load Shared Parameters");
+                case ProjectCheckAction.SaveAs: return "Save As…";
+                case ProjectCheckAction.FocusLod: return "Go to LOD box";
+                case ProjectCheckAction.ConfirmBpep: return "Confirm BPEP";
+                case ProjectCheckAction.LoadSharedParams: return "Load Shared Parameters";
                 default: return "";
             }
         }
 
-        public static string StateText(ProjectCheckState s, string lang)
+        public static string StateText(ProjectCheckState s)
         {
             switch (s)
             {
-                case ProjectCheckState.Pass: return L(lang, "Lulus", "Pass");
-                case ProjectCheckState.Fail: return L(lang, "Gagal", "Fails");
-                case ProjectCheckState.Checking: return L(lang, "Menyemak…", "Checking…");
-                case ProjectCheckState.NotApplicable: return L(lang, "Tiada fasa ditetapkan", "No phase set");
-                case ProjectCheckState.Unavailable: return L(lang, "Tidak dapat disemak", "Could not check");
-                default: return L(lang, "Belum disemak", "Not checked");
+                case ProjectCheckState.Pass: return "Pass";
+                case ProjectCheckState.Fail: return "Fails";
+                case ProjectCheckState.Checking: return "Checking…";
+                case ProjectCheckState.NotApplicable: return "No phase set";
+                case ProjectCheckState.Unavailable: return "Could not check";
+                default: return "Not checked";
             }
         }
 
-        public static string NoAnswer(string lang) =>
-            L(lang, "Semakan tiada jawapan. Cuba semak semula.", "The check returned no answer. Try again.");
+        public static string NoAnswer() =>
+            "The check returned no answer. Try again.";
 
-        public static string RecheckFailedToast(int rule, string error, string lang) =>
-            L(lang, $"Tidak dapat menyemak \"{Title(rule, lang)}\": {error}", $"Could not check \"{Title(rule, lang)}\": {error}");
+        public static string RecheckFailedToast(int rule, string error) =>
+            $"Could not check \"{Title(rule)}\": {error}";
 
-        public static string NamingDetail(int named, int total, string lang) =>
-            L(lang, $"{named} daripada {total} elemen guna nama JKR", $"{named} of {total} elements use JKR names");
+        public static string NamingDetail(int named, int total) =>
+            $"{named} of {total} elements use JKR names";
     }
 }

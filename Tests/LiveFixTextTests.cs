@@ -28,7 +28,7 @@ namespace RevitWebAppSync.Tests
                 Description = "No automatic check for this row — check manually.",
                 Verification = IssueVerification.Human, Status = IssueStatus.Open,
             };
-            var item = ResultsAdapter.FromIssue(issue, En);
+            var item = ResultsAdapter.FromIssue(issue);
             Assert.True(item.IsHuman);
             Assert.Equal("No automatic check for this row — check manually.", item.Reason.In(En));
             Assert.Equal(item.Reason.In(En), item.Desc.In(En));
@@ -40,13 +40,13 @@ namespace RevitWebAppSync.Tests
         public void A_spec_issue_title_follows_the_language_for_toasts()
         {
             var i = new IssueVm { Id = "x", CheckId = "SPEC-A1.1", Title = "A1.1 · Ceiling height (NS §4.1.9)" };
-            Assert.Equal("A1.1 · Ceiling height (NS §4.1.9)", ResultsAdapter.TitleIn(i, En));
+            Assert.Equal("A1.1 · Ceiling height (NS §4.1.9)", ResultsAdapter.TitleIn(i));
             Assert.Equal("Marked manual · A1.1 · Ceiling height (NS §4.1.9)",
-                         PaneText.Decision("ManualFixNeeded", ResultsAdapter.TitleIn(i, En), En));
+                         PaneText.Decision("ManualFixNeeded", ResultsAdapter.TitleIn(i)));
             // an issue from the backend has one title in both
             var b = new IssueVm { Id = "y", CheckId = "element.material.02", Title = "Material not JKR-coded" };
-            Assert.Equal("Material not JKR-coded", ResultsAdapter.TitleIn(b, En));
-            Assert.Equal("", ResultsAdapter.TitleIn(null, En));
+            Assert.Equal("Material not JKR-coded", ResultsAdapter.TitleIn(b));
+            Assert.Equal("", ResultsAdapter.TitleIn(null));
         }
     }
 }

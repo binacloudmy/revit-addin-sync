@@ -56,37 +56,37 @@ namespace UiHarness
             ActiveModelSource.Set(new ActiveModelInfo(Title, @"C:\Projects\Dewan\" + Title + ".rvt", false));
 
             Shot(dir, "jkr-start.png", s => { });
-            Shot(dir, "jkr-start-en.png", s => s.Model.IsEn = true);
-            Shot(dir, "jkr-start-lod300-en.png", s => { s.Model.IsEn = true; s.Start.LodValue = "300"; });
+            Shot(dir, "jkr-start-en.png", s => { });
+            Shot(dir, "jkr-start-lod300-en.png", s => { s.Start.LodValue = "300"; });
             Shot(dir, "jkr-start-lod100.png", s => s.Start.LodValue = "100");
             // Running (r-a, r-mid, r-done, r-fail): the sections complete every 750 ms on the
             // shell's real clock, so each frame waits for the time it needs (Shot adds 600 ms).
             Shot(dir, "jkr-run-scan.png", s => RunFrame(s, 0, false), 800);
-            Shot(dir, "jkr-run-scan-en.png", s => { s.Model.IsEn = true; RunFrame(s, 0, false); }, 800);
-            Shot(dir, "jkr-run-a-en.png", s => { s.Model.IsEn = true; RunFrame(s, 20, true); }, 800);
+            Shot(dir, "jkr-run-scan-en.png", s => { RunFrame(s, 0, false); }, 800);
+            Shot(dir, "jkr-run-a-en.png", s => { RunFrame(s, 20, true); }, 800);
             Shot(dir, "jkr-run-mid.png", s => RunFrame(s, 1000, true), 800);
-            Shot(dir, "jkr-run-mid-en.png", s => { s.Model.IsEn = true; RunFrame(s, 1000, true); }, 800);
-            Shot(dir, "jkr-run-done-en.png", s => { s.Model.IsEn = true; RunFrame(s, 3500, true); }, 800);
+            Shot(dir, "jkr-run-mid-en.png", s => { RunFrame(s, 1000, true); }, 800);
+            Shot(dir, "jkr-run-done-en.png", s => { RunFrame(s, 3500, true); }, 800);
             // production failure: the scan errors before any section is revealed, no section known
             Shot(dir, "jkr-run-fail.png", s => RunFrame(s, 0, false, fail: true), 800);
-            Shot(dir, "jkr-run-fail-en.png", s => { s.Model.IsEn = true; RunFrame(s, 0, false, fail: true); }, 800);
+            Shot(dir, "jkr-run-fail-en.png", s => { RunFrame(s, 0, false, fail: true); }, 800);
             // variant for a scan that reports the section it stopped in
-            Shot(dir, "jkr-run-fail-section-c-en.png", s => { s.Model.IsEn = true; RunFrame(s, 1500, true, fail: true, stoppedIn: "C"); }, 800);
+            Shot(dir, "jkr-run-fail-section-c-en.png", s => { RunFrame(s, 1500, true, fail: true, stoppedIn: "C"); }, 800);
             Shot(dir, "jkr-login-required.png", s => s.Model.LoginRequired = true);
-            Shot(dir, "jkr-login-required-en.png", s => { s.Model.IsEn = true; s.Model.LoginRequired = true; }, 800);
+            Shot(dir, "jkr-login-required-en.png", s => { s.Model.LoginRequired = true; }, 800);
             Shot(dir, "jkr-no-model.png", s => s.Model.Model = ActiveModelInfo.None, 800);
-            Shot(dir, "jkr-no-model-en.png", s => { s.Model.IsEn = true; s.Model.Model = ActiveModelInfo.None; }, 800);
-            Shot(dir, "jkr-toast-en.png", s => { s.Model.IsEn = true; s.ShowToast("Copied the issue list to the clipboard."); }, 800);
+            Shot(dir, "jkr-no-model-en.png", s => { s.Model.Model = ActiveModelInfo.None; }, 800);
+            Shot(dir, "jkr-toast-en.png", s => { s.ShowToast("Copied the issue list to the clipboard."); }, 800);
             Shot(dir, "jkr-failing.png", s => ShowRun(s, Failing));
-            Shot(dir, "jkr-failing-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing); });
+            Shot(dir, "jkr-failing-en.png", s => { ShowRun(s, Failing); });
             // The pane at a typical docked height: the Checklist must start above the fold.
             Shot(dir, "jkr-failing-790.png", s => ShowRun(s, Failing), 790);
-            Shot(dir, "jkr-failing-790-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing); }, 790);
-            Shot(dir, "jkr-failing-section-d.png", s => { s.Model.IsEn = true; ShowRun(s, Failing); s.Results.OpenGroup("D"); });
-            Shot(dir, "jkr-failing-filter-fails-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing); s.Results.SetStateFilter("fail"); });
+            Shot(dir, "jkr-failing-790-en.png", s => { ShowRun(s, Failing); }, 790);
+            Shot(dir, "jkr-failing-section-d.png", s => { ShowRun(s, Failing); s.Results.OpenGroup("D"); });
+            Shot(dir, "jkr-failing-filter-fails-en.png", s => { ShowRun(s, Failing); s.Results.SetStateFilter("fail"); });
             Shot(dir, "jkr-failing-filter-person.png", s => { ShowRun(s, Failing); s.Results.GoNeedsPerson(); });
             // Revision 2: A7.2's non-JKR materials are warnings a person judges, not a fail.
-            Shot(dir, "jkr-failing-person-warnings-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing); s.Results.SetStateFilter("person"); }, 1500);
+            Shot(dir, "jkr-failing-person-warnings-en.png", s => { ShowRun(s, Failing); s.Results.SetStateFilter("person"); }, 1500);
             // A list-only check expanded: the WIP views per level (collapsed by default).
             Shot(dir, "jkr-failing-list-expanded.png", s =>
             {
@@ -94,54 +94,54 @@ namespace UiHarness
                 s.Results.SelectSection("C");
                 s.Results.ToggleShowAll("C1.2.1");
             }, 1500);
-            Shot(dir, "jkr-failing-filter-partly-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing); s.Results.SetStateFilter("partial"); });
-            Shot(dir, "jkr-failing-open-tab-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing); s.Results.SelectTab(PanelTab.Open); });
+            Shot(dir, "jkr-failing-filter-partly-en.png", s => { ShowRun(s, Failing); s.Results.SetStateFilter("partial"); });
+            Shot(dir, "jkr-failing-open-tab-en.png", s => { ShowRun(s, Failing); s.Results.SelectTab(PanelTab.Open); });
             Shot(dir, "jkr-compliant.png", s => ShowRun(s, Compliant));
-            Shot(dir, "jkr-compliant-en.png", s => { s.Model.IsEn = true; ShowRun(s, Compliant); });
-            Shot(dir, "jkr-compliant-filter-pass-en.png", s => { s.Model.IsEn = true; ShowRun(s, Compliant); s.Results.SetStateFilter("pass"); });
+            Shot(dir, "jkr-compliant-en.png", s => { ShowRun(s, Compliant); });
+            Shot(dir, "jkr-compliant-filter-pass-en.png", s => { ShowRun(s, Compliant); s.Results.SetStateFilter("pass"); });
             // The backend check failed: the add-in's own checks and the BIM010 checker still answer.
             Shot(dir, "jkr-backend-down.png", s => ShowRun(s, Failing, backendDown: true), 790);
-            Shot(dir, "jkr-backend-down-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing, backendDown: true); });
+            Shot(dir, "jkr-backend-down-en.png", s => { ShowRun(s, Failing, backendDown: true); });
             // Clear Sheet result screens (Task 12): the list at 380 / 320 px, aspects, a section,
             // an aspect, the other rules, and the degraded result (LOD changed + backend down).
             Shot(dir, "jkr-failing-320.png", s => ShowRun(s, Failing), 800, (int)JkrPaneShell.MinimumWidth);
             Shot(dir, "jkr-failing-section-d-320.png", s => { ShowRun(s, Failing); s.Results.OpenGroup("D"); }, 1100, (int)JkrPaneShell.MinimumWidth);
             Shot(dir, "jkr-failing-issues-320.png", s => { ShowRun(s, Failing); s.Results.ShowIssues(); }, 800, (int)JkrPaneShell.MinimumWidth);
-            Shot(dir, "jkr-failing-aspects-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing); s.Results.ShowAspectsView(); }, 900);
-            Shot(dir, "jkr-failing-aspect-p-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing); s.Results.ShowAspectsView(); s.Results.OpenGroup("P"); }, 1100);
-            Shot(dir, "jkr-failing-section-d-issues-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing); s.Results.OpenGroup("D"); s.Results.ShowSectionIssues(); }, 900);
+            Shot(dir, "jkr-failing-aspects-en.png", s => { ShowRun(s, Failing); s.Results.ShowAspectsView(); }, 900);
+            Shot(dir, "jkr-failing-aspect-p-en.png", s => { ShowRun(s, Failing); s.Results.ShowAspectsView(); s.Results.OpenGroup("P"); }, 1100);
+            Shot(dir, "jkr-failing-section-d-issues-en.png", s => { ShowRun(s, Failing); s.Results.OpenGroup("D"); s.Results.ShowSectionIssues(); }, 900);
             Shot(dir, "jkr-failing-section-d-issues-320.png", s => { ShowRun(s, Failing); s.Results.OpenGroup("D"); s.Results.ShowSectionIssues(); }, 900, (int)JkrPaneShell.MinimumWidth);
-            Shot(dir, "jkr-failing-other-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing); s.Results.OpenGroup("+"); }, 900);
-            Shot(dir, "jkr-compliant-aspects-en.png", s => { s.Model.IsEn = true; ShowRun(s, Compliant); s.Results.ShowAspectsView(); }, 900);
-            Shot(dir, "jkr-degraded-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing, backendDown: true); s.Core.SetLod("400"); }, 900);
+            Shot(dir, "jkr-failing-other-en.png", s => { ShowRun(s, Failing); s.Results.OpenGroup("+"); }, 900);
+            Shot(dir, "jkr-compliant-aspects-en.png", s => { ShowRun(s, Compliant); s.Results.ShowAspectsView(); }, 900);
+            Shot(dir, "jkr-degraded-en.png", s => { ShowRun(s, Failing, backendDown: true); s.Core.SetLod("400"); }, 900);
             // Clear Sheet issues (Task 13): 380 EN / 320 BM, a marked-manual row, an AI fixer row.
-            Shot(dir, "jkr-issues-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing, tweak: IssueSamples); s.Results.ShowIssues(); }, 900);
+            Shot(dir, "jkr-issues-en.png", s => { ShowRun(s, Failing, tweak: IssueSamples); s.Results.ShowIssues(); }, 900);
             Shot(dir, "jkr-issues-320.png", s => { ShowRun(s, Failing, tweak: IssueSamples); s.Results.ShowIssues(); }, 900, (int)JkrPaneShell.MinimumWidth);
-            Shot(dir, "jkr-issues-320-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing, tweak: IssueSamples); s.Results.ShowIssues(); }, 900, (int)JkrPaneShell.MinimumWidth);
-            Shot(dir, "jkr-issues-resolved-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing, tweak: IssueSamples); s.Results.SelectTab(PanelTab.Resolved); }, 700);
+            Shot(dir, "jkr-issues-320-en.png", s => { ShowRun(s, Failing, tweak: IssueSamples); s.Results.ShowIssues(); }, 900, (int)JkrPaneShell.MinimumWidth);
+            Shot(dir, "jkr-issues-resolved-en.png", s => { ShowRun(s, Failing, tweak: IssueSamples); s.Results.SelectTab(PanelTab.Resolved); }, 700);
             Shot(dir, "jkr-issues-manual-tab.png", s => { ShowRun(s, Failing, tweak: IssueSamples); s.Results.SelectTab(PanelTab.Manual); }, 900, (int)JkrPaneShell.MinimumWidth);
             Shot(dir, "jkr-degraded-320.png", s => { ShowRun(s, Failing, backendDown: true); s.Core.SetLod("400"); }, 900, (int)JkrPaneShell.MinimumWidth);
 
             // Live test (Revit 2027, 2026-11-19): the pane at 815 px with the backend banner.
             // F5: the Issues tab (and a section's issues, with its pill) shows at least 5 rows;
             // F1: the Checklist at least 4 section rows; F2: the legend clears the footer.
-            Shot(dir, "jkr-live-issues-815-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing, backendDown: true, tweak: IssueSamples); s.Results.ShowIssues(); }, 815);
+            Shot(dir, "jkr-live-issues-815-en.png", s => { ShowRun(s, Failing, backendDown: true, tweak: IssueSamples); s.Results.ShowIssues(); }, 815);
             Shot(dir, "jkr-live-issues-815.png", s => { ShowRun(s, Failing, backendDown: true, tweak: IssueSamples); s.Results.ShowIssues(); }, 815);
-            Shot(dir, "jkr-live-section-d-issues-815-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing, backendDown: true); s.Results.OpenGroup("D"); s.Results.ShowSectionIssues(); }, 815);
+            Shot(dir, "jkr-live-section-d-issues-815-en.png", s => { ShowRun(s, Failing, backendDown: true); s.Results.OpenGroup("D"); s.Results.ShowSectionIssues(); }, 815);
             Shot(dir, "jkr-live-section-d-issues-815-320.png", s => { ShowRun(s, Failing, backendDown: true); s.Results.OpenGroup("D"); s.Results.ShowSectionIssues(); }, 815, (int)JkrPaneShell.MinimumWidth);
-            Shot(dir, "jkr-live-manual-tab-815-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing, backendDown: true); s.Results.SelectTab(PanelTab.Manual); }, 815);
-            Shot(dir, "jkr-live-issues-scrolled-815-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing, backendDown: true); s.Results.ShowIssues(); Settle(300); ScrollTo(s, "BodyScroll", 900); }, 815);
+            Shot(dir, "jkr-live-manual-tab-815-en.png", s => { ShowRun(s, Failing, backendDown: true); s.Results.SelectTab(PanelTab.Manual); }, 815);
+            Shot(dir, "jkr-live-issues-scrolled-815-en.png", s => { ShowRun(s, Failing, backendDown: true); s.Results.ShowIssues(); Settle(300); ScrollTo(s, "BodyScroll", 900); }, 815);
             // Live retest (R5): the pane at Revit's 652 px (125 % scaling, 524 px wide) with the banner:
             // Issues at least 4 rows at rest, the Checklist at least 3 section rows at rest.
-            Shot(dir, "jkr-live-issues-652-524-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing, backendDown: true); s.Results.ShowIssues(); }, 652, 524);
+            Shot(dir, "jkr-live-issues-652-524-en.png", s => { ShowRun(s, Failing, backendDown: true); s.Results.ShowIssues(); }, 652, 524);
             Shot(dir, "jkr-live-issues-652-524.png", s => { ShowRun(s, Failing, backendDown: true); s.Results.ShowIssues(); }, 652, 524);
-            Shot(dir, "jkr-live-section-d-issues-652-524-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing, backendDown: true); s.Results.OpenGroup("D"); s.Results.ShowSectionIssues(); }, 652, 524);
-            Shot(dir, "jkr-live-checklist-652-524-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing, backendDown: true); }, 652, 524);
+            Shot(dir, "jkr-live-section-d-issues-652-524-en.png", s => { ShowRun(s, Failing, backendDown: true); s.Results.OpenGroup("D"); s.Results.ShowSectionIssues(); }, 652, 524);
+            Shot(dir, "jkr-live-checklist-652-524-en.png", s => { ShowRun(s, Failing, backendDown: true); }, 652, 524);
             Shot(dir, "jkr-live-checklist-652-524.png", s => ShowRun(s, Failing, backendDown: true), 652, 524);
-            Shot(dir, "jkr-live-issues-652-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing, backendDown: true); s.Results.ShowIssues(); }, 652);
-            Shot(dir, "jkr-live-checklist-652-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing, backendDown: true); }, 652);
-            Shot(dir, "jkr-live-issues-search-652-524-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing, backendDown: true); s.Results.ShowIssues(); s.Results.Query = "door"; }, 652, 524);
-            Shot(dir, "jkr-live-checklist-815-en.png", s => { s.Model.IsEn = true; ShowRun(s, Failing, backendDown: true); }, 815);
+            Shot(dir, "jkr-live-issues-652-en.png", s => { ShowRun(s, Failing, backendDown: true); s.Results.ShowIssues(); }, 652);
+            Shot(dir, "jkr-live-checklist-652-en.png", s => { ShowRun(s, Failing, backendDown: true); }, 652);
+            Shot(dir, "jkr-live-issues-search-652-524-en.png", s => { ShowRun(s, Failing, backendDown: true); s.Results.ShowIssues(); s.Results.Query = "door"; }, 652, 524);
+            Shot(dir, "jkr-live-checklist-815-en.png", s => { ShowRun(s, Failing, backendDown: true); }, 815);
             Shot(dir, "jkr-live-checklist-815.png", s => ShowRun(s, Failing, backendDown: true), 815);
             Shot(dir, "jkr-live-checklist-end-815.png", s => { ShowRun(s, Failing, backendDown: true); Settle(300); ScrollTo(s, "BodyScroll", double.MaxValue); }, 815);
             Shot(dir, "jkr-live-aspects-end-815.png", s => { ShowRun(s, Failing, backendDown: true); s.Results.ShowAspectsView(); Settle(300); ScrollTo(s, "BodyScroll", double.MaxValue); }, 815);
@@ -203,7 +203,6 @@ namespace UiHarness
             if (Skip(file)) return;
             try
             {
-                PaneLanguage.Set(en ? PanelStrings.En : PanelStrings.Ms);
                 var doc = BorangDoc.Build(
                     AuditSummary.Build(new[]
                     {
@@ -221,7 +220,7 @@ namespace UiHarness
                 var pdf = BorangPdf.Pdf(doc);
                 var pages = (IReadOnlyList<byte[]>)BorangPdf.Pages(doc, dpi: 150);
                 var w = (Window)Activator.CreateInstance(typeof(BorangPreviewWindow), BindingFlags.Instance | BindingFlags.NonPublic, null,
-                    new object[] { pdf, pages, null, "BIM010_model.pdf", doc.Header.File, 99, (Func<IssueExportFormat, string>)(_ => null), (Action<string>)null }, null);
+                    new object[] { pdf, pages, null, "BIM010_model.pdf", doc.Header.File, 99, (Func<IssueExportFormat, string>)(_ => null) }, null);
                 w.WindowStartupLocation = WindowStartupLocation.Manual;
                 w.ShowInTaskbar = false; w.Left = -4000; w.Top = -4000;
                 w.Show();
@@ -246,7 +245,6 @@ namespace UiHarness
             if (Skip(file)) return;
             try
             {
-                PaneLanguage.Set(en ? PanelStrings.En : PanelStrings.Ms);
                 var vm = new PanelVm();
                 foreach (var i in new[] { ("1", IssueStatus.Open), ("2", IssueStatus.Open), ("3", IssueStatus.Fixed), ("4", IssueStatus.Ignored) })
                     vm.Issues.Add(new IssueVm { Id = i.Item1, Title = "Sample " + i.Item1, Status = i.Item2 });
@@ -272,7 +270,6 @@ namespace UiHarness
             Settle(300);
             try
             {
-                shell.Model.IsEn = en;
                 ShowRun(shell, Failing);
                 Settle(300);
                 var item = shell.Core.Issues.FirstOrDefault(pick);
@@ -313,7 +310,7 @@ namespace UiHarness
                     new JkrConfirmRow("Doors", "Missing type parameter: Kod Jenis JKR", "", "PT1", 204511, isAiProposal: true),
                 };
                 rows.AddRange(samples.Take(ai));
-                var model = new JkrConfirmModel(JkrConfirmKind.Fix, rows, affected, en ? PanelStrings.En : PanelStrings.Ms);
+                var model = new JkrConfirmModel(JkrConfirmKind.Fix, rows, affected);
                 RenderWindow(NewWindow<JkrConfirmWindow>(model), dir, file);
             }
             catch (Exception ex) { Console.WriteLine(file + ": failed — " + ex); }
@@ -330,7 +327,7 @@ namespace UiHarness
                 var lang = en ? PanelStrings.En : PanelStrings.Ms;
                 var r = new RenameResult();
                 void Param(long id, string param, string why) =>
-                    r.RecordFailure(RenameResult.MakeFixKey("set_parameter", id, param), id, PaneText.ParamWhat(param, id, lang), why);
+                    r.RecordFailure(RenameResult.MakeFixKey("set_parameter", id, param), id, PaneText.ParamWhat(param, id), why);
                 if (failures)
                 {
                     for (var i = 0; i < 7; i++)
@@ -347,7 +344,7 @@ namespace UiHarness
                     [930585] = "Doors · jkrAR_PT2p_900x2100",
                     [921291] = "Railings · jkrAR_RL_900",
                 };
-                var model = new FixResultModel(r, applied, fixAll: true, id => labels.TryGetValue(id, out var l) ? l : null, lang);
+                var model = new FixResultModel(r, applied, fixAll: true, id => labels.TryGetValue(id, out var l) ? l : null);
                 RenderWindow(NewWindow<FixResultWindow>(model), dir, file);
             }
             catch (Exception ex) { Console.WriteLine(file + ": failed — " + ex); }
@@ -386,7 +383,7 @@ namespace UiHarness
             var issues = response != null ? IssueMapper.MapAll(response) : new List<IssueVm>();
             var known = new HashSet<string>(issues.Select(i => i.Id));
             issues.AddRange(IssueMapper.FromAuditRecords(records).Where(i => known.Add(i.Id)));
-            issues.AddRange(IssueMapper.FromModelResults(modelResults, shell.Core.Lang).Where(i => known.Add(i.Id)));
+            issues.AddRange(IssueMapper.FromModelResults(modelResults).Where(i => known.Add(i.Id)));
             var unmapped = new List<string>();
             var cells = AuditSummary.CellsFromRecords(records);
             if (response != null) cells.AddRange(IssueMapper.ToCells(response, unmapped));
@@ -553,7 +550,6 @@ namespace UiHarness
             try
             {
                 win.Show(); win.Activate(); Settle(300);
-                shell.Model.IsEn = true;
                 ShowRun(shell, Failing, backendDown: true);
                 Settle(500);
                 shell.UpdateLayout();

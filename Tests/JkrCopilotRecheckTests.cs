@@ -46,7 +46,6 @@ namespace RevitWebAppSync.Tests
                 MarkFixed = (i, toast) => { i.FixedVia = "Copilot"; i.Fixed = true; Marked.Add(i); MarkToasts.Add(toast); },
                 RecheckByScan = _ => { Scans++; return Task.FromResult(ScanResult()); },
                 Toast = Toasts.Add,
-                IsBm = () => false,
             };
         }
 
@@ -86,8 +85,8 @@ namespace RevitWebAppSync.Tests
             var f = new Fake { Outcome = Verified };
             await new JkrCopilotRecheck<Row>(f.Host()).RunAsync(Req);
             Assert.Equal("Fixed via Copilot (2 elements)", Assert.Single(f.MarkToasts));
-            Assert.Equal("Dibaiki melalui Copilot (2 elemen)", JkrCopilotRecheckText.Fixed(true, 2));
-            Assert.Equal("Fixed via Copilot", JkrCopilotRecheckText.Fixed(false, 1));
+            Assert.Equal("Fixed via Copilot (2 elements)", JkrCopilotRecheckText.Fixed(2));
+            Assert.Equal("Fixed via Copilot", JkrCopilotRecheckText.Fixed(1));
         }
 
         // ── rows with no element id of their own (create-type checks): full re-scan, Open until it passes ──
@@ -109,7 +108,7 @@ namespace RevitWebAppSync.Tests
             var f = new Fake { ScanResult = () => true };
             var s = new Session { End = CopilotCardState.None };
             var toasts = new List<string>();
-            var l = new JkrCopilotFixLauncher(s, _ => new[] { "A" }, toasts.Add, () => false, _ => Task.CompletedTask,
+            var l = new JkrCopilotFixLauncher(s, _ => new[] { "A" }, toasts.Add, _ => Task.CompletedTask,
                 indexingTimeout: TimeSpan.FromSeconds(1), turnTimeout: TimeSpan.FromSeconds(5), settle: TimeSpan.FromMilliseconds(500),
                 afterWrite: new JkrCopilotRecheck<Row>(f.Host()).RunAsync);
             Assert.Equal(CopilotLaunchOutcome.NoWrite, await l.LaunchAsync(Req));
@@ -126,7 +125,7 @@ namespace RevitWebAppSync.Tests
             var f = new Fake { ScanResult = () => true }; f.Issue.RevitElementId = 0;
             var s = new Session();
             var toasts = new List<string>();
-            var l = new JkrCopilotFixLauncher(new NoWriteAfterFirst(s), _ => new[] { "A", "B", "C" }, toasts.Add, () => false, _ => Task.CompletedTask,
+            var l = new JkrCopilotFixLauncher(new NoWriteAfterFirst(s), _ => new[] { "A", "B", "C" }, toasts.Add, _ => Task.CompletedTask,
                 indexingTimeout: TimeSpan.FromSeconds(1), turnTimeout: TimeSpan.FromSeconds(5), settle: TimeSpan.FromMilliseconds(500),
                 afterWrite: new JkrCopilotRecheck<Row>(f.Host()).RunAsync);
             Assert.Equal(CopilotLaunchOutcome.Sent, await l.LaunchAsync(Req));
@@ -141,7 +140,7 @@ namespace RevitWebAppSync.Tests
             var f = new Fake { ScanResult = () => true };
             var s = new Session { End = CopilotCardState.None };
             var toasts = new List<string>();
-            var l = new JkrCopilotFixLauncher(s, _ => new[] { "A", "B" }, toasts.Add, () => false, _ => Task.CompletedTask,
+            var l = new JkrCopilotFixLauncher(s, _ => new[] { "A", "B" }, toasts.Add, _ => Task.CompletedTask,
                 indexingTimeout: TimeSpan.FromSeconds(1), turnTimeout: TimeSpan.FromSeconds(5), settle: TimeSpan.FromMilliseconds(500),
                 afterWrite: new JkrCopilotRecheck<Row>(f.Host()).RunAsync);
             Assert.Equal(CopilotLaunchOutcome.NoWrite, await l.LaunchAsync(Req));
@@ -224,7 +223,7 @@ namespace RevitWebAppSync.Tests
         }
 
         private static JkrCopilotFixLauncher Launcher(Session s, Fake f, string[] parts) =>
-            new JkrCopilotFixLauncher(s, _ => parts, _ => { }, () => false, _ => Task.CompletedTask,
+            new JkrCopilotFixLauncher(s, _ => parts, _ => { }, _ => Task.CompletedTask,
                 indexingTimeout: TimeSpan.FromSeconds(1), turnTimeout: TimeSpan.FromSeconds(5), settle: TimeSpan.FromMilliseconds(500),
                 afterWrite: new JkrCopilotRecheck<Row>(f.Host()).RunAsync);
 
@@ -275,7 +274,7 @@ namespace RevitWebAppSync.Tests
             var s = new Session();
             s.End = CopilotCardState.Approved;
             var calls = 0;
-            var l = new JkrCopilotFixLauncher(new DeclineSecond(s, () => calls++), _ => new[] { "A", "B" }, _ => { }, () => false, _ => Task.CompletedTask,
+            var l = new JkrCopilotFixLauncher(new DeclineSecond(s, () => calls++), _ => new[] { "A", "B" }, _ => { }, _ => Task.CompletedTask,
                 indexingTimeout: TimeSpan.FromSeconds(1), turnTimeout: TimeSpan.FromSeconds(5), settle: TimeSpan.FromMilliseconds(500), afterWrite: new JkrCopilotRecheck<Row>(f.Host()).RunAsync);
             Assert.Equal(CopilotLaunchOutcome.Declined, await l.LaunchAsync(Req));
             Assert.Equal(1, f.Rechecks);   // part 1 wrote its ids: they are re-checked (AI-509 review)
@@ -315,7 +314,7 @@ namespace RevitWebAppSync.Tests
         {
             var s = new Session();
             var toasts = new List<string>();
-            var l = new JkrCopilotFixLauncher(s, _ => new[] { "A" }, toasts.Add, () => false, _ => Task.CompletedTask,
+            var l = new JkrCopilotFixLauncher(s, _ => new[] { "A" }, toasts.Add, _ => Task.CompletedTask,
                 indexingTimeout: TimeSpan.FromSeconds(1), turnTimeout: TimeSpan.FromSeconds(5), settle: TimeSpan.FromMilliseconds(500),
                 afterWrite: _ => throw new InvalidOperationException("x"));
             Assert.Equal(CopilotLaunchOutcome.Sent, await l.LaunchAsync(Req));

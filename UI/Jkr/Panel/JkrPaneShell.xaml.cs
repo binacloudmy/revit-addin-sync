@@ -7,7 +7,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel
 {
     /// <summary>
     /// The JKR pane shell (step 7): title bar, context bar with the project file
-    /// and the BM / EN switch, and a body that shows the audit screens, "No model
+    /// and a body that shows the audit screens, "No model
     /// open" or the login-required state. Bound to <see cref="PaneShellModel"/>.
     /// Until steps 8–10 replace them, the audit screens are the existing panel.
     /// </summary>
@@ -75,16 +75,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel
             Running.BackRequested += () => Core.Reset();
 
             Core.Changed += ShowStage;
-            PaneLanguage.Set(Model.Lang);
-            Core.SetLang(Model.Lang);
-            Model.PropertyChanged += (_, __) =>
-            {
-                Core.SetLang(Model.Lang);
-                // Toasts, dialogs, fix errors, steps and Locate messages follow it too.
-                PaneLanguage.Set(Model.Lang);
-                Running.SetLang(Model.Lang);
-                Start.FileLabel = Model.FileLabel;
-            };
+            Model.PropertyChanged += (_, __) => Start.FileLabel = Model.FileLabel;
 
             Model.Model = ActiveModelSource.Current;
             Start.FileLabel = Model.FileLabel;

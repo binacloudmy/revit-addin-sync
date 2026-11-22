@@ -122,7 +122,7 @@
         </Setter>
     </Style>
 
-    <!-- ── BM / EN segmented toggle: sunken pill, the active half white with ink ── -->
+    <!-- ── segmented toggle: sunken pill, the active half white with ink ── -->
     <Style x:Key="Bz.SegButton" TargetType="ToggleButton">
         <Setter Property="Foreground" Value="{StaticResource Bz.Text2}"/>
         <Setter Property="Background" Value="Transparent"/>
@@ -327,7 +327,7 @@
     </Style>
 
     <!-- An option's label, live: with DisplayMemberPath a ComboBox copies the selected
-         label once, so a BM / EN switch never reached the closed box. -->
+         label once, so a relabel never reached the closed box. -->
     <DataTemplate x:Key="Bz.OptionLabel">
         <TextBlock Text="{Binding Label}"/>
     </DataTemplate>

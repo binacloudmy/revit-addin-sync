@@ -129,16 +129,6 @@ namespace RevitWebAppSync.Tests
             Assert.True(m.Item(26).ShowProgress);
         }
 
-        [Fact]
-        public void The_text_follows_the_language()
-        {
-            var m = new ProjectChecklistModel();
-            m.SetLang(PanelStrings.En);
-            var en = m.Item(24).ActionLabel;
-            m.SetLang(PanelStrings.Ms);
-            Assert.NotEqual(en, m.Item(24).ActionLabel);
-        }
-
         // ── rule 26: live progress ──
 
         [Theory]
@@ -195,11 +185,10 @@ namespace RevitWebAppSync.Tests
         // ── AI-440: a failed re-check or write is shown, never silent ──
 
         [Theory]
-        [InlineData("en", "Recheck error: 500 InternalServerError — boom")]
-        [InlineData("ms", "Recheck error: 500 InternalServerError — boom")]
-        public void A_failed_recheck_puts_the_error_on_the_row(string lang, string error)
+        [InlineData("Recheck error: 500 InternalServerError — boom")]
+        public void A_failed_recheck_puts_the_error_on_the_row(string error)
         {
-            var m = new ProjectChecklistModel(); m.SetLang(lang);
+            var m = new ProjectChecklistModel();
             m.Begin(22);
             m.ApplyRecheck(22, Reply(false, error: error));
             var it = m.Item(22);
@@ -209,11 +198,10 @@ namespace RevitWebAppSync.Tests
         }
 
         [Theory]
-        [InlineData("en", "no answer")]
-        [InlineData("ms", "tiada jawapan")]
-        public void A_missing_answer_still_shows_a_words_error_in_the_pane_language(string lang, string expected)
+        [InlineData("no answer")]
+        public void A_missing_answer_still_shows_a_words_error(string expected)
         {
-            var m = new ProjectChecklistModel(); m.SetLang(lang);
+            var m = new ProjectChecklistModel();
             m.ApplyRecheck(23, null);
             Assert.True(m.Item(23).ShowError);
             Assert.Contains(expected, m.Item(23).Error, System.StringComparison.OrdinalIgnoreCase);
@@ -243,14 +231,13 @@ namespace RevitWebAppSync.Tests
         }
 
         [Theory]
-        [InlineData("en", "Could not check")]
-        [InlineData("ms", "Tidak dapat menyemak")]
-        public void The_toast_names_the_rule_and_the_reason(string lang, string lead)
+        [InlineData("Could not check")]
+        public void The_toast_names_the_rule_and_the_reason(string lead)
         {
-            var t = ProjectChecklistText.RecheckFailedToast(22, "HTTP 503", lang);
+            var t = ProjectChecklistText.RecheckFailedToast(22, "HTTP 503");
             Assert.StartsWith(lead, t);
             Assert.Contains("HTTP 503", t);
-            Assert.Contains(ProjectChecklistText.Title(22, lang), t);
+            Assert.Contains(ProjectChecklistText.Title(22), t);
         }
 
         [Fact]

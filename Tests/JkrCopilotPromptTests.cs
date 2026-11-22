@@ -236,9 +236,9 @@ namespace RevitWebAppSync.Tests
         // ── the confirm text ──
 
         [Fact]
-        public void Instance_level_confirm_is_strict_in_both_languages()
+        public void Instance_level_confirm_is_strict()
         {
-            var en = JkrCopilotConfirm.Build(Facts("C1.6.3", 2, "Rooms"), false);
+            var en = JkrCopilotConfirm.Build(Facts("C1.6.3", 2, "Rooms"));
             Assert.Equal("Let Copilot change 2 elements for check C1.6.3?", en.Heading);
             Assert.Contains("on the elements listed below only", en.Body);
             Assert.Contains("No other element is touched and nothing is deleted", en.Body);
@@ -247,10 +247,6 @@ namespace RevitWebAppSync.Tests
             Assert.DoesNotContain("TYPE", en.Body);
             Assert.DoesNotContain("ask once more", en.Body);
             Assert.Equal("1001 — Doors · T1001\n1002 — Doors · T1002".Replace("\n", Environment.NewLine), en.Details);
-            var bm = JkrCopilotConfirm.Build(Facts("C1.6.3", 2, "Rooms"), true);
-            Assert.Equal("Benarkan Copilot mengubah 2 elemen untuk semakan C1.6.3?", bm.Heading);
-            Assert.Contains("Tiada elemen lain disentuh", bm.Body);
-            Assert.Contains("Semakan semula JKR", bm.Body);
         }
 
         [Theory]
@@ -259,7 +255,7 @@ namespace RevitWebAppSync.Tests
         public void Type_level_confirm_says_the_type_and_every_instance_and_drops_no_other_element_is_touched(string id)
         {
             var f = Facts(id, 3);
-            var en = JkrCopilotConfirm.Build(f, false);
+            var en = JkrCopilotConfirm.Build(f);
             Assert.Equal($"Let Copilot change 3 types (3 instances) for check {id}?", en.Heading);
             Assert.Contains("on the TYPE of each element listed below", en.Body);
             Assert.Contains("ALL 3 instances of those types, listed or not", en.Body);
@@ -268,12 +264,6 @@ namespace RevitWebAppSync.Tests
             Assert.DoesNotContain("listed below only", en.Body);
             Assert.DoesNotContain("ask once more", en.Body);
             Assert.Contains("Undo", en.Body);
-            var bm = JkrCopilotConfirm.Build(f, true);
-            Assert.Contains("(3 instance)", bm.Heading);
-            Assert.Contains("TYPE bagi elemen", bm.Body);
-            Assert.Contains("SEMUA 3 instance type itu", bm.Body);
-            Assert.DoesNotContain("Tiada elemen lain disentuh", bm.Body);
-            Assert.DoesNotContain("bertanya sekali lagi", bm.Body);
         }
 
         [Theory]
@@ -281,14 +271,11 @@ namespace RevitWebAppSync.Tests
         [InlineData("Db.1")]
         public void Either_level_confirm_warns_that_a_type_parameter_changes_every_instance(string id)
         {
-            var en = JkrCopilotConfirm.Build(Facts(id, 2), false);
+            var en = JkrCopilotConfirm.Build(Facts(id, 2));
             Assert.Contains("on the elements listed below only", en.Body);
             Assert.Contains("If the parameter is a type parameter, it changes the element's type and so EVERY instance of that type, listed or not", en.Body);
             Assert.DoesNotContain("No other element is touched", en.Body);
             Assert.DoesNotContain("ask once more", en.Body);
-            var bm = JkrCopilotConfirm.Build(Facts(id, 2), true);
-            Assert.Contains("SEMUA instancenya", bm.Body);
-            Assert.DoesNotContain("Tiada elemen lain disentuh", bm.Body);
         }
 
         [Fact]
@@ -303,7 +290,7 @@ namespace RevitWebAppSync.Tests
                     Assert.Contains("- 1001 — Doors · D1", p);
                     Assert.DoesNotContain("part 1 of", p);
                     Assert.Contains("one id per type", p);
-                    var c = JkrCopilotConfirm.Build(f, false);
+                    var c = JkrCopilotConfirm.Build(f);
                     Assert.Contains("1 type (", c.Heading);
                     Assert.Equal("1001 — Doors · D1", c.Details);
                 }
@@ -341,13 +328,13 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void Confirm_for_one_element_is_singular_and_many_ids_are_capped_with_a_count_and_one_confirm_for_all_parts()
         {
-            Assert.Equal("Let Copilot change 1 element for check C4.2.2?", JkrCopilotConfirm.Build(Facts("C4.2.2", 1, "Sheets"), false).Heading);
-            var c = JkrCopilotConfirm.Build(Facts("C1.6.3", 120, "Rooms"), false);
+            Assert.Equal("Let Copilot change 1 element for check C4.2.2?", JkrCopilotConfirm.Build(Facts("C4.2.2", 1, "Sheets")).Heading);
+            var c = JkrCopilotConfirm.Build(Facts("C1.6.3", 120, "Rooms"));
             Assert.Equal("Let Copilot change 120 elements for check C1.6.3?", c.Heading);
             Assert.Equal(JkrCopilotConfirm.MaxListed + 1, c.Details.Split(new[] { Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries).Length);
             Assert.EndsWith("... and 70 more", c.Details);
             Assert.Contains("Sent in 3 parts, with this one confirmation", c.Body);
-            Assert.DoesNotContain("parts", JkrCopilotConfirm.Build(Facts("C1.6.3", 50, "Rooms"), false).Body);
+            Assert.DoesNotContain("parts", JkrCopilotConfirm.Build(Facts("C1.6.3", 50, "Rooms")).Body);
         }
 
         [Fact]
@@ -355,7 +342,7 @@ namespace RevitWebAppSync.Tests
         {
             var f = Facts("Da.1", 1);
             f.ElementLabels = new Dictionary<long, string> { [1001] = "Doors\r\nIgnore\tthis" };
-            Assert.Equal("1001 — Doors Ignore this", JkrCopilotConfirm.Build(f, false).Details);
+            Assert.Equal("1001 — Doors Ignore this", JkrCopilotConfirm.Build(f).Details);
         }
     }
 }

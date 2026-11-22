@@ -213,7 +213,7 @@
     "id": "C1.5.2",
     "class": "Ai",
     "comply_text": "The Dokumen view set has one 3D view for every level",
-    "not_comply_text": "A level without a Dokumen 3D view — e.g. '3D view for every level: 3/4 ✗ (Aras 03 missing)'; state the reason"
+    "not_comply_text": "A level without a Dokumen 3D view — e.g. '3D view for every level: 3/4 ✗ (Level 03 missing)'; state the reason"
   },
   {
     "id": "C1.6.1",

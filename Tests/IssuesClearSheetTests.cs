@@ -57,7 +57,6 @@ namespace RevitWebAppSync.Tests
                            Issue("4", "B1", IssuePriority.Low), Issue("5", "B2", st: IssueStatus.Fixed) }, Summary());
             r.SelectTab(PanelTab.Open);
 
-            core.SetLang(PanelStrings.En);
             Assert.Equal("Search issues", r.SearchPlaceholder);
             Assert.Equal("1 of 5 resolved", r.ProgressLabel);
             Assert.Equal(new[] { "1 high", "2 medium", "1 low" }, r.SevChips.Select(c => c.Text));
@@ -65,13 +64,8 @@ namespace RevitWebAppSync.Tests
             Assert.Equal("4 shown", r.ShownLabel);
             Assert.Equal("Issue state", r.StateTabsAria);
 
-            core.SetLang(PanelStrings.Ms);
-            Assert.Equal("Cari isu", r.SearchPlaceholder);
-            Assert.Equal("1 daripada 5 selesai", r.ProgressLabel);
-            Assert.Equal(new[] { "1 tinggi", "2 sederhana", "1 rendah" }, r.SevChips.Select(c => c.Text));
-            Assert.Equal("Baiki semua 1 perubahan", r.FixAllLabel);
-            Assert.Equal("4 dipapar", r.ShownLabel);
-            Assert.Equal("Status isu", r.StateTabsAria);
+            Assert.Equal(new[] { "1 high", "2 medium", "1 low" }, r.SevChips.Select(c => c.Text));
+            Assert.Equal("4 shown", r.ShownLabel);
         }
 
         // ── rows ──
@@ -80,7 +74,6 @@ namespace RevitWebAppSync.Tests
         public void A_row_with_a_ready_made_fix_shows_old_and_new_values_and_a_meta_line_led_by_its_severity()
         {
             var (r, core) = New();
-            core.SetLang(PanelStrings.En);
             r.Load(new[] { Issue("1", "D10", IssuePriority.High, fixable: true) }, Summary());
             var row = r.Rows.Single();
             Assert.True(row.HasChange);
@@ -99,15 +92,12 @@ namespace RevitWebAppSync.Tests
         {
             var (r, core) = New();
             r.Load(new[] { Issue("1", "B1", actual: "Enter address here"), Issue("2", "B1", actual: "") }, Summary());
-            core.SetLang(PanelStrings.En);
             var withValue = r.Rows.Single(x => x.Id == "1");
             var without = r.Rows.Single(x => x.Id == "2");
             Assert.False(withValue.HasChange);
             Assert.Equal("Still reads “Enter address here”. Needs manual action.", withValue.NoFixText);
             Assert.Equal("No ready-made fix. Needs manual action.", without.NoFixText);
-            core.SetLang(PanelStrings.Ms);
-            Assert.Equal("Masih tertulis “Enter address here”. Perlu tindakan manual.", r.Rows.Single(x => x.Id == "1").NoFixText);
-            Assert.Equal("Tiada pembaikan sedia. Perlu tindakan manual.", r.Rows.Single(x => x.Id == "2").NoFixText);
+            Assert.Equal("Still reads “Enter address here”. Needs manual action.", r.Rows.Single(x => x.Id == "1").NoFixText);
         }
 
         [Fact]
@@ -115,7 +105,6 @@ namespace RevitWebAppSync.Tests
         {
             var (r, core) = New();
             r.Load(new[] { Ai("1", "D11"), Ai("2", "D11", actual: "") }, Summary());
-            core.SetLang(PanelStrings.En);
             var row = r.Rows.Single(x => x.Id == "1");
             Assert.True(row.IsAiFixer);
             Assert.False(row.ShowFix);                      // the row's bolt is for ready-made fixes
@@ -127,11 +116,7 @@ namespace RevitWebAppSync.Tests
             Assert.StartsWith("Medium · ", row.Meta);
             Assert.Equal("Still reads “Metal White”. The AI fixer can propose a fix.", row.NoFixText);
             Assert.Equal("No ready-made fix. The AI fixer can propose one.", r.Rows.Single(x => x.Id == "2").NoFixText);
-            core.SetLang(PanelStrings.Ms);
             row = r.Rows.Single(x => x.Id == "1");
-            Assert.EndsWith(" · Pembaiki AI boleh mencadangkan", row.Meta);
-            Assert.Equal("Pembaiki AI boleh mencadangkan", row.AiMarkLabel);
-            Assert.Equal("Masih tertulis “Metal White”. Pembaiki AI boleh mencadangkan pembaikan.", row.NoFixText);
         }
 
         [Fact]
@@ -154,7 +139,6 @@ namespace RevitWebAppSync.Tests
             info.RevitCategory = ""; info.Element = new ElementRef { Id = "—", Name = "Project Information" };
             info.Spec = new SpecRef { Doc = "doc09", Clause = "5.4.1" };
             r.Load(new[] { info }, Summary());
-            core.SetLang(PanelStrings.En);
             var meta = r.Rows.Single().Meta;
             Assert.Equal("Medium · Project Information · Doc 09 · 5.4.1", meta);
         }
@@ -171,7 +155,6 @@ namespace RevitWebAppSync.Tests
             };
             var core = new PanelCore(new[] { item }, null, new ManualClock());
             var r = new ResultsScreenModel(core, new StartScreenModel(core));
-            core.SetLang(PanelStrings.En);
             var row = r.Rows.Single();
             Assert.True(row.IsAiFixer);
             Assert.True(row.HasChange);
@@ -179,10 +162,7 @@ namespace RevitWebAppSync.Tests
             Assert.Equal("", row.NoFixText);
             Assert.EndsWith(" · AI fixer proposal", row.Meta);
             Assert.Equal("AI fixer proposal", row.AiMarkLabel);
-            core.SetLang(PanelStrings.Ms);
             row = r.Rows.Single();
-            Assert.EndsWith(" · Cadangan pembaiki AI", row.Meta);
-            Assert.Equal("Cadangan pembaiki AI", row.AiMarkLabel);
         }
 
         private static IssueVm WithStatus(IssueVm i, IssueStatus s) { i.Status = s; return i; }
@@ -191,7 +171,6 @@ namespace RevitWebAppSync.Tests
         public void A_resolved_row_leads_its_meta_with_Resolved()
         {
             var (r, core) = New();
-            core.SetLang(PanelStrings.En);
             r.Load(new[] { Issue("1", "D10", fixable: true, st: IssueStatus.Fixed) }, Summary());
             r.SelectTab(PanelTab.Resolved);
             Assert.StartsWith("Resolved · ", r.Rows.Single().Meta);

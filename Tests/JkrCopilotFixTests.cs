@@ -121,21 +121,11 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void The_tooltip_and_label_follow_the_pane_language()
+        public void The_tooltip_and_label_are_English()
         {
-            Assert.Equal("Fix via Copilot", JkrCopilotFix.Label("en"));
-            Assert.Contains("new Copilot chat", JkrCopilotFix.Tooltip("en"));
-            Assert.Contains("confirm", JkrCopilotFix.Tooltip("en"));
-            Assert.Equal("Baiki melalui Copilot", JkrCopilotFix.Label("ms"));
-            Assert.Contains("sembang Copilot baharu", JkrCopilotFix.Tooltip("ms"));
-            Assert.Contains("pengesahan", JkrCopilotFix.Tooltip("ms"));
-            var was = PaneLanguage.Current;
-            try
-            {
-                PaneLanguage.Set(PanelStrings.En); Assert.Equal(JkrCopilotFix.Tooltip("en"), JkrCopilotFix.Tooltip());
-                PaneLanguage.Set(PanelStrings.Ms); Assert.Equal(JkrCopilotFix.Tooltip("ms"), JkrCopilotFix.Tooltip());
-            }
-            finally { PaneLanguage.Set(was); }
+            Assert.Equal("Fix via Copilot", JkrCopilotFix.Label());
+            Assert.Contains("new Copilot chat", JkrCopilotFix.Tooltip());
+            Assert.Contains("confirm", JkrCopilotFix.Tooltip());
         }
 
         private sealed class Spy : ICopilotFixLauncher

@@ -13,11 +13,11 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
     public static class JkrCopilotFixInstaller
     {
         /// <summary>The prompt builder of the protocol-3 rework (set_parameters wording; see JkrCopilotPrompt).</summary>
-        public static Func<IssueVm, bool, IReadOnlyList<string>> DefaultPromptBuilder { get; } = (issue, bm) => JkrCopilotPrompt.Build(issue);
+        public static Func<IssueVm, IReadOnlyList<string>> DefaultPromptBuilder { get; } = issue => JkrCopilotPrompt.Build(issue);
 
-        /// <summary>The prompt parts for a row, in the pane language (<c>bm</c>), none over the element-id cap. Default: the
+        /// <summary>The prompt parts for a row (English), none over the element-id cap. Default: the
         /// protocol-3 builder. Null hides the button for every row.</summary>
-        public static Func<IssueVm, bool, IReadOnlyList<string>> PromptBuilder { get; set; } = DefaultPromptBuilder;
+        public static Func<IssueVm, IReadOnlyList<string>> PromptBuilder { get; set; } = DefaultPromptBuilder;
 
         /// <summary>Sets the launcher, or clears it (button hidden) when there is no prompt builder, no session or no confirm.
         /// The confirm is required: on the merged engine nothing else asks the person before a write.</summary>
@@ -45,13 +45,12 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                         return JkrCopilotPrompt.Build(factsOf(req));
                     }
                     var issue = issueById(req.IssueId) ?? throw new InvalidOperationException("the row is no longer in the list");
-                    return build(issue, !PaneLanguage.IsEn);
+                    return build(issue);
                 },
                 notify,
-                () => !PaneLanguage.IsEn,
                 afterWrite: recheck == null ? (Func<CopilotFixRequest, System.Threading.Tasks.Task>)null : new JkrCopilotRecheck<IssueVm>(recheck).RunAsync,
                 confirmedWrite: (req, part) => JkrCopilotConfirmedWrite.ForPart(factsOf(req), part),
-                confirm: req => confirm(JkrCopilotConfirm.Build(factsOf(req), !PaneLanguage.IsEn)));
+                confirm: req => confirm(JkrCopilotConfirm.Build(factsOf(req))));
         }
     }
 }

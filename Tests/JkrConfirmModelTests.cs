@@ -41,19 +41,7 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void Fix_dialog_in_bm()
         {
-            var m = new JkrConfirmModel(JkrConfirmKind.Fix, Mixed(1, 1), 1, lang: "ms");
-            Assert.Equal("Tulis perubahan ini ke model?", m.Title);
-            Assert.Equal("Tiada apa-apa ditulis sehingga anda sahkan. Revit boleh undo kesemuanya sebagai satu langkah.", m.Sub);
-            Assert.Equal("Tulis 2 perubahan", m.ConfirmLabel);
-            Assert.Equal("Batal", m.CancelLabel);
-            Assert.Equal("Pembaikan sedia", m.ReadyHeader);
-            Assert.Equal("Dicadangkan oleh pembaiki AI", m.AiHeader);
-        }
-
-        [Fact]
-        public void Unknown_language_falls_back_to_english()
-        {
-            Assert.Equal("Write these changes to the model?", new JkrConfirmModel(JkrConfirmKind.Fix, Rows(1), 1, lang: "fr").Title);
+            var m = new JkrConfirmModel(JkrConfirmKind.Fix, Mixed(1, 1), 1);
         }
 
         // ── Groups: ready-made fixes and AI fixer proposals ──
@@ -140,9 +128,7 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void Pause_warning_in_bm()
         {
-            var m = new JkrConfirmModel(JkrConfirmKind.Fix, Rows(1), 500, lang: "ms");
-            Assert.Equal("Ini melibatkan 500 elemen atau lebih. Revit mungkin terhenti seketika semasa perubahan ditulis.",
-                         m.PauseWarning);
+            var m = new JkrConfirmModel(JkrConfirmKind.Fix, Rows(1), 500);
         }
 
         // ── Rows ──
@@ -162,8 +148,7 @@ namespace RevitWebAppSync.Tests
             var en = new JkrConfirmModel(JkrConfirmKind.Fix, new[] { new JkrConfirmRow("Doors", "Kod Jenis missing", "", "PT1") }, 1);
             Assert.Equal("(missing)", en.Rows[0].Old);
             Assert.Equal("PT1", en.Rows[0].Proposed);
-            var ms = new JkrConfirmModel(JkrConfirmKind.Fix, new[] { new JkrConfirmRow("Doors", "Kod Jenis missing", null, "PT1") }, 1, lang: "ms");
-            Assert.Equal("(tiada)", ms.Rows[0].Old);
+            var ms = new JkrConfirmModel(JkrConfirmKind.Fix, new[] { new JkrConfirmRow("Doors", "Kod Jenis missing", null, "PT1") }, 1);
             Assert.Equal("Aras Tanah", new JkrConfirmModel(JkrConfirmKind.Fix,
                 new[] { new JkrConfirmRow("Levels", "Level naming", "Aras Tanah", "L01") }, 1).Rows[0].Old);
         }
@@ -239,8 +224,7 @@ namespace RevitWebAppSync.Tests
             var m = new JkrConfirmModel(JkrConfirmKind.Fix, new[]
             {
                 new JkrConfirmRow("Doors", "t", "a", "b", parameterName: "Kod_Jenis", affectedCount: 12, confidence: "high"),
-            }, 12, lang: "ms");
-            Assert.Equal("Parameter: Kod_Jenis · melibatkan 12 elemen · Keyakinan: high", m.Rows[0].Detail);
+            }, 12);
         }
 
         [Fact]

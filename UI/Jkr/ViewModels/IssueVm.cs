@@ -109,9 +109,9 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// </summary>
         public List<string> ManualFixSteps => StepsIn();
 
-        /// <summary><see cref="ManualFixSteps"/>, English only (AI-513). <paramref name="lang"/> is ignored; kept
-        /// so existing callers compile.</summary>
-        public List<string> StepsIn(string lang = null)
+        /// <summary><see cref="ManualFixSteps"/>. The backend's own steps are shown as the
+        /// backend wrote them.</summary>
+        public List<string> StepsIn()
         {
             if (Steps != null && Steps.Count > 0) return Steps;
             if (!string.IsNullOrWhiteSpace(HowToFix)) return new List<string> { HowToFix.Trim() };
@@ -120,7 +120,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
 
             var steps = new List<string>();
             var target = !string.IsNullOrEmpty(FixValue) ? FixValue : Required;
-            // FixError is the recorded (English) reason; matched here, translated when shown.
+            // FixError is the recorded (English) reason; matched here.
             var missing = Actual == "(element not found)" || (FixError ?? "").IndexOf("not found", System.StringComparison.OrdinalIgnoreCase) >= 0;
             if (missing && (FixError ?? "").IndexOf("not found on element", System.StringComparison.OrdinalIgnoreCase) < 0)
             {

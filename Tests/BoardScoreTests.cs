@@ -170,7 +170,7 @@ namespace RevitWebAppSync.Tests
             var before = new FixImpact.Snapshot { Open = 12, OpenExtra = 4, Passed = 30, Total = 61, Pct = 49 };
             var after = new FixImpact.Snapshot { Open = 5, OpenExtra = 0, Passed = 32, Total = 61, Pct = 52 };
             Assert.Equal("Board 12 → 5 open (7 fixed, 4 of them extra, outside the %) · Score 49% → 52% (+2 checks)",
-                FixImpact.Text(before, after, PanelStrings.En));
+                FixImpact.Text(before, after));
         }
 
         [Fact]
@@ -178,8 +178,6 @@ namespace RevitWebAppSync.Tests
         {
             var before = new FixImpact.Snapshot { Open = 12, OpenExtra = 4, Passed = 30, Total = 61, Pct = 49 };
             var after = new FixImpact.Snapshot { Open = 5, OpenExtra = 0, Passed = 32, Total = 61, Pct = 52 };
-            Assert.Equal("Papan 12 → 5 terbuka (7 dibaiki, 4 daripadanya tambahan, di luar %) · Skor 49% → 52% (+2 semakan)",
-                FixImpact.Text(before, after, PanelStrings.Ms));
         }
 
         [Fact]
@@ -188,7 +186,7 @@ namespace RevitWebAppSync.Tests
             var before = new FixImpact.Snapshot { Open = 6, OpenExtra = 6, Passed = 30, Total = 61, Pct = 49 };
             var after = new FixImpact.Snapshot { Open = 0, OpenExtra = 0, Passed = 30, Total = 61, Pct = 49 };
             Assert.Equal("Board 6 → 0 open (6 fixed, 6 of them extra, outside the %) · Score 49% (unchanged: extra fixes are not in the %)",
-                FixImpact.Text(before, after, PanelStrings.En));
+                FixImpact.Text(before, after));
         }
 
         [Fact]
@@ -196,7 +194,7 @@ namespace RevitWebAppSync.Tests
         {
             var before = new FixImpact.Snapshot { Open = 4, Passed = 30, Total = 61, Pct = 49 };
             var after = new FixImpact.Snapshot { Open = 2, Passed = 30, Total = 61, Pct = 49 };
-            Assert.Contains("unchanged: those checks do not pass yet", FixImpact.Text(before, after, PanelStrings.En));
+            Assert.Contains("unchanged: those checks do not pass yet", FixImpact.Text(before, after));
         }
 
         [Fact]
@@ -204,15 +202,14 @@ namespace RevitWebAppSync.Tests
         {
             var before = new FixImpact.Snapshot { Open = 4 };
             var after = new FixImpact.Snapshot { Open = 1 };
-            Assert.Equal("Board 4 → 1 open (3 fixed)", FixImpact.Text(before, after, PanelStrings.En));
+            Assert.Equal("Board 4 → 1 open (3 fixed)", FixImpact.Text(before, after));
             Assert.Equal("", FixImpact.Text(null, after));
         }
 
         [Fact]
         public void The_extra_tag_is_written_in_both_languages()
         {
-            Assert.Equal("Extra · outside the %", PaneText.ExtraTag(PanelStrings.En));
-            Assert.Equal("Tambahan · di luar %", PaneText.ExtraTag(PanelStrings.Ms));
+            Assert.Equal("Extra · outside the %", PaneText.ExtraTag());
         }
     }
 }

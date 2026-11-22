@@ -245,7 +245,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// joined; a failure among them makes it an AI verdict).
         /// </summary>
         public static List<IssueVm> FromModelResults(
-            IEnumerable<RevitWebAppSync.UI.Jkr.Panel.Core.SpecResult> results, string lang = null)
+            IEnumerable<RevitWebAppSync.UI.Jkr.Panel.Core.SpecResult> results)
         {
             var list = new List<IssueVm>();
             var byId = new Dictionary<string, IssueVm>(StringComparer.Ordinal);
@@ -254,7 +254,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 if (!RevitWebAppSync.UI.Jkr.Panel.Core.SpecModelIssues.GivesIssue(r)) continue;
                 var id = r.IssueId.Trim();
                 var ai = RevitWebAppSync.UI.Jkr.Panel.Core.SpecModelIssues.IsAiVerdict(r);
-                var description = RevitWebAppSync.UI.Jkr.Panel.Core.SpecModelIssues.Description(r, lang);
+                var description = RevitWebAppSync.UI.Jkr.Panel.Core.SpecModelIssues.Description(r);
                 if (byId.TryGetValue(id, out var same))
                 {
                     if (description.Length > 0 && (same.Description ?? "").IndexOf(description, StringComparison.Ordinal) < 0)
@@ -279,7 +279,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     RawRule = string.IsNullOrEmpty(r.Rule) ? checkId : r.Rule,
                     Category = string.IsNullOrEmpty(section) ? "Spec" : "Borang " + section,
                     RevitCategory = RevitWebAppSync.UI.Jkr.Panel.Core.SpecModelIssues.RevitCategoryOf(r),
-                    Title = RevitWebAppSync.UI.Jkr.Panel.Core.SpecModelIssues.Title(r, lang),
+                    Title = RevitWebAppSync.UI.Jkr.Panel.Core.SpecModelIssues.Title(r),
                     Description = description,
                     Actual = r.Actual ?? "",
                     Required = r.Required ?? "",

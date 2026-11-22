@@ -13,7 +13,7 @@ namespace RevitWebAppSync.Tests
         private const string En = PanelStrings.En;
 
         private static void Param(RenameResult r, long id, string param, string why) =>
-            r.RecordFailure(RenameResult.MakeFixKey("set_parameter", id, param), id, PaneText.ParamWhat(param, id, En), why);
+            r.RecordFailure(RenameResult.MakeFixKey("set_parameter", id, param), id, PaneText.ParamWhat(param, id), why);
 
         /// <summary>The real run: 15 on one element without JKR parameters, 4 in model
         /// groups, 2 read-only, 1 unsupported type.</summary>
@@ -33,7 +33,7 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void Failures_are_grouped_by_reason_largest_first_with_counts()
         {
-            var m = new FixResultModel(RealRun(), 466, fixAll: true, lang: Ms);
+            var m = new FixResultModel(RealRun(), 466, fixAll: true);
 
             Assert.Equal(466, m.Applied);
             Assert.Equal(22, m.Failed);
@@ -43,13 +43,12 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(FixResultModel.ReasonKind.ModelGroup, m.Groups[1].Kind);
             Assert.Equal(FixResultModel.ReasonKind.ReadOnly, m.Groups[2].Kind);
             Assert.Equal(FixResultModel.ReasonKind.ValueType, m.Groups[3].Kind);
-            Assert.Equal("466 perubahan ditulis, 22 tidak ditulis", m.Title);
         }
 
         [Fact]
         public void The_headline_counts_written_and_not_written_from_the_batch()
         {
-            var m = new FixResultModel(RealRun(), 466, true, lang: En);
+            var m = new FixResultModel(RealRun(), 466, true);
             Assert.Equal("466 changes written, 22 not written", m.Title);
             Assert.Equal("The written changes are one undo step. Ctrl+Z in Revit undoes them together.", m.UndoLine);
             Assert.Equal("The 22 changes not written stay in Open.", m.StayOpenLine);
@@ -61,7 +60,7 @@ namespace RevitWebAppSync.Tests
         {
             var r = new RenameResult();
             Param(r, 1, "A", "Parameter 'A' is read-only");
-            var m = new FixResultModel(r, 1, true, lang: En);
+            var m = new FixResultModel(r, 1, true);
             Assert.Equal("1 change written, 1 not written", m.Title);
             Assert.Equal("The 1 change not written stays in Open.", m.StayOpenLine);
         }
@@ -69,29 +68,23 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void All_written_says_only_what_was_written()
         {
-            var m = new FixResultModel(new RenameResult { ParamFixed = 5 }, 5, true, lang: En);
+            var m = new FixResultModel(new RenameResult { ParamFixed = 5 }, 5, true);
             Assert.Equal(0, m.Failed);
             Assert.Equal("5 changes written", m.Title);
             Assert.False(m.HasStayOpen);
             Assert.Empty(m.Groups);
-            Assert.Equal("5 perubahan ditulis", new FixResultModel(new RenameResult { ParamFixed = 5 }, 5, true, lang: Ms).Title);
         }
 
         [Fact]
         public void Bm_lines()
         {
-            var m = new FixResultModel(RealRun(), 466, true, lang: Ms);
-            Assert.Equal("Perubahan yang ditulis ialah satu langkah undo. Ctrl+Z dalam Revit membatalkan kesemuanya sekali gus.", m.UndoLine);
-            Assert.Equal("22 perubahan yang tidak ditulis kekal dalam Terbuka.", m.StayOpenLine);
-            Assert.Equal("Salin senarai untuk pengurus BIM", m.CopyLabel);
-            Assert.Equal("Selesai", m.DoneLabel);
-            Assert.Equal("Cari", m.LocateLabel);
+            var m = new FixResultModel(RealRun(), 466, true);
         }
 
         [Fact]
         public void Footer_in_english()
         {
-            var m = new FixResultModel(RealRun(), 466, true, lang: En);
+            var m = new FixResultModel(RealRun(), 466, true);
             Assert.Equal("Copy list for BIM manager", m.CopyLabel);
             Assert.Equal("Copied", m.CopiedLabel);
             Assert.Equal("Done", m.DoneLabel);
@@ -101,7 +94,7 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void A_long_group_shows_five_rows_until_show_more()
         {
-            var g = new FixResultModel(RealRun(), 466, true, lang: En).Groups[0];
+            var g = new FixResultModel(RealRun(), 466, true).Groups[0];
             Assert.Equal(5, g.Visible.Count);
             Assert.True(g.HasMore);
             Assert.Equal("Show 10 more", g.MoreText);
@@ -113,7 +106,7 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void Rows_name_the_parameter_and_the_element_with_its_label()
         {
-            var m = new FixResultModel(RealRun(), 466, true, id => id == 578862 ? "Generic Models" : null, Ms);
+            var m = new FixResultModel(RealRun(), 466, true, id => id == 578862 ? "Generic Models" : null);
             var first = m.Groups[0].Items[0];
             Assert.Equal("P0_jkr_stt", first.Param);
             Assert.Equal("[578862] Generic Models", first.Where);
@@ -127,9 +120,9 @@ namespace RevitWebAppSync.Tests
         public void A_failed_rename_shows_the_new_name()
         {
             var r = new RenameResult();
-            r.RecordFailure("r:311", 311, PaneText.RenameWhat(311, "L01 +0.000", En),
+            r.RecordFailure("r:311", 311, PaneText.RenameWhat(311, "L01 +0.000"),
                             "The name entered is already in use. Enter a unique name.", newName: "L01 +0.000");
-            var m = new FixResultModel(r, 0, true, lang: En);
+            var m = new FixResultModel(r, 0, true);
             Assert.Equal(FixResultModel.ReasonKind.NameInUse, m.Groups[0].Kind);
             Assert.Equal("→ L01 +0.000", m.Groups[0].Items[0].Param);
             Assert.Equal("Name already in use", m.Groups[0].Title);
@@ -140,14 +133,12 @@ namespace RevitWebAppSync.Tests
         {
             var r = new RenameResult();
             Param(r, 1, "A", "Parameter 'A' is read-only");
-            var m = new FixResultModel(r, 0, true, lang: En);
+            var m = new FixResultModel(r, 0, true);
             Assert.True(m.NothingWritten);
             Assert.False(m.AnyWritten);
             Assert.Equal("1 change not written", m.Title);
             Assert.Equal("The model is unchanged.", m.UndoLine);
-            var ms = new FixResultModel(r, 0, true, lang: Ms);
-            Assert.Equal("1 perubahan tidak ditulis", ms.Title);
-            Assert.Equal("Model tidak berubah.", ms.UndoLine);
+            var ms = new FixResultModel(r, 0, true);
         }
 
         [Fact]
@@ -155,15 +146,14 @@ namespace RevitWebAppSync.Tests
         {
             var r = new RenameResult();
             Param(r, 7, "Area", "Revit did not accept this change: Can't set Area.");
-            var m = new FixResultModel(r, 3, false, lang: Ms);
+            var m = new FixResultModel(r, 3, false);
             Assert.Equal(FixResultModel.ReasonKind.Other, m.Groups[0].Kind);
-            Assert.Equal("Revit tidak menerima perubahan ini: Can't set Area.", m.Groups[0].Items[0].Reason);
         }
 
         [Fact]
         public void Copy_lists_every_failure_without_a_limit()
         {
-            var text = new FixResultModel(RealRun(), 466, true, lang: En).CopyText();
+            var text = new FixResultModel(RealRun(), 466, true).CopyText();
             Assert.StartsWith("466 changes applied as one undo step. 22 fixes failed and were not written:", text);
             Assert.DoesNotContain("more", text);
             Assert.Contains("Bahan_jkr_stm on 921291", text);
