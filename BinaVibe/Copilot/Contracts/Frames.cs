@@ -110,6 +110,31 @@ namespace BinaVibe.Copilot.Contracts
         [JsonPropertyName("lang")] public string? Lang { get; set; }
         [JsonPropertyName("snapshot")] public SnapshotModel Snapshot { get; set; } = new();
         [JsonPropertyName("attachments")] public List<AttachmentDto> Attachments { get; set; } = new();
+        /// <summary>AI-490: the scope the add-in's own confirm dialog (Fix via Copilot) already got a yes for. Null (omitted from
+        /// the JSON) on every turn the person types; the server then asks as usual. Sent on turn start only, never on /results.</summary>
+        [JsonPropertyName("confirmed_write")] public ConfirmedWriteDto? ConfirmedWrite { get; set; }
+    }
+
+    /// <summary>AI-490: <c>confirmed_write</c> on POST /copilot/turns (bina-ai PR #402, contracts/copilot/protocol3.schema.json).
+    /// The server skips its "Needs your OK" card for a set_parameters call of one of <see cref="Params"/> wholly inside this scope.</summary>
+    public sealed class ConfirmedWriteDto
+    {
+        public const string SourceJkrFix = "jkr_fix";
+        public const string ToolSetParameters = "set_parameters";
+        public const int MaxIds = 2000, MaxTypes = 200, MaxParams = 20, MaxCheckIdLength = 120;
+
+        [JsonPropertyName("source")] public string Source { get; set; } = SourceJkrFix;
+        /// <summary>Audit log only.</summary>
+        [JsonPropertyName("check_id")] public string CheckId { get; set; } = "";
+        [JsonPropertyName("tool")] public string Tool { get; set; } = ToolSetParameters;
+        /// <summary>Element ids the dialog showed. For a type-level family: one INSTANCE id per type (the ids the prompt gives Copilot).</summary>
+        [JsonPropertyName("ids")] public List<long> Ids { get; set; } = new();
+        /// <summary>Parameter names the prompt asks Copilot to set.</summary>
+        [JsonPropertyName("params")] public List<string> Params { get; set; } = new();
+        /// <summary>True when <see cref="Ids"/> stand for TYPES (a type-parameter write changes every instance of each type).</summary>
+        [JsonPropertyName("type_level")] public bool? TypeLevel { get; set; }
+        /// <summary>Type-level only: the total instances the dialog showed for those types. The server asks again when the real reach is larger.</summary>
+        [JsonPropertyName("instances")] public int? Instances { get; set; }
     }
 
     public sealed class AttachmentDto

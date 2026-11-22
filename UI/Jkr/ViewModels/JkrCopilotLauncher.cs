@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using BinaVibe.Copilot.Contracts;
+using RevitWebAppSync.Services;
 
 namespace RevitWebAppSync.UI.Jkr.ViewModels
 {
@@ -129,6 +131,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         private readonly Func<bool> _isBm;
         private readonly Func<CopilotFixRequest, Task> _afterWrite;
         private readonly Func<CopilotFixRequest, bool> _confirm;
+        private readonly Func<CopilotFixRequest, int, ConfirmedWriteDto> _confirmedWrite;
         private readonly Func<TimeSpan, Task> _delay;
         private readonly TimeSpan _poll, _indexingTimeout, _turnTimeout, _startGrace, _settle;
         private int _running;
@@ -138,6 +141,9 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// <param name="confirm">The one confirm per check (ids, change, undo): asked on the UI thread before the pane is opened or the chat
         /// cleared. False = the person said No; nothing is sent. The app always passes one (<see cref="JkrCopilotFixInstaller.Install"/> refuses to
         /// build a launcher without it, a source-guard test pins that); null (no confirm step) is for unit tests of the sequence only.</param>
+        /// <param name="confirmedWrite">AI-490: the <c>confirmed_write</c> field for prompt part i (0-based), attached ONLY to a turn sent
+        /// after <paramref name="confirm"/> said Ya (null: none). Armed in <see cref="ConfirmedWriteSlot"/> just before the part is sent and
+        /// cleared when the launch ends, so a normal chat turn never carries it.</param>
         /// <param name="notify">Shows a message to the person (the JKR toast).</param>
         /// <param name="isBm">The pane language is Bahasa Melayu (default text language of the pane).</param>
         /// <param name="delay">Wait between polls; tests pass an instant one. Default <see cref="Task.Delay(TimeSpan)"/>.</param>
@@ -145,8 +151,9 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             Action<string> notify, Func<bool> isBm = null, Func<TimeSpan, Task> delay = null,
             TimeSpan? indexingTimeout = null, TimeSpan? turnTimeout = null, TimeSpan? poll = null,
             TimeSpan? startGrace = null, TimeSpan? settle = null, Func<CopilotFixRequest, Task> afterWrite = null,
-            Func<CopilotFixRequest, bool> confirm = null)
+            Func<CopilotFixRequest, bool> confirm = null, Func<CopilotFixRequest, int, ConfirmedWriteDto> confirmedWrite = null)
         {
+            _confirmedWrite = confirmedWrite;
             _afterWrite = afterWrite;
             _confirm = confirm;
             _session = session ?? throw new ArgumentNullException(nameof(session));
@@ -186,6 +193,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             }
             finally
             {
+                ConfirmedWriteSlot.Clear();   // AI-490: whatever ended the launch, nothing stays armed for the next chat turn
                 Interlocked.Exchange(ref _running, 0);
             }
         }
@@ -260,8 +268,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     _notify(Text.PaneClosed(bm, i, parts.Count));
                     return CopilotLaunchOutcome.PaneClosed;
                 }
-                try { _session.Send(part); }
-                catch (Exception ex) { _notify(Text.SendFailed(bm, ex.Message)); return CopilotLaunchOutcome.SendFailed; }
+                try { ConfirmedWriteSlot.Arm(part, ok ? ConfirmedFor(request, i) : null); _session.Send(part); }
+                catch (Exception ex) { ConfirmedWriteSlot.Clear(); _notify(Text.SendFailed(bm, ex.Message)); return CopilotLaunchOutcome.SendFailed; }
 
                 // AI-495: the last turn is awaited too: the re-check runs once its write is done.
                 var end = await WaitForTurnAsync().ConfigureAwait(true);
@@ -286,6 +294,14 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 catch (Exception ex) { _notify(Text.SendFailed(bm, ex.Message)); }
             }
             return CopilotLaunchOutcome.Sent;
+        }
+
+        /// <summary>AI-490: the field for part i, or null (a build failure never stops the fix: the server just asks as before).</summary>
+        private ConfirmedWriteDto ConfirmedFor(CopilotFixRequest request, int part)
+        {
+            if (_confirmedWrite == null || _confirm == null) return null;   // no dialog, no confirmation to pass on
+            try { return _confirmedWrite(request, part); }
+            catch { return null; }
         }
 
         /// <summary>True when the condition cleared within the timeout.</summary>
