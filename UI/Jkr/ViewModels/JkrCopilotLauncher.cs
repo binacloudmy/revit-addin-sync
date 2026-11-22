@@ -52,6 +52,32 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         Declined,
     }
 
+    /// <summary>One card message on the Copilot thread (Ya/Tidak, question or code card).</summary>
+    public readonly struct CopilotCardInfo
+    {
+        public CopilotCardInfo(bool resolved, bool? approved) { Resolved = resolved; Approved = approved; }
+        public bool Resolved { get; }
+        /// <summary>Ya = true, Tidak = false; null while open.</summary>
+        public bool? Approved { get; }
+    }
+
+    public static class CopilotCards
+    {
+        /// <summary>The state of the cards given (in thread order): any open one wins, else the newest resolved one
+        /// (Ya = Approved, Tidak = Declined), else None. Callers pass ONLY the cards added since the current part was
+        /// sent, so an earlier part's Approved card is never read as this part's write.</summary>
+        public static CopilotCardState Read(IEnumerable<CopilotCardInfo> cardsSinceSend)
+        {
+            var state = CopilotCardState.None;
+            foreach (var c in cardsSinceSend)
+            {
+                if (!c.Resolved) return CopilotCardState.Open;
+                state = c.Approved == false ? CopilotCardState.Declined : CopilotCardState.Approved;
+            }
+            return state;
+        }
+    }
+
     /// <summary>How a launch ended.</summary>
     public enum CopilotLaunchOutcome
     {

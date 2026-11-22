@@ -245,6 +245,56 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
+        public void Cards_are_read_from_the_cards_since_the_send_not_the_whole_chat()
+        {
+            // thread: [part1 card approved] | send part 2 here (mark) | nothing yet
+            var thread = new List<CopilotCardInfo> { new CopilotCardInfo(true, true) };
+            var mark = thread.Count;
+            Assert.Equal(CopilotCardState.None, CopilotCards.Read(thread.GetRange(mark, thread.Count - mark)));      // stale Approved is not part 2's
+            Assert.Equal(CopilotCardState.Approved, CopilotCards.Read(thread));                                      // the old whole-chat read (the bug)
+            thread.Add(new CopilotCardInfo(false, null));
+            Assert.Equal(CopilotCardState.Open, CopilotCards.Read(thread.GetRange(mark, thread.Count - mark)));
+            thread[1] = new CopilotCardInfo(true, false);
+            Assert.Equal(CopilotCardState.Declined, CopilotCards.Read(thread.GetRange(mark, thread.Count - mark)));
+            Assert.Equal(CopilotCardState.None, CopilotCards.Read(new CopilotCardInfo[0]));
+        }
+
+        [Fact]
+        public async Task Part_2_starting_late_does_not_let_part_3_go_over_a_running_turn()
+        {
+            // part 0 and 2 finish with a Ya; part 1 shows nothing for 5 s (20 polls), then runs 8 polls, then an approved card
+            var s = new FakeSession
+            {
+                Turn = (part, n) => part != 1
+                    ? (n < 2, n < 2 ? CopilotCardState.None : CopilotCardState.Approved)
+                    : n < 20 ? (false, CopilotCardState.None)
+                    : n < 28 ? (true, CopilotCardState.None)
+                    : (false, CopilotCardState.Approved)
+            };
+            var ticks = 0;
+            var l = Timed(s, new List<string>(), new[] { "A", "B", "C" }, () => ticks++);
+            Assert.Equal(CopilotLaunchOutcome.Sent, await l.LaunchAsync(Req));
+            Assert.Equal(new[] { "open", "new", "send:A", "send:B", "send:C" }, s.Log);
+            Assert.True(ticks >= 20 + 8 + 12, "part C went out before B finished: ticks=" + ticks);
+        }
+
+        [Fact]
+        public async Task Part_2_ending_with_no_card_is_NoWrite_not_a_stale_Ya()
+        {
+            var s = new FakeSession
+            {
+                Turn = (part, n) => part == 0
+                    ? (n < 2, n < 2 ? CopilotCardState.None : CopilotCardState.Approved)
+                    : (n < 3, CopilotCardState.None)   // part 2: Copilot just answered
+            };
+            var toasts = new List<string>();
+            var l = Timed(s, toasts, new[] { "A", "B", "C" });
+            Assert.Equal(CopilotLaunchOutcome.NoWrite, await l.LaunchAsync(Req));
+            Assert.Equal(new[] { "open", "new", "send:A", "send:B" }, s.Log);
+            Assert.Contains("Part 2 ended without a change. Part 3 not sent", Assert.Single(toasts));
+        }
+
+        [Fact]
         public async Task Empty_prompt_sends_nothing_and_does_not_open_a_new_chat()
         {
             var s = new FakeSession();

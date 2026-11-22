@@ -55,31 +55,36 @@ namespace RevitWebAppSync.UI.Jkr
 
         public bool IsSending => Vm?.IsSending ?? false;
 
-        // Thread position at the last NewChat: cards before it belong to an old chat.
+        // Thread position when the current part was sent (and at NewChat): only cards after it belong to this part.
         private int _mark;
 
-        /// <summary>Ya/Tidak (and question / code) cards on the thread since the last NewChat: any open one wins, else the
-        /// newest resolved one (Ya = Approved, Tidak = Declined). A chunk sent over an open card would kill it.</summary>
+        /// <summary>Ya/Tidak (and question / code) cards added since the last Send: any open one wins, else the newest
+        /// resolved one. Counting from each Send, not from NewChat, keeps the previous part's Approved card from reading
+        /// as this part's write.</summary>
         public CopilotCardState Cards
         {
             get
             {
                 var vm = Vm;
                 if (vm == null) return CopilotCardState.None;
-                var state = CopilotCardState.None;
+                var cards = new List<CopilotCardInfo>();
                 for (var i = Math.Min(_mark, vm.Thread.Count); i < vm.Thread.Count; i++)
                 {
                     var m = vm.Thread[i];
                     if (!(m.Kind == CpMsgKind.ConfirmActions || m.ChoiceBatch != null || m.PendingCode != null)) continue;
-                    if (!m.ActionsResolved) return CopilotCardState.Open;
-                    state = m.ActionsApproved == false ? CopilotCardState.Declined : CopilotCardState.Approved;
+                    cards.Add(new CopilotCardInfo(m.ActionsResolved, m.ActionsApproved));
                 }
-                return state;
+                return CopilotCards.Read(cards);
             }
         }
 
         public bool IsPaneVisible => App.CopilotPaneHost?.IsVisible ?? false;
 
-        public void Send(string text) => (Vm ?? throw new InvalidOperationException("Copilot is not loaded")).ChatSend(text);
+        public void Send(string text)
+        {
+            var vm = Vm ?? throw new InvalidOperationException("Copilot is not loaded");
+            _mark = vm.Thread.Count;   // before ChatSend adds its bubbles: cards from here on are this part's
+            vm.ChatSend(text);
+        }
     }
 }
