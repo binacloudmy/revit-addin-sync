@@ -168,6 +168,7 @@
     <Compile Include="..\UI\Jkr\ViewModels\JkrRowControls.cs" Link="JkrRowControls.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\JkrCopilotFix.cs" Link="JkrCopilotFix.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\JkrCopilotLauncher.cs" Link="JkrCopilotLauncher.cs" />
+    <Compile Include="..\UI\Jkr\ViewModels\JkrCopilotRecheck.cs" Link="JkrCopilotRecheck.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\JkrCopilotFixInstaller.cs" Link="JkrCopilotFixInstaller.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\JkrCopilotPrompt.cs" Link="JkrCopilotPrompt.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\JkrCopilotPrompt.Issue.cs" Link="JkrCopilotPrompt.Issue.cs" />

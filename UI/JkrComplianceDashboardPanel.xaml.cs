@@ -1634,6 +1634,16 @@ namespace RevitWebAppSync.UI
             _undoTimer.Start();
         }
 
+        /// <summary>AI-495: a Copilot write re-passed its rule: mark the row Fixed (via Copilot), score and board move together, audit saved.</summary>
+        public void MarkFixedViaCopilot(IssueVm issue)
+        {
+            if (issue == null) return;
+            issue.FixedVia = "Copilot";
+            _vm.ApplyAction(issue, IssueStatus.Fixed, false);
+            try { JkrAuditStore.Save(_scannedDocPath, issue); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[BINA] audit save failed: {ex.Message}"); }
+        }
+
         /// <summary>After a single auto-fix wrote: resolve the row only if its rule re-passed.</summary>
         private async Task FinishSingleFixAsync(IssueVm issue, bool advance)
         {

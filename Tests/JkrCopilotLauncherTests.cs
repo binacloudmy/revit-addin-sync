@@ -41,7 +41,7 @@ namespace RevitWebAppSync.Tests
         {
             var toasts = new List<string>();
             var l = new JkrCopilotFixLauncher(s, _ => parts, toasts.Add, () => false, _ => Task.CompletedTask,
-                indexingTimeout: TimeSpan.FromSeconds(1), turnTimeout: TimeSpan.FromSeconds(2));
+                indexingTimeout: TimeSpan.FromSeconds(1), turnTimeout: TimeSpan.FromSeconds(5), settle: TimeSpan.FromMilliseconds(500));
             return (l, toasts);
         }
 
@@ -325,9 +325,10 @@ namespace RevitWebAppSync.Tests
             var first = l.LaunchAsync(Req);
             Assert.Equal(CopilotLaunchOutcome.Busy, await l.LaunchAsync(Req));
             gate.SetResult(null);
-            Assert.Equal(CopilotLaunchOutcome.Sent, await first);
-            Assert.Single(toasts);
-            Assert.Equal(CopilotLaunchOutcome.Sent, await l.LaunchAsync(Req));   // free again afterwards
+            // AI-495: the last turn is awaited too; this fake never starts one, so the launch ends NoWrite (no re-check).
+            Assert.Equal(CopilotLaunchOutcome.NoWrite, await first);
+            Assert.Contains("already being opened", toasts[0]);
+            Assert.Equal(CopilotLaunchOutcome.NoWrite, await l.LaunchAsync(Req));   // free again afterwards
         }
 
         private sealed class SlowOpen : ICopilotSession
