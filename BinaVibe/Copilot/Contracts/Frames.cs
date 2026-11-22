@@ -129,8 +129,6 @@ namespace BinaVibe.Copilot.Contracts
         [JsonPropertyName("tool")] public string Tool { get; set; } = ToolSetParameters;
         /// <summary>Element ids the dialog showed. For a type-level family: one INSTANCE id per type (the ids the prompt gives Copilot).</summary>
         [JsonPropertyName("ids")] public List<long> Ids { get; set; } = new();
-        /// <summary>Optional type names or type element ids (the add-in does not send them today).</summary>
-        [JsonPropertyName("types")] public List<string>? Types { get; set; }
         /// <summary>Parameter names the prompt asks Copilot to set.</summary>
         [JsonPropertyName("params")] public List<string> Params { get; set; } = new();
         /// <summary>True when <see cref="Ids"/> stand for TYPES (a type-parameter write changes every instance of each type).</summary>

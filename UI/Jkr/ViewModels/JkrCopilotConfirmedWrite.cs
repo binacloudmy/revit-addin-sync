@@ -25,6 +25,25 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public static int InstanceCount(CopilotPromptFacts facts) =>
             (facts?.ElementIds ?? new List<long>()).Where(i => i > 0).Distinct().Count();
 
+        /// <summary>The spec reader keeps at most this many instance ids per type (SpecModelReader.InstanceIdCap).</summary>
+        public const int ReaderInstanceCap = 2000;
+
+        /// <summary>True when some type of the row has as many ids as the reader cap, so its real instance count may be larger.</summary>
+        public static bool InstanceCountCapped(CopilotPromptFacts facts)
+        {
+            if (facts == null) return false;
+            var perType = new Dictionary<string, int>(System.StringComparer.OrdinalIgnoreCase);
+            foreach (var id in (facts.ElementIds ?? new List<long>()).Where(i => i > 0).Distinct())
+            {
+                string label = null;
+                if (facts.ElementLabels != null) facts.ElementLabels.TryGetValue(id, out label);
+                label = JkrCopilotPrompt.CleanLabel(label);
+                var key = label.Length == 0 ? "#" + id : label;
+                perType[key] = perType.TryGetValue(key, out var n) ? n + 1 : 1;
+            }
+            return perType.Values.Any(n => n >= ReaderInstanceCap);
+        }
+
         /// <summary>The field for prompt part <paramref name="partIndex"/> (0-based), or null when none can be sent (no declared
         /// parameter, no ids, or over a contract cap: the normal gate then applies).</summary>
         public static ConfirmedWriteDto ForPart(CopilotPromptFacts facts, int partIndex)

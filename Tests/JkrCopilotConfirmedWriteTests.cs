@@ -121,12 +121,41 @@ namespace RevitWebAppSync.Tests
             {
                 var inst = JkrCopilotPrompt.Build(Facts("Db.2", 3), bm)[0];
                 Assert.Contains(bm ? "sasaran id sahaja" : "ids only as the target", inst);
-                Assert.DoesNotContain(bm ? "Baca dahulu" : "Read these ids first", inst);
+                Assert.DoesNotContain(bm ? "baca dahulu id ini" : "Read these ids first", inst);
                 var type = JkrCopilotPrompt.Build(Facts("Da.1", 3), bm)[0];
                 Assert.Contains(bm ? "sasaran id sahaja" : "ids only as the target", type);
-                Assert.Contains(bm ? "Baca dahulu" : "Read these ids first", type);
+                Assert.Contains(bm ? "baca dahulu id ini" : "Read these ids first", type);
                 Assert.Contains(bm ? "kumpulan mengikut type" : "grouped by type", type);
+                Assert.Contains(bm ? "dengan inspect DAN jalankan find_elements" : "with inspect AND run find_elements", type);
+                Assert.DoesNotContain(" or find_elements", type);
+                Assert.DoesNotContain(", atau find_elements", type);
             }
+        }
+
+        [Fact]
+        public void A_type_at_the_reader_cap_shows_2000_plus_in_the_dialog_and_still_sends_the_capped_number()
+        {
+            var ids = Enumerable.Range(1, 2000).Select(i => 5000L + i).ToList();
+            var f = new CopilotPromptFacts { CheckId = "Da.1", Category = "Doors", ElementIds = ids, ElementLabels = ids.ToDictionary(i => i, i => "Doors · Big") };
+            Assert.True(JkrCopilotConfirmedWrite.InstanceCountCapped(f));
+            var en = JkrCopilotConfirm.Build(f, false);
+            Assert.Contains("(2000+ instances)", en.Heading);
+            Assert.Contains("at least 2000+ instances", en.Body);
+            var bm = JkrCopilotConfirm.Build(f, true);
+            Assert.Contains("(2000+ instance)", bm.Heading);
+            Assert.Contains("sekurang-kurangnya 2000+ instance", bm.Body);
+            Assert.Equal(2000, JkrCopilotConfirmedWrite.ForPart(f, 0).Instances);
+            // two types of 1500 each are not capped (per type, not per row)
+            var two = Enumerable.Range(1, 3000).Select(i => 9000L + i).ToList();
+            var g = new CopilotPromptFacts { CheckId = "Da.1", Category = "Doors", ElementIds = two, ElementLabels = two.ToDictionary(i => i, i => i % 2 == 0 ? "Doors · A" : "Doors · B") };
+            Assert.False(JkrCopilotConfirmedWrite.InstanceCountCapped(g));
+            Assert.Contains("(3000 instances)", JkrCopilotConfirm.Build(g, false).Heading);
+        }
+
+        [Fact]
+        public void The_wire_body_has_no_types_field()
+        {
+            Assert.DoesNotContain("\"types\"", CopilotJson.Serialize(JkrCopilotConfirmedWrite.ForPart(Facts("Da.1", 2), 0)));
         }
 
         // ---- the launcher: only after Ya, only the launcher's own prompt, cleared at the end ----

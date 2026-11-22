@@ -37,14 +37,17 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             var variant = JkrCopilotPrompt.VariantFor(checkId);
             var level = variant.Level;
             var typeLevel = level == CopilotWriteLevel.Type;
-            var instances = JkrCopilotConfirmedWrite.InstanceCount(facts);
+            var instanceNo = JkrCopilotConfirmedWrite.InstanceCount(facts);
+            var capped = JkrCopilotConfirmedWrite.InstanceCountCapped(facts);
+            var instances = instanceNo + (capped ? "+" : "");   // "2000+": a type hit the reader's id cap, the real count is larger
+            var atLeast = capped;
             var parts = typeLevel ? 1 : (ids.Count + JkrCopilotPrompt.MaxIdsPerPrompt - 1) / Math.Max(1, JkrCopilotPrompt.MaxIdsPerPrompt);
 
             var c = new CopilotConfirmContent();
             if (typeLevel)
                 c.Heading = bm
                     ? $"Benarkan Copilot mengubah {ids.Count} type ({instances} instance) untuk semakan {checkId}?"
-                    : $"Let Copilot change {ids.Count} type{(ids.Count == 1 ? "" : "s")} ({instances} instance{(instances == 1 ? "" : "s")}) for check {checkId}?";
+                    : $"Let Copilot change {ids.Count} type{(ids.Count == 1 ? "" : "s")} ({instances} instance{(instanceNo == 1 && !capped ? "" : "s")}) for check {checkId}?";
             else
                 c.Heading = bm
                     ? $"Benarkan Copilot mengubah {ids.Count} elemen untuk semakan {checkId}?"
@@ -54,8 +57,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             if (typeLevel)
             {
                 body.Append(variant.Change(bm)).Append(bm
-                    ? $" pada TYPE bagi elemen yang disenaraikan di bawah (satu id bagi setiap type). Perubahan ini terpakai pada SEMUA {instances} instance type itu, yang disenaraikan atau tidak. Kategori: {Cat(facts)}. Tiada apa dipadam. "
-                    : $" on the TYPE of each element listed below (one id per type). The change applies to ALL {instances} instance{(instances == 1 ? "" : "s")} of those types, listed or not. Category: {Cat(facts)}. Nothing is deleted. ");
+                    ? $" pada TYPE bagi elemen yang disenaraikan di bawah (satu id bagi setiap type). Perubahan ini terpakai pada SEMUA {(atLeast ? "sekurang-kurangnya " : "")}{instances} instance type itu, yang disenaraikan atau tidak. Kategori: {Cat(facts)}. Tiada apa dipadam. "
+                    : $" on the TYPE of each element listed below (one id per type). The change applies to ALL {(atLeast ? "at least " : "")}{instances} instance{(instanceNo == 1 && !atLeast ? "" : "s")} of those types, listed or not. Category: {Cat(facts)}. Nothing is deleted. ");
             }
             else
             {

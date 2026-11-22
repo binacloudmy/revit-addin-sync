@@ -234,13 +234,13 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             if (bm)
             {
                 sb.AppendLine("Guna id di atas sebagai sasaran id sahaja, jangan guna filter." + (variant.Level == CopilotWriteLevel.Type
-                    ? " Baca dahulu id ini dalam giliran ini sebelum set_parameters (inspect pada id, atau find_elements bagi kategori itu dengan kumpulan mengikut type), supaya type, kategori dan bilangan instance diketahui."
+                    ? " Sebelum set_parameters, dalam giliran ini, baca dahulu id ini dengan inspect DAN jalankan find_elements bagi kategori itu dengan kumpulan mengikut type (kedua-duanya), supaya type, kategori dan bilangan instance diketahui."
                     : ""));
             }
             else
             {
                 sb.AppendLine("Use the ids above as ids only as the target; never use a filter." + (variant.Level == CopilotWriteLevel.Type
-                    ? " Read these ids first in this turn before set_parameters (inspect on the ids, or find_elements for their category grouped by type), so each type, its category and its instance count are known."
+                    ? " Read these ids first, in this turn, before set_parameters: read them with inspect AND run find_elements for their category grouped by type (both), so each type, its category and its instance count are known."
                     : ""));
             }
             if (bm)
