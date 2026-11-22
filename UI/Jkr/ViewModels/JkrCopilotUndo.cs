@@ -69,6 +69,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public Func<IReadOnlyList<T>, Task<IReadOnlyDictionary<string, bool?>>> RecheckByScan { get; set; }
         /// <summary>Reopen a Fixed row directly (status Open, score and board together, audit entry dropped).</summary>
         public Action<T> Reopen { get; set; }
+        /// <summary>AI-508: Copilot's Undo job is still posting its steps; the re-check waits until it settles (one run, not one per step).</summary>
+        public Func<bool> UndoInProgress { get; set; }
         /// <summary>Show the "fix undone" toast for this many rows.</summary>
         public Action<int> ToastUndone { get; set; }
     }
@@ -96,6 +98,15 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         }
 
         /// <summary>Is there something to do for an Undo that reported <paramref name="undone"/> (may be empty: undoing a creation reports no ids)?</summary>
+        /// <summary>AI-508: true while the chip's Undo is still running: the caller restarts its debounce instead of running.</summary>
+        public bool ShouldDefer()
+        {
+            try { return _host.UndoInProgress?.Invoke() == true; } catch (Exception) { return false; }
+        }
+
+        /// <summary>AI-508: does the Copilot Undo chip's completion matter (any Copilot-fixed row on the document)?</summary>
+        public bool HasRows(string docPath) => Ledger.ForDoc(docPath).Count > 0;
+
         public bool Interested(string docPath, IReadOnlyCollection<long> undone) =>
             Ledger.HitBy(docPath, undone).Count > 0 || ((undone == null || undone.Count == 0) && Ledger.ScanOnly(docPath).Count > 0);
 
@@ -109,10 +120,12 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         }
 
         /// <summary>Returns how many rows were reopened by Copilot-undo handling plus the panel's own re-check. The toast is shown once.</summary>
-        public async Task<int> RunAsync(string docPath, IReadOnlyCollection<long> undone)
+        /// <param name="allLedger">AI-508: the Copilot Undo chip's own completion event (no ids): re-check EVERY Copilot-fixed row of the
+        /// document, whatever ids Revit's DocumentChanged reported (or whether it raised the pane's event at all).</param>
+        public async Task<int> RunAsync(string docPath, IReadOnlyCollection<long> undone, bool allLedger = false)
         {
             var reopened = 0;
-            var hits = Ledger.HitBy(docPath, undone);
+            var hits = allLedger ? Ledger.ForDoc(docPath) : Ledger.HitBy(docPath, undone);
             var ids = RecheckIds(undone, _host.RowElementIds?.Invoke(), hits);
             if (ids.Count > 0)
             {
@@ -121,7 +134,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 if (outcome != null) reopened += outcome.Reopened.Count;
             }
 
-            var rows = ScanTargets(docPath, undone, hits)
+            var targets = allLedger ? Ledger.ScanOnly(docPath).ToList() : ScanTargets(docPath, undone, hits);
+            var rows = targets
                 .Select(e => _host.Issue(e.IssueId))
                 .Where(r => r != null && r.RecheckState == RecheckState.Fixed && r.FixedVia == "Copilot").ToList();
             if (rows.Count > 0)

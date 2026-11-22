@@ -77,6 +77,54 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
+        public async Task Copilot_Undo_chip_completion_rechecks_every_Copilot_row_even_when_Revit_reported_no_ids()
+        {
+            // AI-508: the chip's own completion event carries no ids. Element row r1 and create-type row r2 both reopen.
+            var p = new Pane();
+            p.Add("r1", 100, true);
+            p.Add("r2", 0, true, new long[0]);
+            p.FailingElements.Add(100);
+            p.FailingByScan.Add("r2");
+            var n = await p.Undo.RunAsync(Doc, new long[0], allLedger: true);
+            Assert.Equal(2, n);
+            Assert.Equal(new[] { 2 }, p.Toasts);
+            Assert.Equal(0, p.Undo.Ledger.Count);
+            Assert.True(p.Undo.HasRows(Doc) == false);
+        }
+
+        [Fact]
+        public void Recheck_waits_while_the_chip_undo_is_running_then_runs()
+        {
+            var running = true;
+            var u = new JkrCopilotUndo<Row>(new JkrCopilotUndoHost<Row> { UndoInProgress = () => running });
+            Assert.True(u.ShouldDefer());
+            running = false;
+            Assert.False(u.ShouldDefer());
+            Assert.False(new JkrCopilotUndo<Row>(new JkrCopilotUndoHost<Row>()).ShouldDefer());   // no probe: never defer
+        }
+
+        [Fact]
+        public async Task Chip_completion_after_the_DocumentChanged_run_does_not_toast_twice()
+        {
+            var p = new Pane();
+            p.Add("r1", 100, true);
+            p.FailingElements.Add(100);
+            Assert.Equal(1, await p.Undo.RunAsync(Doc, new long[] { 100 }));
+            Assert.Equal(0, await p.Undo.RunAsync(Doc, new long[0], allLedger: true));   // ledger already empty
+            Assert.Equal(new[] { 1 }, p.Toasts);
+        }
+
+        [Fact]
+        public async Task Chunked_pack_rows_all_reopen_when_the_ids_span_the_chunks()
+        {
+            var p = new Pane();
+            var written = Enumerable.Range(1000, 120).Select(i => (long)i).ToArray();   // 3 chunks of 50/50/20
+            p.Add("r1", 1000, true, written);
+            p.FailingElements.Add(1000);
+            Assert.Equal(1, await p.Undo.RunAsync(Doc, new long[] { 1119 }));            // only the last chunk's id reported
+        }
+
+        [Fact]
         public async Task Undo_of_the_Copilot_write_reopens_the_row_with_one_toast()
         {
             var p = new Pane();
