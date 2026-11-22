@@ -38,6 +38,7 @@ namespace RevitWebAppSync.Tests
         [InlineData("Stairs", "jkrAR_Cast-In-Place-Stair_180_280")]
         [InlineData("Curtain Panels", "jkrAR_System-Panel_100")]
         [InlineData("Pipes", "jkrAR_UPVC_Schedule-40_100")]
+        [InlineData("Floors", "jkrAR_LT_RC_150")]   // the old sample-model name (jkr_run_compliant.json had it before AI-535): prefix only, no code: not compliant
         public void An_invented_jkrAR_name_with_no_code_fails_with_a_clear_remark(string category, string invented)
         {
             var f = Assert.Single(Fails(Run(T(category, invented))));
@@ -71,10 +72,56 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void A_code_shaped_token_whose_type_code_prefix_is_not_in_the_list_fails_naming_the_code()
+        public void A_code_shaped_token_not_in_the_list_is_a_person_row_never_a_fail()
         {
-            var f = Assert.Single(Fails(Run(T("Stairs", "(TGx002) 180mm max riser 280mm"))));
-            Assert.Contains("'(TGx002)' is not in the JKR code list", f.Note);
+            var r = Run(T("Stairs", "(TGx002) 180mm max riser 280mm"));
+            Assert.Empty(Fails(r));
+            var p = Assert.Single(r, x => x.Status == "cannot_verify");
+            Assert.Contains("code (TGx002) is not in the add-in's JKR code list: confirm", p.Note);
+            Assert.DoesNotContain(r, x => x.Status == "pass");
+        }
+
+        [Fact]
+        public void The_list_is_case_sensitive_TGC002_fails_and_the_remark_says_so()
+        {
+            var f = Assert.Single(Fails(Run(T("Stairs", "(TGC002) 180mm max riser 280mm"))));
+            Assert.Contains("case-sensitive", f.Note);
+            Assert.Contains("TGC002", f.Note);
+        }
+
+        [Fact]
+        public void Two_digit_numbers_are_accepted()
+        {
+            var r = Run(T("Stairs", "(TGc02) 180mm"));
+            Assert.Empty(Fails(r));
+            Assert.Contains(r, x => x.Status == "pass");
+        }
+
+        // The tester's dump (test-round-20261123b, dedupe_lod300): real names that are not in the add-in list.
+        // Before this change they passed (prefix); they must not fail now and must not pass: a person confirms them.
+        [Fact]
+        public void Real_names_with_prefixes_missing_from_the_list_become_person_rows_and_the_three_invented_names_still_fail()
+        {
+            var real = new[]
+            {
+                T("Stairs", "jkrAR_sta_TGa_(TG002a)-3 190mm max riser 250mm going"),
+                T("Stairs", "jkrAR_sta_TGa_(TG003a)-3 190mm max riser 250mm going"),
+                T("Railings", "jkrAR_rlg_(SR001a)-3 900mm Pipe"),
+                T("Generic Models", "(TGb01a) 400mm", "jkrAR18_gen-mo_TGs_(TGb01)-3 Tangga Senggara"),
+                T("Generic Models", "(TGb02a) 1000 x 1000mm", "jkrAR18_gen-mo_TGs_(TGb01)-3 Tangga Senggara"),
+                T("Casework", "(MKq001a) 2300 x 150 x 620"),
+                T("Generic Models", "(AKs001a) 600"),
+                T("Generic Models", "(AKs002a) 600"),
+                T("Generic Models", "(AKs003a) 600"),
+            };
+            var invented = new[]
+            {
+                T("Stairs", "jkrAR_Cast-In-Place-Stair_180_280"), T("Curtain Panels", "jkrAR_System-Panel_100"), T("Pipes", "jkrAR_UPVC_Schedule-40_100"),
+            };
+            var r = Run(real.Concat(invented).ToArray());
+            Assert.Equal(3, Fails(r).Count);
+            Assert.Equal(real.Length, r.Count(x => x.Status == "cannot_verify"));
+            Assert.Empty(Run(real).Where(x => x.Status == "fail"));
         }
 
         [Fact]
@@ -92,7 +139,8 @@ namespace RevitWebAppSync.Tests
         [InlineData("PTr001", true)]
         [InlineData("Co100", true)]
         [InlineData("TGx002", false)]
-        [InlineData("TGc02", false)]
+        [InlineData("TGc02", true)]
+        [InlineData("TGc2", false)]
         [InlineData("tgc002", false)]
         [InlineData("ZZq123", false)]
         [InlineData("jkrAR", false)]

@@ -122,6 +122,7 @@ namespace RevitWebAppSync.Services.JkrSpec
             var ok = new Dictionary<string, int>(StringComparer.Ordinal);
             var byFamily = 0;
             var fails = new List<(SpecType T, SpecResult R, JkrCodeList.NameJudgement J)>();
+            var persons = new List<SpecResult>();
             foreach (var t in TypesIn(m, SectionDCategories))
             {
                 var jt = JkrCodeList.Judge(t.TypeName);
@@ -133,12 +134,19 @@ namespace RevitWebAppSync.Services.JkrSpec
                 // "System Panel", "Ramp") never match, so they are still judged on the type.
                 var jf = JkrCodeList.Judge(t.FamilyName);
                 if (jf.Verdict == JkrCodeList.Verdict.Coded) { Bump(ok, t.Category); byFamily++; continue; }
+                // A code-shaped token that is not in the add-in's list is NOT a failure: the list may be incomplete. A person confirms it.
+                var unk = jt.Verdict == JkrCodeList.Verdict.UnknownCode ? jt : jf.Verdict == JkrCodeList.Verdict.UnknownCode ? jf : null;
+                if (unk != null)
+                {
+                    persons.Add(UnjudgedType(id, t, $"{t.Category}: type '{(t.TypeName ?? "").Trim()}' ({t.InstanceCount} elements): code ({unk.Code}) is not in the add-in's JKR code list: confirm it is a real JKR code (the list is case-sensitive)"));
+                    continue;
+                }
                 var name = (t.TypeName ?? "").Trim();
                 var generic = name.Length == 0 || GenericName.IsMatch(name);
                 var j = jt.Verdict == JkrCodeList.Verdict.UnknownCode ? jt : jf.Verdict == JkrCodeList.Verdict.UnknownCode ? jf : jt;
                 string why;
-                if (j.Verdict == JkrCodeList.Verdict.UnknownCode)
-                    why = $" — the code '({j.Code})' is not in the JKR code list (Lampiran A3 / Buku Parameter)";
+                if (!string.IsNullOrEmpty(jt.CaseMismatch) || !string.IsNullOrEmpty(jf.CaseMismatch))
+                    why = $" — the code '({(string.IsNullOrEmpty(jt.CaseMismatch) ? jf.CaseMismatch : jt.CaseMismatch)})' is not written like the JKR list: codes are case-sensitive (for example TGc002, not TGC002)";
                 else if (jt.HasPrefix || jf.HasPrefix)
                     why = " — the 'jkrAR' prefix alone is not a code: no real JKR code '(XXxnnn)' in the name";
                 else
@@ -156,6 +164,7 @@ namespace RevitWebAppSync.Services.JkrSpec
                 else f.R.CodeHint = CodeHintFor(m, f.T, f.J);
                 yield return f.R;
             }
+            foreach (var p in persons) yield return p;
             foreach (var kv in ok)
                 yield return Pass(id, $"{kv.Key}: {kv.Value} types follow the JKR coding (a code of the JKR list in the name)", kv.Value, SpecCoverage.Full).InCat(kv.Key);
             if (byFamily > 0)
@@ -218,6 +227,7 @@ namespace RevitWebAppSync.Services.JkrSpec
             var parts = new List<string>();
             if (j != null && j.Verdict == JkrCodeList.Verdict.UnknownCode)
                 parts.Add($"the old name holds the code ({j.Code}), which is not in the JKR list: the answer replaces it");
+            parts.Add("codes are case-sensitive (TGc002, not TGC002)");
             var kj = KodJenisOf(t.Category);
             if (kj.Count > 0 && kj.Count <= 6) parts.Add("type-code prefix " + string.Join(", ", kj));
             else if (kj.Count > 6) parts.Add("the type-code prefix starts with " + string.Join(" or ", kj.Select(k => k.Substring(0, 2)).Distinct()));

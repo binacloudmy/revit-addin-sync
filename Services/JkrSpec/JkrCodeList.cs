@@ -10,13 +10,17 @@ namespace RevitWebAppSync.Services.JkrSpec
     /// AI-535 (Da.1): the JKR code list the add-in can prove a type name against, and the one place a "real JKR code" is decided.
     /// Revit-free and WPF-free (unit-tested on the Mac harness).
     /// <list type="bullet">
-    /// <item><b>Component code</b> "(TGc002)", "(TKh281a)", "(PTr001a)": kod jenis (two capitals and one small letter) + three digits + an optional variant
+    /// <item><b>Component code</b> "(TGc002)", "(TKh281a)", "(PTr001a)": kod jenis (two capitals and one small letter) + two or three digits + an optional variant
     /// letter. The kod jenis must be in <see cref="KodJenis"/>: the codes of Piawaian JKR Lampiran A3 (Kod Jenis of every Arkitek family and system family)
     /// plus the ones the Buku Parameter examples add (TGc stair, LBk floor, LAk ramp, GMa generic, PKa planting). The three-digit number is chosen by the
     /// project, so the list cannot prove it: a pass means "pattern and kod jenis are real", never "the number is in the project's list".</item>
     /// <item><b>Material / finish code</b> "(bb02)", "(kt)", "(jh02)" of a "jkrAR_…" system-family name (Lampiran A3 Kod Bahan / Kod Kemasan and the PB
     /// examples), accepted only inside a name that opens with the JKR discipline prefix.</item>
     /// </list>
+    /// Three outcomes (review round 1): <see cref="Verdict.Coded"/> = in the list = pass; <see cref="Verdict.NoCode"/> (no parenthesised code, the
+    /// "jkrAR" prefix alone, a generic name, a listed code in the wrong case) = fail; <see cref="Verdict.UnknownCode"/> (code-SHAPED token not in the list,
+    /// "(TG002a)", "(MKq001a)") = NOT a fail: a person confirms it, so an incomplete list can never lower the % or rename a correct name.
+    /// The list is case-sensitive: "TGC002" is not "TGc002".
     /// The prefix "jkrAR" alone is never a code (AI-475 gap, AI-535: Copilot wrote "jkrAR_System-Panel_100" and it passed).
     /// </summary>
     public static class JkrCodeList
@@ -63,7 +67,7 @@ namespace RevitWebAppSync.Services.JkrSpec
         public static readonly IReadOnlyCollection<string> MaterialCodes = new HashSet<string>(MaterialRaw, StringComparer.Ordinal);
 
         private static readonly Regex Parens = new Regex(@"\(([^()]*)\)", RegexOptions.CultureInvariant);
-        private static readonly Regex Component = new Regex(@"^(?<k>[A-Z]{2}[a-z])(?<n>\d{3})(?<v>[a-z]?)$", RegexOptions.CultureInvariant);
+        private static readonly Regex Component = new Regex(@"^(?<k>[A-Z]{2}[a-z])(?<n>\d{2,3})(?<v>[a-z]?)$", RegexOptions.CultureInvariant);
         // The older shape the repo's own examples use ("(PT2p600a) 900 x 2325 a"): two capitals, a digit, a small letter, three digits, an optional letter.
         // Accepted only when the two-letter family exists in the list, so a correct older name is never failed.
         private static readonly Regex Legacy = new Regex(@"^(?<f>[A-Z]{2})\d[a-z]\d{3}[a-z]?$", RegexOptions.CultureInvariant);
@@ -72,7 +76,7 @@ namespace RevitWebAppSync.Services.JkrSpec
         private static readonly Regex ColumnCode = new Regex(@"^Co\d{3}[a-z]?$", RegexOptions.CultureInvariant);
         private static readonly Regex Material = new Regex(@"^(?<m>[a-z]{1,3})\d{0,2}$", RegexOptions.CultureInvariant);
         // A token that is trying to be a component code (so a wrong one is "not in the list", not "no code").
-        private static readonly Regex CodeShaped = new Regex(@"^[A-Z]{2}[A-Za-z0-9]*\d[A-Za-z0-9]*$", RegexOptions.CultureInvariant);
+        private static readonly Regex CodeShaped = new Regex(@"^[A-Z]{2}[a-z]?\d{2,3}[a-z]?$", RegexOptions.CultureInvariant);
         private static readonly Regex JkrPrefix = new Regex(@"^jkr[A-Z]{2}", RegexOptions.CultureInvariant);
 
         /// <summary>True when <paramref name="code"/> (without parentheses) is a component code of the list: known kod jenis, three digits, optional letter.</summary>
@@ -115,6 +119,8 @@ namespace RevitWebAppSync.Services.JkrSpec
             public string Code = "";
             /// <summary>True when the name opens with the JKR discipline prefix ("jkrAR…").</summary>
             public bool HasPrefix;
+            /// <summary>Set when a token is a listed code written in the wrong letter case ("TGC002" for "TGc002"): the list is case-sensitive.</summary>
+            public string CaseMismatch = "";
         }
 
         /// <summary>Judges one name (a type name or a family name) against the code list.</summary>
@@ -130,7 +136,8 @@ namespace RevitWebAppSync.Services.JkrSpec
                     if (IsMaterialCode(t)) return new NameJudgement { Verdict = Verdict.Coded, Code = t, HasPrefix = true };
             var unknown = tokens.FirstOrDefault(t => CodeShaped.IsMatch(t));
             if (unknown != null) return new NameJudgement { Verdict = Verdict.UnknownCode, Code = unknown, HasPrefix = prefixed };
-            return new NameJudgement { Verdict = Verdict.NoCode, HasPrefix = prefixed };
+            var wrongCase = tokens.FirstOrDefault(t => KodJenis.Any(k => Regex.IsMatch(t, "^" + k + @"\d{2,3}[A-Za-z]?$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)));
+            return new NameJudgement { Verdict = Verdict.NoCode, HasPrefix = prefixed, CaseMismatch = wrongCase ?? "" };
         }
 
         /// <summary>True when a real code is in the name.</summary>
