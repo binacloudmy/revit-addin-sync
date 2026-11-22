@@ -170,7 +170,8 @@ namespace RevitWebAppSync.Tests
             Assert.Equal("", a.CodeHint);
             var b = fails.Single(f => f.ElementName.Contains("Monolithic"));
             Assert.Equal("", b.RenameTo);
-            Assert.Contains("TGc", b.CodeHint);
+            Assert.Contains("person confirm", b.CodeHint);   // Stairs has no JKR list: no prefix offered
+            Assert.DoesNotContain("TGc", b.CodeHint);
             var c = fails.Single(f => f.ElementName.Contains("UPVC"));
             Assert.Equal("", c.RenameTo);   // a parameter value that is not a real code is not used
         }
@@ -229,6 +230,70 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(p, Assert.Single(JkrCopilotPrompt.Build(AskFacts(false))));   // same prompt every run
             var c = JkrCopilotConfirm.Build(AskFacts(false));
             Assert.Contains("never picks one", c.Body);
+        }
+
+        // ── one list: hint == validation == checker; Da.1 rename must also pass Dd.1 ──
+
+        private static List<string> HintPrefixes(string hint)
+        {
+            var k = "type-code prefix from the JKR list (only these): ";
+            var i = hint.IndexOf(k, System.StringComparison.Ordinal);
+            if (i < 0) return new List<string>();
+            var rest = hint.Substring(i + k.Length);
+            var end = rest.IndexOf(';'); if (end >= 0) rest = rest.Substring(0, end);
+            return rest.Split(',').Select(x => x.Trim()).Where(x => x.Length > 0).ToList();
+        }
+
+        [Theory]
+        [InlineData("Floors", "Stair 3")]
+        [InlineData("Casework", "Cabinet 3")]
+        public void Hint_prefixes_equal_the_checker_list_and_every_one_is_accepted_by_the_checker(string cat, string bad)
+        {
+            var f = Fails(Run(T(cat, bad))).Single();
+            var offered = HintPrefixes(f.CodeHint);
+            Assert.NotEmpty(offered);
+            foreach (var p in offered)
+            {
+                Assert.Contains(p, JkrCodeList.KodJenisFor(cat));
+                Assert.Empty(Fails(Run(T(cat, "(" + p + "001) 150"))));
+            }
+            // and no prefix outside the list is accepted
+            Assert.Single(Fails(Run(T("Floors", "(LBk201) 150"))));
+            Assert.Single(Fails(Run(T("Casework", "(MKq001) 150"))));
+            Assert.DoesNotContain("LBk", f.CodeHint);
+            Assert.DoesNotContain("MKq", f.CodeHint);
+        }
+
+        [Theory]
+        [InlineData("Generic Models")]
+        [InlineData("Railings")]
+        [InlineData("Stairs")]
+        [InlineData("Ramps")]
+        [InlineData("Planting")]
+        public void A_category_with_no_list_offers_no_prefix_and_asks_a_person(string cat)
+        {
+            var f = Fails(Run(T(cat, "Thing 3"))).Single();
+            Assert.Equal("", f.RenameTo);
+            Assert.Empty(HintPrefixes(f.CodeHint));
+            Assert.Contains("person confirm", f.CodeHint);
+        }
+
+        [Fact]
+        public void A_derived_rename_that_would_fail_Dd1_is_not_proposed_and_the_reason_is_listed()
+        {
+            // Casework type whose own code is a real Casework code (PBa) but whose name says "Door": Dd.1 would...
+            // the code is the stronger evidence, so use a code the Dd.1 table puts in another category: PT in a Floors list? not in list: use Floors + LAk? (LA is Ramps/Floors: ok)
+            var okT = T("Floors", "Slab 150", codeParam: "LFa001");
+            var good = Fails(Run(okT)).Single();
+            Assert.Equal("(LFa001) Slab 150", good.RenameTo);
+            // Dd.1 conflict: a code of the list whose Dd.1 category is another one
+            var m = new SpecModel();
+            var t = T("Casework", "Counter 1", codeParam: "PBa001");
+            m.Types.Add(t); m.Normalize();
+            Assert.Null(SpecChecks.Dd1Conflict(t, "(PBa001) Counter 1"));
+            Assert.NotNull(SpecChecks.Dd1Conflict(T("Doors", "Door 1"), "(TKh281a) Door 1"));
+            var floorWithDoorCode = T("Floors", "Slab 2", codeParam: "LFa001");
+            Assert.NotNull(SpecChecks.Dd1Conflict(floorWithDoorCode, "(PTa001) Slab 2"));
         }
     }
 }
