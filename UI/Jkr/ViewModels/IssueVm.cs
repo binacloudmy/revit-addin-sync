@@ -275,6 +275,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public string RenameFrom { get; set; } = "";
         public string RenameTo { get; set; } = "";
         public string RenameSource { get; set; } = "";
+        /// <summary>AI-535 (Da.1): no code could be derived; what Copilot may offer when it asks the person for one. Empty otherwise.</summary>
+        public string CodeHint { get; set; } = "";
 
         /// <summary>AI-491: label per id in <see cref="ElementIds"/> ("Doors · PT1p_850x2100"); an id with no label is absent.</summary>
         public Dictionary<long, string> ElementLabels { get; set; } = new Dictionary<long, string>();
