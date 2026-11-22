@@ -17,14 +17,14 @@ namespace RevitWebAppSync.Tests
         {
             Id = id, CheckId = "Db.1", Source = SpecDedupe.FromBackend, Tier = tier, Fixable = true, Bucket = ScanBoard.Open,
             Param = Param, ParamRule = true, ParamKind = "type", ElementId = el, Category = "Ceilings", TypeName = "T-" + el,
-            FixKey = "set_parameter|" + el + "|" + Param,
+            FixKey = "set_parameter|" + el + "|" + Param, FixValue = "A0401",
         };
 
         private static SpecDedupe.Row CodeRow(string id, long el, int tier = 1, string fixParam = Param) => new SpecDedupe.Row
         {
             Id = id, CheckId = "", Source = SpecDedupe.FromBackend, Tier = tier, Fixable = true, Bucket = ScanBoard.Open, Extra = true,
             Param = "A0401", ParamRule = false, ElementId = el, Category = "Ceilings", TypeName = "T-" + el,
-            FixKey = "set_parameter|" + el + "|" + fixParam,
+            FixKey = "set_parameter|" + el + "|" + fixParam, FixValue = "A0401",
         };
 
         [Fact]
@@ -69,6 +69,27 @@ namespace RevitWebAppSync.Tests
         public void Two_extra_rows_with_one_write_and_no_parameter_row_both_stay()
         {
             Assert.Equal(2, ScanBoard.Merge(new[] { CodeRow("c1", 10), CodeRow("c2", 10) }, null, null).Count);
+        }
+
+        [Fact]
+        public void Same_write_with_a_different_value_stays()
+        {
+            var c = CodeRow("c1", 10); c.FixValue = "A0402";
+            Assert.Equal(2, ScanBoard.Merge(new[] { ParamRow("p1", 10), c }, null, null).Count);
+        }
+
+        [Fact]
+        public void A_missing_value_is_no_evidence_and_both_stay()
+        {
+            var c = CodeRow("c1", 10); c.FixValue = "";
+            Assert.Equal(2, ScanBoard.Merge(new[] { ParamRow("p1", 10), c }, null, null).Count);
+        }
+
+        [Fact]
+        public void A_kept_row_that_is_itself_extra_does_not_absorb_another()
+        {
+            var p = ParamRow("p1", 10); p.Extra = true;
+            Assert.Equal(2, ScanBoard.Merge(new[] { p, CodeRow("c1", 10) }, null, null).Count);
         }
     }
 }
