@@ -197,6 +197,7 @@
     <Compile Include="..\Services\JkrSpec\SpecExtractionRules.cs" Link="JkrSpec\SpecExtractionRules.cs" />
     <Compile Include="..\Services\JkrSpec\SpecChecks.A.cs" Link="JkrSpec\SpecChecks.A.cs" />
     <Compile Include="..\Services\JkrSpec\SpecChecks.BC.cs" Link="JkrSpec\SpecChecks.BC.cs" />
+    <Compile Include="..\Services\JkrSpec\JkrCodeList.cs" Link="JkrSpec\JkrCodeList.cs" />
     <Compile Include="..\Services\JkrSpec\SpecChecks.DE.cs" Link="JkrSpec\SpecChecks.DE.cs" />
     <Compile Include="..\Services\JkrSpec\SpecPbData.cs" Link="JkrSpec\SpecPbData.cs" />
     <Compile Include="..\Services\JkrSpec\SpecPbParameters.cs" Link="JkrSpec\SpecPbParameters.cs" />

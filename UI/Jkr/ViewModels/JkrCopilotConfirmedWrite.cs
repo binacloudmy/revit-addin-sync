@@ -30,7 +30,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         private static IEnumerable<long> ConfirmedIds(CopilotPromptFacts facts)
         {
             var ids = (facts?.ElementIds ?? new List<long>()).Where(i => i > 0).Distinct();
-            if (facts != null && JkrCopilotPrompt.VariantFor((facts.CheckId ?? "").Trim()).NamesFromFacts)
+            if (facts != null && JkrCopilotPrompt.VariantFor((facts.CheckId ?? "").Trim()).NamesFromFacts && !JkrCopilotPrompt.VariantFor((facts.CheckId ?? "").Trim()).AsksWhenNoName)
                 ids = ids.Where(i => JkrCopilotPrompt.RenameOf(facts, i) != null);
             return ids;
         }

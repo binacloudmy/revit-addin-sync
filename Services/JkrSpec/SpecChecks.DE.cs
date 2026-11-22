@@ -29,7 +29,7 @@ namespace RevitWebAppSync.Services.JkrSpec
 
         static partial void BackendDE(Dictionary<string, string> reasons)
         {
-            reasons["Da.1"] = "Whether the code in a type name is a real JKR component code needs the JKR code list, which the backend holds; the add-in tests the coding pattern only.";
+            reasons["Da.1"] = "The add-in checks that the type name carries a real JKR code: a component code whose type-code prefix is in the JKR list (Piawaian Lampiran A3 and the Buku Parameter examples), never the \"jkrAR\" prefix alone. The three-digit number is chosen by the project and is in no list the add-in holds; the backend judges what it can.";
             reasons["Db.1"] = "The add-in checks the Buku Parameter AR tables (p.36–102, all 20 categories, per LOi) for what it can read: text parameters empty, any parameter the type lacks. Yes/No, number, currency and material values, the plain Revit built-in parameters, and the starred (*) rows are not judged; the backend judges those.";
             reasons["Db.2"] = "Whether a material code is a real JKR material code needs the JKR code list, which the backend holds; the add-in tests the 'jkrXX' prefix only.";
         }
@@ -104,41 +104,130 @@ namespace RevitWebAppSync.Services.JkrSpec
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
         /// <summary>
-        /// Da.1 (T 22:27–22:28): every placed type in the Borang D categories must carry the
-        /// JKR coding — a component code "(PT2p600a)" or the "jkrAR…" prefix, as
-        /// <see cref="AuditNaming.IsJkrName"/> defines it (the repo's JKR naming rule, shared
-        /// with fill_audit). A bare material name ("UPVC") is NOT JKR coding: fill_audit's
-        /// looser <see cref="AuditNaming.IsSectionDCompliant"/> accepts it, the spec does not.
-        /// Generic names ("Door 1", "Basic Wall") fail at once. Coverage is Full (AI-475):
-        /// the rule the add-in can prove from the model is the coding pattern; whether the code
-        /// exists in the JKR code list stays the backend's, and a backend fail still counts.
+        /// Da.1 (T 22:27–22:28): every placed type in the Borang D categories must carry a REAL JKR code: a component code
+        /// "(TGc002)" whose type-code prefix is in the JKR code list (<see cref="JkrCodeList"/>: Piawaian Lampiran A3 + the Buku Parameter
+        /// examples), or, in a "jkrAR…" system-family name, a material / finish code of that list ("(bb02)"). The "jkrAR" prefix alone is NOT
+        /// coding (AI-535: Copilot wrote "jkrAR_System-Panel_100" and the old prefix test passed it), and neither is a code-shaped token whose
+        /// type-code prefix is not in the list. A loadable family carries the code in its family name and the size in the type name: the family
+        /// name is judged the same way. Generic names fail at once. A bare material name ("UPVC") is not coding.
+        /// Coverage is Full for the pattern and the type-code prefix; the three-digit number is the project's own and is not in any list, so a
+        /// pass never says the number exists in the project's component list.
+        /// A failing type gets a derived new name only when the type's own Kod_Komponen_jkr_stt parameter holds a real code (WP-6 style:
+        /// the add-in derives, the model never does); otherwise the row carries a <see cref="SpecResult.CodeHint"/> (type-code prefix of the
+        /// category and the codes already in use in this model) so that Copilot asks the person instead of inventing.
         /// </summary>
         private static IEnumerable<SpecResult> DaTypeNames(SpecModel m)
         {
             const string id = "Da.1";
             var ok = new Dictionary<string, int>(StringComparer.Ordinal);
             var byFamily = 0;
+            var fails = new List<(SpecType T, SpecResult R, JkrCodeList.NameJudgement J)>();
             foreach (var t in TypesIn(m, SectionDCategories))
             {
-                if (AuditNaming.IsJkrName(t.TypeName)) { Bump(ok, t.Category); continue; }
+                var jt = JkrCodeList.Judge(t.TypeName);
+                if (jt.Verdict == JkrCodeList.Verdict.Coded) { Bump(ok, t.Category); continue; }
                 // A loadable family carries the JKR code in its family name and the size or
                 // variant in the type name ("jkrAR18_wdw_TKt_…_(TKt001)-3" : "1800 X 500 mm
                 // @TK11a"); Revit shows both as the type. Real model, 16 Nov: 12 of 23 such
                 // types were failed on the type name alone. System families ("Basic Wall",
                 // "System Panel", "Ramp") never match, so they are still judged on the type.
-                if (AuditNaming.IsJkrName(t.FamilyName)) { Bump(ok, t.Category); byFamily++; continue; }
-                var name = t.TypeName.Trim();
+                var jf = JkrCodeList.Judge(t.FamilyName);
+                if (jf.Verdict == JkrCodeList.Verdict.Coded) { Bump(ok, t.Category); byFamily++; continue; }
+                var name = (t.TypeName ?? "").Trim();
                 var generic = name.Length == 0 || GenericName.IsMatch(name);
+                var j = jt.Verdict == JkrCodeList.Verdict.UnknownCode ? jt : jf.Verdict == JkrCodeList.Verdict.UnknownCode ? jf : jt;
+                string why;
+                if (j.Verdict == JkrCodeList.Verdict.UnknownCode)
+                    why = $" — the code '({j.Code})' is not in the JKR code list (Lampiran A3 / Buku Parameter)";
+                else if (jt.HasPrefix || jf.HasPrefix)
+                    why = " — the 'jkrAR' prefix alone is not a code: no real JKR code '(XXxnnn)' in the name";
+                else
+                    why = " — no real JKR code '(XXxnnn)' in the name";
                 var en = name.Length == 0
                     ? $"{t.Category}: unnamed type ({t.InstanceCount} elements) does not follow JKR coding"
-                    : $"{t.Category}: type '{name}' ({t.InstanceCount} elements) does not follow JKR coding{(generic ? " (generic name)" : "")} — no '(XXnnn)' code or 'jkrAR' prefix";
-                yield return FailType(id, t, en, SpecCoverage.Full, actual: name,
-                                      required: "(XXnnn) … / jkrAR_…");
+                    : $"{t.Category}: type '{name}' ({t.InstanceCount} elements) does not follow JKR coding{(generic ? " (generic name)" : "")}{why}";
+                fails.Add((t, FailType(id, t, en, SpecCoverage.Full, actual: name, required: "(XXxnnn) … with a code of the JKR list"), j));
+            }
+            var proposals = ProposeCodeRenames(m, fails.Select(f => f.T).ToList());
+            foreach (var f in fails)
+            {
+                f.R.RenameFrom = (f.T.TypeName ?? "").Trim();
+                if (proposals.TryGetValue(f.T, out var pr)) { f.R.RenameTo = pr.NewName; f.R.RenameSource = pr.Source; }
+                else f.R.CodeHint = CodeHintFor(m, f.T, f.J);
+                yield return f.R;
             }
             foreach (var kv in ok)
-                yield return Pass(id, $"{kv.Key}: {kv.Value} types follow the JKR coding pattern", kv.Value, SpecCoverage.Full).InCat(kv.Key);
+                yield return Pass(id, $"{kv.Key}: {kv.Value} types follow the JKR coding (a code of the JKR list in the name)", kv.Value, SpecCoverage.Full).InCat(kv.Key);
             if (byFamily > 0)
                 yield return SpecChecks.Context(id, $"{byFamily} types accepted because the JKR code is in the family name (the type name holds only the size/variant)");
+        }
+
+        private static string KeyOf(SpecType t, string name) =>
+            (t.Category ?? "").ToLowerInvariant() + "|" + (t.FamilyName ?? "").ToLowerInvariant() + "|" + (name ?? "").Trim().ToLowerInvariant();
+
+        /// <summary>The Kod_Komponen_jkr_stt value of a type (the shared parameter that holds its component code), or "".</summary>
+        private static string OwnCodeParam(SpecType t)
+        {
+            foreach (var kv in t.Texts ?? new Dictionary<string, string>())
+            {
+                var k = new string((kv.Key ?? "").Where(char.IsLetterOrDigit).ToArray()).ToLowerInvariant();
+                if (k != "kodkomponenjkrstt") continue;
+                return (kv.Value ?? "").Trim().Trim('(', ')').Trim();
+            }
+            return "";
+        }
+
+        /// <summary>
+        /// AI-535: the new name "(CODE) old name" for each failing type whose OWN Kod_Komponen_jkr_stt parameter holds a real code of the JKR
+        /// list. Pure and deterministic, the same on every run; the model never picks a code. A name that equals another proposed name in
+        /// the same family and category, or the name of a type that already exists there, is dropped for every type in the clash.
+        /// </summary>
+        internal static Dictionary<SpecType, RenameProposal> ProposeCodeRenames(SpecModel m, IReadOnlyList<SpecType> failing)
+        {
+            var all = new Dictionary<SpecType, RenameProposal>();
+            foreach (var t in failing)
+            {
+                var code = OwnCodeParam(t);
+                if (code.Length == 0 || !JkrCodeList.IsComponentCode(code)) continue;
+                var old = (t.TypeName ?? "").Trim();
+                if (old.Length == 0) continue;
+                all[t] = new RenameProposal { NewName = "(" + code + ") " + old, Source = "the type's own Kod_Komponen_jkr_stt parameter holds the JKR code " + code };
+            }
+            var existing = new HashSet<string>((m?.Types ?? new List<SpecType>()).Select(x => KeyOf(x, x.TypeName)));
+            var counts = all.GroupBy(kv => KeyOf(kv.Key, kv.Value.NewName)).ToDictionary(g => g.Key, g => g.Count());
+            var drop = all.Where(kv => { var k = KeyOf(kv.Key, kv.Value.NewName); return counts[k] > 1 || existing.Contains(k); }).Select(kv => kv.Key).ToList();
+            foreach (var t in drop) all.Remove(t);
+            return all;
+        }
+
+        /// <summary>The type-code prefix (three letters) of the list that belong to a Revit category, through the two-letter families of <see cref="CodeCategories"/>.</summary>
+        internal static List<string> KodJenisOf(string category)
+        {
+            var fams = CodeCategories.Where(kv => kv.Value.Any(x => string.Equals(x, (category ?? "").Trim(), StringComparison.OrdinalIgnoreCase)))
+                                     .Select(kv => kv.Key).ToList();
+            return JkrCodeList.KodJenis.Where(k => fams.Contains(k.Substring(0, 2).ToUpperInvariant())).OrderBy(k => k, StringComparer.Ordinal).ToList();
+        }
+
+        /// <summary>
+        /// AI-535: what Copilot may offer when it asks for a type's code, as one line of plain text: the type-code prefix of the category (when
+        /// the list has at most six) and the real codes other types of the category already carry in this model, most used first. Both
+        /// come from the model and the JKR list; nothing here is invented. A wrong code in the old name is named so the answer replaces it.
+        /// </summary>
+        internal static string CodeHintFor(SpecModel m, SpecType t, JkrCodeList.NameJudgement j)
+        {
+            var parts = new List<string>();
+            if (j != null && j.Verdict == JkrCodeList.Verdict.UnknownCode)
+                parts.Add($"the old name holds the code ({j.Code}), which is not in the JKR list: the answer replaces it");
+            var kj = KodJenisOf(t.Category);
+            if (kj.Count > 0 && kj.Count <= 6) parts.Add("type-code prefix " + string.Join(", ", kj));
+            else if (kj.Count > 6) parts.Add("the type-code prefix starts with " + string.Join(" or ", kj.Select(k => k.Substring(0, 2)).Distinct()));
+            var inUse = (m?.Types ?? new List<SpecType>())
+                .Where(x => string.Equals(x.Category, t.Category, StringComparison.OrdinalIgnoreCase))
+                .SelectMany(x => JkrCodeList.ComponentCodesIn(x.TypeName).Concat(JkrCodeList.ComponentCodesIn(x.FamilyName)).Select(c => (Code: c, N: Math.Max(1, x.InstanceCount))))
+                .GroupBy(x => x.Code, StringComparer.Ordinal).Select(g => (Code: g.Key, N: g.Sum(x => x.N)))
+                .OrderByDescending(x => x.N).ThenBy(x => x.Code, StringComparer.Ordinal).Take(6).Select(x => "(" + x.Code + ")").ToList();
+            if (inUse.Count > 0) parts.Add("codes already in use for " + t.Category + " in this model: " + string.Join(", ", inUse));
+            return string.Join("; ", parts);
         }
 
         // ─── Db.1 — mandatory parameters per Buku Parameter × LOD ───
