@@ -50,6 +50,8 @@ namespace BinaVibe.Copilot.Tools
             public int Matched;
             public int Unchanged;
             public List<SkipNote> Skips = new();
+            /// <summary>AI-dc1: renames Revit refused in the last Execute (reset each run).</summary>
+            public List<TypeRenameFailure> RenameFailures = new();
             public List<Dictionary<string, object?>> Types = new();
             /// <summary>Categories of the edited types, so the card can say "affects 8 Doors".</summary>
             public HashSet<string> TypeCategories = new();
@@ -235,8 +237,11 @@ namespace BinaVibe.Copilot.Tools
             if (!Notes.TryGetValue(plan, out var notes)) notes = NotesFromArgs(args);
             var doc = ctx.Doc;
 
+            notes.Skips.RemoveAll(s => s.Failed);
+            notes.RenameFailures = new List<TypeRenameFailure>();   // the preview run's refusals must not double up in the commit run
             var written = new List<(long id, Parameter p, ParsedValue v, string? before)>();
             var renames = new List<(long id, string before, string name)>();
+            var pendingRenames = new List<TypeRenameItem>();
             foreach (var id in plan.TargetIds)
             {
                 var key = id.ToString(CultureInfo.InvariantCulture);
@@ -246,14 +251,7 @@ namespace BinaVibe.Copilot.Tools
                 {
                     var rv = ParsedValue.FromCanonical(plan.IntendedValues.TryGetValue(key, out var rc) ? rc : null);
                     if (!rv.Ok) throw new WriteRefusal(ErrorCodes.InvalidArgs, "The plan holds no value for element " + key + ".");
-                    var was = el.Name;
-                    try { el.Name = rv.Text; }
-                    catch (Exception ex) when (ex is Autodesk.Revit.Exceptions.ArgumentException || ex is Autodesk.Revit.Exceptions.InvalidOperationException)
-                    {
-                        throw new WriteRefusal(ErrorCodes.RolledBack,
-                            "Revit refused to rename type '" + was + "' to '" + rv.Text + "' (" + ex.Message + "), so the whole batch was rolled back and nothing changed.");
-                    }
-                    renames.Add((id, was, rv.Text));
+                    pendingRenames.Add(new TypeRenameItem(id, el.Name, rv.Text));
                     continue;
                 }
                 var p = el.LookupParameter(notes.Param)
@@ -266,6 +264,18 @@ namespace BinaVibe.Copilot.Tools
                         "Revit refused to set '" + notes.Param + "' to " + v.Display + " on element " + key +
                         " (Parameter.Set returned false), so the whole batch was rolled back and nothing changed.");
                 written.Add((id, p, v, before));
+            }
+
+            // AI-dc1: each type is renamed on its own (a SubTransaction per type). A type Revit refuses is skipped with the real
+            // reason; the others stay. Only when none could be renamed does the call fail (and the runner rolls it back).
+            if (pendingRenames.Count > 0)
+            {
+                var ran = TypeRenameBatch.Run(pendingRenames, item => RenameOne(doc, item));
+                foreach (var d in ran.Done) renames.Add((d.Id, d.Before, d.Name));
+                notes.RenameFailures = ran.Failed;
+                foreach (var f in ran.Failed) notes.Skips.Add(new SkipNote { Id = f.Item.Id, Reason = f.Text, Failed = true });
+                if (ran.Done.Count == 0 && written.Count == 0)
+                    throw new WriteRefusal(ErrorCodes.RolledBack, "No type could be renamed, so nothing changed. " + TypeRenameBatch.FailureSummary(ran.Failed));
             }
 
             if (written.Count + renames.Count > 0) doc.Regenerate();
@@ -323,6 +333,26 @@ namespace BinaVibe.Copilot.Tools
 
         // ------------------------------------------------------------------
 
+        /// <summary>Renames one type inside its own SubTransaction, so a refusal (any exception) leaves the other renames alone.</summary>
+        private static void RenameOne(Document doc, TypeRenameItem item)
+        {
+            var el = doc.GetElement(ElemIds.From(item.Id))
+                     ?? throw new InvalidOperationException("the type no longer exists");
+            var st = new SubTransaction(doc);
+            try
+            {
+                st.Start();
+                TypeRenameBatch.ApplyWithRollback(
+                    () => el.Name = item.Name,
+                    () => TxGuard.CommitOrThrow(st),
+                    () => { if (st.GetStatus() == TransactionStatus.Started) st.RollBack(); });
+            }
+            finally
+            {
+                st.Dispose();
+            }
+        }
+
         private static string Summary(PlanNotes n, WritePhase phase, int count, int readBack, int skipped)
         {
             var what = n.Param + " = " + n.ValueDisplay;
@@ -372,6 +402,12 @@ namespace BinaVibe.Copilot.Tools
                 ["row"] = s.Row,
                 ["reason"] = s.Reason,
             }).ToList(),
+            ["rename_failed"] = n.RenameFailures.Count == 0 ? null : n.RenameFailures.Select(f => (object)new Dictionary<string, object?>
+            {
+                ["type"] = f.Item.Before,
+                ["reason"] = f.Reason,
+            }).ToList(),
+            ["rename_total"] = n.RenameFailures.Count == 0 ? null : (int?)(changed + n.RenameFailures.Count),
             ["types"] = n.TypeParam ? n.Types : null,
             ["instances_affected"] = n.TypeParam ? n.InstancesAffected : null,
             ["instances_category"] = n.TypeParam && n.TypeCategories.Count == 1 && n.TypeCategories.First().Length > 0 ? n.TypeCategories.First() : null,
