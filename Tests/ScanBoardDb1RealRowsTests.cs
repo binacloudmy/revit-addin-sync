@@ -49,7 +49,7 @@ namespace RevitWebAppSync.Tests
         private static bool IsSpec(Csv c) => c.Id.StartsWith("SPEC-Db.1", StringComparison.Ordinal);
         private static bool IsLegacyParam(Csv c) => c.Title.StartsWith("Missing ", StringComparison.Ordinal);
 
-        private static List<SpecDedupe.Row> SpecRows(string category = "Doors")
+        private static List<SpecDedupe.Row> SpecRows(string category = "Doors", bool capped = false)
         {
             var rows = new List<SpecDedupe.Row>(); var n = 0;
             foreach (var c in Load().Where(IsSpec))
@@ -57,16 +57,16 @@ namespace RevitWebAppSync.Tests
                 n++;
                 rows.Add(new SpecDedupe.Row
                 {
-                    Id = c.Id, CheckId = "Db.1", Source = SpecDedupe.FromModel, Tier = 1, Bucket = ScanBoard.Open, Category = category,
+                    Id = c.Id, CheckId = "Db.1", Source = SpecDedupe.FromModel, Tier = 1, Bucket = ScanBoard.Open, Category = category, TypeName = "T" + n,
                     Params = SpecDedupe.ParamsOfActual(c.Actual),
-                    ElementIds = Enumerable.Range(0, 3).Select(k => 100000L + n * 10 + k).ToArray(),   // instance ids
+                    ElementIds = Enumerable.Range(0, capped ? SpecDedupe.InstanceIdCap : 3).Select(k => 100000L + n * 10000 + k).ToArray(),   // instance ids
                 });
             }
             return rows;
         }
 
         // The legacy row as the mapper builds it: rule "Missing Type Parameter: X" (the export's prettified title), Required = raw name.
-        private static List<SpecDedupe.Row> LegacyRows(string checkId = "Db.1", string category = "", bool withElement = true)
+        private static List<SpecDedupe.Row> LegacyRows(string checkId = "Db.1", string category = "Doors", bool withElement = true, bool typeName = false)
         {
             var rows = new List<SpecDedupe.Row>(); var n = 0;
             foreach (var c in Load().Where(IsLegacyParam))
@@ -77,11 +77,16 @@ namespace RevitWebAppSync.Tests
                     Id = c.Id, CheckId = checkId, Source = SpecDedupe.FromBackend, Tier = 1, Bucket = ScanBoard.Open, Category = category,
                     Param = SpecDedupe.ParamOfRule(c.Title, c.Required), ParamRule = SpecDedupe.RuleNamesParameter(c.Title),
                     ElementId = withElement ? 900000L + n : 0,   // a type id: in no spec row's instance list
+                    // (b) the type name of a type a Db.1 row lists this parameter for (the export has no type names: assigned here)
+                    TypeName = typeName ? TypeOfFirstSpecRowListing(SpecDedupe.ParamKey(SpecDedupe.ParamOfRule(c.Title, c.Required))) : "",
                     Extra = checkId.Length == 0,
                 });
             }
             return rows;
         }
+
+        private static string TypeOfFirstSpecRowListing(string key) =>
+            SpecRows().FirstOrDefault(r => r.Params.Select(SpecDedupe.ParamKey).Contains(key))?.TypeName ?? "";
 
         private static HashSet<string> SpecParams() => new HashSet<string>(SpecRows().SelectMany(r => r.Params).Select(SpecDedupe.ParamKey));
 
@@ -93,29 +98,52 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(26, Load().Count(c => c.Title == "Missing Type Parameter: Sistem Jkr Stt"));
         }
 
+        // The three cases the fallback may hide a row in: no element (a), a type id whose type name a Db.1 row lists (b), id lists cut at the cap (c).
         [Theory]
-        [InlineData("Db.1", "", true)]       // legacy row with a type id, no category
-        [InlineData("Db.1", "Doors", true)]  // the same with the category
-        [InlineData("", "", true)]           // no spec id on the row (the rule text still names the parameter)
-        [InlineData("", "Doors", false)]     // no spec id and no element id at all
-        [InlineData("Db.1", "", false)]
-        public void Each_parameter_shows_once_a_legacy_row_for_a_parameter_a_db1_row_lists_is_dropped(string checkId, string category, bool withElement)
+        [InlineData("a", "Db.1")]
+        [InlineData("a", "")]       // no spec id on the row (the rule text still names the parameter)
+        [InlineData("b", "Db.1")]
+        [InlineData("b", "")]
+        [InlineData("c", "Db.1")]
+        public void Each_parameter_shows_once_a_legacy_row_for_a_parameter_a_db1_row_lists_is_dropped(string kind, string checkId)
         {
             var spec = SpecParams();
-            var kept = ScanBoard.Merge(LegacyRows(checkId, category, withElement), new SpecDedupe.Row[0], SpecRows());
+            var specRows = SpecRows(capped: kind == "c");
+            var legacy = LegacyRows(checkId, withElement: kind != "a", typeName: kind == "b");
+            var kept = ScanBoard.Merge(legacy, new SpecDedupe.Row[0], specRows);
             var keptLegacy = kept.Where(r => r.Source == SpecDedupe.FromBackend).ToList();
             Assert.DoesNotContain(keptLegacy, r => spec.Contains(SpecDedupe.ParamKey(r.Param)));
             Assert.Equal(61, kept.Count(r => r.Source == SpecDedupe.FromModel));   // every Db.1 spec row stays
             // What stays is the legacy rows whose parameter no Db.1 row lists (Komponen IBS / Bomba, Kemasan ...).
-            var all = LegacyRows(checkId, category, withElement);
-            Assert.Equal(all.Count(r => !spec.Contains(SpecDedupe.ParamKey(r.Param))), keptLegacy.Count);
-            Assert.True(keptLegacy.Count > 0 && keptLegacy.Count < all.Count);
+            Assert.Equal(legacy.Count(r => !spec.Contains(SpecDedupe.ParamKey(r.Param))), keptLegacy.Count);
+            Assert.True(keptLegacy.Count > 0 && keptLegacy.Count < legacy.Count);
+        }
+
+        [Fact]
+        public void A_row_without_a_category_is_kept_even_when_a_spec_row_lists_the_parameter()
+        {
+            var legacy = LegacyRows(category: "", withElement: false);   // even with no element at all
+            var kept = ScanBoard.Merge(legacy, new SpecDedupe.Row[0], SpecRows("Doors", capped: true));
+            Assert.Equal(legacy.Count, kept.Count(r => r.Source == SpecDedupe.FromBackend));
+        }
+
+        [Fact]
+        public void A_type_id_row_on_another_type_of_the_same_category_stays()
+        {
+            // Two types of Doors; the spec row flags type A for the parameter; the legacy row is on type B (its id is listed nowhere).
+            var spec = new SpecDedupe.Row { Id = "s", CheckId = "Db.1", Source = SpecDedupe.FromModel, Category = "Doors", TypeName = "A",
+                Params = SpecDedupe.ParamsOfActual("tiada: Sistem_jkr_stt"), ElementIds = new long[] { 1, 2, 3 } };
+            SpecDedupe.Row Legacy(string id, string type) => new SpecDedupe.Row { Id = id, CheckId = "Db.1", Source = SpecDedupe.FromBackend, Bucket = ScanBoard.Open,
+                Category = "Doors", TypeName = type, ElementId = 777, ParamRule = true, Param = "Sistem Jkr Stt" };
+            var kept = ScanBoard.Merge(new[] { Legacy("onB", "B"), Legacy("onA", "A") }, new SpecDedupe.Row[0], new[] { spec }).Select(r => r.Id).ToList();
+            Assert.Contains("onB", kept);
+            Assert.DoesNotContain("onA", kept);   // the same type: restated
         }
 
         [Fact]
         public void The_named_parameters_of_the_report_are_gone_from_the_legacy_rows()
         {
-            var kept = ScanBoard.Merge(LegacyRows(), new SpecDedupe.Row[0], SpecRows());
+            var kept = ScanBoard.Merge(LegacyRows(withElement: false), new SpecDedupe.Row[0], SpecRows());
             var left = kept.Where(r => r.Source == SpecDedupe.FromBackend).Select(r => SpecDedupe.ParamKey(r.Param)).ToList();
             foreach (var p in new[] { "Bidang Kejuruteraan Jkr Stt", "Nama Komponen Utama Jkr Stt", "Kod DAK Komponen Jkr Stt", "Sistem Jkr Stt", "Sub Sistem Jkr Stt", "LOD Jkr Sit" })
                 Assert.DoesNotContain(SpecDedupe.ParamKey(p), left);
@@ -134,7 +162,7 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void Board_counts_reconcile_after_the_merge()
         {
-            var legacy = LegacyRows(); var spec = SpecRows();
+            var legacy = LegacyRows(withElement: false); var spec = SpecRows();
             var kept = ScanBoard.Merge(legacy, new SpecDedupe.Row[0], spec);
             var t = ScanBoard.Count(kept);
             Assert.Equal(kept.Count, t.Total);
@@ -145,7 +173,7 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void A_legacy_row_in_another_category_is_not_merged()
         {
-            var legacy = LegacyRows("Db.1", "Windows");   // the spec rows are Doors
+            var legacy = LegacyRows("Db.1", "Windows", withElement: false);   // the spec rows are Doors
             var kept = ScanBoard.Merge(legacy, new SpecDedupe.Row[0], SpecRows("Doors"));
             Assert.Equal(legacy.Count, kept.Count(r => r.Source == SpecDedupe.FromBackend));
         }
@@ -153,7 +181,7 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void A_parameter_no_db1_row_lists_is_not_merged()
         {
-            var legacy = LegacyRows();
+            var legacy = LegacyRows(withElement: false);
             var spec = SpecRows();
             var kept = ScanBoard.Merge(legacy, new SpecDedupe.Row[0], spec.Select(r => { r.Params = r.Params.Where(p => !p.StartsWith("sistem_")).ToArray(); return r; }).ToList());
             Assert.Equal(26, kept.Count(r => r.Source == SpecDedupe.FromBackend && SpecDedupe.ParamKey(r.Param) == "sistem_jkr_stt"));
