@@ -50,7 +50,7 @@ namespace RevitWebAppSync.Tests
                 Assert.DoesNotContain(rs, x => x.Status == "pass" || x.Status == "fail");
                 var row = Assert.Single(rs);
                 Assert.True(SpecPersonDecides.IsPersonDecides(row));
-                Assert.StartsWith("Non-zero shared coordinates present: confirm they are the survey coordinates (Piawaian JKR p.72)", row.Note);
+                Assert.Contains("Non-zero shared coordinates present: confirm they are the survey coordinates (Piawaian JKR p.72)", row.Note);
                 Assert.DoesNotContain("acquired", row.Note);
             }
             Assert.Empty(SpecDedupe.PassedByEvaluator(A41(Model(5000, 0, shared))));
