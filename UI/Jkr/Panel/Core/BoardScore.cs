@@ -40,6 +40,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             public int Bucket;
             public bool Extra;
             public string FixKey;
+            /// <summary>AI-516 r3: the value the fix writes (<c>IssueVm.FixValue</c>). Two rows with one FixKey are one problem only when the values are equal.</summary>
+            public string FixValue = "";
             /// <summary>AI-506 (Db.1 only). On a backend / checker row: the one parameter it names
             /// ("Kod_Komponen_jkr_stt") and the one element it sits on. Empty / 0 = not a parameter row.</summary>
             public string Param = "";
@@ -369,7 +371,48 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 }
             }
             DropCoveredParameterRows(rows, o);
+            DropSameWriteRows(rows, o);
             return o;
+        }
+
+        /// <summary>The parameter a <see cref="Row.FixKey"/> ("set_parameter|894658|Kod_DAK_Komponen_jkr_stt") writes; "" when it has none.</summary>
+        public static string FixKeyParam(string fixKey)
+        {
+            var at = (fixKey ?? "").LastIndexOf('|');
+            return at < 0 ? "" : ParamKey(fixKey.Substring(at + 1));
+        }
+
+        /// <summary>
+        /// AI-516 round 3. The real LOD 300 dump showed two LEGACY rows for one problem: the "Missing Type parameter: X" row (names the
+        /// parameter) and a "JKR code assigned" row (no spec id, outside the %) on the SAME element, and both ask for the SAME write
+        /// (<see cref="Row.FixKey"/> and <see cref="Row.FixValue"/> equal), 29 pairs. Fix all counted one change, the board listed two rows. Evidence required for a drop:
+        /// the same non-empty FixKey AND the same non-empty FixValue (a different value is another write) on a kept, non-extra row that names the parameter, that parameter is the one the write sets, and the dropped row is
+        /// an extra row (no spec id) that names no parameter itself. The row that names the parameter stays and takes the more severe
+        /// tier of the two. Two rows with the same write and any other shape both stay. A spec row is never touched.
+        /// </summary>
+        private static void DropSameWriteRows(IReadOnlyList<Row> rows, Outcome o)
+        {
+            var named = new Dictionary<string, int>(StringComparer.Ordinal);   // FixKey -> the kept row that names the parameter
+            for (var i = 0; i < rows.Count; i++)
+            {
+                var r = rows[i];
+                if (r == null || !o.Keep[i] || r.Source == FromModel || !r.Fixable || !r.ParamRule || r.Extra || string.IsNullOrEmpty(r.FixKey) || string.IsNullOrWhiteSpace(r.FixValue)) continue;
+                var written = FixKeyParam(r.FixKey);
+                if (written.Length == 0 || written != ParamKey(r.Param)) continue;
+                var nk = r.FixKey + "\n" + r.FixValue.Trim();
+                if (!named.TryGetValue(nk, out var first) || i < first) named[nk] = i;   // the first one: order of the input does not change the result
+            }
+            if (named.Count == 0) return;
+            for (var j = 0; j < rows.Count; j++)
+            {
+                var r = rows[j];
+                if (r == null || !o.Keep[j] || r.Source == FromModel || !r.Fixable || r.ParamRule || !r.Extra || string.IsNullOrEmpty(r.FixKey)) continue;
+                if (!string.IsNullOrEmpty((r.CheckId ?? "").Trim())) continue;
+                if (string.IsNullOrWhiteSpace(r.FixValue) || !named.TryGetValue(r.FixKey + "\n" + r.FixValue.Trim(), out var i)) continue;
+                o.Keep[j] = false;
+                o.Tier[i] = Math.Min(o.Tier[i], Math.Min(o.Tier[j], r.Tier));
+                o.Reason[j] = "dropped:same-write-as-parameter-row (" + FixKeyParam(r.FixKey) + " on element " + r.ElementId + ", kept row " + rows[i].Id + ")";
+            }
         }
     }
 
