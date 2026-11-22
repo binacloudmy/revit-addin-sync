@@ -128,7 +128,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel
         }
 
         // ── tools bar: Re-scan keeps only its icon when its word would not fit (320 px, BM) ──
-        // The bar or a dropdown changed size (the pane, a new selection, BM / EN): check after layout.
+        // The bar or a dropdown changed size (the pane, a new selection): check after layout.
         private void Tools_SizeChanged(object s, SizeChangedEventArgs e) => QueueFitTools();
 
         private bool _fitQueued;

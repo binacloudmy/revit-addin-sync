@@ -123,7 +123,6 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(1, r.PendTotal);
             Assert.Equal(new[] { "50%", "100%", "—", "—", "—" }, r.Sections.Select(s => s.PctLabel));
             Assert.Equal("+1", r.Sections[2].PendLabel);
-            Assert.Equal("Baiki semua 1 perubahan", r.FixAllLabel);
             Assert.Equal((1, 0, 1), (r.SevChips[0].N, r.SevChips[1].N, r.SevChips[2].N));
         }
 
@@ -131,7 +130,6 @@ namespace RevitWebAppSync.Tests
         public void Rows_follow_the_prototype_text()
         {
             var (r, core) = New();
-            core.SetLang("en");
             r.Load(new[] { Issue("1", "D10", IssuePriority.High, fixable: true), Issue("2", "A6") }, Summary());
             var rows = r.Rows;
             Assert.Equal("D10", rows[0].Row);
@@ -152,7 +150,6 @@ namespace RevitWebAppSync.Tests
             r.SelectSection("C");
             Assert.True(r.Sections[2].IsOn);
             Assert.True(r.HasCat);
-            Assert.Equal("Seksyen C · Project Browser", r.CatLabel);
             Assert.Equal(new[] { "2" }, r.Rows.Select(x => x.Id));
             r.ClearCat();
             Assert.Equal(2, r.Rows.Count);
@@ -162,13 +159,12 @@ namespace RevitWebAppSync.Tests
         public void Manual_tab_shows_the_intro_and_people_items_with_their_reason()
         {
             var (r, core) = New();
-            core.SetLang("en");
             r.Load(new[] { Issue("1", "A4"), Issue("2", "C5.1", human: true) }, Summary());
             r.GoManual();
             Assert.True(r.IsManualTab);
             Assert.StartsWith("Items the AI cannot judge.", r.ManualIntro);
             var row = Assert.Single(r.Rows);
-            Assert.Equal(("Semak manual", "man", "why 2"), (row.SvLabel, row.SvKind, row.Reason));
+            Assert.Equal(("Manual review", "man", "why 2"), (row.SvLabel, row.SvKind, row.Reason));
             Assert.False(row.ShowFix);
         }
 
@@ -176,7 +172,6 @@ namespace RevitWebAppSync.Tests
         public void Empty_list_hints_and_clear_search()
         {
             var (r, core) = New();
-            core.SetLang("en");
             r.Load(new[] { Issue("1", "A4") }, Summary());
             r.Query = "zzz";
             Assert.True(r.ListEmpty);
@@ -286,7 +281,6 @@ namespace RevitWebAppSync.Tests
             fixture.RevitElementId = 6;
             r.Load(new[] { Issue("1", "A4", fixable: true), ai, bim010, fixture }, Summary());
             Assert.Equal(1, r.FixableN);                          // the AI-fixer row is written on its own row (AI-435)
-            Assert.Equal("Baiki semua 1 perubahan", r.FixAllLabel);
             Assert.False(r.Rows.Single(x => x.Id == "2").ShowFix); // the row's ⚡ is for ready-made fixes only
             r.SelectSection("C");
             Assert.Equal(0, r.FixableN);
@@ -317,14 +311,13 @@ namespace RevitWebAppSync.Tests
             var backendDown = SpecReport.Build(new List<SpecResult>(), "timeout");
             r.Load(new[] { Issue("1", "A4", fixable: true) }, Summary(), backendDown);
             Assert.False(r.CanFixAll);
-            Assert.Equal("Backend BINA tidak tersedia.", r.BackendBannerStrong);   // the old banner, as before
+            Assert.Equal("BINA backend unavailable.", r.BackendBannerStrong);   // the old banner, as before
 
             var (r2, _) = New();
             var checkerDown = SpecReport.Build(new List<SpecResult>(), "");
             checkerDown.MissingSources = new List<string> { "BIM010" };
             r2.Load(new[] { Issue("1", "A4", fixable: true) }, Summary(), checkerDown);
             Assert.True(r2.ShowBackendBanner);
-            Assert.StartsWith("Sebahagian · belum lengkap: 1 sumber tiada (BIM010)", r2.BackendBannerStrong);
             Assert.True(r2.CanFixAll);
 
             var (r3, _) = New();
@@ -332,8 +325,7 @@ namespace RevitWebAppSync.Tests
             both.MissingSources = new List<string> { "backend", "spec" };
             r3.Load(new[] { Issue("1", "A4", fixable: true) }, Summary(), both);
             Assert.False(r3.CanFixAll);
-            Assert.Equal("Backend BINA tidak tersedia.", r3.BackendBannerStrong);
-            Assert.Contains("1 sumber tiada (spec)", r3.BackendBannerRest);
+            Assert.Equal("BINA backend unavailable.", r3.BackendBannerStrong);
         }
 
         [Fact]
@@ -384,7 +376,6 @@ namespace RevitWebAppSync.Tests
             r.Load(new[] { Issue("1", "A4", fixable: true, st: IssueStatus.ManualFixNeeded), Issue("2", "A4", fixable: true) }, Summary());
             var m = r.Rows.Single(x => x.Id == "1");
             var o = r.Rows.Single(x => x.Id == "2");
-            Assert.Equal("Manual · anda baiki dalam Revit", m.ManualTag);
             Assert.Equal("", o.ManualTag);
             Assert.False(m.ShowFix);
             Assert.True(o.ShowFix);
@@ -477,8 +468,6 @@ namespace RevitWebAppSync.Tests
             };
             r.Load(issues, Summary());
             Assert.Equal(3, r.FixableN);
-            Assert.Equal("Baiki semua 3 perubahan", r.FixAllLabel);
-            core.SetLang("en");
             Assert.Equal("Fix all 3 changes", r.FixAllLabel);
 
             // the batch the click builds has the same number, and a run's tally adds up to it
@@ -500,7 +489,6 @@ namespace RevitWebAppSync.Tests
             empty.RevitElementId = 12;
             var one = ParamIssue("1", 7, "Kod");
             r.Load(new[] { one, empty }, Summary());
-            core.SetLang("en");
             Assert.Equal(1, r.FixableN);
             Assert.Equal("Fix all 1 change", r.FixAllLabel);
         }
@@ -516,7 +504,7 @@ namespace RevitWebAppSync.Tests
             r.RescanRequested += (_, __) => asked++;
             r.Rescan();
             Assert.True(r.IsBusy);
-            Assert.Equal(PaneText.Rescanning(r.Core.Lang), r.BusyText);
+            Assert.Equal(PaneText.Rescanning(), r.BusyText);
             Assert.False(r.CanAct);
             r.Rescan();
             Assert.Equal(1, asked);
@@ -552,7 +540,7 @@ namespace RevitWebAppSync.Tests
             var (r, _) = New();
             r.Load(new[] { Issue("1", "A4", fixable: true), Issue("2", "A4", fixable: true) }, Summary());
             var n = r.FixableN;
-            r.BeginBusy(PaneText.Applying(n, r.Core.Lang), n);
+            r.BeginBusy(PaneText.Applying(n), n);
             Assert.Equal($"0 {r.Core.T("of")} {n}", r.BusyProgressText);
             Assert.Equal(0.0, r.BusyFraction);
             r.ReportProgress(1, n);

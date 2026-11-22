@@ -37,19 +37,17 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// given; "" when it sent none. Display only.</summary>
         public string Confidence { get; }
 
-        /// <summary>"Parameter: X · affects N elements · Confidence: high" in the dialog's
-        /// language; only the parts the row has. Set by <see cref="JkrConfirmModel"/>.</summary>
+        /// <summary>"Parameter: X · affects N elements · Confidence: high" ; only the parts the row has. Set by <see cref="JkrConfirmModel"/>.</summary>
         public string Detail { get; internal set; } = "";
         public bool HasDetail => Detail.Length > 0;
 
-        internal static string BuildDetail(JkrConfirmRow r, string lang)
+        internal static string BuildDetail(JkrConfirmRow r)
         {
-            bool ms = string.Equals(lang, "ms", StringComparison.OrdinalIgnoreCase);
             var parts = new List<string>();
             if (r.ParameterName.Length > 0) parts.Add("Parameter: " + r.ParameterName);
             if (r.AffectedCount > 1)
-                parts.Add(ms ? $"melibatkan {r.AffectedCount} elemen" : $"affects {r.AffectedCount} elements");
-            if (r.Confidence.Length > 0) parts.Add((ms ? "Keyakinan: " : "Confidence: ") + r.Confidence);
+                parts.Add($"affects {r.AffectedCount} elements");
+            if (r.Confidence.Length > 0) parts.Add(("Confidence: ") + r.Confidence);
             return string.Join(" · ", parts);
         }
         /// <summary>The issue this row writes (its pane id); "" for a row built by hand.</summary>
@@ -86,7 +84,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             ParameterName = parameterName ?? "";
             AffectedCount = Math.Max(1, affectedCount);
             Confidence = confidence ?? "";
-            Detail = BuildDetail(this, "en");
+            Detail = BuildDetail(this);
             IssueId = issueId ?? "";
             if (pickOptions != null && pickOptions.Count > 0)
             {
@@ -99,7 +97,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             Actual = actual ?? "";
             Proposed = string.IsNullOrEmpty(proposed) ? "—" : proposed;
             IsAiProposal = isAiProposal;
-            Old = Actual.Length > 0 ? Actual : JkrConfirmModel.MissingIn("en");
+            Old = Actual.Length > 0 ? Actual : JkrConfirmModel.MissingIn();
         }
 
         private static string PersonsPick(IssueVm i) =>
@@ -137,63 +135,42 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
     /// </summary>
     public sealed class JkrConfirmModel : INotifyPropertyChanged
     {
-        private static readonly Dictionary<string, Dictionary<string, string>> T =
-            new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase)
-            {
-                ["ms"] = new Dictionary<string, string>
-                {
-                    ["confirmFixT"] = "Tulis perubahan ini ke model?",
-                    ["confirmFixS"] = "Tiada apa-apa ditulis sehingga anda sahkan. Revit boleh undo kesemuanya sebagai satu langkah.",
-                    ["write1"] = "Tulis 1 perubahan",
-                    ["writeN"] = "Tulis {0} perubahan",
-                    ["ready"] = "Pembaikan sedia",
-                    ["ai"] = "Dicadangkan oleh pembaiki AI",
-                    ["pick"] = "Perlu pilihan anda",
-                    ["aiBadge"] = "Dicadangkan AI",
-                    ["pickN"] = "{0} elemen",
-                    ["missing"] = "(tiada)",
-                    ["cancel"] = "Batal",
-                    ["pause"] = "Ini melibatkan {0} elemen atau lebih. Revit mungkin terhenti seketika semasa perubahan ditulis.",
-                },
-                ["en"] = new Dictionary<string, string>
-                {
-                    ["confirmFixT"] = "Write these changes to the model?",
-                    ["confirmFixS"] = "Nothing is written until you confirm. Revit can undo all of them as one step.",
-                    ["write1"] = "Write 1 change",
-                    ["writeN"] = "Write {0} changes",
-                    ["ready"] = "Ready-made fixes",
-                    ["ai"] = "Proposed by the AI fixer",
-                    ["pick"] = "Needs your choice",
-                    ["aiBadge"] = "AI suggested",
-                    ["pickN"] = "{0} elements",
-                    ["missing"] = "(missing)",
-                    ["cancel"] = "Cancel",
-                    ["pause"] = "This touches {0} or more elements. Revit may pause for a moment while the changes are written.",
-                },
-            };
+        private static readonly Dictionary<string, string> T = new Dictionary<string, string>
+        {
+            ["confirmFixT"] = "Write these changes to the model?",
+            ["confirmFixS"] = "Nothing is written until you confirm. Revit can undo all of them as one step.",
+            ["write1"] = "Write 1 change",
+            ["writeN"] = "Write {0} changes",
+            ["ready"] = "Ready-made fixes",
+            ["ai"] = "Proposed by the AI fixer",
+            ["pick"] = "Needs your choice",
+            ["aiBadge"] = "AI suggested",
+            ["pickN"] = "{0} elements",
+            ["missing"] = "(missing)",
+            ["cancel"] = "Cancel",
+            ["pause"] = "This touches {0} or more elements. Revit may pause for a moment while the changes are written.",
+        };
 
         public JkrConfirmKind Kind { get; }
         public IReadOnlyList<JkrConfirmRow> Rows { get; }
-        public string Lang { get; }
 
         /// <summary>Elements the write changes, instances of renamed types included
         /// (capped at the warning threshold by JkrAffectedElements).</summary>
         public int AffectedElements { get; }
 
-        public JkrConfirmModel(JkrConfirmKind kind, IEnumerable<JkrConfirmRow> rows, int affectedElements, string lang = "en")
+        public JkrConfirmModel(JkrConfirmKind kind, IEnumerable<JkrConfirmRow> rows, int affectedElements)
         {
             Kind = kind;
             Rows = (rows ?? Enumerable.Empty<JkrConfirmRow>()).ToList();
             AffectedElements = Math.Max(0, affectedElements);
-            Lang = T.ContainsKey(lang ?? "") ? lang.ToLowerInvariant() : "en";
-            foreach (var r in Rows) { r.Old = r.Actual.Length > 0 ? r.Actual : MissingIn(Lang); r.Detail = JkrConfirmRow.BuildDetail(r, Lang); }
+            foreach (var r in Rows) { r.Old = r.Actual.Length > 0 ? r.Actual : MissingIn(); r.Detail = JkrConfirmRow.BuildDetail(r); }
             ReadyRows = Rows.Where(r => !r.IsAiProposal && !r.IsPick).ToList();
             AiRows = Rows.Where(r => r.IsAiProposal && !r.IsPick).ToList();
             PickRows = Rows.Where(r => r.IsPick).ToList();
             // One picker per category + parameter + option set; every element in it is still its own write.
             PickGroups = PickRows
                 .GroupBy(r => r.Item + "|" + r.PickParameter + "|" + string.Join(",", r.PickOptions))
-                .Select(g => new JkrPickGroup(g.ToList(), Lang, S("pickN")))
+                .Select(g => new JkrPickGroup(g.ToList(), S("pickN")))
                 .ToList();
         }
 
@@ -208,9 +185,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public string SelectedFor(JkrConfirmRow row) =>
             PickGroups.FirstOrDefault(g => g.Rows.Contains(row))?.Selected ?? "";
 
-        /// <summary>"(missing)" for an empty old value, in <paramref name="lang"/>.</summary>
-        internal static string MissingIn(string lang) =>
-            T[T.ContainsKey(lang ?? "") ? lang : "en"]["missing"];
+        /// <summary>"(missing)" for an empty old value.</summary>
+        internal static string MissingIn() => T["missing"];
 
         /// <summary>"Ready-made fixes": rows from the scan's own fixes.</summary>
         public IReadOnlyList<JkrConfirmRow> ReadyRows { get; }
@@ -223,8 +199,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public string ReadyHeader => S("ready");
         public string AiHeader => S("ai");
 
-        private string S(string key) => T[Lang][key];
-        internal static string Phrase(string lang, string key) => T[T.ContainsKey(lang ?? "") ? lang : "en"][key];
+        private static string S(string key) => T[key];
+        internal static string Phrase(string key) => T[key];
 
         public string Title => S("confirmFixT");
         public string Sub => S("confirmFixS");
@@ -276,7 +252,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public string Badge { get; }
         public string CountLabel { get; }
 
-        public JkrPickGroup(IReadOnlyList<JkrConfirmRow> rows, string lang, string countFormat)
+        public JkrPickGroup(IReadOnlyList<JkrConfirmRow> rows, string countFormat)
         {
             Rows = rows;
             var first = rows[0];
@@ -291,7 +267,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             // row (never the AI's, never the first option); the dialog cannot be confirmed until one is chosen.
             IsName = Parameter.Length == 0;
             _selected = PickCode.Length > 0 ? PickCode : IsName ? "" : Options[0];
-            Badge = JkrConfirmModel.Phrase(lang, "aiBadge");
+            Badge = JkrConfirmModel.Phrase("aiBadge");
             CountLabel = string.Format(countFormat, rows.Count);
         }
 

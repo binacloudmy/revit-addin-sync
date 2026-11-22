@@ -91,9 +91,8 @@ namespace RevitWebAppSync.Tests
 
         // ── the picker control's model: all options, the AI badge, the reason ──
 
-        private static JkrFixerRow Picker(string suggested, string reason = "", string lang = "en") =>
-            new JkrFixerRow("1", Rule, "Walls", FixerAiState.NotAsked, options: Three, lang: lang,
-                            isPick: true, pickCode: suggested, pickReason: reason);
+        private static JkrFixerRow Picker(string suggested, string reason = "") =>
+            new JkrFixerRow("1", Rule, "Walls", FixerAiState.NotAsked, options: Three, isPick: true, pickCode: suggested, pickReason: reason);
 
         [Fact]
         public void The_picker_shows_all_three_options_preselected_to_the_ai_code_with_a_badge_and_the_reason()
@@ -121,8 +120,7 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void The_badge_follows_the_chosen_value_and_the_badge_text_follows_the_language()
         {
-            var p = Picker("PKg", lang: "ms");
-            Assert.Equal("Dicadangkan AI", p.AiBadge);
+            var p = Picker("PKg");
             p.ManualValue = "PKb";
             Assert.False(p.ShowAiBadge);
             p.ManualValue = "PKg";
@@ -148,12 +146,12 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void The_results_adapter_hands_the_options_and_ai_code_to_the_card()
         {
-            var item = ResultsAdapter.FromIssue(Wall("1", 10, suggested: "PKg", reason: "Concrete wall"), "en");
+            var item = ResultsAdapter.FromIssue(Wall("1", 10, suggested: "PKg", reason: "Concrete wall"));
             Assert.True(item.AiFix);
             Assert.True(item.Pick);
             Assert.Equal(Three, item.Options);
             Assert.Equal("PKg", item.PickCode);
-            Assert.Equal("Concrete wall", item.AiReason.In("en"));
+            Assert.Equal("Concrete wall", item.AiReason.En);
             Assert.Null(item.Prop);                              // no value is proposed as a ready fix
             Assert.Equal(FixKind.None, item.Fix);
         }

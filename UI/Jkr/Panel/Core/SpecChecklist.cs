@@ -35,7 +35,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// <summary>One code per check, catalog order (<see cref="SpecChecklist.TickOf"/>).</summary>
         public List<string> Ticks { get; set; } = new List<string>();
         public int Fails { get; set; }
-        /// <summary>Checks a person decides (semak manual).</summary>
+        /// <summary>Checks a person decides (manual review).</summary>
         public int Manual { get; set; }
         /// <summary>"n fail"; when none fail, "n manual"; else "".</summary>
         public string CountLabel { get; set; } = "";
@@ -64,7 +64,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public string Tone { get; set; } = "none";
         /// <summary>Why it has this state, in one line ("2 of 5 results fail · 2 elements.").</summary>
         public string Detail { get; set; } = "";
-        /// <summary>The run's remarks (what was found), one per line, in the pane's language.</summary>
+        /// <summary>The run's remarks (what was found), one per line, in English.</summary>
         public string Notes { get; set; } = "";
         public bool HasNotes => !string.IsNullOrEmpty(Notes);
         /// <summary>"Spec — does not comply when:" / "— comply when:" / "— a person checks:".</summary>
@@ -159,7 +159,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
 
     /// <summary>
     /// Builds the Checklist from a <see cref="SpecReport"/> and the pane's items, in
-    /// the pane's language, and the spec-based headline (two numbers, rule R2).
+    /// English, and the spec-based headline (two numbers, rule R2).
     /// WPF-free; ResultsScreenModel keeps which sections are open, which checks show
     /// every element or their "why", and the state filter.
     /// </summary>
@@ -182,189 +182,171 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// <summary>Legend / filter order: what needs work first, then what is settled.</summary>
         public static readonly string[] StateKeys = { "fail", "person", "partial", "pass", "listed", "na", "none" };
 
-        // A key ending in "1" is the English singular (BM does not inflect).
-        private static readonly Dictionary<string, (string Ms, string En)> S = new Dictionary<string, (string, string)>
+        // A key ending in "1" is the singular form.
+        private static readonly Dictionary<string, string> S = new Dictionary<string, string>
         {
-            ["tab"] = ("Senarai semak", "Checklist"),
-            ["intro"] = ("Setiap semakan spec JKR Model Audit, ikut seksyen Borang. Klik elemen untuk lihat, baiki atau abaikan.",
-                         "Every check of the JKR Model Audit spec, by Borang section. Click an element to see, fix or ignore it."),
-            ["stAll"] = ("Semua", "All"),
-            ["stPass"] = ("Lulus", "Pass"),
-            ["stFail"] = ("Gagal", "Fails"),
-            ["stPartial"] = ("Sebahagian", "Partly"),
-            // Clear Sheet names the state a person decides "semak manual" in both languages.
-            ["stPerson"] = ("Semak manual", "Semak manual"),
-            ["stListed"] = ("Senarai", "Listed"),
-            ["stNa"] = ("Tidak berkenaan", "Not applicable"),
-            ["stNone"] = ("Belum disemak", "Not checked"),
-            ["clsHuman"] = ("keputusan manusia", "a person decides"),
-            ["clsList"] = ("senarai sahaja", "list only"),
-            ["dPass"] = ("{0} keputusan disemak — semua patuh.", "{0} results checked — all comply."),
-            ["dPass1"] = ("", "1 result checked — it complies."),
-            ["dFail"] = ("Gagal: {0} daripada {1} keputusan", "Failed: {0} of {1} results"),
-            ["dFailOnly"] = ("Gagal: 1 daripada 1 keputusan", "Failed: 1 of 1 result"),
-            ["dFailEl"] = (" · {0} elemen", " · {0} elements"),
-            ["dFailEl1"] = ("", " · 1 element"),
-            ["dPartial"] = ("Hanya sebahagian peraturan ini disemak oleh imbasan, dan bahagian itu patuh — semak selebihnya secara manual.",
-                            "Only part of the rule is tested by the scan, and that part complies — check the rest by hand."),
-            ["dHuman"] = ("Spec menyerahkan ini kepada manusia — tidak dikira dalam %.", "The spec leaves this to a person — not scored."),
-            ["dWarn"] = ("Amaran, bukan kegagalan — manusia nilai setiap satu. Tidak dikira dalam %.",
-                         "Warnings, not failures — a person judges each one. Not scored."),
-            ["warn"] = ("{0} amaran", "{0} warnings"),
-            ["warn1"] = ("", "1 warning"),
-            ["secWarn"] = ("{0} amaran", "{0} warnings"),
-            ["secWarn1"] = ("", "1 warning"),
-            ["pendingTag"] = ("menunggu pengesahan JKR", "awaiting JKR's confirmation"),
-            ["wPending"] = ("Spec — menunggu pengesahan JKR:", "Spec — awaiting JKR's confirmation:"),
-            ["dUnjudged"] = ("{0} keputusan tidak dapat dinilai oleh imbasan — semak secara manual.", "{0} results the scan could not judge — check by hand."),
-            ["dUnjudged1"] = ("", "1 result the scan could not judge — check by hand."),
-            ["dListed"] = ("Senarai sahaja, tiada keputusan.", "List only — no verdict."),
-            ["dNa"] = ("Tidak berkenaan untuk model ini, seperti yang ditakrif spec — tidak dikira dalam %.",
-                       "Does not apply to this model, as the spec defines — not scored."),
-            ["dNone"] = ("Imbasan belum ada peraturan untuk ini — belum disemak.", "The scan has no rule for this yet — not checked."),
-            ["dNoneList"] = ("Senarai sahaja — imbasan belum menghasilkan senarai ini.", "List only — the scan does not produce this list yet."),
-            ["dNoneBackend"] = ("Bergantung pada backend, yang tidak tersedia — belum disemak.", "Depends on the backend, which is unavailable — not checked."),
-            ["wComply"] = ("Spec — patuh bila:", "Spec — complies when:"),
-            ["wNotComply"] = ("Spec — tidak patuh bila:", "Spec — does not comply when:"),
-            ["wManual"] = ("Spec — semak manual:", "Spec — checked by hand:"),
-            ["wNote"] = ("Spec — nota:", "Spec — note:"),
+            ["tab"] = "Checklist",
+            ["intro"] = "Every check of the JKR Model Audit spec, by Borang section. Click an element to see, fix or ignore it.",
+            ["stAll"] = "All",
+            ["stPass"] = "Pass",
+            ["stFail"] = "Fails",
+            ["stPartial"] = "Partly",
+            // Clear Sheet names the state a person decides "Manual review".
+            ["stPerson"] = "Manual review",
+            ["stListed"] = "Listed",
+            ["stNa"] = "Not applicable",
+            ["stNone"] = "Not checked",
+            ["clsHuman"] = "a person decides",
+            ["clsList"] = "list only",
+            ["dPass"] = "{0} results checked — all comply.",
+            ["dPass1"] = "1 result checked — it complies.",
+            ["dFail"] = "Failed: {0} of {1} results",
+            ["dFailOnly"] = "Failed: 1 of 1 result",
+            ["dFailEl"] = " · {0} elements",
+            ["dFailEl1"] = " · 1 element",
+            ["dPartial"] = "Only part of the rule is tested by the scan, and that part complies — check the rest by hand.",
+            ["dHuman"] = "The spec leaves this to a person — not scored.",
+            ["dWarn"] = "Warnings, not failures — a person judges each one. Not scored.",
+            ["warn"] = "{0} warnings",
+            ["warn1"] = "1 warning",
+            ["secWarn"] = "{0} warnings",
+            ["secWarn1"] = "1 warning",
+            ["pendingTag"] = "awaiting JKR's confirmation",
+            ["wPending"] = "Spec — awaiting JKR's confirmation:",
+            ["dUnjudged"] = "{0} results the scan could not judge — check by hand.",
+            ["dUnjudged1"] = "1 result the scan could not judge — check by hand.",
+            ["dListed"] = "List only — no verdict.",
+            ["dNa"] = "Does not apply to this model, as the spec defines — not scored.",
+            ["dNone"] = "The scan has no rule for this yet — not checked.",
+            ["dNoneList"] = "List only — the scan does not produce this list yet.",
+            ["dNoneBackend"] = "Depends on the backend, which is unavailable — not checked.",
+            ["wComply"] = "Spec — complies when:",
+            ["wNotComply"] = "Spec — does not comply when:",
+            ["wManual"] = "Spec — checked by hand:",
+            ["wNote"] = "Spec — note:",
             // The toggle in a check's card (Clear Sheet "Why this fails"); a chevron shows open / closed.
-            ["whyFail"] = ("Kenapa ini gagal", "Why this fails"),
-            ["whyPass"] = ("Kenapa ini lulus", "Why this passes"),
-            ["whyOther"] = ("Apa kata spec", "What the spec says"),
-            ["tested"] = ("Disemak: ", "Tested: "),
-            ["secFail"] = ("{0} gagal", "{0} fail"),
-            ["secPass"] = ("{0} lulus", "{0} pass"),
-            ["secPartial"] = ("{0} sebahagian", "{0} partly"),
-            ["secPerson"] = ("{0} manusia", "{0} person"),
-            ["secNa"] = ("{0} tidak berkenaan", "{0} not applicable"),
-            ["secNone"] = ("{0} belum disemak", "{0} not checked"),
-            ["secListed"] = ("{0} senarai", "{0} listed"),
-            ["other"] = ("Peraturan JKR lain (bukan dalam spec Borang)", "Other JKR rules (not in the Borang spec)"),
-            ["otherItem"] = ("Peraturan imbasan yang tiada semakan spec — ditunjuk, tidak dikira.",
-                             "Scan rules with no spec check — shown, not scored."),
-            ["oFail"] = ("{0} daripada {1} gagal.", "{0} of {1} fail."),
-            ["oFail1"] = ("", "{0} of {1} fails."),
-            ["oUnjudged"] = ("{0} tidak dapat dinilai.", "{0} could not be judged."),
-            ["fix"] = ("Baiki {0}", "Fix {0}"),
-            ["showAll"] = ("Tunjuk semua {0}", "Show all {0}"),
-            ["showLess"] = ("Tunjuk kurang", "Show less"),
-            ["elCut"] = ("Menunjukkan {0} daripada {1} — selebihnya dalam tab isu (Terbuka, Manual).",
-                         "Showing {0} of {1} — the rest are on the issue tabs (Open, Manual)."),
-            ["listCut"] = ("Menunjukkan {0} daripada {1} baris.", "Showing {0} of {1} rows."),
-            ["notesCut"] = ("Menunjukkan {0} daripada {1} catatan.", "Showing {0} of {1} remarks."),
-            ["notesCutEl"] = ("Menunjukkan {0} daripada {1} catatan — setiap elemen disenaraikan di bawah.",
-                              "Showing {0} of {1} remarks — every element is listed below."),
-            ["vFails"] = ("Tidak patuh — {0} semakan spec gagal", "Does not comply — {0} spec checks fail"),
-            ["vFails1"] = ("", "Does not comply — 1 spec check fails"),
-            ["vNoFail"] = ("Tiada kegagalan dalam semakan yang diliputi", "No failures in the checks covered"),
-            ["vNothing"] = ("Belum ada semakan spec yang disahkan", "No spec check verified yet"),
-            ["vCounts"] = ("{0} lulus · {1} sebahagian · {2} perlu manusia · {3} belum disemak — daripada {4} semakan spec.",
-                           "{0} pass · {1} partly · {2} need a person · {3} not checked — of {4} spec checks."),
-            ["vOthers"] = (" {0} peraturan JKR lain juga gagal.", " {0} other JKR rules also fail."),
-            ["vOthers1"] = ("", " 1 other JKR rule also fails."),
-            ["others"] = ("{0} peraturan JKR lain (bukan dalam spec) juga gagal — lihat di bawah.", "{0} other JKR rules (not in the spec) also fail — see below."),
-            ["others1"] = ("", "1 other JKR rule (not in the spec) also fails — see below."),
+            ["whyFail"] = "Why this fails",
+            ["whyPass"] = "Why this passes",
+            ["whyOther"] = "What the spec says",
+            ["tested"] = "Tested: ",
+            ["secFail"] = "{0} fail",
+            ["secPass"] = "{0} pass",
+            ["secPartial"] = "{0} partly",
+            ["secPerson"] = "{0} person",
+            ["secNa"] = "{0} not applicable",
+            ["secNone"] = "{0} not checked",
+            ["secListed"] = "{0} listed",
+            ["other"] = "Other JKR rules (not in the Borang spec)",
+            ["otherItem"] = "Scan rules with no spec check — shown, not scored.",
+            ["oFail"] = "{0} of {1} fail.",
+            ["oFail1"] = "{0} of {1} fails.",
+            ["oUnjudged"] = "{0} could not be judged.",
+            ["fix"] = "Fix {0}",
+            ["showAll"] = "Show all {0}",
+            ["showLess"] = "Show less",
+            ["elCut"] = "Showing {0} of {1} — the rest are on the issue tabs (Open, Manual).",
+            ["listCut"] = "Showing {0} of {1} rows.",
+            ["notesCut"] = "Showing {0} of {1} remarks.",
+            ["notesCutEl"] = "Showing {0} of {1} remarks — every element is listed below.",
+            ["vFails"] = "Does not comply — {0} spec checks fail",
+            ["vFails1"] = "Does not comply — 1 spec check fails",
+            ["vNoFail"] = "No failures in the checks covered",
+            ["vNothing"] = "No spec check verified yet",
+            ["vCounts"] = "{0} pass · {1} partly · {2} need a person · {3} not checked — of {4} spec checks.",
+            ["vOthers"] = " {0} other JKR rules also fail.",
+            ["vOthers1"] = " 1 other JKR rule also fails.",
+            ["others"] = "{0} other JKR rules (not in the spec) also fail — see below.",
+            ["others1"] = "1 other JKR rule (not in the spec) also fails — see below.",
             // The % counts spec checks (AI-474): AI pass + List + Human over all checks. Two
             // short lines: the summary line beside "n checks need a person" holds about 30
             // characters before it is cut with "…".
-            ["hResults"] = ("{0} / {1} semakan lulus\n(Senarai/manusia dikira lulus)", "{0} / {1} checks pass\n(List and Human count as pass)"),
-            ["hResults1"] = ("", "{0} / {1} check passes\n(List and Human count as pass)"),
+            ["hResults"] = "{0} / {1} checks pass\n(List and Human count as pass)",
+            ["hResults1"] = "{0} / {1} check passes\n(List and Human count as pass)",
             // Under the %: the AI checks the run could not judge (not passed), with the reason,
             // and the partly checked ones as their own state.
-            ["hUnjudged"] = ("{0} tak dapat disemak — {1}", "{0} could not be checked — {1}"),
-            ["hPartial"] = ("{0} separa", "{0} partly checked"),
-            ["hWhy_backend"] = ("backend tidak tersedia", "backend unavailable"),
-            ["hWhy_mixed"] = ("sebahagian: backend tidak tersedia, selebihnya belum ada peraturan atau tidak dapat disahkan", "some: backend unavailable, the rest no rule yet or could not verify"),
-            ["hWhy_nothing"] = ("tiada yang dinilai", "nothing was judged"),
-            ["hWhy_rule"] = ("belum ada peraturan atau tidak dapat disahkan", "no rule yet, or could not verify"),
-            ["notCounted"] = ("Juga dilapor oleh {0} — tidak dikira: semakan add-in sendiri sudah menilai semakan ini.",
-                              "Also reported by {0} — not counted: the add-in's own check already judged this one."),
-            ["hPerson"] = ("semakan perlu manusia", "checks need a person"),
-            ["hPerson1"] = ("", "check needs a person"),
-            ["backendDown"] = ("Backend tidak tersedia — semakan yang bergantung padanya belum disemak",
-                               "Backend unavailable — checks that depend on it are not checked"),
-            ["filterEmpty"] = ("Tiada semakan dengan status ini.", "No check has this state."),
+            ["hUnjudged"] = "{0} could not be checked — {1}",
+            ["hPartial"] = "{0} partly checked",
+            ["hWhy_backend"] = "backend unavailable",
+            ["hWhy_mixed"] = "some: backend unavailable, the rest no rule yet or could not verify",
+            ["hWhy_nothing"] = "nothing was judged",
+            ["hWhy_rule"] = "no rule yet, or could not verify",
+            ["notCounted"] = "Also reported by {0} — not counted: the add-in's own check already judged this one.",
+            ["hPerson"] = "checks need a person",
+            ["hPerson1"] = "check needs a person",
+            ["backendDown"] = "Backend unavailable — checks that depend on it are not checked",
+            ["filterEmpty"] = "No check has this state.",
             // Result screen list: "Borang sections | Aspects" and its rows (Clear Sheet).
-            ["bySections"] = ("Seksyen Borang", "Borang sections"),
-            ["byAspects"] = ("Aspek", "Aspects"),
-            ["groupAria"] = ("Kumpul semakan ikut", "Group checks by"),
-            ["gManual"] = ("{0} manual", "{0} manual"),
-            ["gCompliant"] = ("patuh", "compliant"),
-            ["gFailAria"] = ("{0} semakan gagal", "{0} checks fail"),
-            ["gFailAria1"] = ("", "1 check fails"),
-            ["gManualAria"] = ("{0} semakan menunggu semak manual", "{0} checks wait for semak manual"),
-            ["gManualAria1"] = ("", "1 check waits for semak manual"),
-            ["filterAria"] = ("Tapis ikut status: {0}", "Filter by state: {0}"),
-            ["filterGroup"] = ("Tapis ikut status", "Filter by state"),
-            ["keysAria"] = ("Pintasan papan kekunci", "Keyboard shortcuts"),
+            ["bySections"] = "Borang sections",
+            ["byAspects"] = "Aspects",
+            ["groupAria"] = "Group checks by",
+            ["gManual"] = "{0} manual",
+            ["gCompliant"] = "compliant",
+            ["gFailAria"] = "{0} checks fail",
+            ["gFailAria1"] = "1 check fails",
+            ["gManualAria"] = "{0} checks wait for manual review",
+            ["gManualAria1"] = "1 check waits for manual review",
+            ["filterAria"] = "Filter by state: {0}",
+            ["filterGroup"] = "Filter by state",
+            ["keysAria"] = "Keyboard shortcuts",
             // Result head (Clear Sheet): verdict, its line, the score sentence.
-            ["vHeadFail"] = ("Tidak patuh", "Does not comply"),
-            ["vSubFail"] = ("{0} semakan spec gagal.", "{0} spec checks fail."),
-            ["vSubFail1"] = ("", "1 spec check fails."),
-            ["vSubPerson"] = ("Belum lulus penuh: sesetengah semakan perlu diputuskan oleh manusia.",
-                              "Not a full pass yet: some checks are for a person to decide."),
-            ["hPct"] = ("{0} patuh", "{0} compliant"),
-            ["hRest"] = (", {0} daripada {1} semakan lulus. Semakan Senarai dan manusia dikira lulus; semakan AI yang belum dinilai tidak.",
-                         ", {0} of {1} checks pass. List and Human checks count as pass; unjudged AI checks do not."),
-            ["hRest1"] = ("", ", {0} of {1} check passes. List and Human checks count as pass; unjudged AI checks do not."),
-            ["hRestNone"] = (", tiada semakan untuk dikira.", ", no check to score."),
+            ["vHeadFail"] = "Does not comply",
+            ["vSubFail"] = "{0} spec checks fail.",
+            ["vSubFail1"] = "1 spec check fails.",
+            ["vSubPerson"] = "Not a full pass yet: some checks are for a person to decide.",
+            ["hPct"] = "{0} compliant",
+            ["hRest"] = ", {0} of {1} checks pass. List and Human checks count as pass; unjudged AI checks do not.",
+            ["hRest1"] = ", {0} of {1} check passes. List and Human checks count as pass; unjudged AI checks do not.",
+            ["hRestNone"] = ", no check to score.",
             // The issue view's one-line verdict: "18% compliant · 22 fail".
-            ["vShort"] = ("{0} patuh · {1} gagal", "{0} compliant · {1} fail"),
-            ["tabIssues"] = ("Isu", "Issues"),
+            ["vShort"] = "{0} compliant · {1} fail",
+            ["tabIssues"] = "Issues",
             // The Issues tab while a section filters it, and the link to it from inside a section.
-            ["tabIssuesSec"] = ("Isu · Seksyen {0}", "Issues · Section {0}"),
-            ["secIssues"] = ("{0} isu dalam seksyen ini", "{0} issues in this section"),
-            ["secIssues1"] = ("", "1 issue in this section"),
+            ["tabIssuesSec"] = "Issues · Section {0}",
+            ["secIssues"] = "{0} issues in this section",
+            ["secIssues1"] = "1 issue in this section",
             // The Issues list (Clear Sheet "issues"): toolbar and rows.
-            ["stateTabs"] = ("Status isu", "Issue state"),
-            ["searchIssues"] = ("Cari isu", "Search issues"),
-            ["progResolved"] = ("{0} daripada {1} selesai", "{0} of {1} resolved"),
+            ["stateTabs"] = "Issue state",
+            ["searchIssues"] = "Search issues",
+            ["progResolved"] = "{0} of {1} resolved",
             // AI-442: the unit is the change, as in the progress line, toast and result window.
-            ["fixAllN"] = ("Baiki semua {0} perubahan", "Fix all {0} changes"),
-            ["fixAllN1"] = ("Baiki semua {0} perubahan", "Fix all {0} change"),
+            ["fixAllN"] = "Fix all {0} changes",
+            ["fixAllN1"] = "Fix all {0} change",
             // The AI fixer mark: "proposal" only when a proposed value exists on the row.
-            ["aiProposal"] = ("Cadangan pembaiki AI", "AI fixer proposal"),
-            ["aiCanMeta"] = ("Pembaiki AI boleh mencadangkan", "AI fixer can propose"),
-            ["noFix"] = ("Tiada pembaikan sedia. Perlu tindakan manual.", "No ready-made fix. Needs manual action."),
-            ["noFixReads"] = ("Masih tertulis “{0}”. Perlu tindakan manual.", "Still reads “{0}”. Needs manual action."),
+            ["aiProposal"] = "AI fixer proposal",
+            ["aiCanMeta"] = "AI fixer can propose",
+            ["noFix"] = "No ready-made fix. Needs manual action.",
+            ["noFixReads"] = "Still reads “{0}”. Needs manual action.",
             // An AI fixer candidate before the fixer has proposed anything: no value is claimed.
-            ["aiCan"] = ("Tiada pembaikan sedia. Pembaiki AI boleh mencadangkannya.", "No ready-made fix. The AI fixer can propose one."),
-            ["aiCanReads"] = ("Masih tertulis “{0}”. Pembaiki AI boleh mencadangkan pembaikan.", "Still reads “{0}”. The AI fixer can propose a fix."),
+            ["aiCan"] = "No ready-made fix. The AI fixer can propose one.",
+            ["aiCanReads"] = "Still reads “{0}”. The AI fixer can propose a fix.",
             // A section / aspect opened from the list.
-            ["posSection"] = ("Seksyen {0} daripada {1}", "Section {0} of {1}"),
-            ["posAspect"] = ("Aspek {0} daripada {1}", "Aspect {0} of {1}"),
-            ["allChecks"] = ("Semua semakan", "All checks"),
-            ["otherName"] = ("Peraturan JKR lain", "Other JKR rules"),
-            ["otherNote"] = ("bukan dalam spec Borang", "not in the Borang spec"),
-            ["aspectsNote"] = ("Aspek mengumpul semula {0} semakan yang sama ikut apa yang disemak: penamaan, parameter dan maklumat, kualiti dan integriti, serta geometri reka bentuk.",
-                               "Aspects regroup the same {0} checks by what they test: naming, parameters and information, quality and integrity, and design geometry."),
+            ["posSection"] = "Section {0} of {1}",
+            ["posAspect"] = "Aspect {0} of {1}",
+            ["allChecks"] = "All checks",
+            ["otherName"] = "Other JKR rules",
+            ["otherNote"] = "not in the Borang spec",
+            ["aspectsNote"] = "Aspects regroup the same {0} checks by what they test: naming, parameters and information, quality and integrity, and design geometry.",
             // The split banner on a result that is out of date or missing the backend's checks.
-            ["lodStrong"] = ("Keputusan ini untuk LOD {0}.", "This result is for LOD {0}."),
-            ["lodRest"] = ("Imbas semula untuk menyemak model terhadap LOD {0}.", "Re-scan to check the model against LOD {0}."),
-            ["partialStrong"] = ("Sebahagian · belum lengkap: {0} sumber tiada ({1}). Papan ini bukan muktamad.",
-                "Partial · incomplete: {0} source(s) missing ({1}). This board is not final."),
-            ["beStrong"] = ("Backend BINA tidak tersedia.", "BINA backend unavailable."),
-            ["beOne"] = ("{0} memerlukannya, jadi ia ditunjuk sebagai belum disemak, bukan sebagai lulus.",
-                         "{0} needs it, so it shows as not checked, never as passed."),
-            ["beMany"] = ("{0} memerlukannya, jadi semakan itu ditunjuk sebagai belum disemak, bukan sebagai lulus.",
-                          "{0} need it, so they show as not checked, never as passed."),
-            ["beNone"] = ("Semakan yang memerlukannya ditunjuk sebagai belum disemak, bukan sebagai lulus.",
-                          "Checks that need it show as not checked, never as passed."),
+            ["lodStrong"] = "This result is for LOD {0}.",
+            ["lodRest"] = "Re-scan to check the model against LOD {0}.",
+            ["partialStrong"] = "Partial · incomplete: {0} source(s) missing ({1}). This board is not final.",
+            ["beStrong"] = "BINA backend unavailable.",
+            ["beOne"] = "{0} needs it, so it shows as not checked, never as passed.",
+            ["beMany"] = "{0} need it, so they show as not checked, never as passed.",
+            ["beNone"] = "Checks that need it show as not checked, never as passed.",
         };
 
-        private static bool IsEn(string lang) => string.Equals(lang, PanelStrings.En, StringComparison.OrdinalIgnoreCase);
 
-        public static string Str(string key, string lang) =>
-            S.TryGetValue(key, out var p) ? (IsEn(lang) ? p.En : p.Ms) : key;
+        public static string Str(string key) =>
+            S.TryGetValue(key, out var p) ? p : key;
 
-        private static string F(string key, string lang, params object[] args) => string.Format(Str(key, lang), args);
+        private static string F(string key, params object[] args) => string.Format(Str(key), args);
 
         /// <summary>Count-dependent wording: the English singular (key + "1") when n == 1.</summary>
-        public static string Plural(string key, string lang, int n, params object[] args)
+        public static string Plural(string key, int n, params object[] args)
         {
-            var k = IsEn(lang) && n == 1 && S.ContainsKey(key + "1") ? key + "1" : key;
-            return string.Format(Str(k, lang), args.Length == 0 ? new object[] { n } : args);
+            var k = n == 1 && S.ContainsKey(key + "1") ? key + "1" : key;
+            return string.Format(Str(k), args.Length == 0 ? new object[] { n } : args);
         }
 
         // ─── states ───
@@ -384,29 +366,29 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             }
         }
 
-        public static string StateLabel(string tone, string lang)
+        public static string StateLabel(string tone)
         {
             switch (tone)
             {
-                case "pass": return Str("stPass", lang);
-                case "fail": return Str("stFail", lang);
-                case "partial": return Str("stPartial", lang);
-                case "person": return Str("stPerson", lang);
-                case "listed": return Str("stListed", lang);
-                case "na": return Str("stNa", lang);
-                case AllStates: return Str("stAll", lang);
-                default: return Str("stNone", lang);
+                case "pass": return Str("stPass");
+                case "fail": return Str("stFail");
+                case "partial": return Str("stPartial");
+                case "person": return Str("stPerson");
+                case "listed": return Str("stListed");
+                case "na": return Str("stNa");
+                case AllStates: return Str("stAll");
+                default: return Str("stNone");
             }
         }
 
-        public static string StateLabel(SpecState s, string lang) => StateLabel(ToneOf(s), lang);
+        public static string StateLabel(SpecState s) => StateLabel(ToneOf(s));
 
         /// <summary>The legend: All + every state with its count of spec checks; the one filtered on is on.</summary>
-        public static List<StateChip> StateChips(SpecReport r, string lang, string filter) => StateChips(r, lang, filter, null);
+        public static List<StateChip> StateChips(SpecReport r, string filter) => StateChips(r, filter, null);
 
         /// <summary>The legend counted over the checks <paramref name="member"/> picks (a section,
         /// an aspect; null = every check).</summary>
-        public static List<StateChip> StateChips(SpecReport r, string lang, string filter, Func<SpecCheck, bool> member)
+        public static List<StateChip> StateChips(SpecReport r, string filter, Func<SpecCheck, bool> member)
         {
             var list = new List<StateChip>();
             if (r == null) return list;
@@ -414,16 +396,16 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             var on = string.IsNullOrEmpty(filter) ? AllStates : filter;
             list.Add(new StateChip
             {
-                Key = AllStates, Tone = AllStates, Label = Str("stAll", lang), N = checks.Count, IsOn = on == AllStates,
-                Aria = F("filterAria", lang, Str("stAll", lang)) + " · " + checks.Count,
+                Key = AllStates, Tone = AllStates, Label = Str("stAll"), N = checks.Count, IsOn = on == AllStates,
+                Aria = F("filterAria", Str("stAll")) + " · " + checks.Count,
             });
             foreach (var k in StateKeys)
             {
                 var n = checks.Count(c => ToneOf(c.State) == k);
                 list.Add(new StateChip
                 {
-                    Key = k, Tone = k, Label = StateLabel(k, lang), N = n, IsOn = on == k,
-                    Aria = F("filterAria", lang, StateLabel(k, lang)) + " · " + n,
+                    Key = k, Tone = k, Label = StateLabel(k), N = n, IsOn = on == k,
+                    Aria = F("filterAria", StateLabel(k)) + " · " + n,
                 });
             }
             return list;
@@ -515,19 +497,19 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             return t == 0 ? (int?)null : (int)Math.Round(100.0 * p / t, MidpointRounding.AwayFromZero);
         }
 
-        /// <summary>"4 tak dapat disemak — tiada peraturan lagi" under the %, or "" when every AI check was judged.</summary>
-        public static string UnjudgedLine(SpecReport r, string lang, string section = null)
+        /// <summary>"4 could not be checked — no rule yet" under the %, or "" when every AI check was judged.</summary>
+        public static string UnjudgedLine(SpecReport r, string section = null)
         {
             var t = TallyOf(r, section);
             if (t.Unjudged == 0) return "";
-            return F("hUnjudged", lang, t.Unjudged, Str("hWhy_" + t.UnjudgedReason, lang));
+            return F("hUnjudged", t.Unjudged, Str("hWhy_" + t.UnjudgedReason));
         }
 
         /// <summary>"12 separa" — AI checks partly covered, their own state (not passed); "" when none.</summary>
-        public static string PartialLine(SpecReport r, string lang, string section = null)
+        public static string PartialLine(SpecReport r, string section = null)
         {
             var t = TallyOf(r, section);
-            return t.Partial == 0 ? "" : F("hPartial", lang, t.Partial);
+            return t.Partial == 0 ? "" : F("hPartial", t.Partial);
         }
 
         /// <summary>One section, or every check (null / PanelCore.AllSections).</summary>
@@ -539,7 +521,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         // ─── group rows: a Borang section or an aspect (the Result screen's list) ───
 
         /// <summary>The tick code of a state (Clear Sheet's tick strip): f fail, p pass,
-        /// h partly, m semak manual, l listed, n not applicable, x not checked.</summary>
+        /// h partly, m manual review, l listed, n not applicable, x not checked.</summary>
         public static string TickOf(SpecState s)
         {
             switch (s)
@@ -576,8 +558,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// one tick per check in catalog order, and "n fail" — or, when none fail,
         /// "n manual". Section rows and aspect rows are both built here, the same way.
         /// </summary>
-        public static GroupRow Group(SpecReport r, string key, string letter, string name,
-                                     Func<SpecCheck, bool> member, string lang)
+        public static GroupRow Group(SpecReport r, string key, string letter, string name, Func<SpecCheck, bool> member)
         {
             var checks = r == null ? new List<SpecCheckResult>()
                 : SpecCatalog.Checks.Where(member).Select(c => r.For(c.Id)).Where(c => c != null).ToList();
@@ -585,9 +566,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             var fails = checks.Count(c => c.State == SpecState.Fail);
             var manual = checks.Count(c => c.State == SpecState.NeedsPerson);
             var pctLabel = pct.HasValue ? pct.Value + "%" : "—";
-            string count = "", tone = "", aria = name + ", " + pctLabel + " " + Str("gCompliant", lang);
-            if (fails > 0) { count = F("secFail", lang, fails); tone = "fail"; aria += ", " + Plural("gFailAria", lang, fails); }
-            else if (manual > 0) { count = F("gManual", lang, manual); tone = "person"; aria += ", " + Plural("gManualAria", lang, manual); }
+            string count = "", tone = "", aria = name + ", " + pctLabel + " " + Str("gCompliant");
+            if (fails > 0) { count = F("secFail", fails); tone = "fail"; aria += ", " + Plural("gFailAria", fails); }
+            else if (manual > 0) { count = F("gManual", manual); tone = "person"; aria += ", " + Plural("gManualAria", manual); }
             return new GroupRow
             {
                 Key = key, Letter = letter, Name = name, Checks = checks.Count,
@@ -598,42 +579,42 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         }
 
         /// <summary>The Borang section rows A–E (the "Borang sections" view).</summary>
-        public static List<GroupRow> SectionRows(SpecReport r, string lang) =>
+        public static List<GroupRow> SectionRows(SpecReport r) =>
             r == null ? new List<GroupRow>()
-                : PanelCore.Secs.Select(s => Group(r, s, s, SectionName(s, lang), c => c.Section == s, lang)).ToList();
+                : PanelCore.Secs.Select(s => Group(r, s, s, SectionName(s), c => c.Section == s)).ToList();
 
         /// <summary>Checks a person decides, in one section or all (null).</summary>
         public static int NeedsPerson(SpecReport r, string section = null) =>
             r?.Checks.Count(c => c.State == SpecState.NeedsPerson
                                  && (string.IsNullOrEmpty(section) || section == PanelCore.AllSections || c.Check.Section == section)) ?? 0;
 
-        public static string ResultsLabel(SpecReport r, string lang)
+        public static string ResultsLabel(SpecReport r)
         {
             var (p, t) = Score(r);
-            return Plural("hResults", lang, t, p, t);
+            return Plural("hResults", t, p, t);
         }
 
         /// <summary>"Also reported by backend: Naming convention — not counted: …" for the
         /// backend results the add-in's own evaluator outranked
         /// (<see cref="SpecCheckResult.NotCounted"/>), or "".</summary>
-        public static string NotCountedLine(SpecCheckResult r, string lang)
+        public static string NotCountedLine(SpecCheckResult r)
         {
             var list = r?.NotCounted ?? new List<string>();
             if (list.Count == 0) return "";
-            return F("notCounted", lang, string.Join("; ", list.Take(3)) + (list.Count > 3 ? "; …" : ""));
+            return F("notCounted", string.Join("; ", list.Take(3)) + (list.Count > 3 ? "; …" : ""));
         }
 
-        public static string NeedPersonLabel(SpecReport r, string lang) => Plural("hPerson", lang, NeedsPerson(r), NeedsPerson(r));
+        public static string NeedPersonLabel(SpecReport r) => Plural("hPerson", NeedsPerson(r), NeedsPerson(r));
 
-        public static string BackendBanner(string lang) => Str("backendDown", lang);
+        public static string BackendBanner() => Str("backendDown");
 
         /// <summary>"B1.2 needs it, so it shows as not checked, never as passed." for the checks
         /// only the backend answers that this run could not check (none: the general line).</summary>
-        public static string BackendNeedsLine(IEnumerable<string> ids, string lang)
+        public static string BackendNeedsLine(IEnumerable<string> ids)
         {
             var list = (ids ?? Enumerable.Empty<string>()).Where(i => !string.IsNullOrEmpty(i)).ToList();
-            if (list.Count == 0) return Str("beNone", lang);
-            return F(list.Count == 1 ? "beOne" : "beMany", lang, string.Join(", ", list));
+            if (list.Count == 0) return Str("beNone");
+            return F(list.Count == 1 ? "beOne" : "beMany", string.Join(", ", list));
         }
 
         /// <summary>Checks only the backend answers that stay "not checked" because it was unavailable.</summary>
@@ -644,14 +625,14 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
 
         // ─── verdict ───
 
-        public static string VerdictTitle(SpecReport r, string lang)
+        public static string VerdictTitle(SpecReport r)
         {
             if (r == null) return "";
             switch (r.Verdict)
             {
-                case SpecVerdict.Fails: return Plural("vFails", lang, r.FailChecks);
-                case SpecVerdict.NoFailures: return Str("vNoFail", lang);
-                default: return Str("vNothing", lang);
+                case SpecVerdict.Fails: return Plural("vFails", r.FailChecks);
+                case SpecVerdict.NoFailures: return Str("vNoFail");
+                default: return Str("vNothing");
             }
         }
 
@@ -659,17 +640,17 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public static string VerdictTone(SpecReport r) =>
             r == null ? "none" : r.Verdict == SpecVerdict.Fails ? "fail" : r.Verdict == SpecVerdict.NoFailures ? "pass" : "none";
 
-        public static string VerdictText(SpecReport r, string lang)
+        public static string VerdictText(SpecReport r)
         {
             if (r == null) return "";
-            var s = F("vCounts", lang, r.PassChecks, r.PartialChecks, r.NeedsPersonChecks, r.NotCheckedChecks + r.ListedChecks, r.Checks.Count);
-            if (r.OtherFailing > 0) s += Plural("vOthers", lang, r.OtherFailing);
+            var s = F("vCounts", r.PassChecks, r.PartialChecks, r.NeedsPersonChecks, r.NotCheckedChecks + r.ListedChecks, r.Checks.Count);
+            if (r.OtherFailing > 0) s += Plural("vOthers", r.OtherFailing);
             return s;
         }
 
         /// <summary>"4 other JKR rules (not in the spec) also fail — see below." or "".</summary>
-        public static string OthersNote(SpecReport r, string lang) =>
-            r == null || r.OtherFailing == 0 ? "" : Plural("others", lang, r.OtherFailing);
+        public static string OthersNote(SpecReport r) =>
+            r == null || r.OtherFailing == 0 ? "" : Plural("others", r.OtherFailing);
 
         // ─── checklist ───
 
@@ -681,10 +662,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// <param name="stateFilter">Only checks in this state (a tone; null / "all" = every check).
         /// Other JKR rules are not spec checks and are left out while a filter is on.</param>
         /// <param name="whyOpen">Whether a check shows its spec criterion (null = the default: open when it fails).</param>
-        public static List<ChecklistSection> Build(SpecReport report, IEnumerable<PanelItem> items, string lang,
-                                                   string section, Func<string, bool?> isOpen, Func<string, bool> showAll,
-                                                   string stateFilter = null, Func<string, bool?> whyOpen = null,
-                                                   Func<SpecCheck, bool> member = null)
+        public static List<ChecklistSection> Build(SpecReport report, IEnumerable<PanelItem> items, string section, Func<string, bool?> isOpen, Func<string, bool> showAll, string stateFilter = null, Func<string, bool?> whyOpen = null, Func<SpecCheck, bool> member = null)
         {
             var list = new List<ChecklistSection>();
             if (report == null) return list;
@@ -712,16 +690,16 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 {
                     Key = sec,
                     Letter = sec,
-                    Name = SectionName(sec, lang),
+                    Name = SectionName(sec),
                     Summary = Join(
-                        fail > 0 ? F("secFail", lang, fail) : null,
-                        pass > 0 ? F("secPass", lang, pass) : null,
-                        partial > 0 ? F("secPartial", lang, partial) : null,
-                        person > 0 ? F("secPerson", lang, person) : null,
-                        warnings > 0 ? Plural("secWarn", lang, warnings) : null,
-                        na > 0 ? F("secNa", lang, na) : null,
-                        listed > 0 ? F("secListed", lang, listed) : null,
-                        none > 0 ? F("secNone", lang, none) : null),
+                        fail > 0 ? F("secFail", fail) : null,
+                        pass > 0 ? F("secPass", pass) : null,
+                        partial > 0 ? F("secPartial", partial) : null,
+                        person > 0 ? F("secPerson", person) : null,
+                        warnings > 0 ? Plural("secWarn", warnings) : null,
+                        na > 0 ? F("secNa", na) : null,
+                        listed > 0 ? F("secListed", listed) : null,
+                        none > 0 ? F("secNone", none) : null),
                     Tone = fail > 0 ? "fail" : pass > 0 ? "pass" : partial > 0 ? "partial" : person > 0 ? "person" : "none",
                 };
                 vm.IsOpen = isOpen?.Invoke(sec) ?? (fail > 0 || !all || filtered);
@@ -729,12 +707,12 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 {
                     foreach (var it in SpecCatalog.ItemsOf(sec))
                     {
-                        var ivm = new ChecklistItem { No = it.No, Title = it.Title.In(lang) };
+                        var ivm = new ChecklistItem { No = it.No, Title = it.Title.En };
                         foreach (var check in SpecCatalog.ChecksOf(it.No))
                         {
                             var r = report.For(check.Id);
                             if (r == null || !Keep(r) || (member != null && !member(check))) continue;
-                            ivm.Checks.Add(CheckRow(r, report, byId, lang, showAll, whyOpen));
+                            ivm.Checks.Add(CheckRow(r, report, byId, showAll, whyOpen));
                         }
                         if (ivm.Checks.Count > 0) vm.Items.Add(ivm);
                     }
@@ -750,19 +728,19 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 {
                     Key = OtherKey,
                     Letter = "+",
-                    Name = Str("other", lang),
+                    Name = Str("other"),
                     Summary = Join(
-                        failing > 0 ? F("secFail", lang, failing) : null,
-                        passing > 0 ? F("secPass", lang, passing) : null,
-                        report.Others.Count - failing - passing > 0 ? F("secPerson", lang, report.Others.Count - failing - passing) : null),
+                        failing > 0 ? F("secFail", failing) : null,
+                        passing > 0 ? F("secPass", passing) : null,
+                        report.Others.Count - failing - passing > 0 ? F("secPerson", report.Others.Count - failing - passing) : null),
                     Tone = failing > 0 ? "fail" : "pass",
                 };
                 other.IsOpen = isOpen?.Invoke(OtherKey) ?? onlyOthers;
                 if (other.IsOpen)
                 {
-                    var ivm = new ChecklistItem { No = "", Title = Str("otherItem", lang) };
+                    var ivm = new ChecklistItem { No = "", Title = Str("otherItem") };
                     var n = 0;
-                    foreach (var o in report.Others) ivm.Checks.Add(OtherRow(o, "other-" + n++, byId, lang, showAll));
+                    foreach (var o in report.Others) ivm.Checks.Add(OtherRow(o, "other-" + n++, byId, showAll));
                     other.Items.Add(ivm);
                 }
                 list.Add(other);
@@ -771,8 +749,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         }
 
         /// <summary>The checklist row of one spec check (state, why, notes, elements).</summary>
-        public static ChecklistCheck CheckRow(SpecCheckResult r, SpecReport report, Dictionary<string, PanelItem> byId, string lang,
-                                              Func<string, bool> showAll, Func<string, bool?> whyOpen = null)
+        public static ChecklistCheck CheckRow(SpecCheckResult r, SpecReport report, Dictionary<string, PanelItem> byId, Func<string, bool> showAll, Func<string, bool?> whyOpen = null)
         {
             var c = r.Check;
             var pending = IsPendingJkr(c);
@@ -780,49 +757,49 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             {
                 Id = c.Id,
                 ShownId = c.Id,
-                Title = c.Title.In(lang),
-                Meta = Meta(c, lang),
+                Title = c.Title.En,
+                Meta = Meta(c),
                 Tone = ToneOf(r.State),
-                StateLabel = StateLabel(r.State, lang),
+                StateLabel = StateLabel(r.State),
             };
-            row.Detail = DetailOf(r, report, lang);
-            var (label, text) = Criterion(r, lang);
+            row.Detail = DetailOf(r, report);
+            var (label, text) = Criterion(r);
             row.WhyLabel = label;
             row.WhyText = text;
             if (pending)
             {
                 // Shown whatever the state, unless the criterion already is that note.
-                var note = c.Manual.In(lang).Replace("`", "");
-                if (note != row.WhyText) { row.PendingLabel = Str("wPending", lang); row.PendingText = note; }
+                var note = c.Manual.En.Replace("`", "");
+                if (note != row.WhyText) { row.PendingLabel = Str("wPending"); row.PendingText = note; }
             }
 
             var warnings = WarningCount(r);
-            if (warnings > 0) row.WarningLabel = Plural("warn", lang, warnings);
+            if (warnings > 0) row.WarningLabel = Plural("warn", warnings);
 
             if (r.State != SpecState.NotChecked && r.Rules.Count > 0)
-                row.Tested = Str("tested", lang) + string.Join("; ", r.Rules.Take(3));
-            var notCounted = NotCountedLine(r, lang);
+                row.Tested = Str("tested") + string.Join("; ", r.Rules.Take(3));
+            var notCounted = NotCountedLine(r);
             if (notCounted.Length > 0) row.Tested = string.IsNullOrEmpty(row.Tested) ? notCounted : row.Tested + "\n" + notCounted;
             // Closed until asked for: the check's line already says why in one sentence.
             row.WhyOpen = whyOpen?.Invoke(c.Id) ?? false;
-            row.WhyToggleLabel = Str(r.State == SpecState.Fail ? "whyFail" : r.State == SpecState.Pass ? "whyPass" : "whyOther", lang);
+            row.WhyToggleLabel = Str(r.State == SpecState.Fail ? "whyFail" : r.State == SpecState.Pass ? "whyPass" : "whyOther");
 
             // Every remark of the run (not only the Borang's first few), both languages side
             // by side; an element row that shows one takes it (in the pane's language), so it
             // is printed once, and each row of a check a person decides finds its own.
             var notes = NotePairs(r);
             var taken = new HashSet<int>();
-            var elements = AddElements(row, r.IssueIds, byId ?? new Dictionary<string, PanelItem>(), lang, showAll, notes, taken);
-            var left = notes.Where((n, i) => !taken.Contains(i)).Select(n => n.In(lang))
+            var elements = AddElements(row, r.IssueIds, byId ?? new Dictionary<string, PanelItem>(), showAll, notes, taken);
+            var left = notes.Where((n, i) => !taken.Contains(i)).Select(n => n.En)
                             .Where(n => !string.IsNullOrWhiteSpace(n)).ToList();
             // A list-only check's remarks are its list: all of them. Any other check shows its
             // first few remarks (the element rows carry the rest), and says when it holds more.
             var cut = c.Class == SpecCellClass.List ? left.Count : Math.Min(left.Count, SpecReport.MaxNotes);
-            SplitList(row, left.Take(cut).ToList(), lang, showAll?.Invoke(c.Id) == true);
+            SplitList(row, left.Take(cut).ToList(), showAll?.Invoke(c.Id) == true);
             if (cut < left.Count)
             {
                 // Under the remarks: after their rows when they read as a table, else as a last line.
-                var line = F(elements >= left.Count ? "notesCutEl" : "notesCut", lang, cut, left.Count);
+                var line = F(elements >= left.Count ? "notesCutEl" : "notesCut", cut, left.Count);
                 if (row.HasListRows) row.ListCutLabel = line;
                 else row.Notes = string.IsNullOrEmpty(row.Notes) ? line : row.Notes + "\n" + line;
             }
@@ -847,10 +824,10 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// "Reference · class · awaiting JKR". The reference is left out when the title
         /// already names it ("Ketinggian siling (NS §4.1.9)" + "NS §4.1.9").
         /// </summary>
-        public static string Meta(SpecCheck c, string lang) => Join(
+        public static string Meta(SpecCheck c) => Join(
             TitleHasReference(c.Title.Ms, c.Reference) || TitleHasReference(c.Title.En, c.Reference) ? null : SpecCatalog.ShownReference(c.Reference),
-            c.Class == SpecCellClass.Human ? Str("clsHuman", lang) : c.Class == SpecCellClass.List ? Str("clsList", lang) : null,
-            IsPendingJkr(c) ? Str("pendingTag", lang) : null);
+            c.Class == SpecCellClass.Human ? Str("clsHuman") : c.Class == SpecCellClass.List ? Str("clsList") : null,
+            IsPendingJkr(c) ? Str("pendingTag") : null);
 
         private static readonly System.Text.RegularExpressions.Regex RefNumber =
             new System.Text.RegularExpressions.Regex(@"\d+(?:[.:]\d+)+", System.Text.RegularExpressions.RegexOptions.Compiled);
@@ -887,7 +864,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// rest stays as notes; a long list of plain lines keeps its first line as the
         /// note and lists the others. Lists are collapsed to <see cref="ListShown"/> rows.
         /// </summary>
-        private static void SplitList(ChecklistCheck row, List<string> notes, string lang, bool all)
+        private static void SplitList(ChecklistCheck row, List<string> notes, bool all)
         {
             var plain = new List<string>();
             var rows = new List<ChecklistListRow>();
@@ -908,37 +885,37 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             row.Notes = string.Join("\n", plain);
             row.ListRows = all ? rows.Take(ListMax).ToList() : rows.Take(ListShown).ToList();
             if (rows.Count > ListShown)
-                row.ListMoreLabel = all ? Str("showLess", lang) : F("showAll", lang, rows.Count);
+                row.ListMoreLabel = all ? Str("showLess") : F("showAll", rows.Count);
             // "Show all" never lists fewer rows than the run found without saying so.
-            if (all && rows.Count > ListMax) row.ListCutLabel = F("listCut", lang, ListMax, rows.Count);
+            if (all && rows.Count > ListMax) row.ListCutLabel = F("listCut", ListMax, rows.Count);
         }
 
         /// <summary>Why the check has its state, in one line.</summary>
-        public static string DetailOf(SpecCheckResult r, SpecReport report, string lang)
+        public static string DetailOf(SpecCheckResult r, SpecReport report)
         {
             var c = r.Check;
             switch (r.State)
             {
                 case SpecState.Pass:
-                    return Plural("dPass", lang, r.Passed);
+                    return Plural("dPass", r.Passed);
                 case SpecState.Fail:
                 {
                     var total = r.Passed + r.Failed + r.Unjudged;
-                    return (total == 1 ? Str("dFailOnly", lang) : Plural("dFail", lang, r.Failed, r.Failed, total))
-                           + (r.Elements > 0 ? Plural("dFailEl", lang, r.Elements) : "") + ".";
+                    return (total == 1 ? Str("dFailOnly") : Plural("dFail", r.Failed, r.Failed, total))
+                           + (r.Elements > 0 ? Plural("dFailEl", r.Elements) : "") + ".";
                 }
                 case SpecState.Partial:
-                    return Str("dPartial", lang);
+                    return Str("dPartial");
                 case SpecState.NeedsPerson:
-                    if (WarningCount(r) > 0) return Str("dWarn", lang);
-                    return c.Class == SpecCellClass.Human ? Str("dHuman", lang) : Plural("dUnjudged", lang, r.Unjudged);
+                    if (WarningCount(r) > 0) return Str("dWarn");
+                    return c.Class == SpecCellClass.Human ? Str("dHuman") : Plural("dUnjudged", r.Unjudged);
                 case SpecState.Listed:
-                    return Str("dListed", lang);
+                    return Str("dListed");
                 case SpecState.NotApplicable:
-                    return Str("dNa", lang);
+                    return Str("dNa");
                 default:
-                    if (c.Class == SpecCellClass.List) return Str("dNoneList", lang);
-                    return report != null && report.BackendUnavailable ? Str("dNoneBackend", lang) : Str("dNone", lang);
+                    if (c.Class == SpecCellClass.List) return Str("dNoneList");
+                    return report != null && report.BackendUnavailable ? Str("dNoneBackend") : Str("dNone");
             }
         }
 
@@ -948,11 +925,11 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// check is only listed; partly / not checked show what complying means. A
         /// "—" cell falls back to the next one that says something.
         /// </summary>
-        public static (string Label, string Text) Criterion(SpecCheckResult r, string lang)
+        public static (string Label, string Text) Criterion(SpecCheckResult r)
         {
             var c = r.Check;
             // The spec marks columns and fields with backticks (`Type | lebar | tinggi`): shown without them.
-            (string, string) Of(string key, Text t) => SpecCatalog.IsEmpty(t) ? (null, null) : (Str(key, lang), t.In(lang).Replace("`", ""));
+            (string, string) Of(string key, Text t) => SpecCatalog.IsEmpty(t) ? (null, null) : (Str(key), t.En.Replace("`", ""));
             var comply = Of("wComply", c.Comply);
             var notComply = Of("wNotComply", c.NotComply);
             var manual = Of(c.Class == SpecCellClass.Ai ? "wNote" : "wManual", c.Manual);
@@ -972,37 +949,36 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             return ("", "");
         }
 
-        private static ChecklistCheck OtherRow(OtherResult o, string key, Dictionary<string, PanelItem> byId, string lang, Func<string, bool> showAll)
+        private static ChecklistCheck OtherRow(OtherResult o, string key, Dictionary<string, PanelItem> byId, Func<string, bool> showAll)
         {
             var total = o.Passed + o.Failed + o.Unjudged;
             var row = new ChecklistCheck { Id = key, ShownId = "", Title = o.Rule, Meta = o.Where };
-            if (o.State == SpecState.Fail) { row.Tone = "fail"; row.StateLabel = Str("stFail", lang); row.Detail = Plural("oFail", lang, o.Failed, o.Failed, total); }
-            else if (o.State == SpecState.NeedsPerson) { row.Tone = "person"; row.StateLabel = Str("stPerson", lang); row.Detail = F("oUnjudged", lang, o.Unjudged); }
-            else { row.Tone = "pass"; row.StateLabel = Str("stPass", lang); row.Detail = Plural("dPass", lang, o.Passed); }
-            AddElements(row, o.IssueIds, byId, lang, showAll);
+            if (o.State == SpecState.Fail) { row.Tone = "fail"; row.StateLabel = Str("stFail"); row.Detail = Plural("oFail", o.Failed, o.Failed, total); }
+            else if (o.State == SpecState.NeedsPerson) { row.Tone = "person"; row.StateLabel = Str("stPerson"); row.Detail = F("oUnjudged", o.Unjudged); }
+            else { row.Tone = "pass"; row.StateLabel = Str("stPass"); row.Detail = Plural("dPass", o.Passed); }
+            AddElements(row, o.IssueIds, byId, showAll);
             return row;
         }
 
         /// <returns>How many elements the check has (shown or not).</returns>
-        private static int AddElements(ChecklistCheck row, List<string> ids, Dictionary<string, PanelItem> byId, string lang, Func<string, bool> showAll,
-                                       List<Text> notes = null, HashSet<int> taken = null)
+        private static int AddElements(ChecklistCheck row, List<string> ids, Dictionary<string, PanelItem> byId, Func<string, bool> showAll, List<Text> notes = null, HashSet<int> taken = null)
         {
             var items = (ids ?? new List<string>()).Where(byId.ContainsKey).Select(id => byId[id]).Where(x => !x.Passed).Distinct().ToList();
             var all = showAll?.Invoke(row.Id) == true;
             var shown = all ? Math.Min(items.Count, ElementsMax) : Math.Min(items.Count, ElementsShown);
-            row.Elements = items.Take(shown).Select(x => ElementRow(x, lang, notes, taken)).ToList();
+            row.Elements = items.Take(shown).Select(x => ElementRow(x, notes, taken)).ToList();
             // A remark a hidden element row takes is not printed above the list either.
             if (notes != null && taken != null)
                 foreach (var x in items.Skip(shown)) TakeNote(x, notes, taken);
             if (items.Count > ElementsShown)
-                row.MoreLabel = all ? Str("showLess", lang) : F("showAll", lang, items.Count);
+                row.MoreLabel = all ? Str("showLess") : F("showAll", items.Count);
             // "Show all" never lists fewer elements than the check has without saying so.
-            if (all && items.Count > ElementsMax) row.ElementsCutLabel = F("elCut", lang, ElementsMax, items.Count);
+            if (all && items.Count > ElementsMax) row.ElementsCutLabel = F("elCut", ElementsMax, items.Count);
             row.FixIds = items.Where(x => !x.IsHuman && x.Status == ItemStatus.Open && !x.MarkedManual && x.Fix == FixKind.Fix)
                               .Select(x => x.Id).ToList();
             row.CanFix = row.FixIds.Count > 0;
-            row.FixLabel = F("fix", lang, row.FixIds.Count);
-            AddCopilotFix(row, items, lang);
+            row.FixLabel = F("fix", row.FixIds.Count);
+            AddCopilotFix(row, items);
             return items.Count;
         }
 
@@ -1010,7 +986,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// (<see cref="RevitWebAppSync.UI.Jkr.ViewModels.JkrCopilotFix.IsListed"/>, AI class) and only over rows that are themselves eligible
         /// (<c>PanelItem.CopilotFixable</c>: launcher ready, not Human, no Fix, no Pick, has element ids, not a wall material), still Open and
         /// not marked manual. Never part of <c>FixIds</c> / Fix all.</summary>
-        private static void AddCopilotFix(ChecklistCheck row, List<PanelItem> items, string lang)
+        private static void AddCopilotFix(ChecklistCheck row, List<PanelItem> items)
         {
             row.CopilotFixIds = new List<string>();
             row.CopilotFixElements = 0;
@@ -1025,8 +1001,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             row.CopilotFixElements = rows.SelectMany(x => x.ElementIds ?? System.Array.Empty<long>()).Where(e => e > 0).Distinct().Count();
             if (row.CopilotFixElements == 0) { row.CopilotFixIds = new List<string>(); return; }
             row.CanFixViaCopilot = true;
-            row.CopilotFixLabel = RevitWebAppSync.UI.Jkr.ViewModels.JkrCopilotFix.FixAllLabel(row.CopilotFixElements, lang);
-            row.CopilotFixTooltip = RevitWebAppSync.UI.Jkr.ViewModels.JkrCopilotFix.FixAllTooltip(lang);
+            row.CopilotFixLabel = RevitWebAppSync.UI.Jkr.ViewModels.JkrCopilotFix.FixAllLabel(row.CopilotFixElements);
+            row.CopilotFixTooltip = RevitWebAppSync.UI.Jkr.ViewModels.JkrCopilotFix.FixAllTooltip();
         }
 
         private static string FirstLine(string s)
@@ -1041,29 +1017,29 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// reason is one of the check's remarks, the row takes the remark in the pane's
         /// language and the remark is not printed again above (<paramref name="taken"/>).
         /// </summary>
-        private static ChecklistElement ElementRow(PanelItem x, string lang, List<Text> notes = null, HashSet<int> taken = null)
+        private static ChecklistElement ElementRow(PanelItem x, List<Text> notes = null, HashSet<int> taken = null)
         {
-            var act = x.Act.In(lang);
+            var act = x.Act.En;
             var hasAct = !string.IsNullOrEmpty(act) && act != "—";
             // A finding with no element (a material, a set) is named by what the model has.
             var generic = string.IsNullOrEmpty(x.El) || x.El == "—" || x.El == "Model";
-            var label = !generic ? x.El : x.IsHuman && hasAct ? act : x.Title.In(lang);
+            var label = !generic ? x.El : x.IsHuman && hasAct ? act : x.Title.En;
             string detail;
             if (x.IsHuman)
             {
                 var reason = x.Reason ?? x.Title;
-                detail = FirstLine(reason.In(lang));
+                detail = FirstLine(reason.En);
                 var i = TakeNote(x, notes, taken);
-                if (i >= 0) detail = notes[i].In(lang);
-                if (detail.Length == 0) detail = x.Title.In(lang);
+                if (i >= 0) detail = notes[i].En;
+                if (detail.Length == 0) detail = x.Title.En;
             }
             else if (x.Prop != null) detail = (string.IsNullOrEmpty(act) || act == "—" ? "" : act + " → ") + x.Prop;
-            else if (!string.IsNullOrEmpty(act) && act != "—") detail = x.Title.In(lang) + ": " + act;
-            else detail = x.Title.In(lang);
+            else if (!string.IsNullOrEmpty(act) && act != "—") detail = x.Title.En + ": " + act;
+            else detail = x.Title.En;
             string tag;
-            if (x.IsHuman) tag = x.Status == ItemStatus.Reviewed ? PanelStrings.Get(lang, "reviewed") : "";
-            else if (x.Status == ItemStatus.Resolved) tag = PanelStrings.Get(lang, "resolvedRow");
-            else if (x.Status == ItemStatus.Ignored) tag = PanelStrings.Get(lang, "ignoredRow");
+            if (x.IsHuman) tag = x.Status == ItemStatus.Reviewed ? PanelStrings.Get("reviewed") : "";
+            else if (x.Status == ItemStatus.Resolved) tag = PanelStrings.Get("resolvedRow");
+            else if (x.Status == ItemStatus.Ignored) tag = PanelStrings.Get("ignoredRow");
             else tag = "";
             return new ChecklistElement { Id = x.Id, Label = label, Detail = detail, Tag = tag };
         }
@@ -1088,9 +1064,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             return -1;
         }
 
-        public static string SectionName(string s, string lang) =>
+        public static string SectionName(string s) =>
             BinaVibe.Mcp.Tools.Audit.Bim010Form.SectionNames.TryGetValue(s, out var n)
-                ? (IsEn(lang) ? n.En : n.Ms) : s;
+                ? n.En : s;
 
         private static string Join(params string[] parts) => string.Join(" · ", parts.Where(p => !string.IsNullOrEmpty(p)));
     }

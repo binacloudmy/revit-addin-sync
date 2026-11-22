@@ -41,8 +41,6 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public Action<IReadOnlyList<T>, string> MarkStillFailing { get; set; }
         /// <summary>Show a toast.</summary>
         public Action<string> Toast { get; set; }
-        /// <summary>The pane language is Bahasa Melayu.</summary>
-        public Func<bool> IsBm { get; set; } = () => true;
     }
 
     /// <summary>What the re-check after a Copilot write decided about the row.</summary>
@@ -83,7 +81,6 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public async Task<CopilotRecheckResult> RunAsync(CopilotFixRequest request)
         {
             if (request != null && request.IsCheckWide) return await RunCheckAsync(request).ConfigureAwait(true);
-            var bm = _host.IsBm?.Invoke() ?? true;
             var issue = _host.Issue(request.IssueId);
             if (issue == null) return CopilotRecheckResult.RowGone;
 
@@ -95,10 +92,10 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 bool? passes;
                 try { passes = _host.RecheckByScan == null ? null : await _host.RecheckByScan(issue).ConfigureAwait(true); }
                 catch (Exception) { passes = null; }
-                if (passes == null) { _host.Toast(JkrCopilotRecheckText.PressRescan(bm)); return CopilotRecheckResult.NotChecked; }
-                if (passes == false) { _host.Toast(JkrCopilotRecheckText.StillFailing(bm, issue.Title, issue.Required)); return CopilotRecheckResult.StillFailing; }
+                if (passes == null) { _host.Toast(JkrCopilotRecheckText.PressRescan()); return CopilotRecheckResult.NotChecked; }
+                if (passes == false) { _host.Toast(JkrCopilotRecheckText.StillFailing(issue.Title, issue.Required)); return CopilotRecheckResult.StillFailing; }
                 issue.FixVerified = true;
-                _host.MarkFixed(issue, JkrCopilotRecheckText.Fixed(bm, request.ElementIds.Count));
+                _host.MarkFixed(issue, JkrCopilotRecheckText.Fixed(request.ElementIds.Count));
                 _host.Remember?.Invoke(request, issue);
                 return CopilotRecheckResult.Fixed;
             }
@@ -108,17 +105,17 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
 
             if (outcome != null && outcome.StillFailing.Contains(issue))
             {
-                _host.Toast(JkrCopilotRecheckText.StillFailing(bm, issue.Title, issue.Required));
+                _host.Toast(JkrCopilotRecheckText.StillFailing(issue.Title, issue.Required));
                 return CopilotRecheckResult.StillFailing;
             }
             // A partial scan proves no pass: neither Verified nor StillFailing. The row stays Open.
             if (outcome == null || !outcome.Verified.Contains(issue))
             {
-                _host.Toast(JkrCopilotRecheckText.PressRescan(bm));
+                _host.Toast(JkrCopilotRecheckText.PressRescan());
                 return CopilotRecheckResult.NotChecked;
             }
             issue.FixVerified = true;
-            _host.MarkFixed(issue, JkrCopilotRecheckText.Fixed(bm, ids.Count));
+            _host.MarkFixed(issue, JkrCopilotRecheckText.Fixed(ids.Count));
             _host.Remember?.Invoke(request, issue);
             return CopilotRecheckResult.Fixed;
         }
@@ -132,7 +129,6 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// </summary>
         private async Task<CopilotRecheckResult> RunCheckAsync(CopilotFixRequest request)
         {
-            var bm = _host.IsBm?.Invoke() ?? true;
             var result = new CheckOutcome();
             LastCheck = result;
             var rows = new List<T>();
@@ -172,7 +168,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             foreach (var row in result.Fixed) row.FixVerified = true;
             if (result.Fixed.Count > 0)
             {
-                var toast = JkrCopilotRecheckText.CheckFixed(bm, result.Fixed.Count, result.StillFailing.Count + result.NotChecked.Count);
+                var toast = JkrCopilotRecheckText.CheckFixed(result.Fixed.Count, result.StillFailing.Count + result.NotChecked.Count);
                 if (_host.MarkFixedMany != null) _host.MarkFixedMany(result.Fixed, toast);
                 else foreach (var row in result.Fixed) _host.MarkFixed(row, toast);
                 // one entry per row, each with its own element ids: Undo then reopens every row of the pack
@@ -182,18 +178,18 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             }
             if (result.StillFailing.Count > 0)
             {
-                var reason = JkrCopilotRecheckText.StillFailingRow(bm, result.StillFailing[0].Required);
+                var reason = JkrCopilotRecheckText.StillFailingRow(result.StillFailing[0].Required);
                 _host.MarkStillFailing?.Invoke(result.StillFailing, reason);
             }
             if (result.Fixed.Count == 0)
             {
                 _host.Toast(result.StillFailing.Count > 0
-                    ? JkrCopilotRecheckText.CheckStillFailing(bm, result.StillFailing.Count, result.StillFailing[0].Required)
-                    : JkrCopilotRecheckText.PressRescan(bm));
+                    ? JkrCopilotRecheckText.CheckStillFailing(result.StillFailing.Count, result.StillFailing[0].Required)
+                    : JkrCopilotRecheckText.PressRescan());
             }
             else if (result.StillFailing.Count + result.NotChecked.Count > 0 && _host.MarkFixedMany == null)
             {
-                _host.Toast(JkrCopilotRecheckText.CheckFixed(bm, result.Fixed.Count, result.StillFailing.Count + result.NotChecked.Count));
+                _host.Toast(JkrCopilotRecheckText.CheckFixed(result.Fixed.Count, result.StillFailing.Count + result.NotChecked.Count));
             }
             return result.Fixed.Count > 0 ? CopilotRecheckResult.Fixed
                  : result.StillFailing.Count > 0 ? CopilotRecheckResult.StillFailing
@@ -206,41 +202,36 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             row is IRowElementIds ids && ids.ElementIds != null && ids.ElementIds.Count > 0 ? (IEnumerable<long>)ids.ElementIds : new[] { row.RevitElementId };
     }
 
-    /// <summary>The messages the person sees (BM first, EN when the pane is English).</summary>
+    /// <summary>The messages the person sees.</summary>
     public static class JkrCopilotRecheckText
     {
-        public static string StillFailing(bool bm, string title, string required)
+        public static string StillFailing(string title, string required)
         {
-            var why = string.IsNullOrWhiteSpace(required) ? "" : (bm ? " Diperlukan: " : " Required: ") + required.Trim();
+            var why = string.IsNullOrWhiteSpace(required) ? "" : " Required: " + required.Trim();
             var t = string.IsNullOrWhiteSpace(title) ? "" : " (" + title.Trim() + ")";
-            return (bm
-                ? "Copilot menulis perubahan, tetapi semakan masih gagal" + t + ". Baris kekal Terbuka."
-                : "Copilot wrote the change, but the check still fails" + t + ". The row stays Open.") + why;
+            return ("Copilot wrote the change, but the check still fails" + t + ". The row stays Open.") + why;
         }
         /// <summary>The toast when the rule re-passed: the real number of elements the request carried.</summary>
-        public static string Fixed(bool bm, int elements) => elements > 1
-            ? (bm ? $"Dibaiki melalui Copilot ({elements} elemen)" : $"Fixed via Copilot ({elements} elements)")
-            : (bm ? "Dibaiki melalui Copilot" : "Fixed via Copilot");
+        public static string Fixed(int elements) => elements > 1
+            ? ($"Fixed via Copilot ({elements} elements)")
+            : "Fixed via Copilot";
         /// <summary>AI-509: the toast after a check-wide fix: how many elements the re-check passed, and how many are still open.</summary>
-        public static string CheckFixed(bool bm, int fixedRows, int stillOpen)
+        public static string CheckFixed(int fixedRows, int stillOpen)
         {
-            var open = stillOpen > 0 ? (bm ? $"; {stillOpen} masih Terbuka" : $"; {stillOpen} still Open") : "";
-            return (bm ? $"Dibaiki melalui Copilot ({fixedRows} baris lulus semakan semula{open})" : $"Fixed via Copilot ({fixedRows} row{(fixedRows == 1 ? "" : "s")} re-passed the check{open})");
+            var open = stillOpen > 0 ? $"; {stillOpen} still Open" : "";
+            return ($"Fixed via Copilot ({fixedRows} row{(fixedRows == 1 ? "" : "s")} re-passed the check{open})");
         }
-        public static string CheckStillFailing(bool bm, int rows, string required)
+        public static string CheckStillFailing(int rows, string required)
         {
-            var why = string.IsNullOrWhiteSpace(required) ? "" : (bm ? " Diperlukan: " : " Required: ") + required.Trim();
-            return (bm ? $"Copilot menulis perubahan, tetapi semakan masih gagal untuk {rows} baris. Baris kekal Terbuka."
-                       : $"Copilot wrote the change, but the check still fails for {rows} row{(rows == 1 ? "" : "s")}. The rows stay Open.") + why;
+            var why = string.IsNullOrWhiteSpace(required) ? "" : " Required: " + required.Trim();
+            return ($"Copilot wrote the change, but the check still fails for {rows} row{(rows == 1 ? "" : "s")}. The rows stay Open.") + why;
         }
         /// <summary>The reason shown on a row that stays Open after a check-wide fix.</summary>
-        public static string StillFailingRow(bool bm, string required)
+        public static string StillFailingRow(string required)
         {
-            var why = string.IsNullOrWhiteSpace(required) ? "" : (bm ? " Diperlukan: " : " Required: ") + required.Trim();
-            return (bm ? "Copilot menulis perubahan, tetapi semakan masih gagal untuk elemen ini." : "Copilot wrote the change, but the check still fails for this element.") + why;
+            var why = string.IsNullOrWhiteSpace(required) ? "" : " Required: " + required.Trim();
+            return "Copilot wrote the change, but the check still fails for this element." + why;
         }
-        public static string PressRescan(bool bm) => bm
-            ? "Copilot selesai, tetapi semakan tidak dapat dijalankan. Baris kekal Terbuka; tekan Imbas semula."
-            : "Copilot finished, but the check could not run. The row stays Open. Press Re-scan.";
+        public static string PressRescan() => "Copilot finished, but the check could not run. The row stays Open. Press Re-scan.";
     }
 }

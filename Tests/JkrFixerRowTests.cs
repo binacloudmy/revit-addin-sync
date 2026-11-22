@@ -75,8 +75,7 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void Errors_follow_the_language()
         {
-            Assert.Equal("Enter a value.", JkrManualFix.Plan("x", "", "", null, "en").Error);
-            Assert.Equal("Masukkan nilai.", JkrManualFix.Plan("x", "", "", null, "ms").Error);
+            Assert.Equal("Enter a value.", JkrManualFix.Plan("x", "", "", null).Error);
         }
 
         // ── the row ──

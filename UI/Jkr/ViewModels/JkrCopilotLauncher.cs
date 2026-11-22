@@ -128,7 +128,6 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         private readonly ICopilotSession _session;
         private readonly Func<CopilotFixRequest, IReadOnlyList<string>> _prompt;
         private readonly Action<string> _notify;
-        private readonly Func<bool> _isBm;
         private readonly Func<CopilotFixRequest, Task> _afterWrite;
         private readonly Func<CopilotFixRequest, bool> _confirm;
         private readonly Func<CopilotFixRequest, int, ConfirmedWriteDto> _confirmedWrite;
@@ -145,10 +144,9 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// after <paramref name="confirm"/> said Ya (null: none). Armed in <see cref="ConfirmedWriteSlot"/> just before the part is sent and
         /// cleared when the launch ends, so a normal chat turn never carries it.</param>
         /// <param name="notify">Shows a message to the person (the JKR toast).</param>
-        /// <param name="isBm">The pane language is Bahasa Melayu (default text language of the pane).</param>
         /// <param name="delay">Wait between polls; tests pass an instant one. Default <see cref="Task.Delay(TimeSpan)"/>.</param>
         public JkrCopilotFixLauncher(ICopilotSession session, Func<CopilotFixRequest, IReadOnlyList<string>> prompt,
-            Action<string> notify, Func<bool> isBm = null, Func<TimeSpan, Task> delay = null,
+            Action<string> notify, Func<TimeSpan, Task> delay = null,
             TimeSpan? indexingTimeout = null, TimeSpan? turnTimeout = null, TimeSpan? poll = null,
             TimeSpan? startGrace = null, TimeSpan? settle = null, Func<CopilotFixRequest, Task> afterWrite = null,
             Func<CopilotFixRequest, bool> confirm = null, Func<CopilotFixRequest, int, ConfirmedWriteDto> confirmedWrite = null)
@@ -159,7 +157,6 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             _session = session ?? throw new ArgumentNullException(nameof(session));
             _prompt = prompt ?? throw new ArgumentNullException(nameof(prompt));
             _notify = notify ?? (_ => { });
-            _isBm = isBm ?? (() => true);
             _delay = delay ?? (t => Task.Delay(t));
             _poll = poll ?? DefaultPoll;
             _indexingTimeout = indexingTimeout ?? DefaultIndexingTimeout;
@@ -179,7 +176,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         {
             if (Interlocked.CompareExchange(ref _running, 1, 0) != 0)
             {
-                _notify(Text.AlreadyRunning(_isBm()));
+                _notify(Text.AlreadyRunning());
                 return CopilotLaunchOutcome.Busy;
             }
             try
@@ -188,7 +185,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             }
             catch (Exception ex)
             {
-                _notify(Text.SendFailed(_isBm(), ex.Message));
+                _notify(Text.SendFailed(ex.Message));
                 return CopilotLaunchOutcome.SendFailed;
             }
             finally
@@ -200,15 +197,13 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
 
         private async Task<CopilotLaunchOutcome> RunAsync(CopilotFixRequest request)
         {
-            var bm = _isBm();
-
             // Build the prompt first: a build failure must not open an empty new chat.
             IReadOnlyList<string> parts;
             try { parts = _prompt(request); }
-            catch (Exception ex) { _notify(Text.SendFailed(bm, ex.Message)); return CopilotLaunchOutcome.SendFailed; }
+            catch (Exception ex) { _notify(Text.SendFailed(ex.Message)); return CopilotLaunchOutcome.SendFailed; }
             if (parts == null || parts.Count == 0 || System.Linq.Enumerable.All(parts, string.IsNullOrWhiteSpace))
             {
-                _notify(Text.NoPrompt(bm));
+                _notify(Text.NoPrompt());
                 return CopilotLaunchOutcome.NoPrompt;
             }
 
@@ -216,7 +211,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             //    before the first await, so it is still inside the button click.
             bool ok = true;
             try { if (_confirm != null) ok = _confirm(request); }
-            catch (Exception ex) { _notify(Text.SendFailed(bm, ex.Message)); return CopilotLaunchOutcome.SendFailed; }
+            catch (Exception ex) { _notify(Text.SendFailed(ex.Message)); return CopilotLaunchOutcome.SendFailed; }
             if (!ok) return CopilotLaunchOutcome.NotConfirmed;
 
             // 1. open the pane
@@ -225,25 +220,25 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             catch (Exception ex) { openError = ex.Message; }
             if (openError != null)
             {
-                _notify(Text.PaneUnavailable(bm, openError));
+                _notify(Text.PaneUnavailable(openError));
                 return CopilotLaunchOutcome.PaneUnavailable;
             }
 
             // 2. never wipe a request in progress: a second click while Copilot runs, or a question / "Needs your OK" card is open
             if (_session.IsSending || _session.Cards == CopilotCardState.Open)
             {
-                _notify(Text.CopilotBusy(bm));
+                _notify(Text.CopilotBusy());
                 return CopilotLaunchOutcome.CopilotBusy;
             }
 
             // 2b. new chat for every fix
             try { _session.NewChat(); }
-            catch (Exception ex) { _notify(Text.SendFailed(bm, ex.Message)); return CopilotLaunchOutcome.SendFailed; }
+            catch (Exception ex) { _notify(Text.SendFailed(ex.Message)); return CopilotLaunchOutcome.SendFailed; }
 
             // 3. wait for the model index (ChatSend refuses while it runs)
             if (!await WaitWhileAsync(() => _session.IsIndexing, _indexingTimeout).ConfigureAwait(true))
             {
-                _notify(Text.IndexingTimeout(bm));
+                _notify(Text.IndexingTimeout());
                 return CopilotLaunchOutcome.IndexingTimeout;
             }
 
@@ -252,8 +247,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             if (!_session.IsSignedIn)
             {
                 try { _session.Send(parts[0]); }
-                catch (Exception ex) { _notify(Text.SendFailed(bm, ex.Message)); return CopilotLaunchOutcome.SendFailed; }
-                _notify(Text.SignInNeeded(bm, parts.Count));
+                catch (Exception ex) { _notify(Text.SendFailed(ex.Message)); return CopilotLaunchOutcome.SendFailed; }
+                _notify(Text.SignInNeeded(parts.Count));
                 return CopilotLaunchOutcome.SignInNeeded;
             }
 
@@ -264,21 +259,21 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 var part = parts[i];
                 if (string.IsNullOrWhiteSpace(part)) continue;
                 if (i > 0 && !_session.IsPaneVisible)
-                    return await StopAsync(request, committed, Text.PaneClosed(bm, i, parts.Count), CopilotLaunchOutcome.PaneClosed).ConfigureAwait(true);
+                    return await StopAsync(request, committed, Text.PaneClosed(i, parts.Count), CopilotLaunchOutcome.PaneClosed).ConfigureAwait(true);
                 try { ConfirmedWriteSlot.Arm(part, ok ? ConfirmedFor(request, i) : null); _session.Send(part); }
-                catch (Exception ex) { ConfirmedWriteSlot.Clear(); return await StopAsync(request, committed, Text.SendFailed(bm, ex.Message), CopilotLaunchOutcome.SendFailed).ConfigureAwait(true); }
+                catch (Exception ex) { ConfirmedWriteSlot.Clear(); return await StopAsync(request, committed, Text.SendFailed(ex.Message), CopilotLaunchOutcome.SendFailed).ConfigureAwait(true); }
 
                 // AI-495: the last turn is awaited too: the re-check runs once its write is done.
                 var end = await WaitForTurnAsync().ConfigureAwait(true);
-                if (end == null) return await StopAsync(request, committed, Text.TurnTimeout(bm, i + 1, parts.Count), CopilotLaunchOutcome.TurnTimeout).ConfigureAwait(true);
-                if (end == CopilotCardState.Declined) return await StopAsync(request, committed, Text.Declined(bm, i + 1, parts.Count), CopilotLaunchOutcome.Declined).ConfigureAwait(true);
+                if (end == null) return await StopAsync(request, committed, Text.TurnTimeout(i + 1, parts.Count), CopilotLaunchOutcome.TurnTimeout).ConfigureAwait(true);
+                if (end == CopilotCardState.Declined) return await StopAsync(request, committed, Text.Declined(i + 1, parts.Count), CopilotLaunchOutcome.Declined).ConfigureAwait(true);
                 if (end == CopilotCardState.None && committed)
                 {
                     // A later part found nothing left to write: stop sending, keep the earlier write and re-check it.
-                    _notify(Text.PartsNotNeeded(bm, i + 1, parts.Count));
+                    _notify(Text.PartsNotNeeded(i + 1, parts.Count));
                     break;
                 }
-                if (end != CopilotCardState.Approved) return await StopAsync(request, committed, Text.NoWrite(bm, i + 1, parts.Count), CopilotLaunchOutcome.NoWrite).ConfigureAwait(true);
+                if (end != CopilotCardState.Approved) return await StopAsync(request, committed, Text.NoWrite(i + 1, parts.Count), CopilotLaunchOutcome.NoWrite).ConfigureAwait(true);
                 committed = true;
             }
 
@@ -288,7 +283,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             if (_afterWrite != null)
             {
                 try { await _afterWrite(request).ConfigureAwait(true); }
-                catch (Exception ex) { _notify(Text.SendFailed(bm, ex.Message)); }
+                catch (Exception ex) { _notify(Text.SendFailed(ex.Message)); }
             }
             return CopilotLaunchOutcome.Sent;
         }
@@ -299,9 +294,9 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         private async Task<CopilotLaunchOutcome> StopAsync(CopilotFixRequest request, bool committed, string message, CopilotLaunchOutcome outcome)
         {
             if (!committed || _afterWrite == null) { _notify(message); return outcome; }
-            _notify(message + " " + Text.StoppedRecheck(_isBm()));
+            _notify(message + " " + Text.StoppedRecheck());
             try { await _afterWrite(request).ConfigureAwait(true); }
-            catch (Exception ex) { _notify(Text.SendFailed(_isBm(), ex.Message)); }
+            catch (Exception ex) { _notify(Text.SendFailed(ex.Message)); }
             return outcome;
         }
 
@@ -357,64 +352,37 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         }
 
         /// <summary>" Parts 2-3 not sent." (BM: "tidak dihantar"), or nothing when the last part is the one that ended.</summary>
-        private static string NotSent(bool bm, int sent, int total) => sent >= total ? ""
-            : " " + Text.Cap(Parts(bm, sent + 1, total)) + (bm ? " tidak dihantar." : " not sent.");
+        private static string NotSent(int sent, int total) => sent >= total ? ""
+            : " " + Text.Cap(Parts(sent + 1, total)) + " not sent.";
 
-        private static string Parts(bool bm, int firstUnsent, int total) => firstUnsent == total
-            ? (bm ? $"bahagian {total}" : $"part {total}")
-            : (bm ? $"bahagian {firstUnsent}-{total}" : $"parts {firstUnsent}-{total}");
+        private static string Parts(int firstUnsent, int total) => firstUnsent == total
+            ? ($"part {total}")
+            : $"parts {firstUnsent}-{total}";
 
         /// <summary>The messages the person sees (BM first, EN when the pane is English).</summary>
         public static class Text
         {
-            public static string PaneUnavailable(bool bm, string why) => bm
-                ? "Copilot tidak dapat dibuka: " + why
-                : "Copilot could not be opened: " + why;
-            public static string IndexingTimeout(bool bm) => bm
-                ? "Copilot masih mengindeks model. Cuba lagi sebentar lagi."
-                : "Copilot is still indexing the model. Try again in a moment.";
-            public static string SendFailed(bool bm, string why) => bm
-                ? "Gagal menghantar kepada Copilot: " + why
-                : "Could not send to Copilot: " + why;
-            public static string SignInNeeded(bool bm, int parts)
+            public static string PaneUnavailable(string why) => "Copilot could not be opened: " + why;
+            public static string IndexingTimeout() => "Copilot is still indexing the model. Try again in a moment.";
+            public static string SendFailed(string why) => "Could not send to Copilot: " + why;
+            public static string SignInNeeded(int parts)
             {
                 var more = parts > 1;
-                return bm
-                    ? "Log masuk BINA di Copilot dahulu; permintaan dihantar selepas log masuk."
-                        + (more ? " Hanya bahagian pertama dihantar; tekan Baiki melalui Copilot lagi untuk selebihnya." : "")
-                    : "Sign in to BINA in Copilot first; the request is sent after you sign in."
+                return "Sign in to BINA in Copilot first; the request is sent after you sign in."
                         + (more ? " Only the first part is sent; press Fix via Copilot again for the rest." : "");
             }
             /// <param name="sent">How many parts went out.</param>
-            public static string TurnTimeout(bool bm, int sent, int total) => bm
-                ? $"Copilot belum selesai bahagian {sent} daripada {total}.{NotSent(bm, sent, total)}"
-                : $"Copilot has not finished part {sent} of {total}.{NotSent(bm, sent, total)}";
-            public static string Declined(bool bm, int sent, int total) => bm
-                ? $"Anda memilih Tidak pada bahagian {sent}.{NotSent(bm, sent, total)}"
-                : $"You answered No on part {sent}.{NotSent(bm, sent, total)}";
-            public static string NoWrite(bool bm, int sent, int total) => bm
-                ? $"Bahagian {sent} selesai tanpa perubahan. Semak sembang Copilot: ia mungkin bertanya sesuatu.{NotSent(bm, sent, total)}"
-                : $"Part {sent} ended without a change. Check the Copilot chat: it may have asked a question.{NotSent(bm, sent, total)}";
+            public static string TurnTimeout(int sent, int total) => $"Copilot has not finished part {sent} of {total}.{NotSent(sent, total)}";
+            public static string Declined(int sent, int total) => $"You answered No on part {sent}.{NotSent(sent, total)}";
+            public static string NoWrite(int sent, int total) => $"Part {sent} ended without a change. Check the Copilot chat: it may have asked a question.{NotSent(sent, total)}";
             /// <param name="first">The part that ended with no write (1-based); it and the later ones were not needed.</param>
-            public static string PartsNotNeeded(bool bm, int first, int total) => bm
-                ? $"{Cap(Parts(bm, first, total))} tidak diperlukan: bahagian sebelumnya sudah mengubah elemen. Semakan semula dijalankan."
-                : $"{Cap(Parts(bm, first, total))} not needed: an earlier part already changed the elements. Re-checking.";
-            public static string PaneClosed(bool bm, int sent, int total) => bm
-                ? $"Panel Copilot ditutup.{NotSent(bm, sent, total)}"
-                : $"The Copilot pane was closed.{NotSent(bm, sent, total)}";
-            public static string CopilotBusy(bool bm) => bm
-                ? "Selesaikan atau jawab permintaan Copilot semasa dahulu."
-                : "Finish or answer the current Copilot request first.";
-            public static string StoppedRecheck(bool bm) => bm
-                ? "Baris yang sudah dibaiki disemak semula."
-                : "The rows that were fixed are re-checked.";
+            public static string PartsNotNeeded(int first, int total) => $"{Cap(Parts(first, total))} not needed: an earlier part already changed the elements. Re-checking.";
+            public static string PaneClosed(int sent, int total) => $"The Copilot pane was closed.{NotSent(sent, total)}";
+            public static string CopilotBusy() => "Finish or answer the current Copilot request first.";
+            public static string StoppedRecheck() => "The rows that were fixed are re-checked.";
             internal static string Cap(string x) => char.ToUpperInvariant(x[0]) + x.Substring(1);
-            public static string NoPrompt(bool bm) => bm
-                ? "Tiada arahan untuk dihantar kepada Copilot."
-                : "There is nothing to send to Copilot.";
-            public static string AlreadyRunning(bool bm) => bm
-                ? "Copilot sedang dibuka untuk item lain."
-                : "Copilot is already being opened for another item.";
+            public static string NoPrompt() => "There is nothing to send to Copilot.";
+            public static string AlreadyRunning() => "Copilot is already being opened for another item.";
         }
     }
 }

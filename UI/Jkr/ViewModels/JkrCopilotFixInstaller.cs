@@ -32,7 +32,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             {
                 var rows = req.Rows.Select(issueById).Where(i => i != null).ToList();
                 if (rows.Count == 0) throw new InvalidOperationException("the row is no longer in the list");
-                return JkrCopilotPrompt.FactsOfRows(rows, !PaneLanguage.IsEn);
+                return JkrCopilotPrompt.FactsOfRows(rows, false);
             };
             JkrCopilotFix.Launcher = new JkrCopilotFixLauncher(
                 session,
@@ -42,16 +42,15 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     if (req.IsCheckWide)
                     {
                         if (!ReferenceEquals(build, DefaultPromptBuilder)) throw new InvalidOperationException("the prompt builder has no check-wide form");
-                        return JkrCopilotPrompt.Build(factsOf(req), !PaneLanguage.IsEn);
+                        return JkrCopilotPrompt.Build(factsOf(req), false);
                     }
                     var issue = issueById(req.IssueId) ?? throw new InvalidOperationException("the row is no longer in the list");
-                    return build(issue, !PaneLanguage.IsEn);
+                    return build(issue, false);
                 },
                 notify,
-                () => !PaneLanguage.IsEn,
                 afterWrite: recheck == null ? (Func<CopilotFixRequest, System.Threading.Tasks.Task>)null : new JkrCopilotRecheck<IssueVm>(recheck).RunAsync,
                 confirmedWrite: (req, part) => JkrCopilotConfirmedWrite.ForPart(factsOf(req), part),
-                confirm: req => confirm(JkrCopilotConfirm.Build(factsOf(req), !PaneLanguage.IsEn)));
+                confirm: req => confirm(JkrCopilotConfirm.Build(factsOf(req))));
         }
     }
 }

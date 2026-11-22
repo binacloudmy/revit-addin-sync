@@ -52,7 +52,6 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public string Lod { get; private set; } = "";
         public string RunLod { get; private set; } = "";
         public string Disc { get; private set; } = "AR";
-        public string Lang { get; private set; } = PanelStrings.Ms;
         public HashSet<string> Run { get; } = new HashSet<string>();
         public int PendLive { get; private set; }
         public List<PanelItem> Issues { get; private set; } = new List<PanelItem>();
@@ -68,7 +67,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public string Located { get; private set; }
 
         /// <summary>prototype t()</summary>
-        public string T(string key) => PanelStrings.Get(Lang, key);
+        public string T(string key) => PanelStrings.Get(key);
 
         /// <summary>Replace the issues (a new scan). Reset returns to these.</summary>
         public void Load(IEnumerable<PanelItem> items, IReadOnlyDictionary<string, int> basePass)
@@ -111,7 +110,6 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         // ── settings ──
         public void SetLod(string lod) { Lod = lod ?? ""; Notify(); }
         public void SetDisc(string disc) { Disc = disc ?? "AR"; Notify(); }
-        public void SetLang(string lang) { Lang = string.Equals(lang, PanelStrings.En, StringComparison.OrdinalIgnoreCase) ? PanelStrings.En : PanelStrings.Ms; Notify(); }
         public bool RunDisabled => string.IsNullOrEmpty(Lod);
         public bool LodMissing => string.IsNullOrEmpty(Lod);
         public bool Lod100 => Lod == "100";
@@ -246,7 +244,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public bool MatchesQuery(PanelItem x)
         {
             var qq = (Q ?? "").Trim().ToLowerInvariant();
-            return qq.Length == 0 || string.Join(" ", x.Title.In(Lang), x.Row, x.El, x.Act.In(Lang), x.Cite)
+            return qq.Length == 0 || string.Join(" ", x.Title.En, x.Row, x.El, x.Act.En, x.Cite)
                 .ToLowerInvariant().Contains(qq);
         }
 

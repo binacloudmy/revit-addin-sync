@@ -6,9 +6,11 @@ using System.Collections.Generic;
 
 namespace RevitWebAppSync.UI.Jkr.Panel.Core
 {
-    /// <summary>The prototype's T.ms / T.en, keyed exactly as there.</summary>
+    /// <summary>The pane's screen strings (English), keyed as in the prototype.</summary>
     public static class PanelStrings
     {
+        // Left for Text.In and the content tests until the content strings are collapsed (AI-513 B).
+        // No pane screen reads them: the pane is English only.
         public const string Ms = "ms";
         public const string En = "en";
 
@@ -126,120 +128,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             "secShort",
         };
 
-        private static readonly Dictionary<string, string> _ms = new Dictionary<string, string>(StringComparer.Ordinal)
-        {
-            ["title"] = "JKR BIM Compliance",
-            ["project"] = "Projek",
-            ["lod"] = "Tahap LOD",
-            ["lodPh"] = "— Pilih —",
-            ["lodReq"] = "Wajib dipilih. Parameter wajib bergantung pada LOD; audit tidak boleh dijalankan tanpanya.",
-            ["lod100"] = "Semakan bermula dari LOD 200. LOD 100 akan menyemak naming sahaja.",
-            ["disc"] = "Disiplin",
-            ["discShort"] = "Disiplin",
-            ["run"] = "Jalankan audit",
-            ["runHint"] = "Borang Model Audit BIM010 · Seksyen A–E",
-            ["running"] = "Mengaudit model…",
-            ["waiting"] = "Menunggu",
-            ["checking"] = "Menyemak…",
-            ["pendingLive"] = "Semak manual dikumpul",
-            ["noOverall"] = "Peratus keseluruhan dipapar selepas semua seksyen selesai.",
-            ["heroPct"] = "Patuh, disahkan AI",
-            ["heroPctSub"] = "sel",
-            ["heroPend"] = "Semak manual",
-            ["heroPendSub"] = "Keputusan manusia · tiada dalam %",
-            ["rescan"] = "Imbas semula",
-            ["lodChanged"] = "LOD ditukar. Imbas semula untuk kemas kini keputusan.",
-            ["of"] = "dari",
-            ["resolved"] = "selesai",
-            ["toGo"] = "isu lagi",
-            ["ignoreAll"] = "Abaikan semua",
-            ["fixAll"] = "Baiki semua",
-            ["search"] = "Cari isu…",
-            ["all"] = "Semua",
-            ["tOpen"] = "Terbuka",
-            ["tIgnore"] = "Diabaikan",
-            ["tResolved"] = "Selesai",
-            ["tManual"] = "Manual",
-            ["shown"] = "dipapar",
-            ["kOpen"] = "buka",
-            ["kNav"] = "navigasi",
-            ["kFix"] = "baiki",
-            ["kIgnore"] = "abai",
-            ["reset"] = "Set semula",
-            ["export"] = "Eksport Borang",
-            ["manualBadge"] = "SEMAK MANUAL",
-            ["manualTag"] = "Manual · anda baiki dalam Revit",
-            ["markManual"] = "Tanda manual",
-            ["reopen"] = "Buka semula",
-            ["element"] = "ELEMEN",
-            ["required"] = "KEPERLUAN",
-            ["actual"] = "NILAI DALAM MODEL",
-            ["whyManual"] = "Kenapa AI tidak menilai",
-            ["manualNote"] = "Item ini tidak dikira dalam peratus patuh dan tidak dikira gagal. Ia dicetak sebagai \"semak manual\" dalam Borang.",
-            ["markReviewed"] = "Tanda sudah disemak",
-            ["reviewed"] = "✓ Sudah disemak",
-            ["aiFix"] = "AI boleh baiki ini untuk anda",
-            ["aiFixSub"] = "Pratonton perubahan di bawah. Anda akan diminta sahkan.",
-            ["applyFix"] = "Guna auto-fix",
-            ["locate"] = "Cari dalam 3D",
-            ["ignore"] = "Abaikan",
-            ["confirmFixT"] = "Ubah model?",
-            ["confirmFixS"] = "Perubahan berikut akan ditulis ke model Revit. Anda boleh undo dalam Revit.",
-            ["confirmFixB"] = "Sahkan & ubah",
-            ["cancel"] = "Batal",
-            ["close"] = "Tutup",
-            ["exportPreview"] = "Pratonton eksport · Borang Model Audit",
-            ["formSub"] = "Borang semakan integriti model BIM · Arkitek",
-            ["date"] = "Tarikh",
-            ["score"] = "Skor",
-            ["colItem"] = "PERKARA",
-            ["colNote"] = "CATATAN",
-            ["appendix"] = "Lampiran: butiran isu",
-            ["refVersions"] = "Versi dokumen rujukan:",
-            ["comply"] = "✓ Patuh",
-            ["notComply"] = "✗ Tidak patuh",
-            ["manual"] = "Semak manual",
-            ["fixedPending"] = "dibaiki, belum diimbas semula",
-            ["ignoredNote"] = "diabaikan oleh pengguna",
-            ["empty"] = "Tiada isu dalam paparan ini.",
-            ["manualIntro"] = "Item yang AI tidak boleh nilai. Tiada ✓ atau ✗ — keputusan dibuat oleh manusia.",
-                        ["toastFix"] = "perubahan ditulis ke model",
-            ["toastLoc"] = "Dipilih dalam model",
-            ["toastIgn"] = "isu diabaikan",
-            ["idx"] = "Isu",
-            ["swipeHint"] = "Leret ke sisi untuk isu seterusnya",
-            ["dotLabel"] = "Pergi ke isu",
-            ["prevIssue"] = "Isu sebelumnya",
-            ["nextIssue"] = "Isu seterusnya",
-            ["manualShort"] = "manual",
-            ["discAR"] = "AR · Arkitek",
-            ["clearSearch"] = "Kosongkan carian",
-            ["emptyQ"] = "Tiada isu sepadan dengan carian anda.",
-            ["emptyOpen"] = "Semua isu terbuka sudah diurus. Imbas semula untuk sahkan dalam Borang.",
-            ["emptyOther"] = "Tukar tab atau seksyen untuk lihat isu lain.",
-            ["openIssue"] = "Buka butiran",
-            ["fixIssue"] = "Auto-fix",
-            ["checksAI"] = "semakan disahkan AI",
-            ["compliant"] = "patuh",
-            ["needPerson"] = "perlu semakan manusia",
-            ["clearF"] = "Buang penapis seksyen",
-            ["elementL"] = "Elemen",
-            ["requiredL"] = "Keperluan",
-            ["actualL"] = "Dalam model",
-            ["suggested"] = "Cadangan pembetulan",
-            ["sourceL"] = "Sumber",
-            ["manualRow"] = "Semak manual",
-            ["resolvedRow"] = "Selesai",
-            ["ignoredRow"] = "Diabaikan",
-            ["needsAction"] = "perlu tindakan manual",
-            ["auditing"] = "Mengaudit",
-            ["sectionsDone"] = "seksyen selesai",
-            ["panelTitle"] = "JKR Compliance",
-            ["viewLabel"] = "Revit · paparan 3D",
-            ["secShort"] = "Seksyen",
-        };
-
-        private static readonly Dictionary<string, string> _en = new Dictionary<string, string>(StringComparer.Ordinal)
+        private static readonly Dictionary<string, string> _table = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["title"] = "JKR BIM Compliance",
             ["project"] = "Project",
@@ -254,7 +143,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             ["running"] = "Auditing model…",
             ["waiting"] = "Waiting",
             ["checking"] = "Checking…",
-            ["pendingLive"] = "Semak manual collected",
+            ["pendingLive"] = "Manual review items collected",
             ["noOverall"] = "Overall % is shown once every section completes.",
             ["heroPct"] = "Compliant, AI-verified",
             ["heroPctSub"] = "cells",
@@ -316,7 +205,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             ["ignoredNote"] = "ignored by user",
             ["empty"] = "No issues in this view.",
             ["manualIntro"] = "Items the AI cannot judge. No ✓ or ✗ — a human decides.",
-                        ["toastFix"] = "change(s) written to model",
+            ["toastFix"] = "change(s) written to model",
             ["toastLoc"] = "Selected in model",
             ["toastIgn"] = "issue(s) ignored",
             ["idx"] = "Issue",
@@ -341,7 +230,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             ["actualL"] = "In model",
             ["suggested"] = "Suggested fix",
             ["sourceL"] = "Source",
-            ["manualRow"] = "Semak manual",
+            ["manualRow"] = "Manual review",
             ["resolvedRow"] = "Resolved",
             ["ignoredRow"] = "Ignored",
             ["needsAction"] = "needs manual action",
@@ -355,17 +244,13 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// <summary>Severity labels (prototype SEVL).</summary>
         public static readonly IReadOnlyDictionary<string, Text> Severity = new Dictionary<string, Text>(StringComparer.Ordinal)
         {
-            ["High"] = new Text("Tinggi", "High"),
-            ["Med"] = new Text("Sederhana", "Medium"),
-            ["Low"] = new Text("Rendah", "Low"),
+            ["High"] = Text.Same("High"),
+            ["Med"] = Text.Same("Medium"),
+            ["Low"] = Text.Same("Low"),
         };
 
-        /// <summary>The string for <paramref name="key"/> in <paramref name="lang"/>
-        /// ("ms" default, as in the prototype); the key itself when unknown.</summary>
-        public static string Get(string lang, string key)
-        {
-            var table = string.Equals(lang, En, StringComparison.OrdinalIgnoreCase) ? _en : _ms;
-            return key != null && table.TryGetValue(key, out var s) ? s : key ?? "";
-        }
+        /// <summary>The string for <paramref name="key"/>; the key itself when unknown.</summary>
+        public static string Get(string key) =>
+            key != null && _table.TryGetValue(key, out var s) ? s : key ?? "";
     }
 }

@@ -115,9 +115,9 @@ namespace RevitWebAppSync.Tests
             var vm = Ai("h");
             vm.Verification = IssueVerification.Human;
             vm.Status = IssueStatus.Ignored;                                     // e.g. from an older audit file
-            Assert.Equal(ItemStatus.Open, ResultsAdapter.FromIssue(vm, PanelStrings.En).Status);
+            Assert.Equal(ItemStatus.Open, ResultsAdapter.FromIssue(vm).Status);
             vm.Reviewed = true;
-            Assert.Equal(ItemStatus.Reviewed, ResultsAdapter.FromIssue(vm, PanelStrings.En).Status);
+            Assert.Equal(ItemStatus.Reviewed, ResultsAdapter.FromIssue(vm).Status);
         }
     }
 }

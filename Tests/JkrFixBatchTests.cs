@@ -82,14 +82,14 @@ namespace RevitWebAppSync.Tests
         [InlineData(3, "Applying 3 changes…")]
         public void BusyLabel_SingularAndPlural(int n, string expected)
         {
-            Assert.Equal(expected, JkrFixBatch.BusyLabel(n, "en"));
+            Assert.Equal(expected, JkrFixBatch.BusyLabel(n));
         }
 
         [Fact]
         public void BusyLabel_OnABatch_UsesItsChangeCount()
         {
             var batch = Build(new[] { (1L, "A"), (2L, "B") }, null);
-            Assert.Equal("Applying 2 changes…", batch.BusyLabel("en"));
+            Assert.Equal("Applying 2 changes…", batch.BusyLabel());
         }
 
         [Fact]

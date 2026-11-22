@@ -91,8 +91,6 @@ namespace RevitWebAppSync.Tests
             Assert.Equal("Revit did not accept this change: Highlighted walls overlap. Walls overlap.",
                          JkrBatchRetry.CommitReason(new[] { "Highlighted walls overlap.", " Walls overlap. ", "Highlighted walls overlap." }, "RolledBack"));
             Assert.Equal("Revit did not accept this change (RolledBack).", JkrBatchRetry.CommitReason(new string[0], "RolledBack"));
-            Assert.Equal("Revit tidak menerima perubahan ini: Highlighted walls overlap.",
-                         PaneText.FixReason("Revit did not accept this change: Highlighted walls overlap.", PanelStrings.Ms));
         }
 
         [Theory]
@@ -121,7 +119,7 @@ namespace RevitWebAppSync.Tests
             Assert.Equal((4, 2, 2), (all.Renamed, all.ParamFixed, all.Failed));
             Assert.Equal("Rename target is empty.", all.ReasonFor("rename_type", 5, null));
             Assert.Equal("Revit did not accept this change: Can't set Area.", all.ReasonFor("set_parameter", 7, "Area"));
-            Assert.Equal(2, all.BuildFailDetails(20, PanelStrings.En).Split('\n').Length);
+            Assert.Equal(2, all.BuildFailDetails(20).Split('\n').Length);
         }
     }
 }

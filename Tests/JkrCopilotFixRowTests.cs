@@ -99,7 +99,7 @@ namespace RevitWebAppSync.Tests
         {
             var core = new PanelCore(new List<PanelItem>(), null, new ManualClock());
             var start = new StartScreenModel(core) { FileLabel = "x.rvt" };
-            core.SetLod("300"); core.SetLang(PanelStrings.En); core.BeginExternalRun(); core.FinishExternalRun();
+            core.SetLod("300"); core.BeginExternalRun(); core.FinishExternalRun();
             var results = new ResultsScreenModel(core, start);
             var shown = Row("Da.1"); var other = Row("B1.1");
             results.Load(new[] { shown, other }, AuditSummary.Build(Enumerable.Empty<Bim010Cell>()));

@@ -58,7 +58,7 @@ namespace RevitWebAppSync.Tests
             r.Query = "Da.1";
             Assert.Equal(3, r.Rows.Count);
             Assert.Equal(2, r.IgnoreAllN);
-            Assert.Equal("Abaikan semua 2", r.IgnoreAllLabel);
+            Assert.Equal("Ignore all 2", r.IgnoreAllLabel);
             r.IgnoreAll();
             Assert.Equal(new[] { "d1", "d2" }, Assert.Single(ignored));   // d3 is High: skipped
             Assert.Equal(new[] { 2 }, asked);
@@ -103,7 +103,7 @@ namespace RevitWebAppSync.Tests
             r.IgnoreAll();
             Assert.Empty(ignored);
             Assert.Empty(asked);
-            Assert.Equal("Abaikan semua", r.IgnoreAllLabel);
+            Assert.Equal("Ignore all", r.IgnoreAllLabel);
         }
 
         [Fact]
@@ -136,7 +136,7 @@ namespace RevitWebAppSync.Tests
             Assert.False(r.CanIgnoreAll);
             Assert.False(r.CanFixAll);
             Assert.Equal(0, r.IgnoreAllN);
-            Assert.Equal("Abaikan semua", r.IgnoreAllLabel);
+            Assert.Equal("Ignore all", r.IgnoreAllLabel);
             r.IgnoreAll(); r.FixAll();
             Assert.Empty(ignored);
             Assert.Empty(asked);

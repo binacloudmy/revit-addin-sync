@@ -39,7 +39,7 @@ namespace RevitWebAppSync.Tests
             var facts = JkrCopilotPrompt.FactsOf(Row(), false);
             Assert.Equal(new long[] { 11, 12 }, facts.ElementIds);
             Assert.Equal(new long[] { 11 }, JkrCopilotPrompt.TargetIds(facts));
-            var confirm = JkrCopilotConfirm.Build(facts, false);
+            var confirm = JkrCopilotConfirm.Build(facts);
             Assert.Equal("Let Copilot change 1 type (2 instances) for check Da.1?", confirm.Heading);
             Assert.Contains("11 — Doors · Door 1", confirm.Details);
             Assert.DoesNotContain("12 —", confirm.Details);

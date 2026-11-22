@@ -27,7 +27,6 @@ namespace RevitWebAppSync.UI.Jkr.Modals
         {
             InitializeComponent();
             _vm = vm;
-            string L(string ms, string en) => PaneLanguage.Pick(ms, en);
             TitleText.Text = PaneText.ExportIssues();
             Title = TitleText.Text;
             SubText.Text = PaneText.ExportDialogHint();
@@ -37,12 +36,12 @@ namespace RevitWebAppSync.UI.Jkr.Modals
             CsvOpt.Content = PaneText.FormatCsv();
             CancelBtn.Content = PaneText.Cancel();
             ExportBtn.Content = PaneText.ExportAction();
-            CloseBtn.ToolTip = L("Tutup", "Close");
-            System.Windows.Automation.AutomationProperties.SetName(CloseBtn, L("Tutup", "Close"));
+            CloseBtn.ToolTip = "Close";
+            System.Windows.Automation.AutomationProperties.SetName(CloseBtn, "Close");
             int openN = IssueExportRows.Select(_vm.Issues, true, false).Length;
             int restN = IssueExportRows.Select(_vm.Issues, false, true).Length;
-            CbOpen.Content = L($"Terbuka ({openN})", $"Open ({openN})");
-            CbResolved.Content = L($"Diabaikan atau selesai ({restN})", $"Ignored or resolved ({restN})");
+            CbOpen.Content = $"Open ({openN})";
+            CbResolved.Content = $"Ignored or resolved ({restN})";
             SetFormat(format);
             UpdateCount();
             // Esc, x or a click on the backdrop closes without exporting.
@@ -57,7 +56,7 @@ namespace RevitWebAppSync.UI.Jkr.Modals
         }
 
         private void UpdateCount() => CountText.Text = PaneText.ExportWillWrite(FilteredRows().Length)
-            + "\n" + ScanBoard.Line(JkrIssueCounts.Count(_vm.Issues), PaneText.IsEn(null));   // AI-506: the groups that make the file's total
+            + "\n" + ScanBoard.Line(JkrIssueCounts.Count(_vm.Issues));   // AI-506: the groups that make the file's total
 
         private void Scrim_Click(object s, MouseButtonEventArgs e) { if (e.Source == s) Close(); }
         private void Close_Click(object s, RoutedEventArgs e) => Close();
@@ -82,10 +81,10 @@ namespace RevitWebAppSync.UI.Jkr.Modals
         {
             var dlg = new SaveFileDialog
             {
-                Title = PaneLanguage.Pick("Eksport JKR Compliance", "Export JKR Compliance"),
+                Title = "Export JKR Compliance",
                 FileName = $"jkr_compliance_report_{System.DateTime.Now:yyyyMMdd_HHmmss}",
                 DefaultExt = ".csv",
-                Filter = PaneLanguage.Pick("Fail CSV (*.csv)|*.csv", "CSV files (*.csv)|*.csv"),
+                Filter = "CSV files (*.csv)|*.csv",
             };
             if (dlg.ShowDialog(this) != true) return;
             try
@@ -114,10 +113,10 @@ namespace RevitWebAppSync.UI.Jkr.Modals
         {
             var dlg = new SaveFileDialog
             {
-                Title = PaneLanguage.Pick("Eksport JKR Compliance", "Export JKR Compliance"),
+                Title = "Export JKR Compliance",
                 FileName = $"jkr_compliance_report_{System.DateTime.Now:yyyyMMdd_HHmmss}",
                 DefaultExt = ".xlsx",
-                Filter = PaneLanguage.Pick("Fail Excel (*.xlsx)|*.xlsx", "Excel files (*.xlsx)|*.xlsx"),
+                Filter = "Excel files (*.xlsx)|*.xlsx",
             };
             if (dlg.ShowDialog(this) != true) return;
             try

@@ -68,46 +68,23 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(ShellState.Content, m.State);
         }
 
-        // ── BM / EN ──
+        // ── strings (English only) ──
 
         [Fact]
-        public void Bm_is_the_default_and_en_switches_every_shell_string()
+        public void Every_shell_string_is_English()
         {
             var m = new PaneShellModel { Model = Project };
-            Assert.True(m.IsBm);
-            Assert.Equal("Projek", m.ProjectLabel);
-            Assert.Equal("Buka model Revit untuk mengauditnya", m.NoModelTitle);
-            Assert.Equal("Menunggu model", new PaneShellModel().HeaderSubtitle);
-            Assert.Equal("Cuba semula", m.LoginRetry);
-            Assert.Equal("JKR Compliance", m.PanelTitle);
-
-            m.IsEn = true;
-            Assert.True(m.IsEn);
-            Assert.False(m.IsBm);
             Assert.Equal("Project", m.ProjectLabel);
             Assert.Equal("Open a Revit model to audit it", m.NoModelTitle);
             Assert.Equal("The pane picks up the active model as soon as one is open.", m.NoModelText);
-            var empty = new PaneShellModel { IsEn = true };
+            var empty = new PaneShellModel();
             Assert.Equal("Waiting for a model", empty.HeaderSubtitle);
             Assert.False(empty.HeaderIsFile);
             Assert.Equal("Log in to BINA to run the audit", m.LoginTitle);
             Assert.Equal("Some checks run on the BINA backend. Log in from the Bina tab on the Revit ribbon, then retry.", m.LoginText);
             Assert.Equal("Retry", m.LoginRetry);
             Assert.Equal("Close", m.CloseLabel);
-        }
-
-        [Fact]
-        public void Switching_language_notifies_bindings_and_unchecking_does_nothing()
-        {
-            var m = new PaneShellModel();
-            var raised = 0;
-            m.PropertyChanged += (_, __) => raised++;
-            m.IsEn = true;
-            Assert.Equal(1, raised);
-            m.IsBm = false;                                     // the other radio unchecking
-            Assert.True(m.IsEn);
-            m.SetLang("EN");                                    // same language: no change
-            Assert.Equal(1, raised);
+            Assert.Equal("JKR Compliance", m.PanelTitle);
         }
 
         // ── active model source ──

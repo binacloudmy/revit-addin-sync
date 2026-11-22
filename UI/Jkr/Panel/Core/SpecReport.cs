@@ -840,8 +840,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public static string CheckIdOf(SpecResult r) =>
             CheckIdPrefix + (SpecReport.ResolveCheckId(r?.CheckId) ?? (r?.CheckId ?? "").Trim());
 
-        /// <summary>"A1.2 · Saiz pintu: …" in the language; the id alone when it is not in the catalog.</summary>
-        public static string Title(SpecResult r, string lang)
+        /// <summary>"A1.2 · Door size: …"; the id alone when it is not in the catalog.</summary>
+        public static string Title(SpecResult r)
         {
             var id = SpecReport.ResolveCheckId(r?.CheckId);
             var check = id == null ? null : SpecCatalog.Find(id);
@@ -852,15 +852,14 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 if (raw.Length == 0) return rule;
                 return rule.Length == 0 || rule == raw ? raw : raw + " · " + rule;
             }
-            return check.Id + " · " + (check.Title?.In(lang) ?? "");
+            return check.Id + " · " + (check.Title?.En ?? "");
         }
 
-        /// <summary>The result's note in the language (English when it has one, else the BM note).</summary>
-        public static string Note(SpecResult r, string lang)
+        /// <summary>The result's note (English when it has one, else the note as the evaluator wrote it).</summary>
+        public static string Note(SpecResult r)
         {
             if (r == null) return "";
-            var en = string.Equals(lang, PanelStrings.En, StringComparison.OrdinalIgnoreCase);
-            return SpecReport.Clean(en && !string.IsNullOrWhiteSpace(r.NoteEn) ? r.NoteEn : r.Note);
+            return SpecReport.Clean(!string.IsNullOrWhiteSpace(r.NoteEn) ? r.NoteEn : r.Note);
         }
 
         /// <summary>Element ids behind the result: ElementIds, else ElementId (positive, distinct, in order).</summary>
@@ -874,12 +873,11 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             return ids;
         }
 
-        /// <summary>What the model has (<see cref="SpecResult.Actual"/>) in the pane's language:
+        /// <summary>What the model has (<see cref="SpecResult.Actual"/>) in English:
         /// the evaluator's English when it gave one, else <see cref="ActualToEnglish"/>.</summary>
-        public static string ActualIn(SpecResult r, string lang)
+        public static string ActualIn(SpecResult r)
         {
             if (r == null) return "";
-            if (!string.Equals(lang, PanelStrings.En, StringComparison.OrdinalIgnoreCase)) return r.Actual ?? "";
             return !string.IsNullOrEmpty(r.ActualEn) ? r.ActualEn : ActualToEnglish(r.Actual);
         }
 
@@ -923,28 +921,27 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// requires when the issue needs a person (an AI verdict shows that pair on
         /// its own row line); then the element ids when there are several.
         /// </summary>
-        public static string Description(SpecResult r, string lang)
+        public static string Description(SpecResult r)
         {
             if (r == null) return "";
-            var en = string.Equals(lang, PanelStrings.En, StringComparison.OrdinalIgnoreCase);
             var parts = new List<string>();
-            var note = Note(r, lang);
+            var note = Note(r);
             if (note.Length > 0) parts.Add(note);
-            var actual = SpecReport.Clean(en ? ActualIn(r, PanelStrings.En) : r.Actual);
+            var actual = SpecReport.Clean(ActualIn(r));
             var required = SpecReport.Clean(r.Required);
             if (!IsAiVerdict(r) && (actual.Length > 0 || required.Length > 0))
             {
                 var pair = new List<string>();
                 if (actual.Length > 0) pair.Add("Model: " + actual);
-                if (required.Length > 0) pair.Add((en ? "Required: " : "Keperluan: ") + required);
+                if (required.Length > 0) pair.Add("Required: " + required);
                 parts.Add(string.Join(" · ", pair));
             }
             var ids = ElementIdsOf(r);
             if (ids.Count > 1)
             {
                 var shown = string.Join(", ", ids.Take(MaxIdsListed));
-                if (ids.Count > MaxIdsListed) shown += en ? $" … ({ids.Count} in all)" : $" … ({ids.Count} kesemuanya)";
-                parts.Add((en ? "Elements: " : "Elemen: ") + shown);
+                if (ids.Count > MaxIdsListed) shown += $" … ({ids.Count} in all)";
+                parts.Add("Elements: " + shown);
             }
             return string.Join("\n", parts);
         }
