@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Text;
 using RevitWebAppSync.UI.Jkr.Panel.Core;
 
@@ -70,8 +71,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     "Ubah elemen di bawah dengan mengisi parameter wajib yang kosong (Buku Parameter pada LOi projek). Isi hanya parameter yang nilainya boleh diterbitkan daripada model; tanya untuk selebihnya.",
                     "Change the elements below by filling the mandatory parameters that are empty (Buku Parameter at the project LOI). Set only parameters whose value you can derive from the model; ask about the rest."),
                 ["Dc.1"] = new CopilotPromptVariant(
-                    "Betulkan nombor dalam type name setiap elemen di bawah supaya sama dengan nilai parameter geometri sebenar (nombor dalam mm), atau tukar parameter jika nama yang betul. Cadangkan sebelah mana yang ditukar untuk setiap elemen.",
-                    "Fix the number in the type name of each element below so it equals the actual geometry parameter value (number in mm), or change the parameter if the name is the right one. Propose the side to change for each element."),
+                    "Betulkan type name setiap elemen di bawah dengan menukar nombornya supaya sama dengan nilai parameter geometri sebenar (nombor dalam mm, urutan lebar x tinggi). Tukar nama type sahaja; jangan ubah dimensi atau parameter geometri.",
+                    "Rename the type of each element below by changing the number in its name so it equals the actual geometry parameter value (number in mm, width x height order). Change the type name only; never edit dimensions or geometry parameters."),
                 ["A2.2"] = new CopilotPromptVariant(
                     "Tetapkan kod model supaya boleh dibaca daripada nama fail: W00 (model tunggal) atau WXnn (model pecah). Tukar kod dalam nama sahaja.",
                     "Set the model code so it can be read from the file name: W00 (single model) or WXnn (split model). Change the code in the name only."),
@@ -130,9 +131,9 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             sb.AppendLine();
             sb.AppendLine();
 
-            Line(sb, bm ? "Kategori" : "Category", f.Category);
-            Line(sb, bm ? "Diperlukan" : "Required", f.Required);
-            Line(sb, bm ? "Sebenar" : "Actual", f.Actual);
+            Line(sb, bm ? "Kategori" : "Category", CleanLabel(f.Category));
+            Line(sb, bm ? "Diperlukan" : "Required", CleanLabel(f.Required));
+            Line(sb, bm ? "Sebenar" : "Actual", CleanLabel(f.Actual));
             if (spec != null)
             {
                 Line(sb, bm ? "Comply bila" : "Complies when", Cell(spec.Comply.In(lang)));
@@ -149,7 +150,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 string label = null;
                 if (f.ElementLabels != null) f.ElementLabels.TryGetValue(id, out label);
                 sb.Append("- ").Append(id);
-                if (!string.IsNullOrWhiteSpace(label)) sb.Append(" — ").Append(label.Trim());
+                label = CleanLabel(label);
+                if (label.Length > 0) sb.Append(" — ").Append(label);
                 sb.AppendLine();
             }
             sb.AppendLine();
@@ -171,6 +173,21 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 sb.Append("Do not decide pass or fail; the JKR re-check decides that.");
             }
             return sb.ToString();
+        }
+
+        /// <summary>Max chars of an element label in the prompt.</summary>
+        public const int MaxLabelLength = 120;
+
+        /// <summary>A model element name goes into the prompt as one line: control characters (newlines, tabs) become
+        /// spaces, runs of spaces collapse, and the text is cut at <see cref="MaxLabelLength"/>, so a name cannot add lines.</summary>
+        public static string CleanLabel(string label)
+        {
+            if (string.IsNullOrEmpty(label)) return "";
+            var sb = new StringBuilder(label.Length);
+            foreach (var c in label)
+                sb.Append(char.IsControl(c) || c == '\u2028' || c == '\u2029' ? ' ' : c);
+            var t = Regex.Replace(sb.ToString(), @"\s+", " ").Trim();
+            return t.Length > MaxLabelLength ? t.Substring(0, MaxLabelLength).TrimEnd() : t;
         }
 
         private static void Line(StringBuilder sb, string label, string value)
