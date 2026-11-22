@@ -53,6 +53,8 @@ namespace RevitWebAppSync.Tests
             // model words
             "lantai", "bilik", "pintu", "tingkap", "dinding", "siling", "bumbung", "tangga", "ruang", "aras", "jenis", "nama",
             "projek", "laluan", "jadual", "helaian", "bahan", "keluarga", "kategori", "keputusan", "semakan", "peraturan",
+            "elemen", "rujukan", "seksyen", "mesti", "tetapi", "sepadan", "diperiksa", "dimodelkan", "maklumat", "baris", "bahagian",
+            "kekal", "tekan", "imbas", "cuba", "semula", "sahkan", "paparan", "kod", "lapisan",
             "masuk", "keluar", "buka", "tutup", "simpan", "batal", "mula", "habis", "selesaikan", "tunggu", "berjaya",
         };
 
@@ -325,6 +327,10 @@ namespace RevitWebAppSync.Tests
         [InlineData("Tidak")]
         [InlineData("Tiada siling dimodelkan")]
         [InlineData("Sila tunggu")]
+        [InlineData("Elemen: 1, 2")]
+        [InlineData("rujukan seksyen")]
+        [InlineData("tetapi tidak mesti")]
+        [InlineData("Kod model")]
         [InlineData("A dan B")]
         [InlineData("satu atau dua")]
         public void The_word_list_catches_the_known_Malay_terms(string text) =>

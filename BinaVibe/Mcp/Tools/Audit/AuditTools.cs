@@ -248,8 +248,8 @@ namespace BinaVibe.Mcp.Tools.Audit
                 // the checker / a sibling row of the same checker.
                 r.Row.GuidelineRef + r.Row.ReferenceSource switch
                 {
-                    "form_sibling" => " (rujukan seksyen)",
-                    "checker" or "checker_sibling" => " (rujukan checker)",
+                    "form_sibling" => " (section reference)",
+                    "checker" or "checker_sibling" => " (checker reference)",
                     _ => "",
                 },
                 r.Compliance,

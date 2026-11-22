@@ -587,7 +587,7 @@ namespace BinaVibe.Mcp.Tools.Audit
                 if (capReached) break;
             }
 
-            if (scanned == 0) return NothingToCheck("elemen Walls/Floors/Ceilings/Roofs", rule);
+            if (scanned == 0) return NothingToCheck("Walls/Floors/Ceilings/Roofs elements", rule);
 
             var o = new CheckOutcome { RulePattern = rule };
             o.Evidence["rule"] = rule;

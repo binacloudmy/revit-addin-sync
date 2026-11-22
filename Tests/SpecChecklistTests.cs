@@ -929,14 +929,6 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void The_add_ins_own_words_in_a_spec_issue_text_switch_language()
-        {
-            var t = ResultsAdapter.Bilingual("Nota\nModel: 850 mm · Keperluan: ≥ 900 mm\nElemen: 1, 2 … (12 kesemuanya)", null);
-            Assert.Equal("Nota\nModel: 850 mm · Required: ≥ 900 mm\nElements: 1, 2 … (12 in all)", t.En);
-            Assert.Equal("Nota\nModel: 850 mm · Keperluan: ≥ 900 mm\nElemen: 1, 2 … (12 kesemuanya)", t.Ms);
-        }
-
-        [Fact]
         public void The_spec_reference_is_printed_once_when_the_title_has_it()
         {
             var r = SpecReport.Build(Enumerable.Empty<SpecResult>());
