@@ -102,9 +102,10 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[DedupeDump] " + ex.Message); return null; }
         }
 
-        /// <summary>Next to an export: "report.csv" gives "report.dedupe.json". Never throws.</summary>
+        /// <summary>Next to an export, only when BINA_JKR_DEDUPE_DUMP=1: "report.csv" gives "report.dedupe.json". Never throws.</summary>
         public static string WriteBesideExport(string exportPath)
         {
+            if (Environment.GetEnvironmentVariable(EnvVar) != "1") return null;   // the export folder gets shared: only on request
             try { return WriteTo(Path.Combine(Path.GetDirectoryName(exportPath) ?? "", Path.GetFileNameWithoutExtension(exportPath) + ".dedupe.json")); }
             catch { return null; }
         }

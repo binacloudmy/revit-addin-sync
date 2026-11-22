@@ -66,6 +66,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             public IReadOnlyCollection<string> Params = new string[0];
             public IReadOnlyCollection<long> ElementIds = new long[0];
             /// <summary>AI-516 (dump only): the row's title, raw rule, element label and fix action as the host knows them.</summary>
+            public string Required = "";
             public string Title = "", RuleText = "", ElementLabel = "", FixAction = "";
         }
 
@@ -89,18 +90,23 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
 
         private static readonly System.Text.RegularExpressions.Regex JkrSuffix = new System.Text.RegularExpressions.Regex(@"^(.*)_jkr_s[a-z]{2}$");
 
-        /// <summary>AI-516. Which of the spec row's parameters the row parameter <paramref name="rowKey"/> (a <see cref="ParamKey"/>) names, or null.
-        /// Equal key first. Else, only when the row's name has NO suffix (the prettified "Bidang Kejuruteraan") and exactly ONE spec parameter has that base.
-        /// A name with a suffix never matches another suffix, and an ambiguous base matches nothing (never guess).</summary>
-        public static string MatchSpecParam(IEnumerable<string> specParams, string rowKey)
+        /// <summary>AI-516. Which of the spec row's parameters (<paramref name="specKeys"/>: distinct <see cref="ParamKey"/>s, built once per spec row) the row
+        /// parameter <paramref name="rowKey"/> names, or null. Equal key first. The suffix-tolerant step runs only when the row's own name has NO suffix
+        /// ("Bahan") AND its Required text (<paramref name="requiredKey"/>) carries the SUFFIXED name ("Bahan_jkr_stt") with the same base: then the spec
+        /// parameter equal to that Required name. A bare "Bahan" with no suffixed Required is another, non-JKR parameter and matches nothing.</summary>
+        public static string MatchSpecParam(IReadOnlyCollection<string> specKeys, string rowKey, string requiredKey = "")
         {
-            if (string.IsNullOrEmpty(rowKey)) return null;
-            var keys = (specParams ?? new string[0]).Select(ParamKey).Where(k => k.Length > 0).Distinct().ToList();
-            if (keys.Contains(rowKey)) return rowKey;
+            if (string.IsNullOrEmpty(rowKey) || specKeys == null) return null;
+            if (specKeys.Contains(rowKey)) return rowKey;
             if (JkrSuffix.IsMatch(rowKey)) return null;
-            var same = keys.Where(k => ParamBaseKey(k) == rowKey).ToList();
-            return same.Count == 1 ? same[0] : null;
+            var req = requiredKey ?? "";
+            if (!JkrSuffix.IsMatch(req) || ParamBaseKey(req) != rowKey) return null;
+            return specKeys.Contains(req) ? req : null;
         }
+
+        /// <summary>Distinct non-empty <see cref="ParamKey"/>s of a spec row's parameters.</summary>
+        public static List<string> SpecKeys(IEnumerable<string> specParams) =>
+            (specParams ?? new string[0]).Select(ParamKey).Where(k => k.Length > 0).Distinct().ToList();
 
         /// <summary>Where the parameter name starts in a backend rule: "Missing Type parameter: X", "Empty Instance parameter: X"
         /// and (AI-516) "Optional Type parameter missing: X". -1 = the rule names no parameter.</summary>
@@ -230,6 +236,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             var specIds = new HashSet<long>();                       // every element id any Db.1 spec row covers
             foreach (var si in specs) foreach (var e in rows[si].ElementIds ?? new long[0]) specIds.Add(e);
 
+            var specKeys = new Dictionary<int, List<string>>();     // each spec row's keys, built once
+            foreach (var si in specs) specKeys[si] = SpecKeys(rows[si].Params);
+
             // (spec row, spec parameter) -> the instance ids / "the whole type" a kept fixable row holds
             var heldIds = new Dictionary<(int, string), HashSet<long>>();
             var heldType = new HashSet<(int, string)>();
@@ -242,11 +251,12 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 if (!IsCheck(r, ParameterCheck) && !r.ParamRule) continue;
                 var key = ParamKey(r.Param);
                 if (key.Length == 0) continue;
+                var reqKey = ParamKey(r.Required);
                 var matched = new List<(int spec, string key, string why)>();
                 var misses = new List<string>();
                 foreach (var si in specs)
                 {
-                    var mk = MatchSpecParam(rows[si].Params, key);
+                    var mk = MatchSpecParam(specKeys[si], key, reqKey);
                     if (mk == null) { misses.Add("spec " + rows[si].Id + ": lists no '" + key + "'"); continue; }
                     var why = CoverWhy(rows[si], r, mk, specIds);
                     if (why.StartsWith("covered:")) matched.Add((si, mk, why)); else misses.Add("spec " + rows[si].Id + ": " + why);

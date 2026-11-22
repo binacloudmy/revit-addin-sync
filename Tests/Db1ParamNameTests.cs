@@ -70,9 +70,9 @@ namespace RevitWebAppSync.Tests
         public void A_name_with_no_suffix_matches_the_spec_name_with_one()
         {
             var spec = SpecParams();
-            Assert.Equal("bidang_kejuruteraan_jkr_stt", SpecDedupe.MatchSpecParam(spec, SpecDedupe.ParamKey("Bidang Kejuruteraan")));
-            Assert.Equal("nama_komponen_utama_jkr_stt", SpecDedupe.MatchSpecParam(spec, SpecDedupe.ParamKey("Nama_Komponen_Utama")));
-            Assert.Equal("lod_jkr_sit", SpecDedupe.MatchSpecParam(spec, SpecDedupe.ParamKey("LOD")));
+            Assert.Equal("bidang_kejuruteraan_jkr_stt", SpecDedupe.MatchSpecParam(spec, SpecDedupe.ParamKey("Bidang Kejuruteraan"), "bidang_kejuruteraan_jkr_stt"));
+            Assert.Equal("nama_komponen_utama_jkr_stt", SpecDedupe.MatchSpecParam(spec, SpecDedupe.ParamKey("Nama_Komponen_Utama"), "nama_komponen_utama_jkr_stt"));
+            Assert.Equal("lod_jkr_sit", SpecDedupe.MatchSpecParam(spec, SpecDedupe.ParamKey("LOD"), "lod_jkr_sit"));
         }
 
         [Fact]
@@ -83,8 +83,11 @@ namespace RevitWebAppSync.Tests
             Assert.Contains("coping_jkr_stm", spec); Assert.Contains("coping_jkr_stt", spec);
             Assert.Null(SpecDedupe.MatchSpecParam(spec, "coping"));
             Assert.Equal("coping_jkr_stm", SpecDedupe.MatchSpecParam(spec, "coping_jkr_stm"));
-            Assert.Null(SpecDedupe.MatchSpecParam(new[] { "Kaca_jkr_stm" }, "kaca_jkr_stt"));
-            Assert.Equal("bahan_jkr_stt", SpecDedupe.MatchSpecParam(new[] { "Bahan_jkr_stt" }, "bahan"));
+            Assert.Null(SpecDedupe.MatchSpecParam(new[] { "kaca_jkr_stm" }, "kaca_jkr_stt", "kaca_jkr_stt"));
+            Assert.Equal("bahan_jkr_stt", SpecDedupe.MatchSpecParam(new[] { "bahan_jkr_stt" }, "bahan", "bahan_jkr_stt"));
+            // a bare name whose Required text has no suffixed name is another parameter
+            Assert.Null(SpecDedupe.MatchSpecParam(new[] { "bahan_jkr_stt" }, "bahan"));
+            Assert.Null(SpecDedupe.MatchSpecParam(new[] { "bahan_jkr_stt" }, "bahan", "bahan"));
         }
 
         [Fact]
@@ -125,17 +128,34 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void The_dump_goes_next_to_an_export()
+        public void A_non_JKR_Bahan_row_beside_a_Db1_Bahan_jkr_stt_row_stays()
+        {
+            var spec = Spec("SPEC-Db.1-c", "Bahan_jkr_stt", 20);
+            Func<string, string, SpecDedupe.Row> legacy = (id, req) => new SpecDedupe.Row { Id = id, CheckId = "Db.1", Source = SpecDedupe.FromBackend, Fixable = false, Bucket = ScanBoard.Open, Category = "Walls", ElementId = 0, Param = "Bahan", Required = req, ParamRule = true, ParamKind = "type" };
+            var plain = legacy("N1", "Bahan");              // non-JKR parameter: Required has no suffix
+            var jkr = legacy("N2", "Bahan_jkr_stt");        // same parameter as the spec row
+            var kept = ScanBoard.Merge(new[] { plain, jkr }, null, new[] { spec });
+            Assert.Contains(plain, kept);
+            Assert.DoesNotContain(jkr, kept);
+        }
+
+        [Fact]
+        public void The_dump_goes_next_to_an_export_only_when_the_env_var_is_set()
         {
             ScanBoard.Merge(new SpecDedupe.Row[0], null, new[] { Spec("SPEC-Db.1-b", "Sistem_jkr_stt", 1) });
             var dir = Path.Combine(Path.GetTempPath(), "ai516-" + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(dir);
+            var old = Environment.GetEnvironmentVariable(DedupeDump.EnvVar);
             try
             {
+                Environment.SetEnvironmentVariable(DedupeDump.EnvVar, null);
+                Assert.Null(DedupeDump.WriteBesideExport(Path.Combine(dir, "report.csv")));
+                Assert.False(File.Exists(Path.Combine(dir, "report.dedupe.json")));
+                Environment.SetEnvironmentVariable(DedupeDump.EnvVar, "1");
                 var written = DedupeDump.WriteBesideExport(Path.Combine(dir, "report.csv"));
                 Assert.Equal(Path.Combine(dir, "report.dedupe.json"), written);
                 Assert.Equal("AI-516", (string)JObject.Parse(File.ReadAllText(written))["issue"]);
             }
-            finally { Directory.Delete(dir, true); }
+            finally { Environment.SetEnvironmentVariable(DedupeDump.EnvVar, old); Directory.Delete(dir, true); }
         }
     }
 }
