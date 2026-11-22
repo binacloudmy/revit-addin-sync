@@ -26,11 +26,30 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// <summary>A BINA session exists. When false, <see cref="Send"/> parks the text and shows the sign-in card.</summary>
         bool IsSignedIn { get; }
 
-        /// <summary>A turn is running, or an Ya/Tidak (or question) card still waits for the person.</summary>
-        bool IsTurnBusy { get; }
+        /// <summary>A turn is streaming (or a resolved card's write is running).</summary>
+        bool IsSending { get; }
+
+        /// <summary>The Ya/Tidak cards of the turns sent by <see cref="Send"/> since the last NewChat (the newest decides).</summary>
+        CopilotCardState Cards { get; }
+
+        /// <summary>The Copilot pane is on screen. False once the person closes it mid-sequence.</summary>
+        bool IsPaneVisible { get; }
 
         /// <summary>Send one prompt as if typed (CopilotViewModel.ChatSend). May throw.</summary>
         void Send(string text);
+    }
+
+    /// <summary>Where the Ya/Tidak card of the turn stands.</summary>
+    public enum CopilotCardState
+    {
+        /// <summary>No card (Copilot answered without proposing a write).</summary>
+        None,
+        /// <summary>A card waits for the person (or a question card).</summary>
+        Open,
+        /// <summary>Ya: the write was approved (by hand or Auto mode) and then ran.</summary>
+        Approved,
+        /// <summary>Tidak.</summary>
+        Declined,
     }
 
     /// <summary>How a launch ended.</summary>
@@ -49,6 +68,14 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         NoPrompt,
         /// <summary>A launch is already in progress.</summary>
         Busy,
+        /// <summary>Copilot is in the middle of a request (running, or a card is open): nothing was cleared or sent.</summary>
+        CopilotBusy,
+        /// <summary>The person answered Tidak; later parts were not sent.</summary>
+        Declined,
+        /// <summary>The turn ended with no write (no card); later parts were not sent.</summary>
+        NoWrite,
+        /// <summary>The pane was closed mid-sequence; later parts were not sent.</summary>
+        PaneClosed,
     }
 
     /// <summary>
@@ -63,10 +90,10 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// <summary>First open pays the model warm-up (first regen can take about a minute).</summary>
         public static readonly TimeSpan DefaultIndexingTimeout = TimeSpan.FromSeconds(120);
         public static readonly TimeSpan DefaultTurnTimeout = TimeSpan.FromMinutes(10);
-        /// <summary>After a send, how long to wait for the turn to start before reading "not busy" as "finished".</summary>
-        public static readonly TimeSpan DefaultStartGrace = TimeSpan.FromSeconds(5);
-        /// <summary>"Not busy" must hold this long: a confirm card resolves a moment before the next turn starts.</summary>
-        public static readonly TimeSpan DefaultSettle = TimeSpan.FromMilliseconds(1000);
+        /// <summary>After a send, how long to wait for the turn to start; a turn never seen starting counts as "no write".</summary>
+        public static readonly TimeSpan DefaultStartGrace = TimeSpan.FromSeconds(10);
+        /// <summary>"Not sending and no open card" must hold this long: Ya resolves the card a moment before the write turn starts.</summary>
+        public static readonly TimeSpan DefaultSettle = TimeSpan.FromSeconds(3);
 
         private readonly ICopilotSession _session;
         private readonly Func<CopilotFixRequest, IReadOnlyList<string>> _prompt;
@@ -151,7 +178,14 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 return CopilotLaunchOutcome.PaneUnavailable;
             }
 
-            // 2. new chat for every fix
+            // 2. never wipe a request in progress: a second click while Copilot runs, or a Ya/Tidak card is open
+            if (_session.IsSending || _session.Cards == CopilotCardState.Open)
+            {
+                _notify(Text.CopilotBusy(bm));
+                return CopilotLaunchOutcome.CopilotBusy;
+            }
+
+            // 2b. new chat for every fix
             try { _session.NewChat(); }
             catch (Exception ex) { _notify(Text.SendFailed(bm, ex.Message)); return CopilotLaunchOutcome.SendFailed; }
 
@@ -172,20 +206,24 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 return CopilotLaunchOutcome.SignInNeeded;
             }
 
-            // 5. send each part, and let its turn (and Ya/Tidak card) finish before the next
+            // 5. send each part; the next goes only after this one's turn finished WITH a write (Ya, and the write ran)
             for (var i = 0; i < parts.Count; i++)
             {
                 var part = parts[i];
                 if (string.IsNullOrWhiteSpace(part)) continue;
+                if (i > 0 && !_session.IsPaneVisible)
+                {
+                    _notify(Text.PaneClosed(bm, i, parts.Count));
+                    return CopilotLaunchOutcome.PaneClosed;
+                }
                 try { _session.Send(part); }
                 catch (Exception ex) { _notify(Text.SendFailed(bm, ex.Message)); return CopilotLaunchOutcome.SendFailed; }
 
                 if (i == parts.Count - 1) break;   // the last turn is the person's to follow in the pane
-                if (!await WaitForTurnAsync().ConfigureAwait(true))
-                {
-                    _notify(Text.TurnTimeout(bm, i + 1, parts.Count));
-                    return CopilotLaunchOutcome.TurnTimeout;
-                }
+                var end = await WaitForTurnAsync().ConfigureAwait(true);
+                if (end == null) { _notify(Text.TurnTimeout(bm, i + 1, parts.Count)); return CopilotLaunchOutcome.TurnTimeout; }
+                if (end == CopilotCardState.Declined) { _notify(Text.Declined(bm, i + 1, parts.Count)); return CopilotLaunchOutcome.Declined; }
+                if (end != CopilotCardState.Approved) { _notify(Text.NoWrite(bm, i + 1, parts.Count)); return CopilotLaunchOutcome.NoWrite; }
             }
             return CopilotLaunchOutcome.Sent;
         }
@@ -203,27 +241,39 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             return true;
         }
 
-        /// <summary>After a send: wait for the turn to start (a short grace), then for "not busy" to hold for the settle
-        /// time. A turn that never shows as busy within the grace is taken as already finished.</summary>
-        private async Task<bool> WaitForTurnAsync()
+        private bool Busy => _session.IsSending || _session.Cards == CopilotCardState.Open;
+
+        /// <summary>After a send: wait for the turn to start (seen sending, or a card), then for "not sending, no open card"
+        /// to hold for the settle time (a slow write after Ya restarts the count). Returns the card state at the end, or
+        /// null on timeout. A turn never seen starting returns <see cref="CopilotCardState.None"/> (no write).</summary>
+        private async Task<CopilotCardState?> WaitForTurnAsync()
         {
             var waited = TimeSpan.Zero;
-            while (!_session.IsTurnBusy && waited < _startGrace)
+            var seen = false;
+            while (true)
             {
+                if (Busy || _session.Cards != CopilotCardState.None) { seen = true; break; }
+                if (waited >= _startGrace) break;
                 await _delay(_poll).ConfigureAwait(true);
                 waited += _poll;
             }
+            if (!seen) return CopilotCardState.None;
+
             var idle = TimeSpan.Zero;
             waited = TimeSpan.Zero;
             while (idle < _settle)
             {
-                if (waited >= _turnTimeout) return false;
+                if (waited >= _turnTimeout) return null;
                 await _delay(_poll).ConfigureAwait(true);
                 waited += _poll;
-                idle = _session.IsTurnBusy ? TimeSpan.Zero : idle + _poll;
+                idle = Busy ? TimeSpan.Zero : idle + _poll;
             }
-            return true;
+            return _session.Cards;
         }
+
+        private static string Parts(bool bm, int firstUnsent, int total) => firstUnsent == total
+            ? (bm ? $"bahagian {total}" : $"part {total}")
+            : (bm ? $"bahagian {firstUnsent}-{total}" : $"parts {firstUnsent}-{total}");
 
         /// <summary>The messages the person sees (BM first, EN when the pane is English).</summary>
         public static class Text
@@ -246,9 +296,23 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     : "Sign in to BINA in Copilot first; the request is sent after you sign in."
                         + (more ? " Only the first part is sent; press Fix via Copilot again for the rest." : "");
             }
+            /// <param name="sent">How many parts went out.</param>
             public static string TurnTimeout(bool bm, int sent, int total) => bm
-                ? $"Copilot belum selesai bahagian {sent} daripada {total}. Bahagian selebihnya tidak dihantar."
-                : $"Copilot has not finished part {sent} of {total}. The remaining parts were not sent.";
+                ? $"Copilot belum selesai bahagian {sent} daripada {total}. {Cap(Parts(bm, sent + 1, total))} tidak dihantar."
+                : $"Copilot has not finished part {sent} of {total}. {Cap(Parts(bm, sent + 1, total))} not sent.";
+            public static string Declined(bool bm, int sent, int total) => bm
+                ? $"Anda memilih Tidak pada bahagian {sent}. {Cap(Parts(bm, sent + 1, total))} tidak dihantar."
+                : $"You answered No on part {sent}. {Cap(Parts(bm, sent + 1, total))} not sent.";
+            public static string NoWrite(bool bm, int sent, int total) => bm
+                ? $"Bahagian {sent} selesai tanpa perubahan. {Cap(Parts(bm, sent + 1, total))} tidak dihantar."
+                : $"Part {sent} ended without a change. {Cap(Parts(bm, sent + 1, total))} not sent.";
+            public static string PaneClosed(bool bm, int sent, int total) => bm
+                ? $"Panel Copilot ditutup. {Cap(Parts(bm, sent + 1, total))} tidak dihantar."
+                : $"The Copilot pane was closed. {Cap(Parts(bm, sent + 1, total))} not sent.";
+            public static string CopilotBusy(bool bm) => bm
+                ? "Selesaikan atau jawab permintaan Copilot semasa dahulu."
+                : "Finish or answer the current Copilot request first.";
+            private static string Cap(string x) => char.ToUpperInvariant(x[0]) + x.Substring(1);
             public static string NoPrompt(bool bm) => bm
                 ? "Tiada arahan untuk dihantar kepada Copilot."
                 : "There is nothing to send to Copilot.";

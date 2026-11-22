@@ -40,7 +40,11 @@ namespace RevitWebAppSync.UI.Jkr
         }
 
         /// <summary>The pane's "+" command: empty thread and <c>RevitChatRouter.ResetSession()</c> (a new session id).</summary>
-        public void NewChat() => (Vm ?? throw new InvalidOperationException("Copilot is not loaded")).ClearChatCommand.Execute(null);
+        public void NewChat()
+        {
+            (Vm ?? throw new InvalidOperationException("Copilot is not loaded")).ClearChatCommand.Execute(null);
+            _mark = Vm.Thread.Count;
+        }
 
         public bool IsIndexing => Vm?.IsIndexing ?? false;
 
@@ -49,44 +53,33 @@ namespace RevitWebAppSync.UI.Jkr
             get { try { return BinaConfig.Load()?.IsLoggedIn() ?? false; } catch { return false; } }
         }
 
-        /// <summary>A turn is streaming, or a Ya/Tidak / question / code card still waits for the person. A chunk sent
-        /// over an open card would kill it, so the launcher waits.</summary>
-        public bool IsTurnBusy
+        public bool IsSending => Vm?.IsSending ?? false;
+
+        // Thread position at the last NewChat: cards before it belong to an old chat.
+        private int _mark;
+
+        /// <summary>Ya/Tidak (and question / code) cards on the thread since the last NewChat: any open one wins, else the
+        /// newest resolved one (Ya = Approved, Tidak = Declined). A chunk sent over an open card would kill it.</summary>
+        public CopilotCardState Cards
         {
             get
             {
                 var vm = Vm;
-                if (vm == null) return false;
-                return vm.IsSending || vm.Thread.Any(m => !m.ActionsResolved
-                    && (m.Kind == CpMsgKind.ConfirmActions || m.ChoiceBatch != null || m.PendingCode != null));
+                if (vm == null) return CopilotCardState.None;
+                var state = CopilotCardState.None;
+                for (var i = Math.Min(_mark, vm.Thread.Count); i < vm.Thread.Count; i++)
+                {
+                    var m = vm.Thread[i];
+                    if (!(m.Kind == CpMsgKind.ConfirmActions || m.ChoiceBatch != null || m.PendingCode != null)) continue;
+                    if (!m.ActionsResolved) return CopilotCardState.Open;
+                    state = m.ActionsApproved == false ? CopilotCardState.Declined : CopilotCardState.Approved;
+                }
+                return state;
             }
         }
 
+        public bool IsPaneVisible => App.CopilotPaneHost?.IsVisible ?? false;
+
         public void Send(string text) => (Vm ?? throw new InvalidOperationException("Copilot is not loaded")).ChatSend(text);
-    }
-
-    /// <summary>AI-494: puts the launcher on the AI-492 seam (<see cref="JkrCopilotFix.Launcher"/>); the button shows once set.</summary>
-    public static class JkrCopilotFixInstaller
-    {
-        /// <summary>AI-493: the prompt parts for a row, in the pane language (<c>bm</c>), none over the element-id cap.
-        /// TODO(AI-493): default this to <c>JkrCopilotPrompt.Build</c> once that lands.</summary>
-        public static Func<IssueVm, bool, IReadOnlyList<string>> PromptBuilder { get; set; }
-
-        /// <summary>Sets the launcher. Without a prompt builder it sets nothing, so the button stays hidden
-        /// (a click with no prompt would be a dead button).</summary>
-        public static void Install(Func<string, IssueVm> issueById, Action<string> notify)
-        {
-            if (PromptBuilder == null) return;
-            JkrCopilotFix.Launcher = new JkrCopilotFixLauncher(
-                new JkrCopilotSession(),
-                req =>
-                {
-                    var build = PromptBuilder ?? throw new InvalidOperationException("the Copilot prompt builder is not set");
-                    var issue = issueById(req.IssueId) ?? throw new InvalidOperationException("the row is no longer in the list");
-                    return build(issue, !PaneLanguage.IsEn);
-                },
-                notify,
-                () => !PaneLanguage.IsEn);
-        }
     }
 }

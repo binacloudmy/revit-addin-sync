@@ -168,6 +168,7 @@
     <Compile Include="..\UI\Jkr\ViewModels\JkrRowControls.cs" Link="JkrRowControls.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\JkrCopilotFix.cs" Link="JkrCopilotFix.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\JkrCopilotLauncher.cs" Link="JkrCopilotLauncher.cs" />
+    <Compile Include="..\UI\Jkr\ViewModels\JkrCopilotFixInstaller.cs" Link="JkrCopilotFixInstaller.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\IssueVm.cs" Link="IssueVm.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\IssueElementIds.cs" Link="IssueElementIds.cs" />
     <!-- Backend check status → AI verdict or "needs a person" (cannot_verify), and the pane's counts / % that leave people's items out. -->
