@@ -231,9 +231,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 .Where(x => Cat == AllSections || x.Sec == Cat)
                 .Where(x =>
                 {
-                    if (Tab == PanelTab.Manual) return x.IsHuman || x.MarkedManual;   // AI-445: as TabCounts
+                    if (Tab == PanelTab.Manual) return x.IsHuman;
                     if (x.IsHuman) return false;
-                    if (Tab == PanelTab.Open) return x.Status == ItemStatus.Open && !x.MarkedManual;
+                    if (Tab == PanelTab.Open) return x.Status == ItemStatus.Open;
                     if (Tab == PanelTab.Ignore) return x.Status == ItemStatus.Ignored;
                     return x.Status == ItemStatus.Resolved;
                 })

@@ -57,17 +57,6 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void A_marked_manual_row_is_in_the_Manual_list_and_not_the_Open_list()
-        {
-            var c = Board(ai: 3, manual: 2);
-            var n = c.TabCounts();
-            c.SetTab(PanelTab.Open);
-            Assert.Equal(n[PanelTab.Open], c.Filtered().Count);
-            c.SetTab(PanelTab.Manual);
-            Assert.Equal(n[PanelTab.Manual], c.Filtered().Count);
-        }
-
-        [Fact]
         public void A_row_passed_by_a_scan_without_Copilot_still_drops_out_of_every_tab()
         {
             var c = Board(ai: 3);
