@@ -426,6 +426,9 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             return ids.Skip(partIndex * MaxIdsPerPrompt).Take(MaxIdsPerPrompt).ToList();
         }
 
+        /// <summary>AI-513: the JKR pane is English-only; every check's prompt pins the reply language.</summary>
+        public const string EnglishOnlyLine = "Write every question you ask me and your reply in English, even when view names are Malay.";
+
         private static string BuildOne(CopilotPromptFacts f, List<long> ids, int part, int parts)
         {
             var checkId = (f.CheckId ?? "").Trim();
@@ -515,6 +518,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             }
             if (parts > 1)
                 sb.AppendLine($"This is part {part} of {parts}; the other parts are sent separately. Handle only the ids in this part.");
+            sb.AppendLine(EnglishOnlyLine);
             sb.AppendLine("I already confirmed this change in the JKR pane: apply it now. Do not ask me for permission or confirmation. Ask me only if a value you need is not in the model or in lookup.");
             sb.Append("Do not decide pass or fail; the JKR re-check decides that.");
             return sb.ToString();
