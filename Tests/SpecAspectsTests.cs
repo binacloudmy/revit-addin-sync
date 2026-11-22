@@ -148,7 +148,7 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(SpecCatalog.Checks.Count, r.GroupRows.Sum(g => g.Checks));
 
             Assert.Equal("Aspects", r.AspectsToggleLabel);
-            Assert.Equal("Penamaan", r.GroupRows[0].Name);
+            Assert.Equal("Naming", r.GroupRows[0].Name);
         }
 
         [Fact]

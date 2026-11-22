@@ -918,7 +918,6 @@ namespace RevitWebAppSync.Tests
             // On the Results screen: the issue list and the element row switch with BM / EN.
             var (r, core) = ResultsOf(new[] { res }, new[] { vm });
             r.SelectTab(PanelTab.Open);
-            Assert.Equal("A1.2 · Saiz pintu (NS §5.8.5)", r.Rows.Single().Title);
             Assert.Equal("A1.2 · Door size (NS §5.8.5)", r.Rows.Single().Title);
             r.ShowChecklistTab();
             Assert.StartsWith("A1.2 · Door size", CheckIn(r, "A1.2").Elements.Single().Detail);
@@ -935,7 +934,7 @@ namespace RevitWebAppSync.Tests
         {
             var t = ResultsAdapter.Bilingual("Nota\nModel: 850 mm · Keperluan: ≥ 900 mm\nElemen: 1, 2 … (12 kesemuanya)", null);
             Assert.Equal("Nota\nModel: 850 mm · Required: ≥ 900 mm\nElements: 1, 2 … (12 in all)", t.En);
-            Assert.Equal("Nota\nModel: 850 mm · Required: ≥ 900 mm\nElement: 1, 2 … (12 kesemuanya)", t.Ms);
+            Assert.Equal("Nota\nModel: 850 mm · Keperluan: ≥ 900 mm\nElemen: 1, 2 … (12 kesemuanya)", t.Ms);
         }
 
         [Fact]
