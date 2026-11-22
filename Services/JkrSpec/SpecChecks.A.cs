@@ -58,15 +58,13 @@ namespace RevitWebAppSync.Services.JkrSpec
         /// value". Each ceiling (Ceilings category only — roof soffits are not ceilings) is
         /// measured from what is physically under it:
         /// • Floor under it: sample points inside the ceiling's underside loops; at each, the
-        ///   highest floor top below the underside whose top-face loops hold the point. The
-        ///   clear height is underside − that floor top, over the highest floor that holds at
-        ///   least <see cref="A11MinFloorShare"/> of the points that found a floor (a sliver
-        ///   under a wall does not decide it). Small pads (&lt; 1 m²) are not floors. The
-        ///   ceiling then counts for the floor's storey (a non-story floor level → the story
-        ///   level nearest the floor top within <see cref="A11StorySlackMm"/>), and names the room
-        ///   holding most of those points (real Dewan model, 17 Nov 2026: 16 ceilings 3450 mm
-        ///   above Aras 01 hang over changing rooms and toilets whose floors are 800–1200 mm
-        ///   higher, so the clear height is 2250–2650 mm).
+        ///   highest floor top below the underside whose top-face loops hold the point. AI-504: when
+        ///   every point that found a floor found the same one, the clear height is underside − that
+        ///   floor top, counted for the floor's story level (its own, or the story level at exactly
+        ///   the floor top), and the room holding most points is named. When two or more floors are
+        ///   under one ceiling (real Dewan model, 17 Nov 2026: changing rooms and toilets with floors
+        ///   800–1200 mm higher), or the floor matches no story level, choosing needs a share, a pad
+        ///   size or a slack that JKR does not give: the ceilings are listed for a person, never failed.
         /// • No footprint, or no floor under it: its height above its level (HeightOffset),
         ///   a ceiling hosted on a non-story level measured from the story level below it.
         /// Per level, the lowest value below the minimum fails the level, listing each room /
@@ -98,18 +96,19 @@ namespace RevitWebAppSync.Services.JkrSpec
                 var below = stories.LastOrDefault(l => l.Elevation <= top - 1);
                 return below == null ? (c.LevelName.Trim(), c.HeightOffset) : (below.Name.Trim(), top - below.Elevation);
             }
-            var floors = m.Floors.Where(f => f.TopElevation != null && f.Loops.Count > 0 && !A11IsPad(f))
+            var floors = m.Floors.Where(f => f.TopElevation != null && f.Loops.Count > 0)
                               .Select(f => new SpecPlan.Shape<SpecFloor>(f, f.Loops)).ToList();
             var rooms = m.Rooms.Where(r => r.Area > 0 && r.Loops.Count > 0)
                              .Select(r => new SpecPlan.Shape<SpecRoom>(r, r.Loops)).ToList();
+            // The story a floor counts for: the floor's own story level, else the story level whose
+            // elevation is exactly the floor top. Anything else is ambiguous (null): no slack (AI-504).
             string StoryOf(SpecFloor f)
             {
                 var own = K.LevelOf(levels, f.LevelName);
                 if (own != null && own.IsStory) return own.Name.Trim();
-                var top = f.TopElevation ?? double.NaN;
-                var near = stories.Where(l => Math.Abs(l.Elevation - top) <= A11StorySlackMm)
-                                  .OrderBy(l => Math.Abs(l.Elevation - top)).FirstOrDefault();
-                return near != null ? near.Name.Trim() : f.LevelName.Trim();
+                var top = SpecUnits.CleanMm(f.TopElevation ?? double.NaN);
+                var same = stories.FirstOrDefault(l => SpecUnits.CleanMm(l.Elevation) == top);
+                return same?.Name.Trim();
             }
             A11Measure Measure(SpecCeiling c)
             {
@@ -139,17 +138,22 @@ namespace RevitWebAppSync.Services.JkrSpec
                     if (best != null) hits.Add((p, best));
                 }
                 if (hits.Count == 0) return fallback;
-                var need = Math.Max(1, (int)Math.Ceiling(hits.Count * A11MinFloorShare));
-                var floor = hits.GroupBy(h => h.F).Where(g => g.Count() >= need)
-                                .Select(g => g.Key).OrderByDescending(f => f.TopElevation.Value).FirstOrDefault()
-                            ?? hits.GroupBy(h => h.F).OrderByDescending(g => g.Count()).First().Key;
-                var over = hits.Where(h => h.F == floor).Select(h => h.P).ToList();
+                // AI-504: only the unambiguous case is judged: every sampled point that found a floor found
+                // the same one. Two or more floors under one ceiling (a raised floor, a plinth, a stepped
+                // slab) need a number to choose between (which floor counts, how small a pad is), and JKR
+                // gives none: the ceiling is listed for a person.
+                var floors2 = hits.Select(h => h.F).Distinct().ToList();
+                if (floors2.Count > 1)
+                    return new A11Measure { Ceiling = c, Level = lv.Level, Height = lv.Height, Ambiguous = true, FloorIds = floors2.Select(f => f.Id).ToList() };
+                var floor = floors2[0];
                 var ft = floor.TopElevation.Value;
-                // The room over that floor: its volume starts below the ceiling and near the floor.
-                var room = rooms.Where(r => { var rb = RoomBase(r.Item); return rb == null || (rb.Value < b - 1 && rb.Value >= ft - A11StorySlackMm); })
-                                .Select(r => (R: r.Item, N: over.Count(p => r.Contains(p.X, p.Y))))
+                // The room named in the remark (information only, never decides the verdict).
+                var room = rooms.Where(r => { var rb = RoomBase(r.Item); return rb == null || rb.Value < b - 1; })
+                                .Select(r => (R: r.Item, N: hits.Count(h => r.Contains(h.P.X, h.P.Y))))
                                 .Where(x => x.N > 0).OrderByDescending(x => x.N).Select(x => x.R).FirstOrDefault();
                 var level = StoryOf(floor);
+                if (level == null)
+                    return new A11Measure { Ceiling = c, Level = lv.Level, Height = lv.Height, Ambiguous = true, FloorIds = new List<long> { floor.Id } };
                 return new A11Measure
                 {
                     Ceiling = c, Level = level.Length > 0 ? level : lv.Level, Height = SpecUnits.CleanMm(b - ft),
@@ -158,10 +162,21 @@ namespace RevitWebAppSync.Services.JkrSpec
             }
             double? RoomBase(SpecRoom r) => r.BaseElevation ?? (K.LevelOf(levels, r.LevelName)?.Elevation);
 
-            var measured = m.Ceilings.Select(Measure).ToList();
+            var measuredAll = m.Ceilings.Select(Measure).ToList();
+            var measured = measuredAll.Where(x => !x.Ambiguous).ToList();
+            // Ambiguous ceilings: one row per level for a person, never a fail, never a pass.
+            foreach (var g in measuredAll.Where(x => x.Ambiguous).GroupBy(x => x.Level, StringComparer.OrdinalIgnoreCase))
+            {
+                var nm = K.LevelLabel(g.Key);
+                var ids = string.Join(", ", g.Take(6).Select(x => x.Ceiling.Id.ToString(K.Inv))) + (g.Count() > 6 ? ", …" : "");
+                list.Add(Context(id, $"{Aras(nm)}: {g.Count()} siling ({ids}) ada lebih daripada satu lantai di bawahnya (atau lantai tidak boleh dipadankan dengan aras) — JKR tiada peraturan memilih lantai; ketinggian tidak dinilai, manusia putuskan",
+                                 g.First().Ceiling.Id, Aras(nm), key: "ambiguous:" + g.Key, elementIds: g.Select(x => x.Ceiling.Id))
+                    .En($"Level {nm}: {g.Count()} ceilings ({ids}) have more than one floor under them (or a floor that cannot be matched to a level) — JKR gives no rule to pick the floor; height not judged, a person decides"));
+            }
             var passed = 0;
             var withCeiling = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var c in m.Ceilings) withCeiling.Add(c.LevelName.Trim());
+            foreach (var x in measuredAll.Where(x => x.Ambiguous)) withCeiling.Add(x.Level);
             foreach (var g in measured.GroupBy(x => x.Level, StringComparer.OrdinalIgnoreCase)
                                       .OrderBy(g => K.LevelElevation(levels, g.Key)))
             {
@@ -215,24 +230,6 @@ namespace RevitWebAppSync.Services.JkrSpec
 
         /// <summary>A1.1: sample points per ceiling underside.</summary>
         internal const int A11SamplesPerCeiling = 36;
-        /// <summary>A1.1: share of a ceiling's points over floors that a floor needs to decide
-        /// its clear height (a strip under a wall or a kerb at the edge does not).</summary>
-        internal const double A11MinFloorShare = 0.10;
-        /// <summary>A1.1 geometry reading, NOT a JKR number: a floor under this area (m²) is a pad
-        /// (a plinth, a column base), not the floor a ceiling hangs over.</summary>
-        internal const double A11PadM2 = 1.0;
-        /// <summary>A1.1 geometry reading, NOT a JKR number: how far (mm) a floor top may stand from a
-        /// story level and still count for that storey (a beam level beside the story level).</summary>
-        internal const double A11StorySlackMm = 1500;
-        /// <summary>A1.1: a floor under <see cref="A11PadM2"/> (its computed area, else the area of its
-        /// loops, else of its plan box); a floor with no size read is not a pad.</summary>
-        internal static bool A11IsPad(SpecFloor f)
-        {
-            double a = f.Area;
-            if (!(a > 0) && f.Loops.Count > 0) a = SpecPlan.Area(f.Loops) / 1e6;
-            if (!(a > 0) && f.MaxX > f.MinX && f.MaxY > f.MinY) a = (f.MaxX - f.MinX) * (f.MaxY - f.MinY) / 1e6;
-            return a > 0 && a < A11PadM2;
-        }
         /// <summary>A1.1: most rooms / ceilings listed in one level's fail.</summary>
         private const int A11MaxSpacesListed = 8;
 
@@ -244,6 +241,9 @@ namespace RevitWebAppSync.Services.JkrSpec
             public double Height;
             /// <summary>Measured from the floor under it (else from its level).</summary>
             public bool FromFloor;
+            /// <summary>More than one floor under the ceiling (AI-504): not judged, listed.</summary>
+            public bool Ambiguous;
+            public List<long> FloorIds = new List<long>();
             public long FloorId;
             public SpecRoom Room;
         }

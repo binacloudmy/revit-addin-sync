@@ -205,9 +205,11 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void A1_1_a_floor_under_a_corner_of_the_ceiling_does_not_decide_its_height()
+        public void A1_1_two_floors_under_one_ceiling_is_listed_for_a_person_not_failed()
         {
-            var m = new SpecModel
+            // AI-504: a raised corner (no share threshold) or a small plinth (no pad size) means two floors.
+            // Choosing one needs a number JKR does not give: the ceiling is listed, never failed.
+            var corner = new SpecModel
             {
                 Levels = { new SpecLevel { Name = "01", Elevation = 0 } },
                 Floors =
@@ -217,19 +219,38 @@ namespace RevitWebAppSync.Tests
                 },
                 Ceilings = { new SpecCeiling { Id = 1, LevelName = "01", HeightOffset = 3100, BottomElevation = 3100, Loops = Box(0, 0, 10000, 10000) } },
             };
-            Assert.Empty(Fails(Run(m, "A1.1")));
-        }
-
-        [Fact]
-        public void A1_1_small_pads_are_not_floors_to_measure_from()
-        {
-            var m = new SpecModel
+            var plinth = new SpecModel
             {
                 Levels = { new SpecLevel { Name = "01", Elevation = 0 } },
                 Floors = { FloorAt(10, "01", 0, 0, 0, 3000, 3000), FloorAt(11, "01", 2600, 1000, 1000, 1700, 1700) },
                 Ceilings = { new SpecCeiling { Id = 1, LevelName = "01", HeightOffset = 3200, BottomElevation = 3200, Loops = Box(0, 0, 3000, 3000) } },
             };
-            Assert.Empty(Fails(Run(m, "A1.1")));
+            foreach (var m in new[] { corner, plinth })
+            {
+                var rs = Run(m, "A1.1");
+                Assert.Empty(Fails(rs));
+                Assert.DoesNotContain(rs, r => r.Status == "pass");
+                var row = Assert.Single(rs);
+                Assert.Equal(SpecCoverage.Context, row.Coverage);
+                Assert.NotEqual("", row.IssueId);
+                Assert.True(SpecPersonDecides.IsPersonDecides(row));
+                Assert.Contains("manusia putuskan", row.Note);
+                Assert.Equal(SpecState.NeedsPerson, State(m, "A1.1"));
+            }
+        }
+
+        [Fact]
+        public void A1_1_one_floor_whose_level_is_not_a_story_level_is_listed_no_slack()
+        {
+            var m = new SpecModel
+            {
+                Levels = { new SpecLevel { Name = "Aras 01", Elevation = 0, IsStory = true }, new SpecLevel { Name = "Beam 01", Elevation = 100, IsStory = false } },
+                Floors = { FloorAt(10, "Beam 01", 100, 0, 0, 3000, 3000) },
+                Ceilings = { new SpecCeiling { Id = 1, LevelName = "Aras 01", HeightOffset = 2000, BottomElevation = 2000, Loops = Box(0, 0, 3000, 3000) } },
+            };
+            var rs = Run(m, "A1.1");
+            Assert.Empty(Fails(rs));
+            Assert.Single(rs, r => r.Coverage == SpecCoverage.Context);
         }
 
         [Fact]

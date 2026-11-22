@@ -138,17 +138,20 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void Q2_A4_1_the_BIM010_checker_no_longer_fails_an_offset_either()
+        public void A_person_row_never_hides_a_real_fail_from_the_checker_or_the_backend()
         {
-            // The old checker said "no" beyond 10 mm; an evaluator row for a person outranks it.
-            var model = SpecChecks.Run(BasePointAt(25));
+            // AI-504 review: a Context row for one slab / offset must not suppress a fail on the same check.
+            var person = SpecChecks.Run(BasePointAt(25));
+            Assert.Contains(person, r => r.CheckId == "A4.1" && r.Coverage == SpecCoverage.Context);
             var checker = new SpecResult { Source = SpecReport.Audit, CheckerId = "base_point", RowKey = "A4", Status = "fail", IssueId = "BIM010-A4" };
-            var report = SpecReport.Build(new[] { checker }.Concat(model));
-            var a41 = report.For("A4.1");
-            Assert.Equal(0, a41.Failed);
-            Assert.Equal(SpecState.NeedsPerson, a41.State);
-            Assert.DoesNotContain("BIM010-A4", a41.IssueIds);
+            var a41 = SpecReport.Build(new[] { checker }.Concat(person)).For("A4.1");
+            Assert.True(a41.Failed > 0);
+            Assert.Equal(SpecState.Fail, a41.State);
+            Assert.Contains("BIM010-A4", a41.IssueIds);
             Assert.Equal(1, a41.PersonRows);
+            var backend = new SpecResult { Source = SpecReport.Backend, Category = "Project Base Point", Rule = "Project Base Point surveyed", Status = "fail", IssueId = "BE-1" };
+            Assert.Equal(SpecState.Fail, SpecReport.Build(new[] { backend }.Concat(person)).For("A4.1").State);
+            // The base point checker itself no longer says "no" for an offset: see AuditCheckers.BasePoint.
         }
 
         // ── Q4 flat roof: A1.4, no 2° / 10° ──

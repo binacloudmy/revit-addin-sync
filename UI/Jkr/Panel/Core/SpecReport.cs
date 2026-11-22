@@ -432,10 +432,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                     if (na || judged || !verdictRule) modelAnswered.Add(cid);
                     continue;
                 }
-                // A finding a person decides (AI-504): the evaluator answered this check, so the BIM010
-                // checker record and the backend result on it are not counted beside it (the old 10 mm
-                // base point checker would otherwise still fail an offset the spec no longer fails).
-                if (!na && cov == SpecCoverage.Context) modelAnswered.Add(cid);
+                // A finding a person decides (AI-504) never outranks a checker or backend result: only a
+                // judged result (pass / fail) does. A Context row must not hide a real fail beside it.
                 if (na || !judged || !verdictRule) continue;
                 modelJudged.Add(cid);
                 if (cov == SpecCoverage.Full) modelJudgedFull.Add(cid);
