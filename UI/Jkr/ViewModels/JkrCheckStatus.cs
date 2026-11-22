@@ -86,8 +86,12 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// evaluators' (the first row with an id wins), then one row per problem.
         /// </summary>
         public static List<IssueVm> MergeSources(IEnumerable<IssueVm> backend, IEnumerable<IssueVm> audit, IEnumerable<IssueVm> model)
+            => MergeSources(backend, audit, model, null);
+
+        /// <summary>AI-517: as above; <paramref name="specPassed"/> = checks the spec evaluator passed (see <see cref="ScanBoard.Merge(IEnumerable{SpecDedupe.Row}, IEnumerable{SpecDedupe.Row}, IEnumerable{SpecDedupe.Row}, IReadOnlyCollection{string})"/>).</summary>
+        public static List<IssueVm> MergeSources(IEnumerable<IssueVm> backend, IEnumerable<IssueVm> audit, IEnumerable<IssueVm> model, IReadOnlyCollection<string> specPassed)
         {
-            var kept = ScanBoard.Merge(Rows(backend), Rows(audit), Rows(model));
+            var kept = ScanBoard.Merge(Rows(backend), Rows(audit), Rows(model), specPassed);
             var list = new List<IssueVm>();
             foreach (var r in kept)
             {
