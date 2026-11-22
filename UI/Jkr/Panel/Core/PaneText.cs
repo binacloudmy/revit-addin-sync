@@ -61,6 +61,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             "Value not written: " + reason;
         public static string FixUndone(int n) =>
             ($"{n} fix{(n == 1 ? "" : "es")} undone — the check fails again, so the row is open again.");
+        public static string FixRedone(int n) =>
+            ($"Fix redone — {n} row{(n == 1 ? "" : "s")} pass the check again.");
         public static string NeedsPerson() =>
             "This item needs a person to review it — the AI did not judge it.";
 
