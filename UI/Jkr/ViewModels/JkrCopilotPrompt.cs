@@ -77,6 +77,10 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     "Rename the type of each element below to follow JKR type-name coding (e.g. `(PT2p600a) 900 x 2325 a`). Change the type name only.",
                     "Use set_parameters with param \"Type Name\", type_param true and the element ids as target; one call per new name, all in one message. Take the coding pattern from lookup. A type name belongs to the type, so every instance of that type takes the new name: that is expected. Never change the Family Name, never reuse a type name that already exists, and never invent a code you cannot derive from the model; say which elements you skipped.",
                     "Rename the type of the elements", CopilotWriteLevel.Type, "Type Name"),
+                ["Dd.1"] = new CopilotPromptVariant(
+                    "Rename the type of each element below so its name agrees with the Revit category the type is in (the Category line). Change the type name only; never change the category.",
+                    "Read the types with inspect first. If the type name has a JKR code like `(PT2p600a)`, replace only its two-letter prefix with the prefix of the Category: " + Dd1Prefixes() + "; keep the rest of the code and the text. If it has no code but starts with a category word (Door, Window, Wall, Floor, Roof...), replace only that first word with the singular word of the Category; keep the rest. Use set_parameters with param \"Type Name\", type_param true and the element ids as target; one call per new name, all in one message. A type name belongs to the type, so every instance of that type takes the new name: that is expected. Never change the Family Name, never change the Revit category, never place another family, and never reuse a type name that already exists. If the family itself is of another category than the one it sits in (a window family modelled as a door), a rename does not fix it: do not rename that type, say which it is and leave it open; a person replaces the family. Skip any type whose new name you cannot derive by these rules and say which.",
+                    "Rename the type of the elements to agree with its category", CopilotWriteLevel.Type, "Type Name"),
                 ["Db.2"] = new CopilotPromptVariant(
                     "Set the Material of each element below to the correct JKR material code. Fill empty Materials and change any that do not follow JKR coding.",
                     "Use set_parameters with param \"Material\" on the ids below (type_param true if Material is a type parameter of these elements); one call per code. Take the code from lookup and use a Material that already exists in the model. Do not create Materials: if no existing Material matches a code, leave that element and say so.",
@@ -102,6 +106,10 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     "Use set_parameters on the sheets' own parameters (e.g. Sheet Name, Drawn By) for the sheet ids below. Project-level values (Project Information) and title block type parameters are out of scope: do not change them and say which cells stay empty. If a value is not known, ask me once with ask_user.",
                     "Fill empty sheet parameters", CopilotWriteLevel.Instance, "Sheet Name", "Drawn By"),
             };
+
+        /// <summary>"Doors PT, Windows TK ..." from the Dd.1 evaluator's own code table, so the prompt and the check cannot disagree.</summary>
+        private static string Dd1Prefixes() =>
+            string.Join(", ", Services.JkrSpec.SpecChecks.SingleCodePrefixes().Select(x => x.Category + " " + x.Prefix));
 
         /// <summary>The wording for a check id (the generic one when the family has no variant yet).</summary>
         public static CopilotPromptVariant VariantFor(string checkId) =>

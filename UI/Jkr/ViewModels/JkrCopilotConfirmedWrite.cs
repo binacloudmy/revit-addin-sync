@@ -11,7 +11,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
     /// <list type="bullet">
     /// <item>Instance-level family (Db.2, Db.1, C1.6.3, C4.2.2, A5.2): <c>ids</c> = the ids of THIS prompt part only (a part confirms
     /// only the ids its own prompt lists, at most <see cref="JkrCopilotPrompt.MaxIdsPerPrompt"/>). Strict: a write on any other id is asked.</item>
-    /// <item>Type-level family (Da.1, Dc.1): <c>ids</c> = the one INSTANCE id per type the prompt lists, <c>type_level</c> true (the server
+    /// <item>Type-level family (Da.1, Dc.1, Dd.1): <c>ids</c> = the one INSTANCE id per type the prompt lists, <c>type_level</c> true (the server
     /// resolves the types itself) and <c>instances</c> = the total instances the dialog showed for those types.</item>
     /// <item><c>params</c> = <see cref="CopilotPromptVariant.Params"/>, the names the prompt tells Copilot to set. A family whose parameters
     /// are only known at run time (Db.1, C1.6.3) has none: no field, the server asks as before.</item>

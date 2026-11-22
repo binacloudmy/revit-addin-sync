@@ -24,7 +24,7 @@ namespace RevitWebAppSync.Tests
         };
         private static readonly Regex OldSingular = new Regex(@"\bset_parameter\b");
 
-        private static readonly string[] FixableFamilies = { "Da.1", "Db.2", "Db.1", "Dc.1", "A5.2", "C1.6.3", "C4.2.2" };
+        private static readonly string[] FixableFamilies = { "Da.1", "Db.2", "Db.1", "Dc.1", "Dd.1", "A5.2", "C1.6.3", "C4.2.2" };
         public static IEnumerable<object[]> Families() => FixableFamilies.Select(i => new object[] { i });
 
         private static CopilotPromptFacts Facts(string check, int n, string cat = "Doors")
@@ -75,6 +75,51 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
+        public void Dd1_prompt_renames_the_type_by_the_category_prefix_and_leaves_a_wrong_category_family_open_WP6()
+        {
+            var v = JkrCopilotPrompt.VariantFor("Dd.1");
+            Assert.Equal(CopilotWriteLevel.Type, v.Level);
+            Assert.Equal(new[] { "Type Name" }, v.Params);
+            Assert.Contains("param \"Type Name\", type_param true", v.How);
+            Assert.Contains("Never change the Family Name", v.How);
+            Assert.Contains("never change the Revit category", v.How);
+            Assert.Contains("a rename does not fix it", v.How);
+            Assert.Contains("a person replaces the family", v.How);
+            // the prefix table in the wording is the evaluator's own table
+            foreach (var (cat, prefix) in SpecChecks.SingleCodePrefixes()) Assert.Contains(cat + " " + prefix, v.How);
+            Assert.Contains("Doors PT", v.How);
+            Assert.Contains("Windows TK", v.How);
+            var p = Assert.Single(JkrCopilotPrompt.Build(Facts("Dd.1", 5, "Windows")));
+            Assert.Contains("Category: Windows", p);
+            Assert.Contains("one id per type", p);
+            Assert.Contains("Read these ids first", p);
+            Assert.DoesNotContain("Baiki", p);   // English only (AI-513)
+        }
+
+        [Fact]
+        public void Dd1_confirmed_write_is_type_level_with_one_id_per_type_and_the_instance_count_WP6()
+        {
+            var ids = new List<long> { 11, 12, 13, 14, 21, 22 };
+            var f = new CopilotPromptFacts
+            {
+                CheckId = "Dd.1", Category = "Windows", ElementIds = ids,
+                ElementLabels = ids.ToDictionary(i => i, i => i < 20 ? "Windows · (PT1) A" : "Windows · (PT2) B"),
+            };
+            Assert.Equal(new long[] { 11, 21 }, JkrCopilotPrompt.TargetIds(f));
+            var dto = JkrCopilotConfirmedWrite.ForPart(f, 0);
+            Assert.NotNull(dto);
+            Assert.Equal("Dd.1", dto.CheckId);
+            Assert.Equal(new long[] { 11, 21 }, dto.Ids);
+            Assert.Equal(new[] { "Type Name" }, dto.Params);
+            Assert.True(dto.TypeLevel);
+            Assert.Equal(6, dto.Instances);
+            Assert.Null(JkrCopilotConfirmedWrite.ForPart(f, 1));   // one part only
+            var c = JkrCopilotConfirm.Build(f);
+            Assert.Contains("2 types (6 instances)", c.Heading);
+            Assert.Contains("Dd.1", c.Heading);
+        }
+
+        [Fact]
         public void The_prompt_says_the_person_already_confirmed_and_never_to_ask_permission()
         {
             foreach (var id in JkrCopilotFix.Allowed)
@@ -101,7 +146,7 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void Type_rename_families_write_the_Type_Name_parameter_on_the_type_and_never_the_family_or_a_dimension()
         {
-            foreach (var id in new[] { "Da.1", "Dc.1" })
+            foreach (var id in new[] { "Da.1", "Dc.1", "Dd.1" })
             {
                 var how = JkrCopilotPrompt.VariantFor(id).How;
                 Assert.Contains("param \"Type Name\", type_param true", how);
@@ -252,6 +297,7 @@ namespace RevitWebAppSync.Tests
         [Theory]
         [InlineData("Da.1")]
         [InlineData("Dc.1")]
+        [InlineData("Dd.1")]
         public void Type_level_confirm_says_the_type_and_every_instance_and_drops_no_other_element_is_touched(string id)
         {
             var f = Facts(id, 3);
@@ -281,7 +327,7 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void Type_level_120_instances_of_one_type_is_one_prompt_with_one_id()
         {
-            foreach (var id in new[] { "Da.1", "Dc.1" })
+            foreach (var id in new[] { "Da.1", "Dc.1", "Dd.1" })
                 {
                     var f = Facts(id, 120);
                     f.ElementLabels = f.ElementIds.ToDictionary(i => i, i => "Doors · D1");

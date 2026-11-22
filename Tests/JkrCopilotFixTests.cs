@@ -26,13 +26,13 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void The_list_is_exactly_the_families_set_parameters_can_do_on_the_protocol_3_engine()
         {
-            var want = new[] { "Da.1", "Db.2", "Db.1", "Dc.1", "A5.2", "C1.6.3", "C4.2.2" };
+            var want = new[] { "Da.1", "Db.2", "Db.1", "Dc.1", "Dd.1", "A5.2", "C1.6.3", "C4.2.2" };
             Assert.Equal(want.OrderBy(x => x), JkrCopilotFix.Allowed.OrderBy(x => x));
         }
 
         [Theory]
-        // dropped: category change / file rename / create-type (views, schedules, legend, sheets, links) / template views: need run_revit_code or a person
-        [InlineData("Dd.1")] [InlineData("A2.2")] [InlineData("A3.1")]
+        // dropped: file rename / create-type (views, schedules, legend, sheets, links) / template views: need run_revit_code or a person
+        [InlineData("A2.2")] [InlineData("A3.1")]
         [InlineData("C1.3.1")] [InlineData("C1.4.1")] [InlineData("C1.5.2")] [InlineData("C1.6.1")] [InlineData("C1.6.2")] [InlineData("C2.1.1")]
         [InlineData("C3.1.1")] [InlineData("C4.1.3")] [InlineData("C5.1.1")] [InlineData("C5.1.2")] [InlineData("C1.1.1")] [InlineData("C1.1.2")]
         public void Families_the_engine_cannot_do_with_set_parameters_are_hidden_with_and_without_ids(string id)
@@ -79,11 +79,30 @@ namespace RevitWebAppSync.Tests
         }
 
         [Theory]
-        [InlineData("Da.1")] [InlineData("Db.2")] [InlineData("Db.1")] [InlineData("Dc.1")] [InlineData("A5.2")] [InlineData("C1.6.3")] [InlineData("C4.2.2")]
+        [InlineData("Da.1")] [InlineData("Db.2")] [InlineData("Db.1")] [InlineData("Dc.1")] [InlineData("Dd.1")] [InlineData("A5.2")] [InlineData("C1.6.3")] [InlineData("C4.2.2")]
         public void Every_enabled_family_needs_at_least_one_element_id(string id)
         {
             Assert.False(Ok(id, ids: 0));
             Assert.True(Ok(id, ids: 1));
+        }
+
+        [Fact]
+        public void Dd1_shows_the_button_only_when_the_new_name_is_derivable_WP6()
+        {
+            // one JKR code prefix for the category the type sits in: derivable
+            foreach (var cat in new[] { "Doors", "Windows", "Walls", "Ceilings", "Roofs", "Stairs", "Railings", "Ramps", "Columns", "Structural Columns", "Planting", "Plumbing Fixtures" })
+                Assert.True(Ok("Dd.1", cat), cat);
+            // two or more prefixes, unlisted or no category: a person names the type
+            foreach (var cat in new[] { "Floors", "Curtain Panels", "Casework", "Furniture", "Generic Models", "", null })
+                Assert.False(Ok("Dd.1", cat), cat ?? "(null)");
+            // the other gates still apply
+            Assert.False(Ok("Dd.1", "Doors", person: true));
+            Assert.False(Ok("Dd.1", "Doors", fix: true));
+            Assert.False(Ok("Dd.1", "Doors", pick: true));
+            Assert.False(Ok("Dd.1", "Doors", ids: 0));
+            // the category rule is Dd.1 only
+            Assert.True(Ok("Da.1", "Floors"));
+            Assert.True(Ok("Da.1", ""));
         }
 
         [Fact]

@@ -517,6 +517,23 @@ namespace RevitWebAppSync.Services.JkrSpec
             ["PM"] = new[] { "Casework", "Furniture", "Furniture Systems" },
         };
 
+        /// <summary>The ONE JKR code prefix ("PT", "TK" ...) of a Revit category, or null when the category has none or more than one
+        /// (Floors: LB and LA; Curtain Panels: TK and DG; Casework: PB, PA, PM). The Dd.1 "Fix via Copilot" rename is offered only
+        /// for a category with exactly one prefix, so the new type name can be derived without a guess.</summary>
+        public static string SingleCodePrefixFor(string revitCategory)
+        {
+            var c = (revitCategory ?? "").Trim();
+            if (c.Length == 0) return null;
+            var hits = CodeCategories.Where(kv => kv.Value.Any(x => string.Equals(x, c, StringComparison.OrdinalIgnoreCase))).Select(kv => kv.Key).ToList();
+            return hits.Count == 1 ? hits[0] : null;
+        }
+
+        /// <summary>The categories <see cref="SingleCodePrefixFor"/> answers for, with their prefix, in a stable order ("Doors PT").</summary>
+        public static IReadOnlyList<(string Category, string Prefix)> SingleCodePrefixes() =>
+            CodeCategories.SelectMany(kv => kv.Value).Distinct(StringComparer.Ordinal)
+                .Select(c => (Category: c, Prefix: SingleCodePrefixFor(c))).Where(x => x.Prefix != null)
+                .OrderBy(x => x.Category, StringComparer.Ordinal).ToList();
+
         private static readonly Regex CodeRx = new Regex(@"\(([A-Z][A-Za-z])[A-Za-z]*\d[A-Za-z0-9]*\)", RegexOptions.CultureInvariant);
 
         // First word of a name → the categories that word names (EN and BM).

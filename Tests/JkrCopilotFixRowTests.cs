@@ -56,9 +56,25 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
+        public void A_Dd1_row_shows_the_button_when_the_launcher_is_ready_and_the_category_has_one_prefix_WP6()
+        {
+            Assert.True(Row("Dd.1", "Windows").CopilotFixable);
+            Assert.False(Row("Dd.1", "Floors").CopilotFixable);          // LB and LA: the name is not derivable
+            Assert.False(Row("Dd.1", "Windows", human: true).CopilotFixable);
+            Assert.False(Row("Dd.1", "Windows", fix: true).CopilotFixable);
+            Assert.False(Row("Dd.1", "Windows", pick: true).CopilotFixable);
+            Assert.False(Row("Dd.1", "Windows", ids: 0).CopilotFixable);
+            var r = Row("Dd.1", "Windows").ToCopilotFixRequest();
+            Assert.Equal("Dd.1", r.CheckId);
+            JkrCopilotFix.Launcher = null;
+            Assert.False(Row("Dd.1", "Windows").CopilotFixable);
+            JkrCopilotFix.Launcher = new NoopLauncher();
+        }
+
+        [Fact]
         public void Rows_of_the_hidden_families_never_show_the_button_even_with_ids()
         {
-            foreach (var id in new[] { "Dd.1", "A2.2", "A3.1", "C1.3.1", "C1.4.1", "C1.5.2", "C1.6.1", "C2.1.1", "C3.1.1", "C4.1.3", "C5.1.1", "C5.1.2", "C1.1.1", "C1.1.2" })
+            foreach (var id in new[] { "A2.2", "A3.1", "C1.3.1", "C1.4.1", "C1.5.2", "C1.6.1", "C2.1.1", "C3.1.1", "C4.1.3", "C5.1.1", "C5.1.2", "C1.1.1", "C1.1.2" })
             {
                 Assert.False(Row(id, "Views", ids: 0).CopilotFixable, id);
                 Assert.False(Row(id, "Views", ids: 3).CopilotFixable, id);

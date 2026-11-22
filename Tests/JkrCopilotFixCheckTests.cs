@@ -21,7 +21,7 @@ namespace RevitWebAppSync.Tests
     [Collection("ForcedConfirmStatic")]
     public class JkrCopilotFixCheckTests
     {
-        private static readonly string[] SevenChecks = { "Da.1", "Db.1", "Db.2", "Dc.1", "A5.2", "C1.6.3", "C4.2.2" };
+        private static readonly string[] EightChecks = { "Da.1", "Db.1", "Db.2", "Dc.1", "Dd.1", "A5.2", "C1.6.3", "C4.2.2" };
 
         // ── fixture: a failing spec check with N element rows, as the pane holds them ──
 
@@ -84,14 +84,14 @@ namespace RevitWebAppSync.Tests
         // ── eligibility, label ──
 
         [Fact]
-        public void The_header_offers_it_for_the_seven_checks_only()
+        public void The_header_offers_it_for_the_eight_checks_only()
         {
             foreach (var id in SpecCatalog.Checks.Select(c => c.Id))
             {
                 var items = new List<PanelItem> { Item("a", id, 1), Item("b", id, 2) };
                 var spec = SpecReport.Build(new[] { FailResult(id, 1, "a"), FailResult(id, 2, "b") });
                 var row = SpecChecklist.CheckRow(spec.For(id), spec, items.ToDictionary(i => i.Id), _ => true);
-                Assert.Equal(SevenChecks.Contains(id), row.CanFixViaCopilot);
+                Assert.Equal(EightChecks.Contains(id), row.CanFixViaCopilot);
                 if (!row.CanFixViaCopilot) Assert.Empty(row.CopilotFixIds);
             }
         }
@@ -213,7 +213,7 @@ namespace RevitWebAppSync.Tests
         }
 
         [Theory]
-        [InlineData("Da.1")] [InlineData("Db.1")] [InlineData("Db.2")] [InlineData("Dc.1")] [InlineData("A5.2")] [InlineData("C1.6.3")] [InlineData("C4.2.2")]
+        [InlineData("Da.1")] [InlineData("Db.1")] [InlineData("Db.2")] [InlineData("Dc.1")] [InlineData("Dd.1")] [InlineData("A5.2")] [InlineData("C1.6.3")] [InlineData("C4.2.2")]
         public void The_check_wide_prompt_passes_the_gate_engine_tools_only_confirmed_already_no_pass_fail_decision(string check)
         {
             var merged = JkrCopilotPrompt.MergeFacts(new[] { RowFacts(check, 1, 30), RowFacts(check, 31, 30) });
@@ -516,7 +516,7 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void The_header_tooltip_warns_that_a_type_rename_changes_all_instances_in_both_languages()
         {
-            Assert.Contains("Da.1 / Dc.1: a type rename changes all instances", JkrCopilotFix.FixAllTooltip());
+            Assert.Contains("Da.1 / Dc.1 / Dd.1: a type rename changes all instances", JkrCopilotFix.FixAllTooltip());
         }
 
         // ── Undo: every row of the pack reopens ──
