@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -7,147 +8,193 @@ using System.Text.RegularExpressions;
 namespace RevitWebAppSync.Services.JkrSpec
 {
     /// <summary>
-    /// AI-535 (Da.1): the JKR code list the add-in can prove a type name against, and the one place a "real JKR code" is decided.
-    /// Revit-free and WPF-free (unit-tested on the Mac harness).
+    /// AI-535 (Da.1): the JKR code list the add-in proves a type name against, and the one place a "real JKR code" is decided. Revit-free.
+    /// Source: the Researcher's list <c>jkr-ar-code-list-2026-11-23.csv</c> (333 rows, Piawaian JKR Lampiran A3 p.123-133 + 12 Buku Parameter samples),
+    /// embedded as <c>Services/JkrSpec/data/jkr_ar_code_list.csv</c>.
     /// <list type="bullet">
-    /// <item><b>Component code</b> "(TGc002)", "(TKh281a)", "(PTr001a)": kod jenis (two capitals and one small letter) + two or three digits + an optional variant
-    /// letter. The kod jenis must be in <see cref="KodJenis"/>: the codes of Piawaian JKR Lampiran A3 (Kod Jenis of every Arkitek family and system family)
-    /// plus the ones the Buku Parameter examples add (TGc stair, LBk floor, LAk ramp, GMa generic, PKa planting). The three-digit number is chosen by the
-    /// project, so the list cannot prove it: a pass means "pattern and kod jenis are real", never "the number is in the project's list".</item>
-    /// <item><b>Material / finish code</b> "(bb02)", "(kt)", "(jh02)" of a "jkrAR_…" system-family name (Lampiran A3 Kod Bahan / Kod Kemasan and the PB
-    /// examples), accepted only inside a name that opens with the JKR discipline prefix.</item>
+    /// <item><b>Format</b>: Kod_Komponen = Kod_Jenis (two capitals + one small letter) + three digits + an optional small letter, <c>^[A-Z]{2}[a-z][0-9]{3}[a-z]?$</c>,
+    /// written in brackets: "(PTr001)". Case-sensitive: "TGC002" is not "TGc002". Wrong format (two digits, no type letter) is a FAIL.</item>
+    /// <item><b>Categories WITH a JKR list</b> (Door PT, Window TK, Casework PB, Furniture PA, Furniture System PM/PK, Plumbing LS, Specialty AL, Wall DG/DB/DF,
+    /// Floor LT/LF, Roof BG/BF, Ceiling SL/SF): the Kod_Jenis must be in that category's list, else FAIL.</item>
+    /// <item><b>Categories WITHOUT a list</b> (Generic Model, Railing, Stair, Ramp, Planting, Column and the rest): format only. A listed sample (GMa, TGc, LAk, PKa, Co)
+    /// is coded; a well-formed code that is not a sample is a PERSON row ("confirm"), never a fail, until JKR gives the full list.</item>
+    /// <item>In a "jkrXX_" system-family name the lowercase material / finish code in brackets ("(bb02)", "(kt)") of the list counts as a code.</item>
+    /// <item>The "jkrAR" prefix alone, a generic name, or no bracketed code is NO code: FAIL.</item>
     /// </list>
-    /// Three outcomes (review round 1): <see cref="Verdict.Coded"/> = in the list = pass; <see cref="Verdict.NoCode"/> (no parenthesised code, the
-    /// "jkrAR" prefix alone, a generic name, a listed code in the wrong case) = fail; <see cref="Verdict.UnknownCode"/> (code-SHAPED token not in the list,
-    /// "(TG002a)", "(MKq001a)") = NOT a fail: a person confirms it, so an incomplete list can never lower the % or rename a correct name.
-    /// The list is case-sensitive: "TGC002" is not "TGc002".
-    /// The prefix "jkrAR" alone is never a code (AI-475 gap, AI-535: Copilot wrote "jkrAR_System-Panel_100" and it passed).
+    /// The three-digit number is chosen by the project and is in no list: a pass never proves the number exists.
     /// </summary>
     public static class JkrCodeList
     {
-        private static readonly string[] KodJenisRaw =
+        private const string ResourceName = "jkr_ar_code_list.csv";
+
+        // Revit category -> the CSV category it has a list for. A category not here has no list.
+        private static readonly Dictionary<string, string> ListCategory = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
-            "ALa", "ALb", "ALc", "ALd", "ALe", "ALf", "ALi", "ALk", "ALm", "ALn", "ALq", "BFa",
-            "BFe", "BFf", "BFg", "BFk", "BFl", "BFp", "BFr", "BFt", "BGc", "BGe", "BGk", "BGm",
-            "BGq", "BGt", "BGu", "DBa", "DBb", "DBc", "DBd", "DBg", "DBi", "DBj", "DBk", "DBm",
-            "DBn", "DBo", "DFa", "DFb", "DFd", "DFk", "DFl", "DFn", "DFp", "DFq", "DFs", "DGa",
-            "DGb", "DGc", "DGd", "DGg", "DGi", "DGj", "DGk", "DGm", "DGn", "DGo", "DGp", "DGq",
-            "DGr", "DGt", "DGu", "GMa", "LAk", "LBk", "LFa", "LFb", "LFh", "LFk", "LFl", "LFp",
-            "LFq", "LFs", "LFv", "LSa", "LSb", "LSc", "LSd", "LSe", "LSf", "LSg", "LSh", "LSi",
-            "LSj", "LSl", "LSm", "LSn", "LSo", "LSp", "LSq", "LSr", "LSs", "LSt", "LSu", "LSw",
-            "LTd", "LTg", "LTi", "LTk", "LTm", "LTq", "LTr", "LTy", "PAa", "PAb", "PAc", "PAd",
-            "PAk", "PAm", "PAq", "PAr", "PAt", "PBa", "PBb", "PBc", "PBd", "PBe", "PBg", "PBk",
-            "PBm", "PBq", "PBr", "PBt", "PKa", "PKj", "PKk", "PKq", "PKr", "PKs", "PKu", "PMa",
-            "PMb", "PMc", "PMk", "PMl", "PMm", "PMq", "PMr", "PMt", "PTa", "PTb", "PTc", "PTd",
-            "PTe", "PTf", "PTg", "PTh", "PTi", "PTj", "PTk", "PTl", "PTm", "PTn", "PTo", "PTp",
-            "PTq", "PTr", "PTs", "PTt", "PTu", "PTv", "PTy", "PTz", "SFb", "SFc", "SFf", "SFg",
-            "SFj", "SFm", "SFp", "SFq", "SFs", "SLf", "SLg", "SLk", "SLt", "TGc", "TKa", "TKb",
-            "TKc", "TKd", "TKe", "TKf", "TKg", "TKh", "TKj", "TKk", "TKm", "TKn", "TKo", "TKp",
-            "TKq", "TKr", "TKt", "TKu", "TKy", "TKz",
+            ["Doors"] = "Door (dor)", ["Windows"] = "Window (wdw)", ["Casework"] = "Casework (cwk)", ["Furniture"] = "Furniture (frn)",
+            ["Furniture Systems"] = "Furniture System (frn-sy)", ["Plumbing Fixtures"] = "Plumbing Fixture (plb-fx)",
+            ["Specialty Equipment"] = "Specialty Equipment (spc-eq)", ["Walls"] = "Wall (wll)", ["Floors"] = "Floor (flr)",
+            ["Roofs"] = "Roof (rof)", ["Ceilings"] = "Ceiling (clg)",
         };
 
-        private static readonly string[] MaterialRaw =
+        private sealed class Data
         {
-            "ab", "ac", "al", "as", "aw", "ba", "bb", "bc", "bk", "bm", "bp", "br",
-            "bu", "bv", "ca", "cb", "cd", "ce", "cf", "cl", "cp", "ctc", "dl", "dw",
-            "emp", "en", "ep", "fb", "fh", "fo", "fp", "fr", "gbp", "gf", "gk", "gp",
-            "gr", "gt", "hp", "jh", "jhh", "jhn", "jk", "jkh", "jng", "jns", "js", "jsg",
-            "jt", "ka", "kb", "kcp", "kcs", "kd", "kf", "kh", "kl", "kp", "kr", "ks",
-            "ksm", "kt", "ktd", "ky", "kyp", "la", "lc", "le", "lg", "lh", "li", "lm",
-            "ls", "lv", "mf", "mr", "ms", "mz", "mzk", "ni", "of", "or", "pa", "pb",
-            "pc", "pg", "pgc", "ph", "pj", "pk", "pks", "pls", "po", "pr", "ps", "ptc",
-            "pu", "pv", "pw", "px", "py", "q", "rm", "rs", "sc", "sf", "sl", "ss",
-            "st", "tk", "tp", "vh", "vy", "yh", "zc",
-        };
+            public readonly Dictionary<string, HashSet<string>> ByCategory = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+            public readonly HashSet<string> Samples = new HashSet<string>(StringComparer.Ordinal);
+            public readonly HashSet<string> Materials = new HashSet<string>(StringComparer.Ordinal);
+        }
 
-        /// <summary>The kod jenis (three letters) of the JKR code list, case-sensitive ("TGc", not "TGC").</summary>
-        public static readonly IReadOnlyCollection<string> KodJenis = new HashSet<string>(KodJenisRaw, StringComparer.Ordinal);
+        private static Data _data;
+        private static Data Load() => _data ?? (_data = Parse(ReadEmbedded()));
 
-        /// <summary>The material / finish codes (letters only; a name may add two digits: "bb02").</summary>
-        public static readonly IReadOnlyCollection<string> MaterialCodes = new HashSet<string>(MaterialRaw, StringComparer.Ordinal);
+        private static string ReadEmbedded()
+        {
+            var asm = typeof(JkrCodeList).Assembly;
+            var name = asm.GetManifestResourceNames().FirstOrDefault(n => n.EndsWith(ResourceName, StringComparison.Ordinal));
+            if (name == null) throw new InvalidOperationException(ResourceName + " is not embedded in " + asm.GetName().Name);
+            using (var s = asm.GetManifestResourceStream(name))
+            using (var r = new StreamReader(s, Encoding.UTF8))
+                return r.ReadToEnd();
+        }
+
+        private static Data Parse(string csv)
+        {
+            var d = new Data();
+            var first = true;
+            foreach (var line in (csv ?? "").Replace("\r", "").TrimStart('﻿').Split('\n'))
+            {
+                if (string.IsNullOrWhiteSpace(line)) continue;
+                if (first) { first = false; continue; }
+                var c = Cells(line);
+                if (c.Count < 3) continue;
+                var cat = c[0].Trim(); var field = c[1].Trim(); var code = c[2].Trim();
+                if (code.Length == 0) continue;
+                if (field.StartsWith("pb_sample_only", StringComparison.Ordinal)) d.Samples.Add(code);
+                else if (field.StartsWith("kod_bahan", StringComparison.Ordinal)) d.Materials.Add(code);
+                else if (field.StartsWith("kod_jenis", StringComparison.Ordinal) || field.StartsWith("kod_sistem", StringComparison.Ordinal))
+                {
+                    if (!d.ByCategory.TryGetValue(cat, out var set)) d.ByCategory[cat] = set = new HashSet<string>(StringComparer.Ordinal);
+                    set.Add(code);
+                }
+            }
+            return d;
+        }
+
+        private static List<string> Cells(string line)
+        {
+            var cells = new List<string>(); var sb = new StringBuilder(); var q = false;
+            for (var i = 0; i < line.Length; i++)
+            {
+                var ch = line[i];
+                if (q) { if (ch == '"') { if (i + 1 < line.Length && line[i + 1] == '"') { sb.Append('"'); i++; } else q = false; } else sb.Append(ch); }
+                else if (ch == '"') q = true;
+                else if (ch == ',') { cells.Add(sb.ToString()); sb.Clear(); }
+                else sb.Append(ch);
+            }
+            cells.Add(sb.ToString());
+            return cells;
+        }
 
         private static readonly Regex Parens = new Regex(@"\(([^()]*)\)", RegexOptions.CultureInvariant);
-        private static readonly Regex Component = new Regex(@"^(?<k>[A-Z]{2}[a-z])(?<n>\d{2,3})(?<v>[a-z]?)$", RegexOptions.CultureInvariant);
-        // The older shape the repo's own examples use ("(PT2p600a) 900 x 2325 a"): two capitals, a digit, a small letter, three digits, an optional letter.
-        // Accepted only when the two-letter family exists in the list, so a correct older name is never failed.
-        private static readonly Regex Legacy = new Regex(@"^(?<f>[A-Z]{2})\d[a-z]\d{3}[a-z]?$", RegexOptions.CultureInvariant);
-        private static readonly HashSet<string> Families = new HashSet<string>(KodJenisRaw.Select(k => k.Substring(0, 2)), StringComparer.Ordinal);
-        // The Buku Parameter column example "Co100": a structural column code with no third letter.
-        private static readonly Regex ColumnCode = new Regex(@"^Co\d{3}[a-z]?$", RegexOptions.CultureInvariant);
-        private static readonly Regex Material = new Regex(@"^(?<m>[a-z]{1,3})\d{0,2}$", RegexOptions.CultureInvariant);
-        // A token that is trying to be a component code (so a wrong one is "not in the list", not "no code").
-        private static readonly Regex CodeShaped = new Regex(@"^[A-Z]{2}[a-z]?\d{2,3}[a-z]?$", RegexOptions.CultureInvariant);
+        private static readonly Regex Component = new Regex(@"^(?<k>[A-Z]{2}[a-z])(?<n>[0-9]{3})(?<v>[a-z]?)$", RegexOptions.CultureInvariant);
+        // The Buku Parameter column sample "Co100" (no type letter): a Column code, which has no list.
+        private static readonly Regex ColumnCode = new Regex(@"^Co[0-9]{3}[a-z]?$", RegexOptions.CultureInvariant);
+        // A token that is trying to be a component code (a capital, up to two more letters, digits, an optional letter): wrong format is a fail.
+        private static readonly Regex CodeShaped = new Regex(@"^[A-Z][A-Za-z]{1,2}[0-9]{1,4}[A-Za-z]?$", RegexOptions.CultureInvariant);
+        private static readonly Regex Material = new Regex(@"^(?<m>[a-z]{1,3})[0-9]{0,2}$", RegexOptions.CultureInvariant);
         private static readonly Regex JkrPrefix = new Regex(@"^jkr[A-Z]{2}", RegexOptions.CultureInvariant);
 
-        /// <summary>True when <paramref name="code"/> (without parentheses) is a component code of the list: known kod jenis, three digits, optional letter.</summary>
-        public static bool IsComponentCode(string code)
+        /// <summary>True when the category has a JKR list (Door, Window, Casework, Furniture, Furniture System, Plumbing, Specialty, Wall, Floor, Roof, Ceiling).</summary>
+        public static bool HasList(string category) => ListCategory.ContainsKey((category ?? "").Trim());
+
+        /// <summary>The Kod_Jenis of the category's list (empty when it has none), sorted.</summary>
+        public static List<string> KodJenisFor(string category)
         {
-            var c = (code ?? "").Trim();
-            var m = Component.Match(c);
-            if (m.Success) return KodJenis.Contains(m.Groups["k"].Value);
-            var l = Legacy.Match(c);
-            if (l.Success) return Families.Contains(l.Groups["f"].Value);
-            return ColumnCode.IsMatch(c);
+            if (!ListCategory.TryGetValue((category ?? "").Trim(), out var csvCat)) return new List<string>();
+            return Load().ByCategory.TryGetValue(csvCat, out var set) ? set.OrderBy(x => x, StringComparer.Ordinal).ToList() : new List<string>();
         }
 
-        /// <summary>True for a material / finish code of the list ("bb02", "kt").</summary>
-        public static bool IsMaterialCode(string code)
-        {
-            var m = Material.Match((code ?? "").Trim());
-            return m.Success && MaterialCodes.Contains(m.Groups["m"].Value);
-        }
+        /// <summary>The documented samples of the categories that have no list (TGc, GMa, LAk, PKa, Co ...), sorted.</summary>
+        public static List<string> Samples() => Load().Samples.OrderBy(x => x, StringComparer.Ordinal).ToList();
 
-        /// <summary>Every "(...)" token of a name, without the parentheses, in order.</summary>
-        public static List<string> Tokens(string name) =>
-            Parens.Matches(Clean(name)).Cast<Match>().Select(m => m.Groups[1].Value.Trim()).Where(t => t.Length > 0).ToList();
+        /// <summary>True when the string (no brackets) has the Kod_Komponen format.</summary>
+        public static bool HasFormat(string code) => Component.IsMatch((code ?? "").Trim()) || ColumnCode.IsMatch((code ?? "").Trim());
 
         /// <summary>Why a name is or is not coded.</summary>
         public enum Verdict
         {
-            /// <summary>A real component code (or, in a jkrXX name, a real material code) is in the name.</summary>
+            /// <summary>A code of the list (or a documented sample of a category with no list, or a material code in a jkrXX name) is in the name: pass.</summary>
             Coded,
-            /// <summary>No code at all in the name (a "jkrAR" prefix alone lands here).</summary>
+            /// <summary>No bracketed code at all: the "jkrAR" prefix alone, a generic name: FAIL.</summary>
             NoCode,
-            /// <summary>A component-code-shaped token whose kod jenis is not in the list.</summary>
+            /// <summary>A code-shaped token of the wrong format (two digits, no type letter, wrong case): FAIL.</summary>
+            BadFormat,
+            /// <summary>Well-formed, the category has a list, the Kod_Jenis is not in it: FAIL.</summary>
+            NotInList,
+            /// <summary>Well-formed, the category has NO list and the code is not a documented sample: a PERSON confirms; never a fail.</summary>
             UnknownCode,
         }
 
         public sealed class NameJudgement
         {
             public Verdict Verdict;
-            /// <summary>The real code found (Coded), the unknown token (UnknownCode), or "".</summary>
+            /// <summary>The code found (Coded) or the offending token (BadFormat, NotInList, UnknownCode), or "".</summary>
             public string Code = "";
             /// <summary>True when the name opens with the JKR discipline prefix ("jkrAR…").</summary>
             public bool HasPrefix;
-            /// <summary>Set when a token is a listed code written in the wrong letter case ("TGC002" for "TGc002"): the list is case-sensitive.</summary>
-            public string CaseMismatch = "";
         }
 
-        /// <summary>Judges one name (a type name or a family name) against the code list.</summary>
-        public static NameJudgement Judge(string name)
+        /// <summary>The verdict for one bracketed token in a category.</summary>
+        private static Verdict Token(string t, string category, bool prefixed)
+        {
+            var m = Component.Match(t);
+            if (m.Success)
+            {
+                var k = m.Groups["k"].Value;
+                if (ListCategory.TryGetValue((category ?? "").Trim(), out var csvCat))
+                    return Load().ByCategory.TryGetValue(csvCat, out var set) && set.Contains(k) ? Verdict.Coded : Verdict.NotInList;
+                return Load().Samples.Contains(k) ? Verdict.Coded : Verdict.UnknownCode;
+            }
+            if (ColumnCode.IsMatch(t))
+                return HasList(category) ? Verdict.BadFormat : Verdict.Coded;
+            if (prefixed)
+            {
+                var mm = Material.Match(t);
+                if (mm.Success && Load().Materials.Contains(mm.Groups["m"].Value)) return Verdict.Coded;
+            }
+            return CodeShaped.IsMatch(t) ? Verdict.BadFormat : Verdict.NoCode;
+        }
+
+        /// <summary>Judges one name (a type name or a family name) in a Revit category. Order of precedence: Coded, UnknownCode (a person), NotInList, BadFormat, NoCode.</summary>
+        public static NameJudgement Judge(string name, string category = null)
         {
             var s = Clean(name);
             var prefixed = JkrPrefix.IsMatch(s);
-            var tokens = Tokens(s);
-            foreach (var t in tokens)
-                if (IsComponentCode(t)) return new NameJudgement { Verdict = Verdict.Coded, Code = t, HasPrefix = prefixed };
-            if (prefixed)
-                foreach (var t in tokens)
-                    if (IsMaterialCode(t)) return new NameJudgement { Verdict = Verdict.Coded, Code = t, HasPrefix = true };
-            var unknown = tokens.FirstOrDefault(t => CodeShaped.IsMatch(t));
-            if (unknown != null) return new NameJudgement { Verdict = Verdict.UnknownCode, Code = unknown, HasPrefix = prefixed };
-            var wrongCase = tokens.FirstOrDefault(t => KodJenis.Any(k => Regex.IsMatch(t, "^" + k + @"\d{2,3}[A-Za-z]?$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)));
-            return new NameJudgement { Verdict = Verdict.NoCode, HasPrefix = prefixed, CaseMismatch = wrongCase ?? "" };
+            var found = Tokens(s).Select(t => (T: t, V: Token(t, category, prefixed))).ToList();
+            foreach (var v in new[] { Verdict.Coded, Verdict.UnknownCode, Verdict.NotInList, Verdict.BadFormat })
+            {
+                var hit = found.FirstOrDefault(x => x.V == v);
+                if (hit.T != null) return new NameJudgement { Verdict = v, Code = hit.T, HasPrefix = prefixed };
+            }
+            return new NameJudgement { Verdict = Verdict.NoCode, HasPrefix = prefixed };
         }
 
-        /// <summary>True when a real code is in the name.</summary>
-        public static bool IsCoded(string name) => Judge(name).Verdict == Verdict.Coded;
+        /// <summary>True when the code (no brackets) is well-formed and, for a category with a list, in it; for a category without one, a documented sample. Null category: any list.</summary>
+        public static bool IsComponentCode(string code, string category = null)
+        {
+            var c = (code ?? "").Trim();
+            if (category != null) return Token(c, category, false) == Verdict.Coded && HasFormat(c);
+            var m = Component.Match(c);
+            if (m.Success) return Load().Samples.Contains(m.Groups["k"].Value) || Load().ByCategory.Values.Any(s => s.Contains(m.Groups["k"].Value));
+            return ColumnCode.IsMatch(c);
+        }
 
-        /// <summary>The component codes of the list found in a name, "(TGc002)" form without the parentheses, in order.</summary>
-        public static List<string> ComponentCodesIn(string name) => Tokens(name).Where(IsComponentCode).ToList();
+        /// <summary>Every "(...)" token of a name, without the parentheses, in order.</summary>
+        public static List<string> Tokens(string name) =>
+            Parens.Matches(Clean(name)).Cast<Match>().Select(m => m.Groups[1].Value.Trim()).Where(t => t.Length > 0).ToList();
 
-        /// <summary>Format of the answer the prompt accepts for a kod jenis: "TGc" + three digits + an optional letter (text for the prompt).</summary>
-        public static string ShapeText(string kodJenis) => kodJenis + "nnn (three digits, optionally one small letter)";
+        /// <summary>The codes of a name that are real for the category, without brackets.</summary>
+        public static List<string> ComponentCodesIn(string name, string category = null) =>
+            Tokens(name).Where(t => HasFormat(t) && IsComponentCode(t, category)).ToList();
 
         private static string Clean(string name)
         {

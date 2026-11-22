@@ -125,28 +125,32 @@ namespace RevitWebAppSync.Services.JkrSpec
             var persons = new List<SpecResult>();
             foreach (var t in TypesIn(m, SectionDCategories))
             {
-                var jt = JkrCodeList.Judge(t.TypeName);
+                var jt = JkrCodeList.Judge(t.TypeName, t.Category);
                 if (jt.Verdict == JkrCodeList.Verdict.Coded) { Bump(ok, t.Category); continue; }
                 // A loadable family carries the JKR code in its family name and the size or
                 // variant in the type name ("jkrAR18_wdw_TKt_…_(TKt001)-3" : "1800 X 500 mm
                 // @TK11a"); Revit shows both as the type. Real model, 16 Nov: 12 of 23 such
                 // types were failed on the type name alone. System families ("Basic Wall",
                 // "System Panel", "Ramp") never match, so they are still judged on the type.
-                var jf = JkrCodeList.Judge(t.FamilyName);
+                var jf = JkrCodeList.Judge(t.FamilyName, t.Category);
                 if (jf.Verdict == JkrCodeList.Verdict.Coded) { Bump(ok, t.Category); byFamily++; continue; }
-                // A code-shaped token that is not in the add-in's list is NOT a failure: the list may be incomplete. A person confirms it.
+                // A well-formed code in a category that has NO JKR list, and is not a documented sample, is NOT a failure: a person confirms it.
                 var unk = jt.Verdict == JkrCodeList.Verdict.UnknownCode ? jt : jf.Verdict == JkrCodeList.Verdict.UnknownCode ? jf : null;
                 if (unk != null)
                 {
-                    persons.Add(UnjudgedType(id, t, $"{t.Category}: type '{(t.TypeName ?? "").Trim()}' ({t.InstanceCount} elements): code ({unk.Code}) is not in the add-in's JKR code list: confirm it is a real JKR code (the list is case-sensitive)"));
+                    var exp = t.Category == "Railings" ? "; expected TG* for railings" : "";
+                    persons.Add(UnjudgedType(id, t, $"{t.Category}: type '{(t.TypeName ?? "").Trim()}' ({t.InstanceCount} elements): code ({unk.Code}) is not in the add-in list: confirm (JKR has no full code list for {t.Category}){exp}"));
                     continue;
                 }
                 var name = (t.TypeName ?? "").Trim();
                 var generic = name.Length == 0 || GenericName.IsMatch(name);
-                var j = jt.Verdict == JkrCodeList.Verdict.UnknownCode ? jt : jf.Verdict == JkrCodeList.Verdict.UnknownCode ? jf : jt;
+                // the failing verdict: the type name's own reason first, then the family name's
+                var j = jt.Verdict != JkrCodeList.Verdict.NoCode ? jt : jf.Verdict != JkrCodeList.Verdict.NoCode ? jf : jt;
                 string why;
-                if (!string.IsNullOrEmpty(jt.CaseMismatch) || !string.IsNullOrEmpty(jf.CaseMismatch))
-                    why = $" — the code '({(string.IsNullOrEmpty(jt.CaseMismatch) ? jf.CaseMismatch : jt.CaseMismatch)})' is not written like the JKR list: codes are case-sensitive (for example TGc002, not TGC002)";
+                if (j.Verdict == JkrCodeList.Verdict.BadFormat)
+                    why = $" — the code '({j.Code})' has the wrong format: a JKR code is 2 capitals + 1 small letter + 3 digits + an optional small letter, case-sensitive (for example TGc002, not TGC002 or TG002a)";
+                else if (j.Verdict == JkrCodeList.Verdict.NotInList)
+                    why = $" — the code '({j.Code})' is not in the JKR list for {t.Category} (Lampiran A3: {ListHint(t.Category)})";
                 else if (jt.HasPrefix || jf.HasPrefix)
                     why = " — the 'jkrAR' prefix alone is not a code: no real JKR code '(XXxnnn)' in the name";
                 else
@@ -197,7 +201,7 @@ namespace RevitWebAppSync.Services.JkrSpec
             foreach (var t in failing)
             {
                 var code = OwnCodeParam(t);
-                if (code.Length == 0 || !JkrCodeList.IsComponentCode(code)) continue;
+                if (code.Length == 0 || !JkrCodeList.IsComponentCode(code, t.Category)) continue;
                 var old = (t.TypeName ?? "").Trim();
                 if (old.Length == 0) continue;
                 all[t] = new RenameProposal { NewName = "(" + code + ") " + old, Source = "the type's own Kod_Komponen_jkr_stt parameter holds the JKR code " + code };
@@ -209,31 +213,31 @@ namespace RevitWebAppSync.Services.JkrSpec
             return all;
         }
 
-        /// <summary>The type-code prefix (three letters) of the list that belong to a Revit category, through the two-letter families of <see cref="CodeCategories"/>.</summary>
-        internal static List<string> KodJenisOf(string category)
+        /// <summary>"PTa, PTb, PTc …" of a category's list (at most eight shown), or the sample note for a category that has none.</summary>
+        internal static string ListHint(string category)
         {
-            var fams = CodeCategories.Where(kv => kv.Value.Any(x => string.Equals(x, (category ?? "").Trim(), StringComparison.OrdinalIgnoreCase)))
-                                     .Select(kv => kv.Key).ToList();
-            return JkrCodeList.KodJenis.Where(k => fams.Contains(k.Substring(0, 2).ToUpperInvariant())).OrderBy(k => k, StringComparer.Ordinal).ToList();
+            var kj = JkrCodeList.KodJenisFor(category);
+            if (kj.Count == 0) return "no full JKR list for this category";
+            return string.Join(", ", kj.Take(8)) + (kj.Count > 8 ? " …" : "");
         }
 
         /// <summary>
-        /// AI-535: what Copilot may offer when it asks for a type's code, as one line of plain text: the type-code prefix of the category (when
-        /// the list has at most six) and the real codes other types of the category already carry in this model, most used first. Both
-        /// come from the model and the JKR list; nothing here is invented. A wrong code in the old name is named so the answer replaces it.
+        /// AI-535: what Copilot may offer when it asks for a type's code, as one line of plain text: the type-code prefixes of the category's JKR list
+        /// and the real codes other types of the category already carry in this model, most used first. Both come from the list and the model;
+        /// nothing here is invented. A wrong code in the old name is named so the answer replaces it.
         /// </summary>
         internal static string CodeHintFor(SpecModel m, SpecType t, JkrCodeList.NameJudgement j)
         {
             var parts = new List<string>();
-            if (j != null && j.Verdict == JkrCodeList.Verdict.UnknownCode)
-                parts.Add($"the old name holds the code ({j.Code}), which is not in the JKR list: the answer replaces it");
+            if (j != null && (j.Verdict == JkrCodeList.Verdict.BadFormat || j.Verdict == JkrCodeList.Verdict.NotInList))
+                parts.Add($"the old name holds the code ({j.Code}), which is not valid: the answer replaces it");
             parts.Add("codes are case-sensitive (TGc002, not TGC002)");
-            var kj = KodJenisOf(t.Category);
-            if (kj.Count > 0 && kj.Count <= 6) parts.Add("type-code prefix " + string.Join(", ", kj));
-            else if (kj.Count > 6) parts.Add("the type-code prefix starts with " + string.Join(" or ", kj.Select(k => k.Substring(0, 2)).Distinct()));
+            var kj = JkrCodeList.KodJenisFor(t.Category);
+            if (kj.Count > 0) parts.Add("type-code prefix from the JKR list: " + ListHint(t.Category));
+            else parts.Add("JKR has no full code list for " + t.Category + ": only codes in use in this model can be offered");
             var inUse = (m?.Types ?? new List<SpecType>())
                 .Where(x => string.Equals(x.Category, t.Category, StringComparison.OrdinalIgnoreCase))
-                .SelectMany(x => JkrCodeList.ComponentCodesIn(x.TypeName).Concat(JkrCodeList.ComponentCodesIn(x.FamilyName)).Select(c => (Code: c, N: Math.Max(1, x.InstanceCount))))
+                .SelectMany(x => JkrCodeList.ComponentCodesIn(x.TypeName, t.Category).Concat(JkrCodeList.ComponentCodesIn(x.FamilyName, t.Category)).Select(c => (Code: c, N: Math.Max(1, x.InstanceCount))))
                 .GroupBy(x => x.Code, StringComparer.Ordinal).Select(g => (Code: g.Key, N: g.Sum(x => x.N)))
                 .OrderByDescending(x => x.N).ThenBy(x => x.Code, StringComparer.Ordinal).Take(6).Select(x => "(" + x.Code + ")").ToList();
             if (inUse.Count > 0) parts.Add("codes already in use for " + t.Category + " in this model: " + string.Join(", ", inUse));
