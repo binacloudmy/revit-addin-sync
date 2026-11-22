@@ -113,6 +113,14 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public List<string> FixIds { get; set; } = new List<string>();
         public bool CanFix { get; set; }
         public string FixLabel { get; set; } = "";
+        /// <summary>AI-509: the open rows "Fix all elements via Copilot" acts on (this check is one of the Copilot-fixable ones).</summary>
+        public List<string> CopilotFixIds { get; set; } = new List<string>();
+        /// <summary>How many elements those rows hold (distinct ids): the count on the button.</summary>
+        public int CopilotFixElements { get; set; }
+        public bool CanFixViaCopilot { get; set; }
+        /// <summary>"Fix all 46 elements via Copilot" / "Baiki semua 46 elemen melalui Copilot".</summary>
+        public string CopilotFixLabel { get; set; } = "";
+        public string CopilotFixTooltip { get; set; } = "";
     }
 
     /// <summary>An issue behind a check: click opens its detail (Locate, Fix, Ignore).</summary>
@@ -994,7 +1002,31 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                               .Select(x => x.Id).ToList();
             row.CanFix = row.FixIds.Count > 0;
             row.FixLabel = F("fix", lang, row.FixIds.Count);
+            AddCopilotFix(row, items, lang);
             return items.Count;
+        }
+
+        /// <summary>AI-509: the check header's "Fix all n elements via Copilot". Only for the Copilot-fixable checks
+        /// (<see cref="RevitWebAppSync.UI.Jkr.ViewModels.JkrCopilotFix.IsListed"/>, AI class) and only over rows that are themselves eligible
+        /// (<c>PanelItem.CopilotFixable</c>: launcher ready, not Human, no Fix, no Pick, has element ids, not a wall material), still Open and
+        /// not marked manual. Never part of <c>FixIds</c> / Fix all.</summary>
+        private static void AddCopilotFix(ChecklistCheck row, List<PanelItem> items, string lang)
+        {
+            row.CopilotFixIds = new List<string>();
+            row.CopilotFixElements = 0;
+            row.CanFixViaCopilot = false;
+            row.CopilotFixLabel = "";
+            row.CopilotFixTooltip = "";
+            var id = row.Id ?? "";
+            if (!RevitWebAppSync.UI.Jkr.ViewModels.JkrCopilotFix.IsListed(id) || !RevitWebAppSync.UI.Jkr.ViewModels.JkrCopilotFix.IsAiClass(id)) return;
+            var rows = items.Where(x => !x.IsHuman && !x.Passed && x.Status == ItemStatus.Open && !x.MarkedManual && x.CopilotFixable && x.Fix == FixKind.None && !x.Pick).ToList();
+            if (rows.Count == 0) return;
+            row.CopilotFixIds = rows.Select(x => x.Id).ToList();
+            row.CopilotFixElements = rows.SelectMany(x => x.ElementIds ?? System.Array.Empty<long>()).Where(e => e > 0).Distinct().Count();
+            if (row.CopilotFixElements == 0) { row.CopilotFixIds = new List<string>(); return; }
+            row.CanFixViaCopilot = true;
+            row.CopilotFixLabel = RevitWebAppSync.UI.Jkr.ViewModels.JkrCopilotFix.FixAllLabel(row.CopilotFixElements, lang);
+            row.CopilotFixTooltip = RevitWebAppSync.UI.Jkr.ViewModels.JkrCopilotFix.FixAllTooltip(lang);
         }
 
         private static string FirstLine(string s)

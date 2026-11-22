@@ -20,6 +20,26 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public string CheckId { get; }
         public IReadOnlyList<long> ElementIds { get; }
         public string Title { get; }
+
+        /// <summary>AI-509: every row this request covers. One row for the row-level button (just <see cref="IssueId"/>); all the open
+        /// rows of a check for "Fix all elements via Copilot" (<see cref="IsCheckWide"/>).</summary>
+        public IReadOnlyList<string> IssueIds { get; private set; } = new string[0];
+
+        /// <summary>AI-509: the request covers every open Copilot-fixable row of one spec check: one confirm, one chat, one re-check.
+        /// <see cref="ElementIds"/> is then the union of the rows' element ids.</summary>
+        public bool IsCheckWide { get; private set; }
+
+        /// <summary>The request of the check header's "Fix all elements via Copilot": <paramref name="issueIds"/> are the rows (first one
+        /// stands in as <see cref="IssueId"/>), <paramref name="elementIds"/> all their element ids (distinct, in order).</summary>
+        public static CopilotFixRequest ForCheck(string checkId, IEnumerable<string> issueIds, IEnumerable<long> elementIds, string title)
+        {
+            var rows = (issueIds ?? Enumerable.Empty<string>()).Where(i => !string.IsNullOrEmpty(i)).Distinct(StringComparer.Ordinal).ToList();
+            var ids = (elementIds ?? Enumerable.Empty<long>()).Where(i => i > 0).Distinct().ToList();
+            return new CopilotFixRequest(rows.FirstOrDefault() ?? "", checkId, ids, title) { IssueIds = rows, IsCheckWide = true };
+        }
+
+        /// <summary>The rows of this request: <see cref="IssueIds"/>, or just <see cref="IssueId"/> for a row-level request.</summary>
+        public IReadOnlyList<string> Rows => IssueIds.Count > 0 ? IssueIds : (IReadOnlyList<string>)(IssueId.Length > 0 ? new[] { IssueId } : new string[0]);
     }
 
     /// <summary>
@@ -92,6 +112,15 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
 
         public static string Label(string lang = null) =>
             IsEn(lang) ? "Fix via Copilot" : "Baiki melalui Copilot";
+
+        /// <summary>AI-509: the check header's button: "Fix all 46 elements via Copilot" / "Baiki semua 46 elemen melalui Copilot".</summary>
+        public static string FixAllLabel(int elements, string lang = null) => IsEn(lang)
+            ? $"Fix all {elements} element{(elements == 1 ? "" : "s")} via Copilot"
+            : $"Baiki semua {elements} elemen melalui Copilot";
+
+        public static string FixAllTooltip(string lang = null) => IsEn(lang)
+            ? "Asks you to confirm once, then opens one new Copilot chat that applies the change to every element of this check (in parts of 50). The check is re-checked afterwards; you can Undo it from the Copilot chat."
+            : "Meminta pengesahan anda sekali, kemudian membuka satu sembang Copilot baharu yang melaksanakan perubahan pada semua elemen semakan ini (bahagian 50). Semakan diulang selepas itu; anda boleh Undo dalam sembang Copilot.";
 
         /// <summary>What a click does: a confirm here first (nothing is sent on No), then a new Copilot chat that applies the change.</summary>
         public static string Tooltip(string lang = null) => IsEn(lang)

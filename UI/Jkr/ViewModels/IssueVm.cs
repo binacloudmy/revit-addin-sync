@@ -43,7 +43,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public string Reason { get; set; } = "";
     }
 
-    public class IssueVm : INotifyPropertyChanged, ICopilotRecheckRow
+    public class IssueVm : INotifyPropertyChanged, ICopilotRecheckRow, IRowElementIds
     {
         public string Id { get; set; } = "";
 
@@ -221,6 +221,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// <summary>AI-491: every element id behind the row (a spec row can cover 46 doors), in Locate order;
         /// empty for a model-level row. When filled, Count == <see cref="LocateCount"/>.</summary>
         public List<long> ElementIds { get; set; } = new List<long>();
+        IReadOnlyList<long> IRowElementIds.ElementIds => ElementIds;
 
         /// <summary>AI-491: label per id in <see cref="ElementIds"/> ("Doors · PT1p_850x2100"); an id with no label is absent.</summary>
         public Dictionary<long, string> ElementLabels { get; set; } = new Dictionary<long, string>();

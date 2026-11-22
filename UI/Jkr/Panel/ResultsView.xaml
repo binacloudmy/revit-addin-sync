@@ -1300,6 +1300,18 @@
                                                                                     <TextBlock Text="{Binding FixLabel}" Margin="4,0,0,0" VerticalAlignment="Center"/>
                                                                                 </StackPanel>
                                                                             </Button>
+                                                                            <!-- AI-509: one confirm, one Copilot chat for every element of the check -->
+                                                                            <Button Style="{StaticResource Bz.Btn.Primary}" Tag="{Binding Id}" Click="ChecklistCopilotFix_Click"
+                                                                                    HorizontalAlignment="Left" Margin="0,6,0,0" Padding="12,0,12,0" MinHeight="32" FontSize="13"
+                                                                                    ToolTip="{Binding CopilotFixTooltip}" AutomationProperties.Name="{Binding CopilotFixLabel}"
+                                                                                    IsEnabled="{Binding DataContext.CanAct, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                                                    Visibility="{Binding CanFixViaCopilot, Converter={StaticResource B2V}}">
+                                                                                <StackPanel Orientation="Horizontal">
+                                                                                    <Path Style="{StaticResource Icon16}" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                                                                          Data="M9,1.8 L3.8,9 L7.8,9 L7,14.2 L12.2,7 L8.2,7 Z"/>
+                                                                                    <TextBlock Text="{Binding CopilotFixLabel}" Margin="4,0,0,0" VerticalAlignment="Center"/>
+                                                                                </StackPanel>
+                                                                            </Button>
                                                                         </StackPanel>
                                                                     </Border>
                                                                 </StackPanel>
