@@ -66,7 +66,7 @@ namespace RevitWebAppSync.Tests
             Assert.True(Ok("Da.1", ids: 1));
         }
 
-        private static readonly string[] ModelLevel = { "C1.3.1", "C1.4.1", "C1.5.2", "C1.6.1", "C3.1.1", "C4.1.3" };
+        private static readonly string[] ModelLevel = { "C1.3.1", "C1.4.1", "C1.5.2", "C1.6.1", "C3.1.1", "C4.1.3", "C5.1.1" };
         public static IEnumerable<object[]> ModelLevelIds() => ModelLevel.Select(id => new object[] { id });
 
         [Theory]
@@ -91,13 +91,13 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void The_zero_id_path_is_exactly_the_six_model_level_ids()
+        public void The_zero_id_path_is_exactly_the_seven_model_level_ids()
         {
             Assert.Equal(ModelLevel.OrderBy(x => x), JkrCopilotFix.ModelLevel.OrderBy(x => x));
         }
 
         [Theory]
-        [InlineData("C2.1.1")] [InlineData("C5.1.1")] [InlineData("C1.1.1")] [InlineData("C1.1.2")] [InlineData("C1.6.2")] [InlineData("C5.1.2")]
+        [InlineData("C2.1.1")] [InlineData("C1.1.1")] [InlineData("C1.1.2")] [InlineData("C1.6.2")] [InlineData("C5.1.2")]
         [InlineData("Da.1")] [InlineData("Dd.1")] [InlineData("Db.2")] [InlineData("Db.1")] [InlineData("Dc.1")] [InlineData("A2.2")]
         [InlineData("A3.1")] [InlineData("A5.2")] [InlineData("C1.6.3")] [InlineData("C4.2.2")]
         [InlineData("B1.1")] [InlineData("A4.1")] [InlineData("A1.2")] [InlineData("A6.2")] [InlineData("")] [InlineData("Zz.9")]

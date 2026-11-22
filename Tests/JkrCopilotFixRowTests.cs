@@ -58,10 +58,14 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void A_create_type_row_with_no_element_id_shows_the_button_AI498()
         {
-            foreach (var id in new[] { "C1.3.1", "C1.4.1", "C1.5.2", "C1.6.1", "C3.1.1", "C4.1.3" })
+            foreach (var id in new[] { "C1.3.1", "C1.4.1", "C1.5.2", "C1.6.1", "C3.1.1", "C4.1.3", "C5.1.1" })
                 Assert.True(Row(id, "Views", ids: 0).CopilotFixable, id);
             Assert.False(Row("C2.1.1", "Views", ids: 0).CopilotFixable);
-            Assert.False(Row("C5.1.1", "Views", ids: 0).CopilotFixable);
+            Assert.False(Row("C5.1.2", "Views", ids: 0).CopilotFixable);
+            Assert.False(Row("C1.6.2", "Views", ids: 0).CopilotFixable);
+            Assert.False(Row("C5.1.1", "Views", ids: 0, human: true).CopilotFixable);
+            Assert.False(Row("C5.1.1", "Views", ids: 0, fix: true).CopilotFixable);
+            Assert.False(Row("C5.1.1", "Views", ids: 0, pick: true).CopilotFixable);
             Assert.False(Row("C1.1.1", "Views", ids: 0).CopilotFixable);
             Assert.False(Row("C1.3.1", "Views", ids: 0, human: true).CopilotFixable);
             JkrCopilotFix.Launcher = null;
@@ -116,6 +120,19 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(shown.Id, got);
             Assert.Equal("Fix via Copilot", d.CopilotFixLabel);
             Assert.Contains("new Copilot chat", d.CopilotFixTooltip);
+        }
+
+        [Fact]
+        public void C511_keeps_Mark_manual_while_the_Copilot_button_shows_AI499()
+        {
+            var r = Row("C5.1.1", "Views", ids: 0);
+            r.Priority = IssuePriority.High;
+            Assert.True(r.CopilotFixable);
+            Assert.True(r.CanMarkManual);
+            // another High row whose only control is the Copilot button still has to be fixed, not deferred
+            var d = Row("Da.1"); d.Priority = IssuePriority.High;
+            Assert.True(d.CopilotFixable);
+            Assert.False(d.CanMarkManual);
         }
     }
 }
