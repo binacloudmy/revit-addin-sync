@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using RevitWebAppSync.Services.JkrSpec;
+using RevitWebAppSync.UI.Jkr.Panel.Core;
 using Xunit;
 
 namespace RevitWebAppSync.Tests
@@ -136,8 +137,8 @@ namespace RevitWebAppSync.Tests
             var names = SpecTemplateViews.Judged.ToList();
             names[0] = names[0].ToUpperInvariant();
             var results = Run("C1.1.2", Project(names.ToArray()));
-            foreach (var r in results) r.Source = RevitWebAppSync.UI.Jkr.Panel.Core.SpecReport.Model;
-            var st = RevitWebAppSync.UI.Jkr.Panel.Core.SpecReport.Build(results).For("C1.1.2");
+            foreach (var r in results) r.Source = SpecReport.Model;
+            var st = SpecReport.Build(results).For("C1.1.2");
             Assert.Equal(0, st.Failed);
             Assert.Single(st.IssueIds);
         }
