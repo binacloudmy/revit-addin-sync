@@ -56,7 +56,13 @@ namespace RevitWebAppSync.Tests
                     Rows = o.Issues;
                     return Task.FromResult(o);
                 },
-                RecheckByScan = r => { ScansRun++; return Task.FromResult(ScanCanRun ? (bool?)!FailingByScan.Contains(r.Id) : null); },
+                RecheckByScan = rows =>
+                {
+                    ScansRun++;
+                    var d = new Dictionary<string, bool?>();
+                    if (ScanCanRun) foreach (var r in rows) d[r.Id] = !FailingByScan.Contains(r.Id);
+                    return Task.FromResult<IReadOnlyDictionary<string, bool?>>(d);
+                },
                 Reopen = r => { r.Fixed = false; r.FixedVia = ""; Reopened.Add(r.Id); },
                 ToastUndone = Toasts.Add,
             };
@@ -225,6 +231,50 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(1, l.Count);
             Assert.Empty(l.HitBy(Doc, new long[] { 1 }));
             Assert.Single(l.HitBy(Doc, new long[] { 2 }));
+        }
+
+        [Fact]
+        public async Task Two_create_type_rows_share_one_scan_for_one_Undo()
+        {
+            var p = new Pane();
+            p.Add("v1", 0, true, new long[0]);
+            p.Add("v2", 0, true, new long[0]);
+            p.FailingByScan.Add("v1");
+            var n = await p.Undo.RunAsync(Doc, new long[0]);
+            Assert.Equal(1, p.ScansRun);
+            Assert.Equal(1, n);                            // v1 reopened, v2 passes and stays
+            Assert.Equal(new[] { "v1" }, p.Reopened);
+        }
+
+        [Fact]
+        public async Task Undo_of_unrelated_elements_runs_no_scan_even_with_a_create_type_row_Fixed()
+        {
+            var p = new Pane();
+            p.Add("v1", 0, true, new long[0]);
+            p.Add("r1", 100, true);
+            p.FailingByScan.Add("v1");
+            Assert.False(p.Undo.Interested(Doc, new long[] { 555 }));
+            Assert.Equal(0, await p.Undo.RunAsync(Doc, new long[] { 555 }));
+            Assert.Equal(0, p.ScansRun);
+        }
+
+        [Fact]
+        public async Task Undo_that_touches_a_create_type_rows_written_ids_scans_once()
+        {
+            var p = new Pane();
+            p.Add("v1", 0, true, new long[] { 900 });
+            p.FailingByScan.Add("v1");
+            Assert.Equal(1, await p.Undo.RunAsync(Doc, new long[] { 900 }));
+            Assert.Equal(1, p.ScansRun);
+        }
+
+        [Fact]
+        public async Task A_row_with_no_verdict_from_the_scan_stays_Fixed()
+        {
+            var p = new Pane { ScanCanRun = false };       // no verdict for any row
+            var v = p.Add("v1", 0, true, new long[0]);
+            Assert.Equal(0, await p.Undo.RunAsync(Doc, new long[0]));
+            Assert.True(v.Fixed);
         }
     }
 }

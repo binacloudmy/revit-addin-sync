@@ -64,8 +64,9 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public Func<ISet<long>> RowElementIds { get; set; }
         /// <summary>The panel's RecheckAsync(ids): null when nothing could be checked. Reopened rows come back in <c>Reopened</c>.</summary>
         public Func<IReadOnlyCollection<long>, Task<JkrRecheckOutcome<T>>> Recheck { get; set; }
-        /// <summary>A create-type row: a full re-scan; true = the rule passes, false = still fails, null = could not check.</summary>
-        public Func<T, Task<bool?>> RecheckByScan { get; set; }
+        /// <summary>Create-type rows: ONE full re-scan for all of them; per row id: true = the check judged and passes,
+        /// false = still fails, null (or absent) = could not verify.</summary>
+        public Func<IReadOnlyList<T>, Task<IReadOnlyDictionary<string, bool?>>> RecheckByScan { get; set; }
         /// <summary>Reopen a Fixed row directly (status Open, score and board together, audit entry dropped).</summary>
         public Action<T> Reopen { get; set; }
         /// <summary>Show the "fix undone" toast for this many rows.</summary>
@@ -96,7 +97,16 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
 
         /// <summary>Is there something to do for an Undo that reported <paramref name="undone"/> (may be empty: undoing a creation reports no ids)?</summary>
         public bool Interested(string docPath, IReadOnlyCollection<long> undone) =>
-            Ledger.ScanOnly(docPath).Count > 0 || Ledger.HitBy(docPath, undone).Count > 0;
+            Ledger.HitBy(docPath, undone).Count > 0 || ((undone == null || undone.Count == 0) && Ledger.ScanOnly(docPath).Count > 0);
+
+        /// <summary>The create-type entries to scan for: all of them when the Undo reported no ids (undoing a creation does),
+        /// else only those whose write the reported ids touch. An Undo of unrelated elements scans nothing.</summary>
+        private List<JkrCopilotFixLedger.Entry> ScanTargets(string docPath, IReadOnlyCollection<long> undone, IReadOnlyList<JkrCopilotFixLedger.Entry> hits)
+        {
+            var scanOnly = Ledger.ScanOnly(docPath);
+            if (undone == null || undone.Count == 0) return scanOnly.ToList();
+            return scanOnly.Where(e => hits.Any(h => h.IssueId == e.IssueId)).ToList();
+        }
 
         /// <summary>Returns how many rows were reopened by Copilot-undo handling plus the panel's own re-check. The toast is shown once.</summary>
         public async Task<int> RunAsync(string docPath, IReadOnlyCollection<long> undone)
@@ -111,13 +121,19 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 if (outcome != null) reopened += outcome.Reopened.Count;
             }
 
-            foreach (var e in Ledger.ScanOnly(docPath))
+            var rows = ScanTargets(docPath, undone, hits)
+                .Select(e => _host.Issue(e.IssueId))
+                .Where(r => r != null && r.RecheckState == RecheckState.Fixed && r.FixedVia == "Copilot").ToList();
+            if (rows.Count > 0)
             {
-                var row = _host.Issue(e.IssueId);
-                if (row == null || row.RecheckState != RecheckState.Fixed || row.FixedVia != "Copilot") continue;
-                bool? passes;
-                try { passes = await _host.RecheckByScan(row).ConfigureAwait(true); } catch (Exception) { passes = null; }
-                if (passes == false) { _host.Reopen(row); reopened++; }   // could not check (null) or still passes: the row stays Fixed
+                IReadOnlyDictionary<string, bool?> verdicts = null;
+                try { verdicts = await _host.RecheckByScan(rows).ConfigureAwait(true); } catch (Exception) { verdicts = null; }
+                foreach (var row in rows)
+                {
+                    bool? passes = null;
+                    if (verdicts != null && verdicts.TryGetValue(row.Id, out var v)) passes = v;
+                    if (passes == false) { _host.Reopen(row); reopened++; }   // could not verify (null) or passes: the row stays Fixed
+                }
             }
 
             // A reopened (replaced) row or one that left the list is no longer "Fixed via Copilot": forget it.

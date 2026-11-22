@@ -1648,7 +1648,7 @@ namespace RevitWebAppSync.UI
                         try { JkrAuditStore.Remove(_scannedDocPath, r.Id); } catch { /* audit is best-effort */ }
                 return outcome;
             },
-            RecheckByScan = issue => RecheckByScanAsync(issue),
+            RecheckByScan = rows => RecheckRowsByScanAsync(rows),
             Reopen = issue => ReopenCopilotFixed(issue),
             ToastUndone = n => _vm.ShowToast(Jkr.Panel.Core.PaneText.FixUndone(n)),
         }));
@@ -1673,33 +1673,48 @@ namespace RevitWebAppSync.UI
 
         private bool _lastScanComplete;
 
-        /// <summary>AI-495: a row with no element id to target (create-type checks: views, schedules, sheets, links) cannot go
-        /// through <see cref="RecheckAsync"/>. There is no per-check re-run, so this runs a full re-scan and reports whether the
-        /// row's rule still fails in it: true = passes (row absent from the fresh list), false = still failing, null = nothing
-        /// could be checked (scan running, no scan yet, other model, error, or a partial scan). The row stays Open meanwhile.</summary>
-        public async Task<bool?> RecheckByScanAsync(IssueVm issue)
+        /// <summary>AI-495/496: rows with no element id to target (create-type checks: views, schedules, sheets, links) cannot go
+        /// through <see cref="RecheckAsync"/>. This runs ONE full re-scan and judges each row from it (<see cref="JkrScanJudge"/>):
+        /// true = the row's spec check was judged and passes, false = still failing, null = could not verify (scan running, no scan
+        /// yet, other model, error, partial scan, check not judged). A row absent from the fresh list is NOT a pass by itself.</summary>
+        public async Task<IReadOnlyDictionary<string, bool?>> RecheckRowsByScanAsync(IReadOnlyList<IssueVm> rows)
         {
-            if (issue == null || string.IsNullOrEmpty(issue.Id)) return null;
+            var result = new Dictionary<string, bool?>();
+            if (rows == null || rows.Count == 0) return result;
             await _recheckGate.WaitAsync();
             try
             {
-                if (_vm.Scanning || _vm.Spec == null) return null;
+                if (_vm.Scanning || _vm.Spec == null) return result;
                 _vm.Scanning = true;
                 BusyChanged?.Invoke(Jkr.Panel.Core.PaneText.Rescanning());
                 _lastScanComplete = false;
                 try
                 {
-                    if (!await RunScanInner(isRecheck: true) || !_lastScanComplete) return null;
-                    return !_vm.Issues.Any(i => i.Id == issue.Id && i.Status != IssueStatus.Fixed);
+                    if (!await RunScanInner(isRecheck: true)) return result;
+                    foreach (var row in rows)
+                    {
+                        if (string.IsNullOrEmpty(row?.Id)) continue;
+                        var listed = _vm.Issues.Any(i => i.Id == row.Id && i.Status != IssueStatus.Fixed);
+                        var check = string.IsNullOrEmpty(row.SpecCheckId) ? null : _vm.Spec?.For(row.SpecCheckId);
+                        result[row.Id] = JkrScanJudge.ToBool(JkrScanJudge.Judge(_lastScanComplete, row.Id, listed, check));
+                    }
+                    return result;
                 }
                 catch (Exception ex)
                 {
                     System.Diagnostics.Debug.WriteLine($"[BINA JKR] re-scan after Copilot failed: {ex.Message}");
-                    return null;
+                    return new Dictionary<string, bool?>();
                 }
                 finally { _vm.Scanning = false; BusyChanged?.Invoke(null); }
             }
             finally { _recheckGate.Release(); }
+        }
+
+        public async Task<bool?> RecheckByScanAsync(IssueVm issue)
+        {
+            if (issue == null || string.IsNullOrEmpty(issue.Id)) return null;
+            var r = await RecheckRowsByScanAsync(new[] { issue });
+            return r.TryGetValue(issue.Id, out var v) ? v : null;
         }
 
         /// <summary>AI-495: a Copilot write re-passed its rule: mark the row Fixed (via Copilot), score and board move together, audit saved.</summary>
