@@ -16,7 +16,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public static Func<IssueVm, bool, IReadOnlyList<string>> PromptBuilder { get; set; } = (issue, bm) => JkrCopilotPrompt.Build(issue, bm);
 
         /// <summary>Sets the launcher, or clears it when there is no prompt builder.</summary>
-        public static void Install(ICopilotSession session, Func<string, IssueVm> issueById, Action<string> notify)
+        public static void Install(ICopilotSession session, Func<string, IssueVm> issueById, Action<string> notify, JkrCopilotRecheckHost<IssueVm> recheck = null)
         {
             if (PromptBuilder == null || session == null) { JkrCopilotFix.Launcher = null; return; }
             JkrCopilotFix.Launcher = new JkrCopilotFixLauncher(
@@ -28,7 +28,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     return build(issue, !PaneLanguage.IsEn);
                 },
                 notify,
-                () => !PaneLanguage.IsEn);
+                () => !PaneLanguage.IsEn,
+                afterWrite: recheck == null ? (Func<CopilotFixRequest, System.Threading.Tasks.Task>)null : new JkrCopilotRecheck<IssueVm>(recheck).RunAsync);
         }
     }
 }

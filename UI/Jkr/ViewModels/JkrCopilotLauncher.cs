@@ -107,7 +107,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
     /// <summary>
     /// AI-494: the "Fix via Copilot" click. Open the Copilot pane, start a NEW chat, wait for the model index to
     /// finish, then send each prompt part in order, waiting for each turn (and its confirm card) to finish before the
-    /// next. It never changes a row: the row stays Open until the re-check (AI-495). Errors reach the person through
+    /// next. It never changes a row itself: once the last write ran it hands the row to the re-check (AI-495, <c>afterWrite</c>), which marks it Fixed only if the rule re-passes. Errors reach the person through
     /// <c>notify</c> (the JKR toast).
     /// </summary>
     public sealed class JkrCopilotFixLauncher : ICopilotFixLauncher
@@ -125,6 +125,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         private readonly Func<CopilotFixRequest, IReadOnlyList<string>> _prompt;
         private readonly Action<string> _notify;
         private readonly Func<bool> _isBm;
+        private readonly Func<CopilotFixRequest, Task> _afterWrite;
         private readonly Func<TimeSpan, Task> _delay;
         private readonly TimeSpan _poll, _indexingTimeout, _turnTimeout, _startGrace, _settle;
         private int _running;
@@ -137,8 +138,9 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public JkrCopilotFixLauncher(ICopilotSession session, Func<CopilotFixRequest, IReadOnlyList<string>> prompt,
             Action<string> notify, Func<bool> isBm = null, Func<TimeSpan, Task> delay = null,
             TimeSpan? indexingTimeout = null, TimeSpan? turnTimeout = null, TimeSpan? poll = null,
-            TimeSpan? startGrace = null, TimeSpan? settle = null)
+            TimeSpan? startGrace = null, TimeSpan? settle = null, Func<CopilotFixRequest, Task> afterWrite = null)
         {
+            _afterWrite = afterWrite;
             _session = session ?? throw new ArgumentNullException(nameof(session));
             _prompt = prompt ?? throw new ArgumentNullException(nameof(prompt));
             _notify = notify ?? (_ => { });
@@ -247,11 +249,20 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 try { _session.Send(part); }
                 catch (Exception ex) { RevitWebAppSync.Services.ForcedConfirm.EndTurn(); _notify(Text.SendFailed(bm, ex.Message)); return CopilotLaunchOutcome.SendFailed; }
 
-                if (i == parts.Count - 1) break;   // the last turn is the person's to follow in the pane
+                // AI-495: the last turn is awaited too: the re-check runs once its write is done.
                 var end = await WaitForTurnAsync().ConfigureAwait(true);
                 if (end == null) { _notify(Text.TurnTimeout(bm, i + 1, parts.Count)); return CopilotLaunchOutcome.TurnTimeout; }
                 if (end == CopilotCardState.Declined) { RevitWebAppSync.Services.ForcedConfirm.EndTurn(); _notify(Text.Declined(bm, i + 1, parts.Count)); return CopilotLaunchOutcome.Declined; }
                 if (end != CopilotCardState.Approved) { RevitWebAppSync.Services.ForcedConfirm.EndTurn(); _notify(Text.NoWrite(bm, i + 1, parts.Count)); return CopilotLaunchOutcome.NoWrite; }
+            }
+
+            // 6. every part wrote (Ya, write ran): re-check ONCE, after the last part. The parts are one row's element ids
+            //    split by the id cap, so a check per part would flicker the same row and could report "still failing"
+            //    while later parts are still to come.
+            if (_afterWrite != null)
+            {
+                try { await _afterWrite(request).ConfigureAwait(true); }
+                catch (Exception ex) { _notify(Text.SendFailed(bm, ex.Message)); }
             }
             return CopilotLaunchOutcome.Sent;
         }
@@ -299,6 +310,10 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             return _session.Cards;
         }
 
+        /// <summary>" Parts 2-3 not sent." (BM: "tidak dihantar"), or nothing when the last part is the one that ended.</summary>
+        private static string NotSent(bool bm, int sent, int total) => sent >= total ? ""
+            : " " + Text.Cap(Parts(bm, sent + 1, total)) + (bm ? " tidak dihantar." : " not sent.");
+
         private static string Parts(bool bm, int firstUnsent, int total) => firstUnsent == total
             ? (bm ? $"bahagian {total}" : $"part {total}")
             : (bm ? $"bahagian {firstUnsent}-{total}" : $"parts {firstUnsent}-{total}");
@@ -326,21 +341,21 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             }
             /// <param name="sent">How many parts went out.</param>
             public static string TurnTimeout(bool bm, int sent, int total) => bm
-                ? $"Copilot belum selesai bahagian {sent} daripada {total}. {Cap(Parts(bm, sent + 1, total))} tidak dihantar."
-                : $"Copilot has not finished part {sent} of {total}. {Cap(Parts(bm, sent + 1, total))} not sent.";
+                ? $"Copilot belum selesai bahagian {sent} daripada {total}.{NotSent(bm, sent, total)}"
+                : $"Copilot has not finished part {sent} of {total}.{NotSent(bm, sent, total)}";
             public static string Declined(bool bm, int sent, int total) => bm
-                ? $"Anda memilih Tidak pada bahagian {sent}. {Cap(Parts(bm, sent + 1, total))} tidak dihantar."
-                : $"You answered No on part {sent}. {Cap(Parts(bm, sent + 1, total))} not sent.";
+                ? $"Anda memilih Tidak pada bahagian {sent}.{NotSent(bm, sent, total)}"
+                : $"You answered No on part {sent}.{NotSent(bm, sent, total)}";
             public static string NoWrite(bool bm, int sent, int total) => bm
-                ? $"Bahagian {sent} selesai tanpa perubahan. {Cap(Parts(bm, sent + 1, total))} tidak dihantar."
-                : $"Part {sent} ended without a change. {Cap(Parts(bm, sent + 1, total))} not sent.";
+                ? $"Bahagian {sent} selesai tanpa perubahan.{NotSent(bm, sent, total)}"
+                : $"Part {sent} ended without a change.{NotSent(bm, sent, total)}";
             public static string PaneClosed(bool bm, int sent, int total) => bm
-                ? $"Panel Copilot ditutup. {Cap(Parts(bm, sent + 1, total))} tidak dihantar."
-                : $"The Copilot pane was closed. {Cap(Parts(bm, sent + 1, total))} not sent.";
+                ? $"Panel Copilot ditutup.{NotSent(bm, sent, total)}"
+                : $"The Copilot pane was closed.{NotSent(bm, sent, total)}";
             public static string CopilotBusy(bool bm) => bm
                 ? "Selesaikan atau jawab permintaan Copilot semasa dahulu."
                 : "Finish or answer the current Copilot request first.";
-            private static string Cap(string x) => char.ToUpperInvariant(x[0]) + x.Substring(1);
+            internal static string Cap(string x) => char.ToUpperInvariant(x[0]) + x.Substring(1);
             public static string NoPrompt(bool bm) => bm
                 ? "Tiada arahan untuk dihantar kepada Copilot."
                 : "There is nothing to send to Copilot.";

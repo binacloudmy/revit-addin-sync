@@ -88,6 +88,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// counts as a passing cell.</summary>
         public bool Passed;
 
+        /// <summary>AI-495: the row was fixed through Fix via Copilot (shown in the row status).</summary>
+        public bool FixedViaCopilot;
+
         /// <summary>The user marked it "Mark as Manual" (option b): it stays Open and still
         /// counts as a fail, is left out of every fix request, and prints "handled manually".</summary>
         public bool MarkedManual;

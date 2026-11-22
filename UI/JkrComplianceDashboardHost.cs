@@ -75,7 +75,17 @@ namespace RevitWebAppSync.UI
                     if (issue != null && issue.CopilotFixable) Jkr.ViewModels.JkrCopilotFix.Request(issue.ToCopilotFixRequest());
                 };
                 // AI-494: the launcher (open pane, new chat, wait for indexing, send). Not set without a prompt builder (AI-493).
-                Jkr.ViewModels.JkrCopilotFixInstaller.Install(new Jkr.JkrCopilotSession(), id => _panel.Issue(id), message => _shell.ShowToast(message));
+                Jkr.ViewModels.JkrCopilotFixInstaller.Install(new Jkr.JkrCopilotSession(), id => _panel.Issue(id), message => _shell.ShowToast(message),
+                    // AI-495: after the Copilot write, re-check the row; Fixed only if its rule re-passes.
+                    new Jkr.ViewModels.JkrCopilotRecheckHost<Jkr.ViewModels.IssueVm>
+                    {
+                        Issue = id => _panel.Issue(id),
+                        Recheck = (ids, written) => _panel.RecheckAsync(ids, written),
+                        RecheckByScan = issue => _panel.RecheckByScanAsync(issue),
+                        MarkFixed = (issue, toast) => _panel.MarkFixedViaCopilot(issue, toast),
+                        Toast = message => _shell.ShowToast(message),
+                        IsBm = () => !Jkr.Panel.Core.PaneLanguage.IsEn,
+                    });
                 results.ReopenRequested += id => _panel.Reopen(id);
                 results.RescanRequested += (lod, disc) => { if (!_panel.RunFromStart(lod, disc)) results.EndBusy(); };
                 // The re-scan is over (done or failed): the Rescan button was busy until now. A scan
