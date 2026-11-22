@@ -590,6 +590,37 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(canonical, c.Canonical);
         }
 
+        // AI-489 boundaries: digit count, case, spacing
+        [Theory]
+        [InlineData("a_w-100_b", SpecModelKind.WholeCounter, 100, "W-100")]
+        [InlineData("a_wx100_b", SpecModelKind.LevelSubModel, 100, "WX100")]
+        [InlineData("a_W 01_b", SpecModelKind.WholeCounter, 1, "W-01")]
+        [InlineData("a_wX02_b", SpecModelKind.LevelSubModel, 2, "WX02")]
+        [InlineData("a_W12_b", SpecModelKind.WholeCounter, 12, "W-12")]
+        public void Model_code_boundaries_are_read(string name, SpecModelKind kind, int number, string canonical)
+        {
+            var c = SpecA.ParseModelCode(name);
+            Assert.NotNull(c);
+            Assert.Equal(kind, c.Kind);
+            Assert.Equal(number, c.Number);
+            Assert.Equal(canonical, c.Canonical);
+        }
+
+        // one digit is not a code; wk01 has no PB/PT/TK/PR suffix so the table does not read it (A2.2 lists it)
+        [Theory]
+        [InlineData("a_wx1_b")]
+        [InlineData("a_w-1_b")]
+        [InlineData("a_wk01_b")]
+        public void Model_code_boundaries_are_not_read(string name) => Assert.Null(SpecA.ParseModelCode(name));
+
+        [Fact]
+        public void With_two_codes_in_one_name_the_first_wins()
+        {
+            var c = SpecA.ParseModelCode("a_w-01_wx02_b");
+            Assert.Equal(SpecModelKind.WholeCounter, c.Kind);
+            Assert.Equal(1, c.Number);
+        }
+
         [Fact]
         public void Only_a_level_sub_model_is_a_numbered_part_and_w_nn_is_whole()
         {
