@@ -44,6 +44,14 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             /// ("Kod_Komponen_jkr_stt") and the one element it sits on. Empty / 0 = not a parameter row.</summary>
             public string Param = "";
             public long ElementId;
+            /// <summary>AI-506b. The row's rule text names the parameter ("Missing Type Parameter: X"), whatever its spec id
+            /// says: a backend row with no element id has no spec id, and still says the same thing as a Db.1 spec row.</summary>
+            public bool ParamRule;
+            /// <summary>AI-506b. Revit category of the row's element ("Doors"), "" when unknown. A backend parameter row whose
+            /// id is of another kind than the spec row's (a TYPE id against INSTANCE ids) matches by (category, parameter).</summary>
+            public string Category = "";
+            /// <summary>AI-506b. Revit type name of the row's element ("PT1p_850x2100"), "" when unknown (a spec row: the text after "Category · ").</summary>
+            public string TypeName = "";
             /// <summary>AI-506 (Db.1 only). On a spec row: every parameter it reports and every element it
             /// covers. A spec row covers a type, so one row stands for many per-element backend rows.</summary>
             public IReadOnlyCollection<string> Params = new string[0];
@@ -69,6 +77,20 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 return r.Substring(k + " parameter:".Length).Trim();
             return (required ?? "").Trim();
         }
+
+        /// <summary>The rule text says "Missing/Empty ... Parameter: X".</summary>
+        public static bool RuleNamesParameter(string rawRule)
+        {
+            var r = (rawRule ?? "").Trim();
+            var k = r.IndexOf(" parameter:", StringComparison.OrdinalIgnoreCase);
+            var low = r.ToLowerInvariant();
+            return k > 0 && (low.StartsWith("missing ") || low.StartsWith("empty "));
+        }
+
+        /// <summary>Mirrors SpecModelReader.InstanceIdCap: a spec row lists at most this many instance ids per type.</summary>
+        public const int InstanceIdCap = 2000;
+
+        private static string CategoryKey(string c) => (c ?? "").Trim().ToLowerInvariant();
 
         /// <summary>The parameters a Db.1 spec row lists in its Actual text: "kosong: A, B; tiada: C" /
         /// "empty: A; not on the type: C".</summary>
@@ -101,28 +123,64 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// AI-506: a Db.1 spec row (one per type) lists the parameters that type lacks or leaves empty,
         /// and the backend reports each of them again per element ("Missing Type Parameter: X"). Drop
         /// the backend / checker row when a spec row names the same parameter on the same element.
+        /// AI-506b: a row whose id no spec row lists matches by (category, parameter) only when the row has no
+        /// element, or its type name is a type a spec row lists for the parameter (a TYPE id against INSTANCE
+        /// ids), or the spec rows' id lists hit the reader's cap; never without a category. Names compare as
+        /// <see cref="ParamKey"/>. A row whose id a spec row lists, but not for this parameter, stays.
         /// A fixable row stays (AI-479 rule); a row no spec row covers stays (never hide a problem).
         /// Order of the input does not change the result.
         /// </summary>
         private static void DropCoveredParameterRows(IReadOnlyList<Row> rows, Outcome o)
         {
-            var covered = new HashSet<(string, long)>();
+            var byElement = new HashSet<(string, long)>();           // (parameter, element id) a spec row lists
+            var specIds = new HashSet<long>();                        // every element id any Db.1 spec row covers
+            var byCategory = new HashSet<(string, string)>();         // (parameter, category) a spec row lists
+            var cappedCategory = new HashSet<(string, string)>();     // ... where that spec row's id list hit the reader's cap
+            var byType = new HashSet<(string, string, string)>();     // (parameter, category, type name) a spec row lists
+            var any = false;
             for (var i = 0; i < rows.Count; i++)
             {
                 var r = rows[i];
                 if (r == null || r.Source != FromModel || !IsCheck(r, ParameterCheck)) continue;
+                foreach (var e in r.ElementIds ?? new long[0]) specIds.Add(e);
+                var cat = CategoryKey(r.Category);
+                var type = CategoryKey(r.TypeName);
+                var capped = (r.ElementIds?.Count ?? 0) >= InstanceIdCap;
                 foreach (var p in r.Params ?? new string[0])
-                    foreach (var e in r.ElementIds ?? new long[0])
-                        covered.Add((ParamKey(p), e));
+                {
+                    var k = ParamKey(p);
+                    any = true;
+                    byCategory.Add((k, cat));
+                    if (capped) cappedCategory.Add((k, cat));
+                    if (type.Length > 0) byType.Add((k, cat, type));
+                    foreach (var e in r.ElementIds ?? new long[0]) byElement.Add((k, e));
+                }
             }
-            if (covered.Count == 0) return;
+            if (!any) return;
+            var byFallback = 0;
             for (var i = 0; i < rows.Count; i++)
             {
                 var r = rows[i];
-                if (r == null || r.Source == FromModel || r.Fixable || !IsCheck(r, ParameterCheck)) continue;
-                if (r.ElementId > 0 && !string.IsNullOrEmpty(r.Param) && covered.Contains((ParamKey(r.Param), r.ElementId)))
-                    o.Keep[i] = false;
+                if (r == null || r.Source == FromModel || r.Fixable || string.IsNullOrEmpty(r.Param)) continue;
+                if (!IsCheck(r, ParameterCheck) && !r.ParamRule) continue;
+                var key = ParamKey(r.Param);
+                if (key.Length == 0) continue;
+                if (r.ElementId > 0 && byElement.Contains((key, r.ElementId))) { o.Keep[i] = false; continue; }
+                if (r.ElementId > 0 && specIds.Contains(r.ElementId)) continue;   // a known element the spec row does NOT list this parameter for
+                // The id says nothing. Never hide a row on the parameter alone: the category must match, and one of
+                // (a) the row has no element, (b) it is a type id: its type name is a type a spec row lists for this
+                // parameter, (c) the spec rows' id lists were cut at the cap, so the id may be one that was left out.
+                var cat = CategoryKey(r.Category);
+                if (cat.Length == 0 || !byCategory.Contains((key, cat))) continue;
+                var type = CategoryKey(r.TypeName);
+                var covered = r.ElementId <= 0
+                              || (type.Length > 0 && byType.Contains((key, cat, type)))
+                              || cappedCategory.Contains((key, cat));
+                if (!covered) continue;
+                o.Keep[i] = false; byFallback++;
             }
+            if (byFallback > 0)
+                System.Diagnostics.Debug.WriteLine("[SpecDedupe] AI-506b: " + byFallback + " parameter row(s) hidden by the (category, parameter) fallback");
         }
 
         private static bool IsCheck(Row r, string id) => string.Equals((r.CheckId ?? "").Trim(), id, StringComparison.OrdinalIgnoreCase);
