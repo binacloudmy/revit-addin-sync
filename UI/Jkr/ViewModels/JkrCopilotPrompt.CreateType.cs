@@ -81,6 +81,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 // makes Copilot say so and stop, like the legend (C2.1.1). It is not on the zero-id button list.
                 // The missing names are in Required (original JKR names from SpecTemplateViews).
                 // C1.1.2 has no entry: see JkrCopilotFix.ModelLevel.
+                // C1.1.1 is NOT in JkrCopilotFix.Allowed: with >=1 id the button would only end in "cannot". When bina-ai gets a
+                // create-view-template tool, name it here and re-add C1.1.1 (and, once a rename tool exists, C1.1.2) to Allowed.
                 ["C1.1.1"] = new CreateTypeSpec(
                     new CopilotPromptVariant(
                         "Buat view template JKR AR yang tiada, dengan nama asal tepat seperti dalam Diperlukan di bawah. Tiada tool yang membuat atau menduplikasi view template (list_view_templates dan apply_view_template hanya membaca atau menggunakan yang sedia ada): jika tiada tool boleh membuatnya, beritahu saya dan jangan buat apa-apa; jangan ganti dengan view biasa dan jangan tukar nama template lain. Buat paling banyak 10 nama bagi setiap pengesahan; tanya saya untuk selebihnya.",
@@ -132,6 +134,25 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             return spec != null ? spec.Title.In(bm ? PanelStrings.Ms : PanelStrings.En) : (f.Title ?? "");
         }
 
+        /// <summary>AI-500: C1.1.1 is one aggregate row; Required holds every missing name joined by " | ". The generic cell
+        /// is cut at 120 characters, which would drop most names, so the names are split and the first
+        /// <see cref="MaxTemplateNames"/> listed one per line; the rest are counted, not listed (Copilot asks before them).</summary>
+        public const int MaxTemplateNames = 10;
+
+        private static void AppendTemplateNames(StringBuilder sb, string required, bool bm)
+        {
+            var names = new List<string>();
+            foreach (var part in (required ?? "").Split('|'))
+            {
+                var n = CleanLabel(part);
+                if (n.Length > 0) names.Add(n);
+            }
+            sb.AppendLine(bm ? $"Diperlukan (nama asal view template yang tiada, {names.Count}):" : $"Required (original names of the missing view templates, {names.Count}):");
+            foreach (var n in names.GetRange(0, Math.Min(MaxTemplateNames, names.Count))) sb.Append("- ").AppendLine(n);
+            if (names.Count > MaxTemplateNames)
+                sb.AppendLine(bm ? $"... dan {names.Count - MaxTemplateNames} lagi (tidak disenaraikan; tanya saya selepas yang pertama)." : $"... and {names.Count - MaxTemplateNames} more (not listed; ask me after the first batch).");
+        }
+
         private static string BuildCreateType(CopilotPromptFacts f, bool bm, List<long> ids, int totalIds,
             SpecCheck spec, string title, CreateTypeSpec c)
         {
@@ -145,7 +166,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             sb.AppendLine().AppendLine();
 
             Line(sb, bm ? "Kategori" : "Category", CleanLabel(f.Category));
-            Line(sb, bm ? "Diperlukan" : "Required", CleanLabel(f.Required));
+            if (checkId == "C1.1.1") AppendTemplateNames(sb, f.Required, bm);
+            else Line(sb, bm ? "Diperlukan" : "Required", CleanLabel(f.Required));
             Line(sb, bm ? "Sebenar (apa yang tiada)" : "Actual (what is missing)", CleanLabel(f.Actual));
             if (spec != null)
             {

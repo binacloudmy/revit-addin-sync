@@ -379,6 +379,24 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
+        public void Template_views_C111_lists_at_most_10_names_from_the_aggregate_Required_AI500()
+        {
+            var all = SpecTemplateViews.Judged.Take(25).ToList();
+            Assert.Equal(25, all.Count);
+            var f = NoIds("C1.1.1");
+            f.Required = string.Join(" | ", all);
+            f.Actual = "25 tiada";
+            foreach (var bm in new[] { true, false })
+            {
+                var p = Assert.Single(JkrCopilotPrompt.Build(f, bm));
+                foreach (var n in all.Take(10)) Assert.Contains("- " + n, p);
+                foreach (var n in all.Skip(10)) Assert.DoesNotContain(n, p);
+                Assert.Contains(bm ? "dan 15 lagi" : "and 15 more", p);
+                Assert.Contains(", 25):", p);
+            }
+        }
+
+        [Fact]
         public void Template_views_C112_has_no_prompt_because_no_tool_renames_a_view_template_AI500()
         {
             // rename_elements("Views") skips view templates (Mutators.cs RenameElements: !v.IsTemplate): nothing can rename one.
