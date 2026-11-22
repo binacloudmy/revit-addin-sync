@@ -152,8 +152,9 @@ namespace BinaVibe.Mcp.Tools.Audit
 
         private (double E, double N, double Z)? _survey;
         private bool _surveyRead;
-        /// <summary>AI-517: the Project Base Point's shared (surveyed) position in mm (E, N, Elev), or null
-        /// when all three are 0 or it cannot be read (no survey coordinates acquired).</summary>
+        /// <summary>AI-517: the Project Base Point's shared position (offset from the survey point) in mm
+        /// (E, N, Elev), or null when all three are 0 or it cannot be read. Non-zero is NOT proof that coordinates were acquired:
+        /// it is data for a person row only.</summary>
         public (double E, double N, double Z)? ProjectBaseSurvey
         {
             get

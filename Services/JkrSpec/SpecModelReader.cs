@@ -312,7 +312,7 @@ namespace RevitWebAppSync.Services.JkrSpec
                 if (bp.IsShared) continue;
                 var p = bp.Position;
                 m.ProjectBasePoint = new SpecPoint { X = Math.Round(Mm(p.X), 1), Y = Math.Round(Mm(p.Y), 1) };
-                // AI-517: survey coordinates acquired = the shared position is not E 0 / N 0 / Elev 0.
+                // AI-517: keep a non-zero shared position as DATA for a person row. It is NOT proof that coordinates were acquired (moving the point also makes it non-zero).
                 try
                 {
                     var s = bp.SharedPosition;

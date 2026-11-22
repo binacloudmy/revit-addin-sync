@@ -685,11 +685,14 @@ namespace RevitWebAppSync.Services.JkrSpec
             // it is never read as "acquired". When the grid test did not pass, it is named for a person to confirm.
             var sv = m.ProjectBaseSurvey;
             if (sv == null || m.ProjectBasePoint == null || rs.Any(r => r.Status == "pass")) return rs;
-            return new[]
-            {
-                Context("A4.1", $"Non-zero shared coordinates present: confirm they are the survey coordinates (Piawaian JKR p.72). E {K.Mm1(sv.X)} mm, N {K.Mm1(sv.Y)} mm, Elev {K.Mm1(sv.Z)} mm",
-                        0, "Shared coordinates", key: "shared-nonzero"),
-            };
+            var text = $"Non-zero shared coordinates present: confirm they are the survey coordinates (Piawaian JKR p.72). E {K.Mm1(sv.X)} mm, N {K.Mm1(sv.Y)} mm, Elev {K.Mm1(sv.Z)} mm";
+            // The measured offset (a person row already) takes the text into its own note. Every other grid result,
+            // above all an Unjudged one (no grids, no A and 1, not straight), stays: the shared row is added beside it,
+            // so a person row never stands in for grid evidence that was not read.
+            var offset = rs.Count == 1 && rs[0].Coverage == SpecCoverage.Context && (rs[0].Note ?? "").StartsWith("Project Base Point ", StringComparison.Ordinal) ? rs[0] : null;
+            if (offset != null) { offset.Note = offset.Note + ". " + text; return rs; }
+            rs.Add(Context("A4.1", text, 0, "Shared coordinates", key: "shared-nonzero"));
+            return rs;
         }
 
         private static IEnumerable<SpecResult> A41Grid(SpecModel m)

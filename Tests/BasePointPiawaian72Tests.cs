@@ -44,7 +44,7 @@ namespace RevitWebAppSync.Tests
         public void Non_zero_shared_coordinates_are_a_person_row_never_a_pass_and_never_called_surveyed()
         {
             var shared = new SpecPoint3 { X = 5000, Y = 0, Z = 0 };   // e.g. the point only moved 5 m
-            foreach (var m in new[] { Model(5000, 0, shared), Model(25000, 8000, shared, grids: false) })
+            foreach (var m in new[] { Model(5000, 0, shared) })
             {
                 var rs = A41(m);
                 Assert.DoesNotContain(rs, x => x.Status == "pass" || x.Status == "fail");
@@ -54,6 +54,28 @@ namespace RevitWebAppSync.Tests
                 Assert.DoesNotContain("acquired", row.Note);
             }
             Assert.Empty(SpecDedupe.PassedByEvaluator(A41(Model(5000, 0, shared))));
+        }
+
+        [Fact]
+        public void Non_zero_shared_with_unreadable_grids_stays_Unjudged_and_the_percent_does_not_move()
+        {
+            var shared = new SpecPoint3 { X = 5000, Y = 0, Z = 0 };
+            var rs = A41(Model(25000, 8000, shared, grids: false));
+            Assert.Contains(rs, x => x.Status == "cannot_verify");            // the grid result is kept
+            Assert.Contains(rs, x => x.Note.StartsWith("Non-zero shared coordinates present"));
+            var withShared = SpecReport.Build(rs);
+            var without = SpecReport.Build(A41(Model(25000, 8000, null, grids: false)));
+            Assert.Equal(without.For("A4.1").State, withShared.For("A4.1").State);
+            Assert.Equal(SpecChecklist.Pct(without), SpecChecklist.Pct(withShared));
+            Assert.Equal(SpecChecklist.Score(without).Passed, SpecChecklist.Score(withShared).Passed);
+        }
+
+        [Fact]
+        public void Non_zero_shared_with_a_measured_offset_keeps_the_offset_text_in_one_row()
+        {
+            var row = Assert.Single(A41(Model(5000, 7000, new SpecPoint3 { X = 5000, Y = 7000, Z = 0 })));
+            Assert.Contains("mm from the crossing of grids A / 1", row.Note);
+            Assert.Contains("Non-zero shared coordinates present: confirm", row.Note);
         }
 
         [Fact]
