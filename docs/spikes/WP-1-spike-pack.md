@@ -8,7 +8,7 @@ Who runs it: **Tester only, on MrBiggie, one agent at a time.** The author did n
 
 | Q | Question | Snippet | Pass means |
 |---|---|---|---|
-| Q1 | `View3D.CreateIsometric` per level compiles and runs under the policy | S1 | `Q1 OK` for each of the first 2 levels |
+| Q1 | `View3D.CreateIsometric` compiles and runs under the policy | S1 | `Q1 OK` twice. `CreateIsometric` takes no level: only the view name carries the level, and only the first view gets a section box. This proves the call runs, **not** a per-level result |
 | Q2 | Browser organization parameter can be set on a view | S0, S1 | `Q2 OK` for `View_jkr_pit` and `Jenis_Lukisan_jkr_pit`; S0 shows both exist on views |
 | Q3 | `ViewTemplateId` = `jkrAR_07d_Dokumen_(3D)` can be set; the template exists | S0, S1 | S0 finds the template; `Q3 OK` per view |
 | Q4 | `Viewport.Create` puts a view on an empty sheet | S1 | `Q4a OK` and `Q4 OK` |
@@ -20,11 +20,11 @@ Who runs it: **Tester only, on MrBiggie, one agent at a time.** The author did n
 ## 2. Preconditions (check before step 1, record each)
 
 1. MrBiggie: Revit 2027.3, BINA add-in built from `ai-423-test` tip (`51eb54e6` or newer), Copilot pane open, English UI. Backend bina-ai at `699b7672` or newer, reachable (a plain question to Copilot answers).
-2. A **copy** of the JKR AR test model is open (not the central file, no Sync with Central during the spike). The model has at least 2 levels. Save the copy first.
+2. A **copy** of the JKR AR test model is open, with at least 2 levels. **STOP rule, check before anything else** (S0 line 1 prints `doc.Title`, `workshared`, `detached`; the policy denies `doc.PathName`, so read the full path in Revit: File > Info or the title bar): do not continue if (a) the open file is the project's real file, or (b) the model is workshared and not detached. Make the copy with **Save As** to a NEW file name (for a workshared model: open it detached, then Save As; never Save As Central, never Sync with Central). Record the path and title.
 3. Project Browser organization for views groups by `View_jkr_pit` then `Jenis_Lukisan_jkr_pit` (the `00a_All` organization of the JKR template). S0 prints the name.
 4. View template `jkrAR_07d_Dokumen_(3D)` exists **in this project** (S0 line 2). It is id 304815 in the AR27 template file, but the project id differs. If it is missing, record `MISSING` and run S1 anyway: Q3 and Q6 become `SKIP`, nothing else changes.
 5. JKR shared parameter file: Manage > Shared Parameters shows the JKR file, and the JKR pane project checklist rule 24 "JKR shared parameters loaded" is green. Record the file path (screenshot) and the rule 24 state.
-6. Record the number of views and sheets before (S0 prints them) so step 8 can prove the model is back to net zero.
+6. Record the counts of 3D views, sheets and project parameter bindings before (S0 prints them) so step 8 can prove the model is back to net zero.
 
 ## 3. How to run a snippet
 
@@ -51,6 +51,7 @@ Read only. Answers the preconditions and which parameters really exist.
 
 ```csharp
 // S0 READ-ONLY probe. Creates, sets and deletes nothing.
+Print("model: " + doc.Title + " | workshared=" + doc.IsWorkshared + " | detached=" + doc.IsDetached);
 var all = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>().ToList();
 var lvls = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().OrderBy(l => l.Elevation).ToList();
 Print("levels (" + lvls.Count + "): " + string.Join(", ", lvls.Select(l => l.Name)));
@@ -91,7 +92,7 @@ while (it.MoveNext())
     {
         var b = it.Current as ElementBinding;
         var cats = b == null ? "?" : string.Join(",", b.Categories.Cast<Category>().Select(c => c.Name));
-        Print("bound " + d.Name + ": " + (b is InstanceBinding ? "instance" : "type") + " on [" + cats + "], shared=" + (d is ExternalDefinition));
+        Print("bound " + d.Name + ": " + (b is InstanceBinding ? "instance" : "type") + " on [" + cats + "]");
     }
 }
 Print("project parameter bindings in model: " + n);
@@ -107,7 +108,7 @@ Record the whole output. Expect: template found (or MISSING), `View_jkr_pit` and
 
 ### Step 2. S1: create 3D views, set parameters and template, place on a sheet, delete (Q1 to Q6)
 
-**Destructive (delete).** Creates 2 temporary 3D views (`ZZ_SPIKE_1 <level>`, `ZZ_SPIKE_2 <level>`) and 1 temporary sheet (`ZZ-SPIKE-1`), tries each API inside `try/catch` so one failure does not hide the next, then deletes only the ids it created. Pass `expected {"adds":4,"deletes":4}`. Answer `write_all` to the delete question.
+**Destructive (delete).** Creates 2 temporary 3D views (`ZZ_SPIKE_1 <level>`, `ZZ_SPIKE_2 <level>`) and 1 temporary sheet (`ZZ-SPIKE-1`), tries each API inside `try/catch` so one failure does not hide the next, then deletes only the ids it created. Pass `expected {"adds":4,"deletes":4}`. Answer `write_all` to the delete question. If `Q1 SKIP no 3D ViewFamilyType` shows, the project has no 3D view type: record it and stop S1.
 
 ```csharp
 // S1 SPIKE (create-then-delete). Makes 2 temp 3D views and 1 temp sheet named ZZ_SPIKE*,
@@ -120,18 +121,22 @@ var tpl = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>().F
 var views = new List<View3D>();
 var viewIds = new List<ElementId>();
 var i = 0;
-foreach (var lv in lvls)
+if (vft == null) Print("Q1 SKIP no 3D ViewFamilyType in this project");
+else
 {
-    i++;
-    try
+    foreach (var lv in lvls)
     {
-        var v3 = View3D.CreateIsometric(doc, vft.Id);
-        v3.Name = "ZZ_SPIKE_" + i + " " + lv.Name;
-        views.Add(v3);
-        viewIds.Add(v3.Id);
-        Print("Q1 OK   View3D.CreateIsometric -> " + v3.Name);
+        i++;
+        try
+        {
+            var v3 = View3D.CreateIsometric(doc, vft.Id);
+            viewIds.Add(v3.Id);
+            v3.Name = "ZZ_SPIKE_" + i + " " + lv.Name;
+            views.Add(v3);
+            Print("Q1 OK   View3D.CreateIsometric -> " + v3.Name);
+        }
+        catch (Exception e) { Print("Q1 FAIL " + lv.Name + ": " + e.Message); }
     }
-    catch (Exception e) { Print("Q1 FAIL " + lv.Name + ": " + e.Message); }
 }
 if (views.Count > 0)
 {
@@ -234,7 +239,7 @@ If the run is `policy_rejected` or `compile_error`: nothing ran. The error names
 
 ### Step 3. S1 with KEEP: does the checker see the new views? (Q2, Q3, C1.5.2)
 
-Same snippet with the line `const bool KEEP = false;` changed to `const bool KEEP = true;`. It makes the 2 views, sets parameters and template, **keeps** them, and creates no sheet.
+Paste the **whole** S1 block from step 2 again (never "the same as before") with the line `const bool KEEP = false;` edited to `const bool KEEP = true;`. Pass `expected {"adds":2}`. It makes the 2 views, sets parameters and template, **keeps** them, and creates no sheet; no delete question appears.
 
 1. Run the JKR checks (pane re-check). Open C1.5.1 and C1.5.2. Record both rows (text, status). Record the C1.5.1 note, which says how the Dokumen views were found (`by browser folder View_jkr_pit N`, `by parameter View_jkr_pit N`, `by name N`). The new views are named without any set word on purpose, so only the folder, the parameter or the template can place them in the Dokumen set.
 2. Pass: the 2 `ZZ_SPIKE` views count in the Dokumen set (note shows them found by folder or by parameter) and, if their levels had no Dokumen 3D view before, C1.5.2 stops failing for those 2 levels. Screenshot the Project Browser: the views sit under `07d_Dokumen / 01_Lukisan Utama / 3D Views`.
@@ -242,7 +247,7 @@ Same snippet with the line `const bool KEEP = false;` changed to `const bool KEE
 
 ### Step 4. S9: clean up (destructive, scoped)
 
-**Destructive.** Deletes every view or sheet whose name starts with `ZZ_SPIKE`. Prints the names first. Answer `write_all`. Run it after step 3 and whenever a run left test objects.
+**Destructive. Only for the test copy.** Deletes every view or sheet whose name starts with `ZZ_SPIKE`. Pass `expected {"deletes":N}`, N = the number of `ZZ_SPIKE` views and sheets (2 after step 3; if unsure, count them in the Project Browser first). The code prints the names it found, then deletes. Answer `write_all`. Run it after step 3 and whenever a run left test objects.
 
 ```csharp
 // S9 CLEANUP (destructive). Deletes only views/sheets whose name starts with ZZ_SPIKE.
@@ -255,7 +260,7 @@ Print("deleted " + ids.Count);
 
 ### Step 5. Links (Q7)
 
-S7a to S7c are **expected to be rejected**; the point is the exact error. They create nothing. S7d is the one that may be allowed.
+Run **S7b first**. S7a and S7c call `Reload` and `Unload` on the first link of the model; if the policy file were not loaded they would really run, and a rolled-back group does not undo a link reload. So S7a and S7c are **conditional**: run them only if (1) the add-in build shown on the card or in About is commit `51eb54e6` or newer **and** (2) S7b was rejected as `paths` (proves the policy file is loaded). Otherwise mark S7a and S7c `SKIP` and say why. They create nothing. S7d is the one that may be allowed.
 
 S7a (Reload):
 ```csharp
@@ -276,7 +281,7 @@ S7c (Unload):
 var lt = new FilteredElementCollector(doc).OfClass(typeof(RevitLinkType)).Cast<RevitLinkType>().FirstOrDefault();
 if (lt != null) lt.Unload(null);
 ```
-S7d (**destructive, create-then-delete**: a second instance of a loaded link, deleted again; skips if the model has no loaded link):
+S7d (**destructive, create-then-delete**: a second instance of a loaded link, deleted again; skips if the model has no loaded link). Pass `expected {"adds":1,"deletes":1}`:
 ```csharp
 // S7d (create-then-delete). A second instance of an already loaded link: does the policy allow it?
 var lt = new FilteredElementCollector(doc).OfClass(typeof(RevitLinkType)).Cast<RevitLinkType>().FirstOrDefault(t => t.GetLinkedFileStatus() == LinkedFileStatus.Loaded);
@@ -295,7 +300,7 @@ else
 }
 ```
 
-Expected: S7a `policy_rejected` (link_load), S7b `policy_rejected` (paths), S7c `policy_rejected` (link_load). S7d runs: `S7d OK` twice (then `RevitLinkInstance.Create` is allowed for an already loaded type, which does **not** help C5.1.1, whose links are unloaded or missing). Record the exact `Violations` text of each rejection.
+Expected: S7b `policy_rejected` (paths), then S7a `policy_rejected` (link_load), S7c `policy_rejected` (link_load). S7d runs: `S7d OK` twice (then `RevitLinkInstance.Create` is allowed for an already loaded type, which does **not** help C5.1.1, whose links are unloaded or missing). Record the exact `Violations` text of each rejection.
 
 ### Step 6. Shared parameter access from code (Q8, policy side)
 
@@ -319,7 +324,7 @@ Expected: `policy_rejected` (application_access, paths). This confirms that code
 S8c widens an existing project parameter to Generic Models and puts it back **in the same run**. The offline check classified it as **Read** (the mode rules do not know `ReInsert`), so the host runs it inside the always-rolled-back group: whatever happens, nothing is kept. Both outcomes are results:
 - the result card shows `S8c OK` twice: `ReInsert` runs under the policy; binding changes made in a read run are rolled back;
 - or the run fails with `The code changed the model during a read-only run. The run was rolled back`: the recorder saw the change and refused it.
-Record which one, and the parameter name the snippet touched.
+Record which one, and the parameter name the snippet touched. **If the card says mode Write instead of Read**, the run is committed (not rolled back): it is net zero only if both `ReInsert` calls reported OK, so check the two `S8c OK` lines and press the Undo chip once either way.
 
 ```csharp
 // S8c ParameterBindings.ReInsert (widen then restore, same run). Takes the first project parameter that is
