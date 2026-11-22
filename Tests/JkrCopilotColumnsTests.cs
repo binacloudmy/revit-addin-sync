@@ -41,7 +41,7 @@ namespace RevitWebAppSync.Tests
             Assert.Contains("- 900 — schedule \"Room Finishes\" — add columns: Occupancy, Department, Kod_Ruang_AR_jkr_stt", p);
             Assert.Contains("- 101 — Rooms · Pejabat", p);
             Assert.Contains("playbook \"edit-schedule\"", p);
-            Assert.Contains("inputs target = that schedule name and add = the columns on its line", p);
+            Assert.Contains("inputs target = that schedule name, add = the columns on its line, exactly as written, and addOnly = true", p);
             Assert.Contains("Never add a schedule", p);
             // the backend vetoes the edit-schedule suggestion on "make", "new" or "create" beside "schedule" (its not_for list): none in the words this family adds
             var ours = JkrCopilotPrompt.VariantFor("C1.6.3").ScheduleHow + p.Substring(0, p.IndexOf('\n'));
@@ -51,6 +51,16 @@ namespace RevitWebAppSync.Tests
             Assert.Contains("ask me once with ask_user for all of them together", p);
             Assert.DoesNotContain("Baiki", p);                          // English only (AI-513)
             Assert.DoesNotMatch(new Regex(@"\b(Yes/No|Yes or No)\b", RegexOptions.IgnoreCase), p);
+        }
+
+        [Fact]
+        public void The_prompt_sets_addOnly_for_C1_6_3_schedules_and_for_no_other_prompt()
+        {
+            Assert.Contains("addOnly = true", JkrCopilotPrompt.VariantFor("C1.6.3").ScheduleHow);
+            var rooms = Mixed(); rooms.ElementIds = new List<long> { 101, 102 }; rooms.Columns = new Dictionary<long, IReadOnlyList<string>>();
+            Assert.DoesNotContain("addOnly", Assert.Single(JkrCopilotPrompt.Build(rooms)));      // rooms only: no edit-schedule, no addOnly
+            foreach (var id in new[] { "C1.6.1", "C1.6.2", "C1.6.4" })
+                Assert.DoesNotContain("addOnly", JkrCopilotPrompt.VariantFor(id).ScheduleHow ?? "");
         }
 
         [Fact]
