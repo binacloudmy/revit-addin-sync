@@ -663,6 +663,8 @@ namespace RevitWebAppSync.Services.JkrSpec
         // A4 — base point (F A.4).
         // ════════════════════════════════════════════════════════════════════
 
+        private const string Piawaian72 = "Piawaian JKR p.72 (Table 3.2): Grid A/1 at the Project Base Point, or surveyed Shared Coordinates";
+
         /// <summary>
         /// A4.1 (F A.4; Piawaian p.71-73, Form 0010 item 4, Desc 0012a (b)): the Project Base Point
         /// stands exactly on the Grid A/1 crossing. AI-504: JKR gives no tolerance (the old 10 mm came
@@ -675,23 +677,26 @@ namespace RevitWebAppSync.Services.JkrSpec
         /// not read → no result (the backend and the BIM010 checker answer). No A or no 1, or no
         /// crossing to measure → a person.
         /// </summary>
-        private const string Piawaian72 = "Piawaian JKR p.72 (Table 3.2): Grid A/1 at the Project Base Point, or surveyed Shared Coordinates";
-
         private static IEnumerable<SpecResult> A41BasePoint(SpecModel m)
+        {
+            var rs = A41Grid(m).ToList();
+            // AI-517 (review): only the A/1 crossing passes by itself. A non-zero shared position is the Project
+            // Base Point's offset from the survey point; it is also non-zero when someone only moved the point, so
+            // it is never read as "acquired". When the grid test did not pass, it is named for a person to confirm.
+            var sv = m.ProjectBaseSurvey;
+            if (sv == null || m.ProjectBasePoint == null || rs.Any(r => r.Status == "pass")) return rs;
+            return new[]
+            {
+                Context("A4.1", $"Non-zero shared coordinates present: confirm they are the survey coordinates (Piawaian JKR p.72). E {K.Mm1(sv.X)} mm, N {K.Mm1(sv.Y)} mm, Elev {K.Mm1(sv.Z)} mm",
+                        0, "Shared coordinates", key: "shared-nonzero"),
+            };
+        }
+
+        private static IEnumerable<SpecResult> A41Grid(SpecModel m)
         {
             const string id = "A4.1";
             var bp = m.ProjectBasePoint;
             if (bp == null) return Enumerable.Empty<SpecResult>();
-            // AI-517 (Piawaian p.72, Table 3.2): real survey coordinates (Shared Coordinates acquired)
-            // are the other documented way to place the building. No grid reading is needed.
-            if (m.ProjectBaseSurvey != null)
-            {
-                var sv = m.ProjectBaseSurvey;
-                return new[]
-                {
-                    Pass(id, $"Surveyed coordinates acquired (E {K.Mm1(sv.X)} mm, N {K.Mm1(sv.Y)} mm, Elev {K.Mm1(sv.Z)} mm) — {Piawaian72}"),
-                };
-            }
             var labels = SpecA.ParseGrids(m.Grids.Select(g => g.Name));
             var pairs = SpecA.BaseGridPairs(labels);
             if (pairs.Count == 0)

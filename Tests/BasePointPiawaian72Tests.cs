@@ -41,14 +41,25 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void Surveyed_coordinates_pass_even_when_no_grid_A1_can_be_read()
+        public void Non_zero_shared_coordinates_are_a_person_row_never_a_pass_and_never_called_surveyed()
         {
-            var survey = new SpecPoint3 { X = 512345.6, Y = 345678.9, Z = 12.3 };
-            var withGrids = Assert.Single(A41(Model(25000, 8000, survey)));       // far from A/1, but surveyed
-            Assert.Equal("pass", withGrids.Status);
-            Assert.Contains("p.72", withGrids.Note);
-            Assert.False(SpecModelIssues.GivesIssue(withGrids));
-            Assert.Equal("pass", Assert.Single(A41(Model(25000, 8000, survey, grids: false))).Status);
+            var shared = new SpecPoint3 { X = 5000, Y = 0, Z = 0 };   // e.g. the point only moved 5 m
+            foreach (var m in new[] { Model(5000, 0, shared), Model(25000, 8000, shared, grids: false) })
+            {
+                var rs = A41(m);
+                Assert.DoesNotContain(rs, x => x.Status == "pass" || x.Status == "fail");
+                var row = Assert.Single(rs);
+                Assert.True(SpecPersonDecides.IsPersonDecides(row));
+                Assert.StartsWith("Non-zero shared coordinates present: confirm they are the survey coordinates (Piawaian JKR p.72)", row.Note);
+                Assert.DoesNotContain("acquired", row.Note);
+            }
+            Assert.Empty(SpecDedupe.PassedByEvaluator(A41(Model(5000, 0, shared))));
+        }
+
+        [Fact]
+        public void At_the_A1_crossing_it_passes_even_with_non_zero_shared_coordinates()
+        {
+            Assert.Equal("pass", Assert.Single(A41(Model(0, 0, new SpecPoint3 { X = 1, Y = 2, Z = 3 }))).Status);
         }
 
         [Fact]
@@ -120,6 +131,19 @@ namespace RevitWebAppSync.Tests
             // other checks are untouched
             var other = new SpecDedupe.Row { Id = "BE-B", CheckId = "B1.1", Source = SpecDedupe.FromBackend, Bucket = ScanBoard.Open };
             Assert.Single(ScanBoard.Merge(new[] { other }, null, null, new[] { "A4.1" }));
+        }
+
+        [Fact]
+        public void Every_remark_that_uses_the_cite_placeholder_is_an_interpolated_string()
+        {
+            // AuditCheckers needs Revit types, so the remark is read from source: a string with {cite} but no $ shows the braces.
+            var dir = AppContext.BaseDirectory;
+            while (dir != null && !System.IO.File.Exists(System.IO.Path.Combine(dir, "RevitWebAppSync.csproj"))) dir = System.IO.Path.GetDirectoryName(dir);
+            Assert.NotNull(dir);
+            var src = System.IO.File.ReadAllText(System.IO.Path.Combine(dir, "BinaVibe", "Mcp", "Tools", "Audit", "AuditCheckers.cs"));
+            var bad = System.Text.RegularExpressions.Regex.Matches(src, "(?<!\\$)\"[^\"\\n]*\\{cite\\}[^\"\\n]*\"");
+            Assert.Empty(bad.Cast<System.Text.RegularExpressions.Match>().Select(x => x.Value));
+            Assert.Contains("crossing to measure — check manually. {cite}", src);   // the parallel-grids remark is still there
         }
 
         [Fact]

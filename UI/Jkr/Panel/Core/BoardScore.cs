@@ -465,7 +465,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             => Merge(backend, audit, model, null);
 
         /// <summary>AI-517: <paramref name="specPassed"/> = one-problem checks (<see cref="SpecDedupe.OneProblemChecks"/>) the add-in's
-        /// spec evaluator PASSED (A4.1 at Grid A/1 or surveyed coordinates). The evaluator outranks a legacy backend / checker
+        /// spec evaluator PASSED (A4.1 at the Grid A/1 crossing: the full pass only, never a person row). The evaluator outranks a legacy backend / checker
         /// row of that check that still says fail ("Project Base Point surveyed" at E/N/Elev 0): the row is dropped, so no
         /// failing row stands against a pass. A fixable row is never dropped (AI-479). Mapping: <see cref="SpecReport.MapBackend(string, string, long)"/>
         /// sends category "Project Base Point" to A4.1.</summary>

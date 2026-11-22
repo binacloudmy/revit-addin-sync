@@ -324,15 +324,6 @@ namespace BinaVibe.Mcp.Tools.Audit
             const string rule = "Project Base Point is exactly at the crossing of grids 'A' and '1'";
             const string cite = "Piawaian JKR p.72 (Table 3.2): Grid A/1 at the Project Base Point, or surveyed Shared Coordinates";
             var pbp = ctx.ProjectBasePoint;
-            // AI-517: surveyed (Shared) coordinates acquired are the other documented position: compliant.
-            if (ctx.ProjectBaseSurvey is { } sv)
-            {
-                var sOut = new CheckOutcome { RulePattern = rule, Compliance = "yes" };
-                sOut.Evidence["rule"] = rule;
-                sOut.Evidence["survey_mm"] = new[] { sv.E, sv.N, sv.Z };
-                sOut.Remark = $"Surveyed coordinates acquired (E {sv.E} mm, N {sv.N} mm, Elev {sv.Z} mm) — compliant. {cite}.";
-                return sOut;
-            }
             var gridNames = ctx.Grids.Select(g => g.Name).ToList();
             // "A" and "1" through the spec grid parser: only a plain A with a plain 1 is Grid A/1
             // (AI-504, spec #12: no JKR document reads PT-A × PT1 as Grid A/1; the A4.1 spec
@@ -401,7 +392,7 @@ namespace BinaVibe.Mcp.Tools.Audit
             {
                 o.Compliance = "not_verifiable";
                 o.Remark = $"Grid '{gridA.Name.Trim()}' and grid '{grid1.Name.Trim()}' are parallel on plan, so there is no "
-                           + "crossing to measure — check manually. {cite}.";
+                           + $"crossing to measure — check manually. {cite}.";
                 return o;
             }
             var dMm = Math.Round(bestFt * 304.8, 1);
@@ -419,6 +410,12 @@ namespace BinaVibe.Mcp.Tools.Audit
             // Not exactly there: a person decides (Piawaian says "preferably"; no offset limit).
             o.Compliance = "not_verifiable";
             o.Evidence["not_verifiable_reason"] = "person_decides";
+            if (ctx.ProjectBaseSurvey is { } sv)
+            {
+                o.Evidence["shared_nonzero_mm"] = new[] { sv.E, sv.N, sv.Z };
+                o.Remark = $"Non-zero shared coordinates present: confirm they are the survey coordinates (Piawaian JKR p.72). E {sv.E} mm, N {sv.N} mm, Elev {sv.Z} mm.";
+                return o;
+            }
             o.Remark = $"Project Base Point is {dMm} mm from the crossing of {used}. JKR gives no offset limit — a person decides. {cite}.";
             return o;
         }
