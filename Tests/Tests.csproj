@@ -154,7 +154,7 @@
     <Compile Include="..\UI\Jkr\ViewModels\JkrScanJudge.cs" Link="JkrScanJudge.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\JkrCopilotFixInstaller.cs" Link="JkrCopilotFixInstaller.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\JkrCopilotPrompt.cs" Link="JkrCopilotPrompt.cs" />
-    <Compile Include="..\UI\Jkr\ViewModels\JkrCopilotPrompt.CreateType.cs" Link="JkrCopilotPrompt.CreateType.cs" />
+    <Compile Include="..\UI\Jkr\ViewModels\JkrCopilotConfirm.cs" Link="JkrCopilotConfirm.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\JkrCopilotPrompt.Issue.cs" Link="JkrCopilotPrompt.Issue.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\IssueVm.cs" Link="IssueVm.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\IssueElementIds.cs" Link="IssueElementIds.cs" />

@@ -34,12 +34,14 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void A_create_type_row_with_no_ids_still_gives_one_prompt_AI498()
+        public void FactsOf_and_Build_agree_so_the_confirm_lists_what_the_prompt_sends()
         {
-            var r = new IssueVm { SpecCheckId = "C1.5.2", Title = "3D view", RevitCategory = "Views", Required = "3D view per level", Actual = "Level 3 has none" };
-            var p = Assert.Single(JkrCopilotPrompt.Build(r, false));
-            Assert.Contains("Create a 3D view for every level", p);
-            Assert.Contains("Actual (what is missing): Level 3 has none", p);
+            var facts = JkrCopilotPrompt.FactsOf(Row(), false);
+            Assert.Equal(new long[] { 11, 12 }, facts.ElementIds);
+            var confirm = JkrCopilotConfirm.Build(facts, false);
+            Assert.Equal("Let Copilot change 2 elements for check Da.1?", confirm.Heading);
+            Assert.Contains("11 — Doors · Door 1", confirm.Details);
+            Assert.Contains("12 — Doors · Door 1", confirm.Details);
         }
     }
 }

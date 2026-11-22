@@ -87,7 +87,9 @@ namespace RevitWebAppSync.UI
                         Remember = (req, issue) => _panel.RememberCopilotFix(req, issue),   // AI-496: so Undo can reopen the row
                         Toast = message => _shell.ShowToast(message),
                         IsBm = () => !Jkr.Panel.Core.PaneLanguage.IsEn,
-                    });
+                    },
+                    // AI-490 rework: the one confirm per check, ours (the merged engine never asks before a write).
+                    content => _panel.ConfirmCopilotFix(content));
                 results.ReopenRequested += id => _panel.Reopen(id);
                 results.RescanRequested += (lod, disc) => { if (!_panel.RunFromStart(lod, disc)) results.EndBusy(); };
                 // The re-scan is over (done or failed): the Rescan button was busy until now. A scan

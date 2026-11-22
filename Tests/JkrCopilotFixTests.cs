@@ -24,11 +24,23 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void The_v1_list_is_exactly_the_umbrella_table()
+        public void The_list_is_exactly_the_families_set_parameters_can_do_on_the_protocol_3_engine()
         {
-            var want = new[] { "Da.1", "Dd.1", "Db.2", "Db.1", "Dc.1", "A2.2", "A3.1", "A5.2", "C1.6.3", "C4.2.2",
-                               "C1.3.1", "C1.4.1", "C1.5.2", "C1.6.1", "C2.1.1", "C3.1.1", "C4.1.3", "C5.1.1", "C5.1.2" };
+            var want = new[] { "Da.1", "Db.2", "Db.1", "Dc.1", "A5.2", "C1.6.3", "C4.2.2" };
             Assert.Equal(want.OrderBy(x => x), JkrCopilotFix.Allowed.OrderBy(x => x));
+        }
+
+        [Theory]
+        // dropped: category change / file rename / create-type (views, schedules, legend, sheets, links) / template views: need run_revit_code or a person
+        [InlineData("Dd.1")] [InlineData("A2.2")] [InlineData("A3.1")]
+        [InlineData("C1.3.1")] [InlineData("C1.4.1")] [InlineData("C1.5.2")] [InlineData("C1.6.1")] [InlineData("C1.6.2")] [InlineData("C2.1.1")]
+        [InlineData("C3.1.1")] [InlineData("C4.1.3")] [InlineData("C5.1.1")] [InlineData("C5.1.2")] [InlineData("C1.1.1")] [InlineData("C1.1.2")]
+        public void Families_the_engine_cannot_do_with_set_parameters_are_hidden_with_and_without_ids(string id)
+        {
+            Assert.DoesNotContain(id, JkrCopilotFix.Allowed);
+            Assert.False(JkrCopilotFix.IsListed(id));
+            Assert.False(Ok(id, "Views", ids: 0));
+            Assert.False(Ok(id, "Views", ids: 5));
         }
 
         [Theory]
@@ -66,56 +78,12 @@ namespace RevitWebAppSync.Tests
             Assert.True(Ok("Da.1", ids: 1));
         }
 
-        private static readonly string[] ModelLevel = { "C1.3.1", "C1.4.1", "C1.5.2", "C1.6.1", "C3.1.1", "C4.1.3", "C5.1.1" };
-        public static IEnumerable<object[]> ModelLevelIds() => ModelLevel.Select(id => new object[] { id });
-
         [Theory]
-        [MemberData(nameof(ModelLevelIds))]
-        public void Create_type_rows_show_the_button_with_zero_element_ids_AI498(string id)
+        [InlineData("Da.1")] [InlineData("Db.2")] [InlineData("Db.1")] [InlineData("Dc.1")] [InlineData("A5.2")] [InlineData("C1.6.3")] [InlineData("C4.2.2")]
+        public void Every_enabled_family_needs_at_least_one_element_id(string id)
         {
-            Assert.True(JkrCopilotFix.AllowsNoElementIds(id));
-            Assert.True(JkrCopilotFix.Allowed.Contains(id));
-            Assert.True(Ok(id, "Views", ids: 0));
-            Assert.True(Ok(id, "Views", ids: 3));
-            // every other gate still holds with zero ids
-            Assert.False(Ok(id, "Views", person: true, ids: 0));
-            Assert.False(Ok(id, "Views", fix: true, ids: 0));
-            Assert.False(Ok(id, "Views", pick: true, ids: 0));
-        }
-
-        [Fact]
-        public void Legend_has_no_create_tool_so_no_zero_id_button_but_still_listed_with_ids()
-        {
-            Assert.False(Ok("C2.1.1", "Views", ids: 0));
-            Assert.True(Ok("C2.1.1", "Views", ids: 1));
-        }
-
-        [Theory]
-        [InlineData(0)] [InlineData(1)] [InlineData(5)]
-        public void Template_view_rows_never_show_the_button_AI500(int ids)
-        {
-            foreach (var id in new[] { "C1.1.1", "C1.1.2" })
-            {
-                Assert.False(JkrCopilotFix.IsListed(id), id);
-                Assert.False(Ok(id, "Views", ids: ids), id);
-            }
-        }
-
-        [Fact]
-        public void The_zero_id_path_is_exactly_the_seven_model_level_ids()
-        {
-            Assert.Equal(ModelLevel.OrderBy(x => x), JkrCopilotFix.ModelLevel.OrderBy(x => x));
-        }
-
-        [Theory]
-        [InlineData("C2.1.1")] [InlineData("C1.1.1")] [InlineData("C1.1.2")] [InlineData("C1.6.2")] [InlineData("C5.1.2")]
-        [InlineData("Da.1")] [InlineData("Dd.1")] [InlineData("Db.2")] [InlineData("Db.1")] [InlineData("Dc.1")] [InlineData("A2.2")]
-        [InlineData("A3.1")] [InlineData("A5.2")] [InlineData("C1.6.3")] [InlineData("C4.2.2")]
-        [InlineData("B1.1")] [InlineData("A4.1")] [InlineData("A1.2")] [InlineData("A6.2")] [InlineData("")] [InlineData("Zz.9")]
-        public void Every_other_id_still_needs_an_element_id(string id)
-        {
-            Assert.False(JkrCopilotFix.AllowsNoElementIds(id));
             Assert.False(Ok(id, ids: 0));
+            Assert.True(Ok(id, ids: 1));
         }
 
         [Fact]
@@ -160,7 +128,7 @@ namespace RevitWebAppSync.Tests
             Assert.Contains("confirm", JkrCopilotFix.Tooltip("en"));
             Assert.Equal("Baiki melalui Copilot", JkrCopilotFix.Label("ms"));
             Assert.Contains("sembang Copilot baharu", JkrCopilotFix.Tooltip("ms"));
-            Assert.Contains("sahkan", JkrCopilotFix.Tooltip("ms"));
+            Assert.Contains("pengesahan", JkrCopilotFix.Tooltip("ms"));
             var was = PaneLanguage.Current;
             try
             {

@@ -204,6 +204,20 @@ namespace RevitWebAppSync.UI
             return dlg.Show() == TaskDialogResult.Ok;
         }
 
+        /// <summary>AI-490 rework: the confirm before "Fix via Copilot" sends anything. True = Yes.</summary>
+        public bool ConfirmCopilotFix(Jkr.ViewModels.CopilotConfirmContent content)
+        {
+            var dlg = new TaskDialog(Jkr.Panel.Core.PaneText.DialogTitle)
+            {
+                MainInstruction = content.Heading,
+                MainContent = content.Body,
+                ExpandedContent = content.Details,
+                CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No,
+                DefaultButton = TaskDialogResult.No,
+            };
+            return dlg.Show() == TaskDialogResult.Yes;
+        }
+
         public void IgnoreIssues(IReadOnlyList<string> ids)
         {
             var issues = (ids ?? Array.Empty<string>()).Select(FindIssue)

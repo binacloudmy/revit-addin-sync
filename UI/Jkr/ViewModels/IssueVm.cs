@@ -417,7 +417,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public bool IsResolved => Status == IssueStatus.Fixed || Status == IssueStatus.Approved;
         public bool CanIgnore  => JkrTierMap.CanIgnore(Priority);
         public bool CanApprove => JkrTierMap.CanApprove(Priority);
-        public bool CanMarkManual => JkrRowControls.CanMarkManual(JkrTierMap.CanMarkManual(Priority), JkrRowControls.HasFixControl(AutoFixable, JkrRowControls.AiStillOffers(AiFixCandidate, AiAsked, AiProposal != null && !string.IsNullOrEmpty(AiProposal.Value)), IsPick, CopilotFixable && !JkrCopilotPrompt.AsksPerson(SpecCheckId)));
+        public bool CanMarkManual => JkrRowControls.CanMarkManual(JkrTierMap.CanMarkManual(Priority), JkrRowControls.HasFixControl(AutoFixable, JkrRowControls.AiStillOffers(AiFixCandidate, AiAsked, AiProposal != null && !string.IsNullOrEmpty(AiProposal.Value)), IsPick, CopilotFixable));
         public bool ShowAutoFixButton => IsActionable && AutoFixable;
         public bool ShowIgnoreButton  => IsAiOpen && CanIgnore;  // only from Open → Ignored
         public bool ShowApproveButton => IsActionable && CanApprove;

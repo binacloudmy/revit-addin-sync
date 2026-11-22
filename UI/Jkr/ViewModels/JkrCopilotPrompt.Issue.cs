@@ -6,12 +6,11 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
     /// WPF-free builder in JkrCopilotPrompt.cs).</summary>
     public static partial class JkrCopilotPrompt
     {
-        /// <summary>One prompt string per chunk for this row. <paramref name="bm"/>: pane language is Malay
-        /// (<c>PaneLanguage.Current != PanelStrings.En</c>; the caller passes it).</summary>
-        public static IReadOnlyList<string> Build(IssueVm issue, bool bm)
+        /// <summary>The plain values of a row that the prompt and the confirm dialog are both built from.</summary>
+        public static CopilotPromptFacts FactsOf(IssueVm issue, bool bm)
         {
             if (issue == null) throw new System.ArgumentNullException(nameof(issue));
-            return Build(new CopilotPromptFacts
+            return new CopilotPromptFacts
             {
                 CheckId = issue.SpecCheckId,
                 Title = issue.Title,
@@ -20,7 +19,11 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 Actual = !bm && !string.IsNullOrEmpty(issue.ActualEn) ? issue.ActualEn : issue.Actual,
                 ElementIds = issue.ElementIds,
                 ElementLabels = issue.ElementLabels,
-            }, bm);
+            };
         }
+
+        /// <summary>One prompt string per chunk for this row. <paramref name="bm"/>: pane language is Malay
+        /// (<c>PaneLanguage.Current != PanelStrings.En</c>; the caller passes it).</summary>
+        public static IReadOnlyList<string> Build(IssueVm issue, bool bm) => Build(FactsOf(issue, bm), bm);
     }
 }
