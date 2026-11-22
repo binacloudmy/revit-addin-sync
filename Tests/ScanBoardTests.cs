@@ -80,7 +80,7 @@ namespace RevitWebAppSync.Tests
         {
             var backend = Backend();
             backend.Add(new SpecDedupe.Row { Id = "L-other-param", CheckId = "Db.1", Source = SpecDedupe.FromBackend, Param = "Coping_jkr_stt", ElementId = 101, Bucket = ScanBoard.Open });   // another parameter
-            backend.Add(new SpecDedupe.Row { Id = "L-other-el", CheckId = "Db.1", Source = SpecDedupe.FromBackend, Param = Param, ElementId = 999, Bucket = ScanBoard.Open });             // another element
+            backend.Add(new SpecDedupe.Row { Id = "L-other-el", CheckId = "Db.1", Source = SpecDedupe.FromBackend, Param = Param, ElementId = 999, Category = "Windows", Bucket = ScanBoard.Open });   // an id no spec row lists, in another category
             backend.Add(new SpecDedupe.Row { Id = "L-fixable", CheckId = "Db.1", Source = SpecDedupe.FromBackend, Param = Param, ElementId = 101, Fixable = true, Bucket = ScanBoard.Open }); // AI-479: a fixable row stays
             var ids = ScanBoard.Merge(backend, Audit(), Model()).Select(r => r.Id).ToList();
             Assert.Contains("L-other-param", ids);
