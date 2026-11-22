@@ -13,7 +13,7 @@ using System.Threading.Tasks;
 
 namespace BinaVibe.Copilot.Contracts
 {
-    /// <summary>The 10 model-facing tools (spec §11), in tools.json order.</summary>
+    /// <summary>The 11 model-facing tools (spec §11, AI-529), in tools.json order.</summary>
     public static class ToolNames
     {
         public const string ModelOverview = "model_overview";
@@ -23,6 +23,7 @@ namespace BinaVibe.Copilot.Contracts
         public const string SetParameters = "set_parameters";
         public const string Look = "look";
         public const string RunRevitCode = "run_revit_code";
+        public const string LoadLink = "load_link";
         public const string Lookup = "lookup";
         public const string AskUser = "ask_user";
         public const string Report = "report";
@@ -31,20 +32,20 @@ namespace BinaVibe.Copilot.Contracts
 
         public static IReadOnlyList<string> All { get; } = new[]
         {
-            ModelOverview, FindElements, Inspect, Check, SetParameters, Look, RunRevitCode, Lookup, AskUser, Report,
+            ModelOverview, FindElements, Inspect, Check, SetParameters, Look, RunRevitCode, LoadLink, Lookup, AskUser, Report,
         };
 
-        /// <summary>The 7 tools the add-in runs (lookup and report run in the cloud, ask_user in the pane).</summary>
+        /// <summary>The 8 tools the add-in runs (lookup and report run in the cloud, ask_user in the pane).</summary>
         public static IReadOnlyList<string> AddIn { get; } = new[]
         {
-            ModelOverview, FindElements, Inspect, Check, SetParameters, Look, RunRevitCode,
+            ModelOverview, FindElements, Inspect, Check, SetParameters, Look, RunRevitCode, LoadLink,
         };
 
         /// <summary>The tools.json kind: read | write | code | server | pane; null for any other name.</summary>
         public static string? KindOf(string? name) => name switch
         {
             ModelOverview or FindElements or Inspect or Check or Look => "read",
-            SetParameters => "write",
+            SetParameters or LoadLink => "write",
             RunRevitCode => "code",
             Lookup or Report => "server",
             AskUser => "pane",

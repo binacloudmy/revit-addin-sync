@@ -98,6 +98,14 @@ namespace BinaVibe.Copilot.Writes
             }
             if (outcome.HasFailures) return outcome;
 
+            // AI-529: a tool Revit cannot group (load_link) runs alone. Refused before Plan, so no file dialog opens for a batch that cannot run.
+            var mixed = LinkLoadRules.MixedBatchRefusal(batch.Calls.Select(c => c.Tool ?? "").ToList());
+            if (mixed != null)
+            {
+                for (var i = 0; i < n; i++) outcome.Failures[i] = WriteEnvelopes.Failure(ErrorCodes.InvalidArgs, mixed, EnvelopePhase.Preview);
+                return outcome;
+            }
+
             // 1. Plan: resolve every target BEFORE any change.
             for (var i = 0; i < n; i++)
             {
@@ -357,6 +365,9 @@ namespace BinaVibe.Copilot.Writes
                 for (var i = 0; i < n; i++)
                     if (CheckOwnership(doc, fresh[i]) is Envelope notOwned) return Failed(batch, i, notOwned);
 
+            // AI-529: load_link (IDirectWriteTool) runs once, outside any group or transaction, and leaves no Undo entry.
+            if (tools.Any(t => t is IDirectWriteTool)) return CommitDirect(doc!, batch, tools, contexts, fresh);
+
             var envelopes = new Envelope[n];
             var changedPerCall = new int[n];
             var builder = new BatchShapeBuilder();
@@ -466,6 +477,45 @@ namespace BinaVibe.Copilot.Writes
             if (!noop) Highlight(uidoc!, doc!, envelopes, builder.AddedIds, select: !queued);
             foreach (var e in envelopes.Where(e => e != null)) EnvelopeChanges.Recheck(e);
             return new CommitOutcome { Kind = CommitKind.Committed, Envelopes = envelopes, UndoEntry = !noop };
+        }
+
+        /// <summary>The commit of a batch of <see cref="IDirectWriteTool"/> calls (AI-529): each Execute runs with NO transaction or group open,
+        /// because Revit's link load cannot run inside one and clears the whole Undo list. No Undo entry is made (the runner then tells the pane
+        /// there is nothing to undo). A tool that fails after Revit may have loaded something is reported may_have_applied, never as a clean refusal.</summary>
+        private static CommitOutcome CommitDirect(Document doc, WriteBatch batch, IWriteTool[] tools, ToolContext[] contexts, WritePlan[] plans)
+        {
+            var n = batch.Calls.Count;
+            var envelopes = new Envelope[n];
+            using (FailureLog.Begin())
+            using (var dialogs = DialogWatch.Collect())
+            using (FailureScope.Begin(doc.Application))
+            {
+                for (var i = 0; i < n; i++)
+                {
+                    Envelope env;
+                    try
+                    {
+                        env = tools[i].Execute(contexts[i], batch.Calls[i].Args, plans[i], WritePhase.Commit)
+                              ?? throw new InvalidOperationException(batch.Calls[i].Tool + " returned no result.");
+                    }
+                    catch (WriteRefusal refusal)
+                    {
+                        return Failed(batch, i, FromException(refusal, EnvelopePhase.Commit));
+                    }
+                    catch (Exception ex)
+                    {
+                        return Failed(batch, i, WriteEnvelopes.Failure(ErrorCodes.MayHaveApplied,
+                            "The change stopped part-way (" + ex.GetType().Name + ": " + ex.Message + "). Revit may have loaded some of it; check the model before trying again.",
+                            EnvelopePhase.Commit));
+                    }
+                    AddWarnings(env, FailureLog.Current.Snapshot());
+                    AddDialogs(env, dialogs.Snapshot());
+                    env.Phase = EnvelopePhase.Commit;
+                    if (!env.Ok) return Failed(batch, i, env);
+                    envelopes[i] = env;
+                }
+            }
+            return new CommitOutcome { Kind = CommitKind.Committed, Envelopes = envelopes, UndoEntry = false };
         }
 
         private static CommitOutcome Failed(WriteBatch batch, int failedIndex, Envelope failure)

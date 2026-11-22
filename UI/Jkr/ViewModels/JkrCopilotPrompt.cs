@@ -74,13 +74,16 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// <c>set_parameters</c>: the ids are only used to read names (the playbook takes names), and the confirm says what the playbook
         /// does. Null for a <c>set_parameters</c> family. The name of the playbook in bina-ai <c>data/copilot/playbooks</c>.</summary>
         public string Playbook { get; set; }
+        /// <summary>AI-529: the family is done by the <c>load_link</c> tool: Revit clears its whole Undo list when a link loads, so the confirm says
+        /// the change cannot be undone and the ids are link type ids (the tool takes them as numbers).</summary>
+        public bool NoUndo { get; set; }
         /// <summary>E.1: the set of each view comes from the facts (the evaluator decided it): the prompt and the confirm list "id — label — set X
         /// (required: template X)" and only ids that have one.</summary>
         public bool SetFromFacts { get; set; }
     }
 
     /// <summary>
-    /// AI-493 / AI-490 rework: the prompt "Fix via Copilot" sends to the protocol-3 engine (10 tools: set_parameters, the reads,
+    /// AI-493 / AI-490 rework: the prompt "Fix via Copilot" sends to the protocol-3 engine (11 tools: set_parameters, load_link, the reads,
     /// lookup, ask_user, report, run_revit_code). That engine applies writes at once and its rule is "never ask permission"
     /// (ask_user is for missing input only, and the pane drops approval-worded options), so a prompt cannot make it ask Yes/No.
     /// The confirm therefore happens BEFORE this prompt is sent (<see cref="JkrCopilotConfirm"/>, shown by the launcher), and
@@ -144,6 +147,10 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     "Apply to each view below the view template of the set named on its line (BOMBA, PBT or Dokumen). Change the view template only.",
                     "Each line gives the set the JKR check decided for that view: use it, and never read the set from the view's name. Read each id's view name with inspect. Then use run_revit_code with playbook \"apply-view-template\" and no code: inputs views = those names, without template on the first run; each ASK line of the result lists the view templates that fit that view. For each view take the template whose name carries that line's set, only when exactly one name does. When none or several do, ask me once with ask_user which one, listing only the names the result gave. Then run it again with templateFor (view name to template name; one entry per view) and expected {modifies: N}, N = the number of views. Never create, duplicate or change a view template. If the result says a template is not in this project, leave that view as it is and say so: the template views are copied in by check C1.1.1.",
                     "Apply the view template of its set to the views", CopilotWriteLevel.Instance) { Playbook = "apply-view-template", SetFromFacts = true },
+                ["C5.1.1"] = new CopilotPromptVariant(
+                    "Load the Revit links below: each one is in the model but not loaded. Load them only; never unload, remove or add any other link.",
+                    "Use load_link with links = the ids below, written as numbers, at most 10 per call and one call per message. If a stored file is missing Revit's file picker opens for me: wait for it, never invent a path. Never use run_revit_code for links. The result lists each link as loaded or not; say which did not load and why. Revit clears its Undo list when a link loads, so tell me this cannot be undone with Undo.",
+                    "Load the links", CopilotWriteLevel.Instance) { NoUndo = true },
                 ["C4.2.2"] = new CopilotPromptVariant(
                     "Change the sheets below by filling the empty title block cells: drawing title (Sheet Name) and Drawn By. Set only values you know.",
                     "Use set_parameters with type_param false on the sheets' own parameters 'Sheet Name' (the drawing title) and 'Drawn By' for the sheet ids below; a sheet has no type, so never send type_param true. A sheet still called 'Unnamed' needs a real title: if you do not know it, ask me once with ask_user (never write 'Unnamed' again). Project-level values (Project Information) and title block type parameters are out of scope: do not change them and say which cells stay empty. If a value is not known, ask me once with ask_user.",
@@ -365,6 +372,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             {
             if (variant.Playbook != null)
                 sb.AppendLine("Use the ids above only to read names with inspect; never use a filter to find elements.");
+            else if (variant.NoUndo)
+                sb.AppendLine("The ids above are the Revit link types to load; load no other link and never use a filter.");
             else
             sb.AppendLine("Use the ids above as ids only as the target; never use a filter." + (variant.Level == CopilotWriteLevel.Type
                 ? " Read these ids first, in this turn, before set_parameters: read them with inspect AND run find_elements for their category grouped by type (both), so each type, its category and its instance count are known."

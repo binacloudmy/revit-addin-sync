@@ -15,7 +15,7 @@ namespace RevitWebAppSync.Tests
     public class JkrCopilotPromptTests
     {
         // The tools of the merged engine (bina-ai contracts/copilot/tools.json): the only names a prompt may use.
-        private static readonly string[] EngineTools = { "model_overview", "find_elements", "inspect", "check", "set_parameters", "look", "run_revit_code", "lookup", "ask_user", "report" };
+        private static readonly string[] EngineTools = { "model_overview", "find_elements", "inspect", "check", "set_parameters", "look", "run_revit_code", "load_link", "lookup", "ask_user", "report" };
         // Tool names and phrases of the removed MCP-era engine / the old propose-and-wait protocol.
         private static readonly string[] OldNames =
         {
@@ -25,8 +25,8 @@ namespace RevitWebAppSync.Tests
         };
         private static readonly Regex OldSingular = new Regex(@"\bset_parameter\b");
 
-        private static readonly string[] FixableFamilies = { "Da.1", "Db.2", "Db.1", "Dc.1", "Dd.1", "A5.2", "C1.6.3", "C4.2.2", "C4.1.3", "E.1", "C1.5.2" };
-        // WP-4/5: these two are stored playbook runs (run_revit_code), not set_parameters writes.
+        private static readonly string[] FixableFamilies = { "Da.1", "Db.2", "Db.1", "Dc.1", "Dd.1", "A5.2", "C1.6.3", "C4.2.2", "C4.1.3", "E.1", "C1.5.2", "C5.1.1" };
+        // WP-4/5: these are stored playbook runs (run_revit_code), not set_parameters writes. C5.1.1 (AI-529) is the load_link tool.
         private static readonly string[] PlaybookFamilies = { "C4.1.3", "E.1", "C1.5.2" };
         public static IEnumerable<object[]> Families() => FixableFamilies.Select(i => new object[] { i });
 
@@ -59,6 +59,7 @@ namespace RevitWebAppSync.Tests
             Assert.Contains(id, p);
             Assert.Contains(v.How, p);
             if (PlaybookFamilies.Contains(id)) Assert.NotNull(v.Playbook);
+            else if (v.NoUndo) Assert.Contains("load_link", v.How);
             else Assert.Contains("set_parameters", v.How);
             Assert.NotEmpty(v.Change);
         }
@@ -478,6 +479,42 @@ namespace RevitWebAppSync.Tests
             var a3 = Assert.Single(JkrCopilotPrompt.Build(Facts("A3.1", 1)));
             Assert.DoesNotContain("Does not comply when", a3);
             Assert.Contains("Complies when", a3);
+        }
+
+        [Fact]
+        public void C511_loads_the_links_with_load_link_never_by_code_and_says_it_cannot_be_undone_AI529()
+        {
+            var v = JkrCopilotPrompt.VariantFor("C5.1.1");
+            Assert.True(v.NoUndo);
+            Assert.Null(v.Playbook);
+            Assert.Empty(v.Params);                                   // no confirmed_write field: it is not a set_parameters write
+            Assert.Contains("Use load_link with links = the ids below", v.How);
+            Assert.Contains("at most 10 per call", v.How);
+            Assert.Contains("Never use run_revit_code for links", v.How);
+            Assert.Contains("file picker opens", v.How);
+            Assert.Contains("cannot be undone with Undo", v.How);
+            Assert.DoesNotContain("set_parameters", v.How);
+            var p = Assert.Single(JkrCopilotPrompt.Build(PlaybookFacts("C5.1.1", "Links", (701, "Link jkrME24.rvt"), (702, "Link jkrEL24.rvt"))));
+            Assert.StartsWith(v.Task, p);
+            Assert.Contains("- 701 — Link jkrME24.rvt", p);
+            Assert.Contains("are the Revit link types to load", p);
+            Assert.DoesNotContain("ids only as the target", p);
+            Assert.DoesNotContain("Baiki", p);                        // English only (AI-513)
+            Assert.Null(JkrCopilotConfirmedWrite.ForPart(PlaybookFacts("C5.1.1", "Links", (701, "A")), 0));
+        }
+
+        [Fact]
+        public void C511_confirm_says_the_load_cannot_be_undone_and_the_other_families_still_say_they_can_AI529()
+        {
+            var c = JkrCopilotConfirm.Build(PlaybookFacts("C5.1.1", "Links", (701, "Link jkrME24.rvt")));
+            Assert.Equal("Let Copilot change 1 element for check C5.1.1?", c.Heading);
+            Assert.Contains("Load the links for the items listed below only", c.Body);
+            Assert.Contains("Loading a link clears Revit's Undo history", c.Body);
+            Assert.Contains("cannot be undone", c.Body);
+            Assert.Contains("file picker opens", c.Body);
+            Assert.DoesNotContain("you can Undo", c.Body);
+            Assert.Contains("701 — Link jkrME24.rvt", c.Details);
+            Assert.Contains("you can Undo", JkrCopilotConfirm.Build(Facts("C1.6.3", 2, "Rooms")).Body);
         }
 
         [Fact]

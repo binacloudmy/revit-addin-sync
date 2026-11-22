@@ -1260,7 +1260,7 @@ namespace RevitWebAppSync.Services.JkrSpec
         {
             foreach (var lt in new FilteredElementCollector(doc).OfClass(typeof(RevitLinkType)).Cast<RevitLinkType>())
             {
-                var x = new SpecLink { Name = NameOf(lt) };
+                var x = new SpecLink { Id = IdOf(lt.Id), Name = NameOf(lt) };
                 try
                 {
                     var st = lt.GetLinkedFileStatus();
