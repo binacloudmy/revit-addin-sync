@@ -548,35 +548,124 @@ namespace RevitWebAppSync.Tests
             Assert.False(SpecA.IsJkrMaterialName("Aluminum"));
         }
 
+        // AI-489: the model-type table of Piawaian Lampiran A1 (Medan 6, p.120-121), and every sample
+        // name of the BPEP research (JKR-BPEP-research-2026-11-21.md) plus the real test-round names.
         [Theory]
-        [InlineData("jkrAR24_5a_(BEde1A_p14-001)_A1_w-01_(S)_DS_220222a.rvt", 1, "WX01")]
-        [InlineData("jkrAR24_5a_A1_W00_DS.rvt", 0, "W00")]
-        [InlineData("jkrAR24_5a_A1_w-00_DS", 0, "W00")]
-        [InlineData("jkrAR24_5a_A1_WX02_DS.rvt", 2, "WX02")]
-        [InlineData("PRJ-AR-WX12-Tower.rvt", 12, "WX12")]
-        public void Model_code_is_read_from_the_file_name(string name, int number, string canonical)
+        // whole model: w-00
+        [InlineData("jkrAR24_5a_A1_W00_DS.rvt", SpecModelKind.Whole, 0, "W00")]
+        [InlineData("jkrAR24_5a_A1_w-00_DS", SpecModelKind.Whole, 0, "W00")]
+        [InlineData("jkrAR21_4a_(BEsr36_p21-602)_A1_w-00_(S)_240422a", SpecModelKind.Whole, 0, "W00")]
+        [InlineData("jkrAR24_3a_(BAqrF1_03W24-001)_A1_w-00_(S)_240913a", SpecModelKind.Whole, 0, "W00")]
+        // whole-model counter: w-nn is NOT a split part
+        [InlineData("jkrAR24_5a_(BEde1A_p14-001)_A1_w-01_(S)_DS_220222a.rvt", SpecModelKind.WholeCounter, 1, "W-01")]
+        [InlineData("jkrAR18_1_(BepjD1_18-001)_A1_w-01_(S)_180810a", SpecModelKind.WholeCounter, 1, "W-01")]
+        [InlineData("jkrAR20_2b_(BMkk5a_26B-001)_A1_w-01_(S)_200409a.rvt", SpecModelKind.WholeCounter, 1, "W-01")]
+        [InlineData("jkrAR21_3a_(BEsr36_p21-602)_A1_w-04_(S)_210322a", SpecModelKind.WholeCounter, 4, "W-04")]
+        [InlineData("jkrAR21_3a_( BEsr36_p21-602)_B1_w-01_(S)_210322a", SpecModelKind.WholeCounter, 1, "W-01")]
+        [InlineData("jkrST22_2b_(BEdeA1_14-001)_A1_w-01_(S)_DS-PC_190124", SpecModelKind.WholeCounter, 1, "W-01")]
+        [InlineData("2017-11-17a_jkrME18-3_(BEdeA1_14-001)_A1_w-01_(K)_ACMV", SpecModelKind.WholeCounter, 1, "W-01")]
+        [InlineData("jkrEL22_3b_(BEdeA1_14-p01)_A1_w-01_(S)_LV_171117a", SpecModelKind.WholeCounter, 1, "W-01")]
+        // level sub-model: wxnn (nn = level)
+        [InlineData("jkrAR24_5a_A1_WX02_DS.rvt", SpecModelKind.LevelSubModel, 2, "WX02")]
+        [InlineData("PRJ-AR-WX12-Tower.rvt", SpecModelKind.LevelSubModel, 12, "WX12")]
+        [InlineData("jkrST20-3b_(BSbpP1_18-001)_A1_wx01_(S)_200320a.rvt", SpecModelKind.LevelSubModel, 1, "WX01")]
+        [InlineData("jkrAR24_5a_A1_wx30_(S)_DS_220222a.rvt", SpecModelKind.LevelSubModel, 30, "WX30")]
+        // site / facade / roof / core
+        [InlineData("jkrAR21_3a_(BEsr36_p21-602)_W1_wt01_(S)_210322a", SpecModelKind.Site, 1, "WT01")]
+        [InlineData("jkrAR21_3a_(BEsr36_p21-602)_A1_wt00_(S)_210322a", SpecModelKind.Site, 0, "WT00")]
+        [InlineData("jkrAR24_5a_A1_wf02_(S)_DS", SpecModelKind.Facade, 2, "WF02")]
+        [InlineData("jkrAR24_5a_A1_wr01_(S)_DS", SpecModelKind.Roof, 1, "WR01")]
+        [InlineData("jkrAR24_5a_A1_wc01_(S)_DS", SpecModelKind.Core, 1, "WC01")]
+        // other sub-model codes of the table: read, not judged
+        [InlineData("jkrAR24_5a_A1_wg00_(S)_DS", SpecModelKind.Unknown, 0, "wg00")]
+        [InlineData("jkrAR24_5a_A1_wv00_(S)_DS", SpecModelKind.Unknown, 0, "wv00")]
+        [InlineData("jkrAR24_5a_A1_wb01_(S)_DS", SpecModelKind.Unknown, 0, "wb01")]
+        [InlineData("jkrAR24_5a_A1_wkPB00_(S)_DS", SpecModelKind.Unknown, 0, "wkPB00")]
+        public void Model_code_is_read_by_the_Piawaian_table(string name, SpecModelKind kind, int number, string canonical)
         {
             var c = SpecA.ParseModelCode(name);
             Assert.NotNull(c);
+            Assert.Equal(kind, c.Kind);
             Assert.Equal(number, c.Number);
             Assert.Equal(canonical, c.Canonical);
         }
 
+        [Fact]
+        public void Only_a_level_sub_model_is_a_numbered_part_and_w_nn_is_whole()
+        {
+            Assert.True(SpecA.ParseModelCode("a_w-04_b").IsWhole);
+            Assert.False(SpecA.ParseModelCode("a_w-04_b").IsLevelPart);
+            Assert.True(SpecA.ParseModelCode("a_wx30_b").IsLevelPart);
+            Assert.False(SpecA.ParseModelCode("a_wx30_b").IsWhole);
+            Assert.True(SpecA.ParseModelCode("a_wt01_b").IsSubModel);
+            Assert.False(SpecA.ParseModelCode("a_wt01_b").IsLevelPart);
+        }
+
+        // ME / EL names of the BPEP samples and Penjana, and a real name, carry no model code
         [Theory]
         [InlineData("Project1.rvt")]
         [InlineData("jkrAR24_(BEdeW01)_A1.rvt")]
         [InlineData("Wall01_Tower.rvt")]
+        [InlineData("jkrME21_2b_ACMV_(BEsr36_p21-602)_(S)_250322a")]
+        [InlineData("jkrME21_2b_FP-spr_(BEsr36_p21-602)_(S)_250322a")]
+        [InlineData("jkrEL21_2b_LV_(BEsr36_p21-602)_(S)_250322a")]
+        [InlineData("jkrEL21_2b_ELV_(BEsr36_p21-602)_(S)_250322a")]
+        [InlineData("jkrME20_1a_FP -fir-al_(Baqf_jk)_kk_190919.rvt")]
+        [InlineData("jkrEL24_2a_BE_03W-001_A1_w_240108a.rvt")]
+        [InlineData("jkrST27_rt.rvt")]
         [InlineData("")]
         [InlineData(null)]
         public void No_model_code_when_none_is_written(string name) => Assert.Null(SpecA.ParseModelCode(name));
 
         [Fact]
-        public void A2_2_reports_the_code_and_fails_when_unreadable()
+        public void A2_2_reports_the_code_and_lists_it_for_a_person_when_none_is_written()
         {
             var r = Assert.Single(Run(new SpecModel { FileName = File01 }, "A2.2"));
             Assert.Equal("pass", r.Status);
-            Assert.Contains("WX01 (split model)", r.Note);
-            Assert.Equal("fail", Assert.Single(Run(new SpecModel { FileName = "Project1.rvt" }, "A2.2")).Status);
+            Assert.Contains("W-01 (whole model, counter 01)", r.Note);
+            Assert.Contains("WX03 (level sub-model, level 3)", Assert.Single(Run(new SpecModel { FileName = "jkrAR24_A1_WX03_DS.rvt" }, "A2.2")).Note);
+            // AI-489: no code is "not stated", never a fail — ME / EL names and the real jkrST27_rt
+            foreach (var n in new[] { "Project1.rvt", "jkrME21_2b_ACMV_(BEsr36_p21-602)_(S)_250322a", "jkrST27_rt.rvt" })
+            {
+                var none = Assert.Single(Run(new SpecModel { FileName = n }, "A2.2"));
+                Assert.NotEqual("fail", none.Status);
+                Assert.Equal(SpecState.NeedsPerson, State(new SpecModel { FileName = n }, "A2.2"));
+            }
+            Assert.Equal(SpecState.NeedsPerson, State(new SpecModel { FileName = "jkrAR24_5a_A1_wg00_(S)_DS" }, "A2.2"));
+        }
+
+        [Fact]
+        public void The_test_model_w_01_is_a_whole_model_A3_1_passes_and_A3_2_is_not_applicable()
+        {
+            var m = new SpecModel { FileName = File01 };
+            Assert.Equal(SpecState.Pass, State(m, "A3.1"));
+            Assert.Equal(SpecState.NotApplicable, State(m, "A3.2"));
+            m.Links.Add(new SpecLink { Name = "jkrST24_5a_A1_w-01_DS.rvt", Status = "Loaded" });
+            Assert.Equal(SpecState.NotApplicable, State(m, "A3.2"));   // no WX parts are invented from a w-nn counter
+            foreach (var n in new[] { "jkrAR24_5a_A1_w-04_DS.rvt", "jkrAR24_5a_A1_w-02_DS.rvt" })
+                Assert.Empty(Fails(Run(new SpecModel { FileName = n }, "A3.2")));
+        }
+
+        [Fact]
+        public void A3_1_has_no_verdict_to_give_without_a_code_and_A3_2_for_a_level_part_reads_only_level_links()
+        {
+            Assert.Equal(SpecState.NeedsPerson, State(new SpecModel { FileName = "jkrME21_2b_ACMV_(BEsr36_p21-602)_(S)_250322a" }, "A3.1"));
+            var m = new SpecModel
+            {
+                FileName = "jkrAR24_5a_A1_wx03_DS.rvt",
+                Links =
+                {
+                    new SpecLink { Name = "jkrAR24_5a_A1_w-02_DS.rvt", Status = "Loaded" },    // a counter, not a level part
+                    new SpecLink { Name = "jkrAR24_5a_A1_wx01_DS.rvt", Status = "Loaded" },
+                    new SpecLink { Name = "jkrAR24_5a_A1_wx02_DS.rvt", Status = "Loaded" },
+                },
+            };
+            Assert.Empty(Fails(Run(m, "A3.2")));
+            Assert.Equal(2, Assert.Single(Run(m, "A3.2")).ElementCount);
+            // a site sub-model is a sub-model but not a level: A3.1 N/A, A3.2 for a person
+            var site = new SpecModel { FileName = "jkrAR21_3a_(BEsr36_p21-602)_W1_wt01_(S)_210322a" };
+            Assert.True(Assert.Single(Run(site, "A3.1")).NotApplicable);
+            Assert.Equal(SpecState.NeedsPerson, State(site, "A3.2"));
         }
 
         // ════ A3 split ════
@@ -689,7 +778,7 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void A3_split_with_no_links_asks_for_links_first()
         {
-            var m = new SpecModel { FileName = File01 };
+            var m = new SpecModel { FileName = "jkrAR24_5a_(BEde1A_p14-001)_A1_wx01_(S)_DS_220222a.rvt" };
             var a34 = Assert.Single(Run(m, "A3.4"));
             Assert.Equal(SpecCoverage.Listing, a34.Coverage);
             Assert.Contains("the model must be linked first before the A3 checks can run", a34.Note);
