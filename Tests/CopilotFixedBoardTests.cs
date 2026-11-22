@@ -20,7 +20,9 @@ namespace RevitWebAppSync.Tests
         private static PanelCore Load(IEnumerable<IssueVm> rows)
         {
             var items = rows.Select(i => ResultsAdapter.FromIssue(i)).ToList();
-            return new PanelCore(items, null, new ManualClock());
+            var core = new PanelCore(new List<PanelItem>(), null, new ManualClock());
+            core.Replace(items, null);   // as the pane does after a scan or a fix: items keep their status
+            return core;
         }
 
         private static void CopilotFix(IssueVm i) { i.FixedVia = "Copilot"; i.FixVerified = true; i.Status = IssueStatus.Fixed; }
