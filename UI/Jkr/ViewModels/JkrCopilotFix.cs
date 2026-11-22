@@ -103,6 +103,10 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// <summary>Set by the Copilot launcher (AI-494). Null = the button's click is a no-op.</summary>
         public static ICopilotFixLauncher Launcher { get; set; }
 
+        /// <summary>A launcher is set: the button may show. Without one it would be a dead button, so rows hide it
+        /// (and it is no control for Mark manual).</summary>
+        public static bool LauncherReady => Launcher != null;
+
         /// <summary>Hand a row to the launcher; the caller checks <c>IssueVm.CopilotFixable</c> first. False when
         /// there is no launcher yet (the stub).</summary>
         public static bool Request(CopilotFixRequest request)

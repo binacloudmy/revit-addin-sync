@@ -8,8 +8,27 @@ using Xunit;
 namespace RevitWebAppSync.Tests
 {
     /// <summary>AI-492 (IssueVm / WPF half; not compiled on the Mac harness): the flag on a row, the adapter, the detail card.</summary>
-    public class JkrCopilotFixRowTests
+    [Collection("CopilotLauncher")]
+    public class JkrCopilotFixRowTests : System.IDisposable
     {
+        private sealed class NoopLauncher : ICopilotFixLauncher { public void Launch(CopilotFixRequest r) { } }
+        public JkrCopilotFixRowTests() { JkrCopilotFix.Launcher = new NoopLauncher(); }
+        public void Dispose() { JkrCopilotFix.Launcher = null; }
+
+        [Fact]
+        public void No_launcher_hides_the_button_and_it_is_no_control_a_launcher_shows_it()
+        {
+            var row = Row("Da.1"); row.Priority = IssuePriority.High;
+            JkrCopilotFix.Launcher = null;
+            Assert.False(row.CopilotFixable);
+            Assert.True(row.CanMarkManual);                 // hidden button is no control: High row can still be deferred
+            Assert.False(ResultsAdapter.FromIssue(row).CopilotFixable);
+            JkrCopilotFix.Launcher = new NoopLauncher();
+            Assert.True(row.CopilotFixable);
+            Assert.False(row.CanMarkManual);
+            Assert.True(ResultsAdapter.FromIssue(row).CopilotFixable);
+        }
+
         private static IssueVm Row(string check, string cat = "Doors", bool fix = false, bool pick = false, int ids = 2, bool human = false)
         {
             var i = new IssueVm

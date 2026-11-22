@@ -8,6 +8,7 @@ namespace RevitWebAppSync.Tests
 {
     /// <summary>AI-492 (Revit- and WPF-free half): the code-side list and its eligibility rule, Fix all skips
     /// CopilotFixable rows, BM / EN tooltip, the launcher seam. The IssueVm / detail half is JkrCopilotFixRowTests.</summary>
+    [Collection("CopilotLauncher")]
     public class JkrCopilotFixTests
     {
         private static bool Ok(string id, string cat = "Doors", bool person = false, bool fix = false, bool pick = false, int ids = 2) =>

@@ -277,8 +277,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
 
         /// <summary>AI-492: the row offers "Fix via Copilot": its check is on the code-side list, no ready fix, no picker,
         /// at least one element id, and never a person-decides row (<see cref="JkrCopilotFix.Eligible(string, string, bool, bool, bool, int)"/>).
-        /// Not persisted: ids are not in the audit snapshot, so a restored row shows no button until a re-scan.</summary>
-        public bool CopilotFixable => JkrCopilotFix.Eligible(SpecCheckId, RevitCategory, NeedsPerson,
+        /// Hidden while no Copilot launcher is set (no dead button). Not persisted: ids are not in the audit snapshot, so a restored row shows no button until a re-scan.</summary>
+        public bool CopilotFixable => JkrCopilotFix.LauncherReady && JkrCopilotFix.Eligible(SpecCheckId, RevitCategory, NeedsPerson,
             AutoFixable || !string.IsNullOrEmpty(FixAction), IsPick || ValidOptions.Count > 0, ElementIds?.Count ?? 0);
 
         /// <summary>AI-492: what the Copilot launcher gets for this row.</summary>
