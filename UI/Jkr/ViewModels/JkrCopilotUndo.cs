@@ -96,6 +96,9 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         }
 
         /// <summary>Is there something to do for an Undo that reported <paramref name="undone"/> (may be empty: undoing a creation reports no ids)?</summary>
+        /// <summary>AI-508: does the Copilot Undo chip's completion matter (any Copilot-fixed row on the document)?</summary>
+        public bool HasRows(string docPath) => Ledger.ForDoc(docPath).Count > 0;
+
         public bool Interested(string docPath, IReadOnlyCollection<long> undone) =>
             Ledger.HitBy(docPath, undone).Count > 0 || ((undone == null || undone.Count == 0) && Ledger.ScanOnly(docPath).Count > 0);
 
@@ -109,10 +112,12 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         }
 
         /// <summary>Returns how many rows were reopened by Copilot-undo handling plus the panel's own re-check. The toast is shown once.</summary>
-        public async Task<int> RunAsync(string docPath, IReadOnlyCollection<long> undone)
+        /// <param name="allLedger">AI-508: the Copilot Undo chip's own completion event (no ids): re-check EVERY Copilot-fixed row of the
+        /// document, whatever ids Revit's DocumentChanged reported (or whether it raised the pane's event at all).</param>
+        public async Task<int> RunAsync(string docPath, IReadOnlyCollection<long> undone, bool allLedger = false)
         {
             var reopened = 0;
-            var hits = Ledger.HitBy(docPath, undone);
+            var hits = allLedger ? Ledger.ForDoc(docPath) : Ledger.HitBy(docPath, undone);
             var ids = RecheckIds(undone, _host.RowElementIds?.Invoke(), hits);
             if (ids.Count > 0)
             {
@@ -121,7 +126,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 if (outcome != null) reopened += outcome.Reopened.Count;
             }
 
-            var rows = ScanTargets(docPath, undone, hits)
+            var targets = allLedger ? Ledger.ScanOnly(docPath).ToList() : ScanTargets(docPath, undone, hits);
+            var rows = targets
                 .Select(e => _host.Issue(e.IssueId))
                 .Where(r => r != null && r.RecheckState == RecheckState.Fixed && r.FixedVia == "Copilot").ToList();
             if (rows.Count > 0)

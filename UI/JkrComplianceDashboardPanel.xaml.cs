@@ -434,6 +434,8 @@ namespace RevitWebAppSync.UI
 
             Loaded += (_, __) => { Keyboard.Focus(this); RenderAll(); };
             BinaVibe.DocState.DocumentRevisionTracker.UndoRedoApplied += OnUndoRedo;
+            // AI-508: the Copilot Undo chip reports its own completion; do not depend only on Revit's DocumentChanged ids.
+            BinaVibe.Copilot.Undo.UndoService.Changed += OnCopilotUndoChanged;
             KeyDown += OnKeyDown;
 
             PreviewKeyDown += (_, e) =>
@@ -1644,6 +1646,25 @@ namespace RevitWebAppSync.UI
             catch { /* a recorder never breaks a commit */ }
         }
 
+        private bool _undoAllLedger;
+
+        /// <summary>AI-508: Copilot's Undo/Redo (its chip or Revit's list) moved a BINA entry: re-check every Copilot-fixed row.
+        /// May fire on Revit's thread; hand off to the pane thread.</summary>
+        private void OnCopilotUndoChanged(BinaVibe.Copilot.Undo.UndoChange change)
+        {
+            try
+            {
+                if (change == null || change.Kind == BinaVibe.Copilot.Undo.UndoChangeKind.Other) return;
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (!_copilotUndo.HasRows(_scannedDocPath)) return;
+                    _undoAllLedger = true;
+                    ArmUndoRecheck();
+                }));
+            }
+            catch { /* a pane handler never breaks Revit's event */ }
+        }
+
         private void ArmUndoRecheck()
         {
             if (_undoTimer == null)
@@ -1655,8 +1676,10 @@ namespace RevitWebAppSync.UI
                     if (_vm.Scanning) { _undoTimer.Start(); return; }   // wait out a running scan
                     var undone = _undoIds.ToList();
                     _undoIds.Clear();
+                    var all = _undoAllLedger;
+                    _undoAllLedger = false;
                     // AI-496: the Copilot-fixed rows the Undo touched are re-checked in the same pass.
-                    await _copilotUndo.RunAsync(_scannedDocPath, undone);
+                    await _copilotUndo.RunAsync(_scannedDocPath, undone, all);
                 };
             }
             _undoTimer.Stop();
