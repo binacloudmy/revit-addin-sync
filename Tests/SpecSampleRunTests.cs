@@ -37,11 +37,15 @@ namespace RevitWebAppSync.Tests
             var report = SpecReport.Build(SpecChecks.Run(Model("jkr_run_failing.json")));
             var failing = report.Checks.Where(c => c.State == SpecState.Fail).Select(c => c.Check.Id).ToList();
             // Built in: undersized doors and a 35 mm main door, a level without a Dokumen 3D
-            // view (C1.5.2, revision 2), an empty sheet, room-schedule gaps, a grid jump, an RC
-            // flat roof without waterproofing, a 2700 mm ceiling, an 1800 mm fence.
-            foreach (var id in new[] { "A1.1", "A1.2", "A1.3", "A1.4", "A1.5", "A5.2", "C1.5.2", "C1.6.2", "C1.6.3", "C4.1.3" })
+            // view (C1.5.2, revision 2), an empty sheet, room-schedule gaps, a grid jump, a 2700 mm
+            // ceiling, an 1800 mm fence. (The RC roof without waterproofing is no longer a fail:
+            // AI-504, no JKR definition of a flat roof; a person decides, see below.)
+            foreach (var id in new[] { "A1.1", "A1.2", "A1.3", "A1.5", "A5.2", "C1.5.2", "C1.6.2", "C1.6.3", "C4.1.3" })
                 Assert.True(failing.Contains(id), id + " should fail in the failing sample; failing: " + string.Join(", ", failing));
             Assert.Contains(report.For("C1.5.2").Notes, n => n.Contains("Aras 03"));
+            Assert.DoesNotContain("A1.4", failing);
+            Assert.Equal(SpecState.NeedsPerson, report.For("A1.4").State);
+            Assert.NotEmpty(report.For("A1.4").IssueIds);
 
             // Shown, never failed: the WIP list (a level without a ceiling plan) and the
             // non-JKR materials, which are A7.2 warnings with an issue each.

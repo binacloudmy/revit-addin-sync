@@ -468,6 +468,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                     case SpecState.Pass: t.AiPass++; break;
                     case SpecState.Fail: t.Fail++; break;
                     case SpecState.Partial: t.Partial++; break;
+                    // AI-504: nothing was judged, and all that was found is for a person to decide
+                    // (never a verdict): it counts as passed, as a Human check does (AI-474).
+                    case SpecState.NeedsPerson when c.PersonRows > 0 && c.Unjudged == 0: t.ListHuman++; break;
                     default:
                         t.Unjudged++;
                         if (r.BackendUnavailable && SpecReport.BackendMappedChecks.Contains(c.Check.Id)) backendBlocked++;

@@ -277,7 +277,7 @@ namespace RevitWebAppSync.Tests
             var wall = T("Walls", "Wall 146");
             wall.Numbers["Width"] = 150;
             var wallOk = T("Walls", "Wall 200");
-            wallOk.Numbers["Width"] = 200.4;
+            wallOk.Numbers["Width"] = 200;
             var door = T("Doors", "(PT2p600a) 900 x 2325 a");
             door.Numbers["Width"] = 900; door.Numbers["Height"] = 2100;
             var noHeight = T("Doors", "(PT1p850a) 850 x 2100");
@@ -301,18 +301,22 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void Dc1_remarks_label_the_assumed_tolerance_and_full_pass_when_all_numbers_read()
+        public void Dc1_remarks_cite_no_tolerance_and_full_pass_when_all_numbers_read()
         {
+            // AI-504 (Q11): JKR gives no tolerance, so no remark mentions one (it was "±1 mm, andaian").
             var bad = T("Walls", "Wall 146"); bad.Numbers["Width"] = 150;
             var f = Fails(Run("Dc.1", Model(bad))).Single();
             Assert.Equal(SpecCoverage.Full, f.Coverage);
-            Assert.Contains("andaian", f.Note);
-            Assert.Contains("assumed", f.NoteEn);
+            Assert.DoesNotContain("toleransi", f.Note);
+            Assert.DoesNotContain("±", f.Note);
+            Assert.DoesNotContain("tolerance", f.NoteEn);
+            Assert.DoesNotContain("±", f.NoteEn);
 
             var ok = T("Walls", "Wall 200"); ok.Numbers["Width"] = 200;
             var r = Run("Dc.1", Model(ok));
             Assert.Equal(SpecCoverage.Full, PassOf(r).Coverage);
-            Assert.Contains("assumed", PassOf(r).NoteEn);
+            Assert.DoesNotContain("tolerance", PassOf(r).NoteEn);
+            Assert.DoesNotContain("±", PassOf(r).Note);
             Assert.Equal(SpecState.Pass, Report("Dc.1", Model(ok)).State);
         }
 

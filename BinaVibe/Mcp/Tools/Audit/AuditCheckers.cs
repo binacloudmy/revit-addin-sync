@@ -319,12 +319,14 @@ namespace BinaVibe.Mcp.Tools.Audit
 
         private static CheckOutcome BasePoint(AuditContext ctx, AuditFormRow row)
         {
-            const string rule = "Project Base Point berada <=10 mm dari persilangan grid 'A' dan '1'";
+            // AI-504: JKR gives no tolerance (the old 10 mm was this tool's own earlier output), so the
+            // documented position is compared exactly and any other offset is for a person.
+            const string rule = "Project Base Point berada tepat pada persilangan grid 'A' dan '1'";
             var pbp = ctx.ProjectBasePoint;
             var gridNames = ctx.Grids.Select(g => g.Name).ToList();
-            // "A" and "1" through the spec grid parser, so a project prefix counts:
-            // PT-A × PT1 is Grid A/1 (real model, 16 Nov 2026: no grid named "A", the
-            // base point exactly on PT-A × PT1). Several pairs → the nearest crossing.
+            // "A" and "1" through the spec grid parser: only a plain A with a plain 1 is Grid A/1
+            // (AI-504, spec #12: no JKR document reads PT-A × PT1 as Grid A/1; the A4.1 spec
+            // evaluator lists such grids for a person). Several pairs → the nearest crossing.
             var labels = SpecA.ParseGrids(gridNames);
             var pairs = SpecA.BaseGridPairs(labels);
             GridInfo? gridA = null, grid1 = null;
@@ -374,7 +376,7 @@ namespace BinaVibe.Mcp.Tools.Audit
                         ? $"Model ada {ctx.Grids.Count} grid"
                           + (gridNames.Count > 0 ? $" ({string.Join(", ", gridNames.Take(5))}…)" : "")
                           + $" tetapi tiada yang bernama {string.Join(" atau ", missingNames)}"
-                          + " (atau berawalan projek, cth 'PT-A' / 'PT1'). "
+                          + ". Grid berawalan projek (cth 'PT-A' / 'PT1') tidak dibaca sebagai Grid A/1 — manusia putuskan. "
                         : "")
                     + (curved.Count > 0
                         ? $"Grid {string.Join(" dan ", curved)} bukan garisan lurus, jadi persilangan "
@@ -395,14 +397,19 @@ namespace BinaVibe.Mcp.Tools.Audit
             var dMm = Math.Round(bestFt * 304.8, 1);
             o.Evidence["grid_a1_intersection_mm"] = MmArr(inter);
             o.Evidence["offset_mm"] = dMm;
-            o.Evidence["tolerance_mm"] = 10.0;
-            bool ok = dMm <= 10.0;
-            o.Compliance = ok ? "yes" : "no";
+            // Float noise only (feet → mm), not a tolerance: 1e-6 mm.
+            bool ok = Math.Round(bestFt * 304.8, 6) == 0;
             var used = pairName == "A/1" ? "grid A/1" : $"grid {pairName} (Grid A/1)";
-            o.Remark = ok
-                ? $"Had dijangka: <=10 mm dari persilangan {used}; dijumpai sisihan {dMm} mm — patuh."
-                : $"Had dijangka: <=10 mm dari persilangan {used}; dijumpai sisihan {dMm} mm. "
-                  + $"Selaraskan kedudukan model ke grid {pairName.Replace("/", " dan ")}.";
+            if (ok)
+            {
+                o.Compliance = "yes";
+                o.Remark = $"Project Base Point tepat pada persilangan {used} — patuh.";
+                return o;
+            }
+            // Not exactly there: a person decides (Piawaian says "preferably"; no offset limit).
+            o.Compliance = "not_verifiable";
+            o.Evidence["not_verifiable_reason"] = "person_decides";
+            o.Remark = $"Project Base Point {dMm} mm dari persilangan {used}. JKR tiada had sisihan — manusia putuskan.";
             return o;
         }
 

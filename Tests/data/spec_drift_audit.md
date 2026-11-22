@@ -21,30 +21,56 @@ number. **17 questions** (below) where the spec is silent or ambiguous; none was
 Class (Ai / Human / List) of all 61 rows matches `SpecCatalog` (AI-467's conformance test) and the
 code returns no verdict for any Human / List row.
 
+## AI-504: invented numbers removed (22 Nov 2026)
+
+No JKR document gives the numbers below (JKR-spec-answers-from-documents, "Documents cannot answer"). They
+are gone from the code, the remarks and the spec sheet. Where a check has a documented part it stays
+automatic; the undocumented judgement is a Context result with an issue: a row for a person (Human in the
+pane), listed, counted as passed in the % (AI-474), never a fail, never offered Fix via Copilot or Fix All
+(`SpecPersonDecides`). Class counts are unchanged: 39 AI, 8 Human, 14 List. **AI + Human part** (class stays Ai):
+A1.1, A1.2, A1.3, A1.4, A1.5, A4.1, A6.2, C4.1.2 (`SpecPersonDecides.AiWithHumanPart`). Dc.1 and A3.1 stay plain AI.
+No row moved AI → Human.
+
+| Item | Was | Now |
+|---|---|---|
+| Q1 A1.1 / A1.2 / A1.3 / A1.5 | fail below min − 0.5 mm (0.05 for A1.3) | exact minimum; under it but prints as it → listed |
+| Q2 A4.1 | ≤ 10 mm passes, more fails | exactly 0 passes, any other offset listed |
+| Q4 A1.4 | flat = < 2°, or named flat and < 10° | no flat test; RC roof without waterproofing listed |
+| Q5 A6.2 | ≥ 50 % covered, pads < 1 m² skipped, 1500 mm slack | a room on the slab complies, no room → listed |
+| Q8 A1.2 | double leaf (1500 mm) read from the name | name-double under 1500 mm listed; 900 / 2100 judged for every door |
+| Q11 Dc.1 | ±1 mm | exact (float noise from feet → mm removed, a conversion fix) |
+| Q16 A3.1 | remark on link count / part-like links | no remark |
+| Spec #5 "5 meter" | not in code or catalog (checked) | guarded by a test |
+| Spec #10 | a sheet named Butiran Pintu counts as the door detail | listed, not counted |
+| Spec #12 | PT-A × PT1 read as Grid A/1 | listed, not read as A/1 |
+
+Remaining numbers that are NOT JKR rules and stay, named so: A1.1 geometry reading (`A11PadM2` 1 m², `A11StorySlackMm`
+1500 mm, `A11MinFloorShare` 10 %) decides which floor a ceiling hangs over; it is not a verdict number.
+
 ## Row table
 
 | Spec row | Spec says | Code (file:line) | Verdict |
 |---|---|---|---|
-| A1.1 | every level ≥ 3000 mm; basement ≥ 2500; fail < | `A.cs:78` A11CeilingHeight; `req = basement ? 2500 : 3000` (`:171`), fail `Height < req - 0.5` (`:181`). No ceiling → unjudged (`:84`) | MATCH (rounds) Q1 |
-| A1.2 | single ≥ 900, double ≥ 1500, clear height ≥ 2100 | `A.cs:253`; `w < reqW - 0.5`, `h < 2100 - 0.5` (`:282–283`); nominal size only, double read from name | MATCH (rounds) Q1; PARTIAL Q8 (FailOnly) |
-| A1.3 | main door solid core, thickness ≥ 40, parameter filled | `A.cs:306`; `thk < 40 - 0.05` (`:343`); missing parameter fails (`:336`); no main door → candidates to a person | MATCH (rounds to 0.1 mm) |
-| A1.4 | no RC flat roof, or flat + waterproofing | `A.cs:378`; flat = slope < 2° (`A.cs:1501`) or named flat and < 10° | MATCH; flat angle not in spec Q4 |
-| A1.5 | decorative fence ≥ 2400 | `A.cs:432`; `h >= 2400 - 0.5` (`:455`); no fence → person (the spec's "sahkan skop") | MATCH (rounds) Q1 |
+| A1.1 | every level ≥ 3000 mm; basement ≥ 2500; fail < | `A11CeilingHeight`: minimum compared exactly (`SpecAKit.FitMin`); a value under it that prints as the minimum (2999.6) is a Context row for a person, never a fail (AI-504, Q1). No ceiling → unjudged | MATCH (exact); AI + Human part |
+| A1.2 | single ≥ 900, double ≥ 1500, clear height ≥ 2100 | `A12DoorSize`; fails nominal width < 900 or height < 2100 (exact, FailOnly); a door named double and < 1500 wide, or a value that only prints as the minimum, is a Context row (AI-504, Q1, Q8) | MATCH (exact); PARTIAL Q8; AI + Human part |
+| A1.3 | main door solid core, thickness ≥ 40, parameter filled | `A13MainDoor`; thickness < 40 fails exactly; one that prints as 40 (39.96) is a Context row (AI-504, Q1); missing parameter fails; no main door → candidates to a person | MATCH (exact); AI + Human part |
+| A1.4 | no RC flat roof, or flat + waterproofing | `A14FlatRoof`; no flat-roof test (the 2° / 10° and the "rata" name are gone, AI-504, Q4). An RC roof with a waterproofing layer complies at any slope; an RC roof without one, or with no materials read, is a Context row; never a fail | MATCH for the documented part; AI + Human part |
+| A1.5 | decorative fence ≥ 2400 | `A15Fence`; exact; a height that prints as 2400 is a Context row (AI-504, Q1); no fence → person | MATCH (exact); AI + Human part |
 | A1.6 | List | `A.cs:467` listing only | LIST ok |
 | A1.7 | List | `A.cs:475` the spec's remark, listing | LIST ok |
 | A2.1 | ≥ 3 segments | `A.cs:491`; `segs.Count >= 3` (`:510`), 2 fails; also fails a name not opening with the JKR block (`:503`) | MATCH; extra rule Q7 |
 | A2.2 | W00 / WXnn found | `A.cs:525`; unreadable → fail | MATCH (code format open: spec H1) |
-| A3.1 | W00 → comply | `A.cs:553`; split → not applicable; unreadable → person | MATCH |
+| A3.1 | W00 → comply | `A31Single`; split → not applicable; unreadable → person; no link-count remark (AI-504, Q16) | MATCH |
 | A3.2 | every part linked | `A.cs:614`; W00 → not applicable; missing part / NotFound link fail; FailOnly (parts above the highest seen need the BPEP) | MATCH; PARTIAL |
 | A3.3 | BPEP file list found as links | `A.cs:645`; backend only (BPEP) → unjudged; W00 → not applicable | PARTIAL (backend) |
 | A3.4 | List | `A.cs:656` | LIST ok |
 | A3.5 | List | `A.cs:669` | LIST ok |
-| A4.1 | deviation from Grid A/1 = 0 mm "dalam toleransi"; fail > tolerance; show X/Y/Z | `A.cs:700`; tolerance 10 mm, `bestD <= 10` inclusive (`:742`); shows X and Y | MATCH; tolerance and Z Q2 |
+| A4.1 | Project Base Point at Grid A/1 (0 mm); show the offset | `A41BasePoint`; exact (`SpecUnits.CleanMm` removes feet → mm noise only): 0 offset passes; any other offset, and a prefixed pair (PT-A × PT1) with no plain A / 1, is a Context row; never a fail (AI-504, Q2, spec #12). The BIM010 checker (`AuditCheckers.BasePoint`) follows | MATCH (exact); AI + Human part |
 | A5.1 | List | `A.cs:781` | LIST ok |
 | A5.2 | no jump in 1,2,3… / A,B,C…, either direction | `A.cs:812`; I and O skipped (H→J not a jump) | MATCH; letters I / O Q3 |
 | A5.3 | valid sub-grid pattern; never a fail | `A.cs:886`; never fails, gaps go to a person | MATCH |
 | A6.1 | List | `A.cs:957` | LIST ok |
-| A6.2 | every slab area has a room (lift, stair, apron) | `A.cs:1018`; slab covered when ≥ 50 % sampled (`:992`, `:1084`), pads < 1 m² skipped (`:990`), room base within 1500 mm (`:987`) | MATCH in kind; numbers not in spec Q5 |
+| A6.2 | every slab area has a room (lift, stair, apron) | `A62SlabHasRoom`; a slab with a placed room on it complies at any share; a slab with no room is a Context row, however small; no 50 % / 1 m² / 1500 mm (AI-504, Q5). A room stands on a slab on the same level, or a stair / lift room whose height holds the slab top | MATCH in kind; AI + Human part |
 | A6.3 | Human | `A.cs:1144` Context, never a fail | HUMAN ok |
 | A7.1 | every element in every category has a material | `A.cs:1175`; per type, not per instance; non-physical categories skipped (`SpecA.NoMaterialCategories`) | MATCH; scope Q6 |
 | A7.2 | Human | `A.cs:1212` warnings are Context | HUMAN ok |
@@ -68,7 +94,7 @@ code returns no verdict for any Human / List row.
 | C3.1.1 | every modelled PB AR category has a schedule | `BC.cs:943`; multi-category schedule / material takeoff counts (spec H14 open) | MATCH; Q15 |
 | C3.1.2 | List | `BC.cs:982` | LIST ok |
 | C4.1.1 | List | `BC.cs:1010` | LIST ok |
-| C4.1.2 | the six kinds across all sheets | `BC.cs:1064`; a sheet named for door / window details counts (spec H10 open) | MATCH; Q15 |
+| C4.1.2 | the six kinds across all sheets | `C4_1_2`; a sheet named for door / window details is a Context row, not counted (AI-504, spec #10); a Detail / Drafting view named pintu / door still counts | MATCH; AI + Human part |
 | C4.1.3 | every sheet has ≥ 1 view | `BC.cs:1092` | MATCH |
 | C4.2.1 | title block is a JKR one | `BC.cs:1108`; name holds "JKR", case-insensitive | MATCH |
 | C4.2.2 | project title, drawing title, modelled by, timestamp filled | `BC.cs:1172`; Revit placeholders ("Author", "Owner" …) also count as empty | MATCH; extension Q12 |
@@ -79,7 +105,7 @@ code returns no verdict for any Human / List row.
 | Da.1 | type name follows the JKR code pattern | `DE.cs:113`; pattern only, not the code list (backend); family-name code accepted | MATCH; PARTIAL (FailOnly) |
 | Db.1 | every parameter mandatory at the LOi for the category filled | `DE.cs:175`; only the 12 parameters common to every category, from LOD 400 (`:178`); rest is backend. Message printed the raw LOD as "LOi" | **DRIFT → fixed** (label); PARTIAL Q10 |
 | Db.2 | material filled and JKR-coded | `DE.cs:213`; empty fails, name not `^jkr[A-Z]{2}` fails (`:202`) | MATCH; PARTIAL (code list is backend) |
-| Dc.1 | number in the name = parameter value | `DE.cs:312`; `Math.Abs(actual - value) > 1.0` fails (`:326`) | MATCH; tolerance Q11 |
+| Dc.1 | number in the name = parameter value | `DcNameNumbers`; compared exactly (`SpecUnits.SameMm`: float noise only); no ±1 mm (AI-504, Q11). Coverage stays as AI-475 set it (Full when every name was read) | MATCH (exact) |
 | Dd.1 | Revit category matches the category the name implies | `DE.cs:447`; mismatches only; names with no code or keyword not judged | MATCH; PARTIAL (FailOnly) |
 | Dd.2 | Human | `DE.cs:473` | HUMAN ok |
 | De.1 | List | `DE.cs:481` | LIST ok |
@@ -98,16 +124,20 @@ rule that missing data is not a pass (principle 0.4).
 1. **Q1 Rounding.** A1.1 / A1.2 / A1.5 fail only when more than 0.5 mm under the minimum (the
    notes print whole mm: 2999.6 shows "3000 mm"); A1.3 allows 0.05 mm (prints one decimal). Should
    a sub-millimetre shortfall (2999.6 mm) pass, as now, or fail?
+   **AI-504:** no JKR rounding rule; exact minimum, a rounding-only shortfall is listed for a person.
 2. **Q2 A4.1.** The spec says "= 0 mm (dalam toleransi)" and gives no tolerance. The code uses
    10 mm (the BIM010 base-point tolerance, inclusive). Which number? The spec also asks for the X/Y/Z
    deviation; the code shows X and Y (grids have no Z). Is Z needed?
+   **AI-504:** JKR gives no tolerance; exact position, any other offset is listed.
 3. **Q3 A5.2.** Letters I and O are skipped (H→J is not a jump). The spec says "A,B,C…" with
    no exception. Keep the skip?
 4. **Q4 A1.4.** What counts as a flat roof? The code: slope < 2°, or a roof named flat with
    a fall < 10°. The spec has no angle.
+   **AI-504:** JKR gives no flat-roof definition; the code no longer decides it.
 5. **Q5 A6.2.** The spec says a slab area needs a room. The code: a slab is covered when ≥ 50 % of its
    area is under rooms; pads under 1 m² are not slabs; a room counts when its base is within
    1500 mm of the slab top. Which share, pad size and slack does JKR mean?
+   **AI-504:** no numbers in any JKR document; principle only (a room on the slab), the rest listed.
 6. **Q6 A7.1.** The spec says every element. The code judges per type, and skips non-physical
    categories. PR #303 (AI-419) adds a per-instance rule for Generic Models only; for doors and
    windows, does a material set only in the type satisfy A7.1?
@@ -115,6 +145,7 @@ rule that missing data is not a pass (principle 0.4).
    JKR block (`jkrAR24…`, e.g. "Copy of jkrAR24_…"). Is that part of the guideline?
 8. **Q8 A1.2.** The NS minimum is the clear opening; the snapshot has the nominal size, so the
    check can only fail (never fully pass). Double leaf is read from the type name. Acceptable?
+   **AI-504:** the name is no source for a double leaf; listed for a person.
 9. **Q9 LOD → LOi.** B1.1, C1.6.3: LOD 350 uses the LOi 300 column (rounds down); LOD below 100 or
    unknown uses only the fields marked at every LOi. The spec says "ikut LOD projek" and
    does not map LODs between columns.
@@ -123,6 +154,7 @@ rule that missing data is not a pass (principle 0.4).
     per-category table. Is the backend table the intended home?
 11. **Q11 Dc.1.** The code allows ±1 mm between the name's number and the parameter. Spec: "sama".
     Window names `W x H` or `H x W` (spec H11, open)?
+    **AI-504:** exact; W x H order stays (PB p.51-52).
 12. **Q12 C4.2.2.** A Revit placeholder ("Author", "Owner", "Project Name") counts as an empty
     cell. The spec says "kosong". Keep?
 13. **Q13 E.1.** Legends are skipped (Revit gives them no template); WIP is listed, not judged
@@ -133,6 +165,7 @@ rule that missing data is not a pass (principle 0.4).
     detail; C3.1.1 accepts a multi-category schedule / material takeoff as a category's schedule.
 16. **Q16 A3.1 remark.** W00 with more than 3 non-discipline links, or a part-like link, gets a
     remark (spec H2, open).
+    **AI-504:** deleted; there is no remark.
 17. **Q17 C1.3.1 / C1.4.1.** Missing section / drafting view is a ✗ in the code; the spec's
     own H3 asks whether it is ✗ or only listed.
 

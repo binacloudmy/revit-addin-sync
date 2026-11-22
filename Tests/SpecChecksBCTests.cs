@@ -851,17 +851,24 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void C4_1_2_a_sheet_named_door_details_holding_the_door_legend_counts()
+        public void C4_1_2_a_sheet_named_door_details_holding_the_door_legend_is_listed_for_a_person_not_counted()
         {
             // Real Dewan model, 16 Nov: sheets "bPT02 Butiran Pintu" / "bTK01 Butiran Tingkap"
             // carry the door / window legends; no detail view is named pintu / tingkap.
+            // AI-504 (spec #10): no JKR document says such a sheet counts, so it is listed, not counted.
             var m = Compliant();
             m.Sheets.RemoveAll(s => s.Number == "A-501");
             m.Sheets.Add(new SpecSheet { Id = 401, Number = "bPT02", Name = "Butiran Pintu", TitleBlock = "JKR A1",
                 ViewKinds = { "Legend" }, ViewNames = { "jkrAR_lgd_Petunjuk Pintu 02" } });
             m.Sheets.Add(new SpecSheet { Id = 402, Number = "bTK01", Name = "Butiran Tingkap", TitleBlock = "JKR A1",
                 ViewKinds = { "Legend" }, ViewNames = { "jkrAR_lgd_Petunjuk Tingkap" } });
-            Assert.Empty(Fails(Run("C4.1.2", m)));
+            var rs = Run("C4.1.2", m);
+            Assert.Empty(Fails(rs));
+            var listed = rs.Where(r => r.Coverage == SpecCoverage.Context).ToList();
+            Assert.Equal(2, listed.Count);
+            Assert.Contains(listed, r => r.Note.Contains("Butiran Pintu") && r.NoteEn.Contains("a person decides"));
+            Assert.Contains(listed, r => r.Note.Contains("Butiran Tingkap"));
+            Assert.All(listed, r => Assert.NotEqual("", r.IssueId));
 
             // An empty sheet with that name proves nothing.
             var empty = Compliant();

@@ -911,7 +911,6 @@ namespace RevitWebAppSync.Tests
         [InlineData("C1.1.2")]
         [InlineData("C1.3.1")]
         [InlineData("C1.4.1")]
-        [InlineData("A3.1")]
         [InlineData("E.1")]
         public void A_rule_awaiting_JKR_shows_that_note_in_why_whatever_its_state(string id)
         {
@@ -936,7 +935,8 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void Only_the_checks_the_spec_says_await_JKR_are_marked()
         {
-            Assert.Equal(new[] { "A3.1", "C1.1.2", "C1.3.1", "C1.4.1", "E.1" },
+            // AI-504: A3.1 is no longer awaiting JKR: its link-count remark is deleted (Q16).
+            Assert.Equal(new[] { "C1.1.2", "C1.3.1", "C1.4.1", "E.1" },
                          SpecCatalog.Checks.Where(SpecChecklist.IsPendingJkr).Select(c => c.Id));
             var a11 = Row(SpecReport.Build(Enumerable.Empty<SpecResult>()), "A1.1", PanelStrings.En);
             Assert.False(a11.HasPending);
