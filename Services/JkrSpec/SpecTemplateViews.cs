@@ -71,7 +71,7 @@ namespace RevitWebAppSync.Services.JkrSpec
             return rows;
         }
 
-        private static IEnumerable<List<string>> Records(string text)
+        internal static IEnumerable<List<string>> Records(string text)
         {
             var rec = new List<string>();
             var sb = new StringBuilder();
