@@ -160,12 +160,17 @@ namespace RevitWebAppSync.Services.JkrSpec
                     : $"{t.Category}: type '{name}' ({t.InstanceCount} elements) does not follow JKR coding{(generic ? " (generic name)" : "")}{why}";
                 fails.Add((t, FailType(id, t, en, SpecCoverage.Full, actual: name, required: "(XXxnnn) … with a code of the JKR list"), j));
             }
-            var proposals = ProposeCodeRenames(m, fails.Select(f => f.T).ToList());
+            var blocked = new Dictionary<SpecType, string>();
+            var proposals = ProposeCodeRenames(m, fails.Select(f => f.T).ToList(), blocked);
             foreach (var f in fails)
             {
                 f.R.RenameFrom = (f.T.TypeName ?? "").Trim();
                 if (proposals.TryGetValue(f.T, out var pr)) { f.R.RenameTo = pr.NewName; f.R.RenameSource = pr.Source; }
-                else f.R.CodeHint = CodeHintFor(m, f.T, f.J);
+                else
+                {
+                    f.R.CodeHint = CodeHintFor(m, f.T, f.J);
+                    if (blocked.TryGetValue(f.T, out var bw)) f.R.CodeHint = "no rename proposed: " + bw + "; " + f.R.CodeHint;
+                }
                 yield return f.R;
             }
             foreach (var p in persons) yield return p;
@@ -195,7 +200,7 @@ namespace RevitWebAppSync.Services.JkrSpec
         /// list. Pure and deterministic, the same on every run; the model never picks a code. A name that equals another proposed name in
         /// the same family and category, or the name of a type that already exists there, is dropped for every type in the clash.
         /// </summary>
-        internal static Dictionary<SpecType, RenameProposal> ProposeCodeRenames(SpecModel m, IReadOnlyList<SpecType> failing)
+        internal static Dictionary<SpecType, RenameProposal> ProposeCodeRenames(SpecModel m, IReadOnlyList<SpecType> failing, Dictionary<SpecType, string> blocked = null)
         {
             var all = new Dictionary<SpecType, RenameProposal>();
             foreach (var t in failing)
@@ -204,7 +209,13 @@ namespace RevitWebAppSync.Services.JkrSpec
                 if (code.Length == 0 || !JkrCodeList.IsComponentCode(code, t.Category)) continue;
                 var old = (t.TypeName ?? "").Trim();
                 if (old.Length == 0) continue;
-                all[t] = new RenameProposal { NewName = "(" + code + ") " + old, Source = "the type's own Kod_Komponen_jkr_stt parameter holds the JKR code " + code };
+                var neu = "(" + code + ") " + old;
+                // The new name must pass Da.1 (the one JKR list, same Judge as the checker) AND Dd.1 (name <-> category): a rename that
+                // would swap a Da.1 fail for a Dd.1 fail is not proposed; a person decides.
+                if (JkrCodeList.Judge(neu, t.Category).Verdict != JkrCodeList.Verdict.Coded) continue;
+                var why = Dd1Conflict(t, neu);
+                if (why != null) { if (blocked != null) blocked[t] = why; continue; }
+                all[t] = new RenameProposal { NewName = neu, Source = "the type's own Kod_Komponen_jkr_stt parameter holds the JKR code " + code };
             }
             var existing = new HashSet<string>((m?.Types ?? new List<SpecType>()).Select(x => KeyOf(x, x.TypeName)));
             var counts = all.GroupBy(kv => KeyOf(kv.Key, kv.Value.NewName)).ToDictionary(g => g.Key, g => g.Count());
@@ -221,20 +232,34 @@ namespace RevitWebAppSync.Services.JkrSpec
             return string.Join(", ", kj.Take(8)) + (kj.Count > 8 ? " …" : "");
         }
 
+        /// <summary>Why a name would FAIL Dd.1 (name vs category) in this type's category, or null when it passes or says nothing judgeable.</summary>
+        internal static string Dd1Conflict(SpecType t, string newName)
+        {
+            var probe = new SpecType { Category = t.Category, TypeName = newName, FamilyName = t.FamilyName };
+            var exp = ExpectedCategories(probe);
+            if (exp == null || In(exp.Value.Categories, t.Category)) return null;
+            return $"the new name '{newName}' would fail Dd.1: its {exp.Value.Source} says {string.Join(" / ", exp.Value.Categories)}, the type is in {t.Category}";
+        }
+
+        /// <summary>The type-code prefixes a person may use for the category: ALL of the one embedded JKR list (never a second table) whose
+        /// code does not fail Dd.1 in the category. Empty for a category with no list.</summary>
+        internal static List<string> OfferedPrefixes(SpecType t) =>
+            JkrCodeList.KodJenisFor(t.Category).Where(k => Dd1Conflict(t, "(" + k + "001) x") == null).ToList();
+
         /// <summary>
-        /// AI-535: what Copilot may offer when it asks for a type's code, as one line of plain text: the type-code prefixes of the category's JKR list
-        /// and the real codes other types of the category already carry in this model, most used first. Both come from the list and the model;
-        /// nothing here is invented. A wrong code in the old name is named so the answer replaces it.
+        /// AI-535: what Copilot may offer when it asks for a type's code, as one line of plain text: ALL type-code prefixes of the category's JKR
+        /// list (the same list the checker uses; a prefix that would fail Dd.1 in the category is left out) and the real codes other types of the
+        /// category already carry in this model, most used first. A category with no list offers no prefix: a person confirms the code.
         /// </summary>
         internal static string CodeHintFor(SpecModel m, SpecType t, JkrCodeList.NameJudgement j)
         {
             var parts = new List<string>();
             if (j != null && (j.Verdict == JkrCodeList.Verdict.BadFormat || j.Verdict == JkrCodeList.Verdict.NotInList))
                 parts.Add($"the old name holds the code ({j.Code}), which is not valid: the answer replaces it");
-            parts.Add("codes are case-sensitive (TGc002, not TGC002)");
-            var kj = JkrCodeList.KodJenisFor(t.Category);
-            if (kj.Count > 0) parts.Add("type-code prefix from the JKR list: " + ListHint(t.Category));
-            else parts.Add("JKR has no full code list for " + t.Category + ": only codes in use in this model can be offered");
+            parts.Add("codes are case-sensitive: 2 capitals + 1 small letter + 3 digits + an optional small letter");
+            var kj = OfferedPrefixes(t);
+            if (kj.Count > 0) parts.Add("type-code prefix from the JKR list (only these): " + string.Join(", ", kj));
+            else parts.Add("JKR has no code list for " + t.Category + ": person confirm, offer no prefix; only codes in use in this model can be offered");
             var inUse = (m?.Types ?? new List<SpecType>())
                 .Where(x => string.Equals(x.Category, t.Category, StringComparison.OrdinalIgnoreCase))
                 .SelectMany(x => JkrCodeList.ComponentCodesIn(x.TypeName, t.Category).Concat(JkrCodeList.ComponentCodesIn(x.FamilyName, t.Category)).Select(c => (Code: c, N: Math.Max(1, x.InstanceCount))))
