@@ -160,14 +160,22 @@
       "Autodesk.Revit.DB.Document.AutoJoinElements",
       "Autodesk.Revit.DB.Document.Regenerate",
       "Autodesk.Revit.DB.Document.Delete",
-      "Autodesk.Revit.DB.Parameter.Set"
+      "Autodesk.Revit.DB.Parameter.Set",
+      "Autodesk.Revit.DB.BindingMap.Insert",
+      "Autodesk.Revit.DB.BindingMap.ReInsert",
+      "Autodesk.Revit.DB.BindingMap.Remove",
+      "Autodesk.Revit.DB.DefinitionBindingMap.Insert",
+      "Autodesk.Revit.DB.DefinitionBindingMap.ReInsert",
+      "Autodesk.Revit.DB.DefinitionBindingMap.Remove",
+      "Autodesk.Revit.DB.GlobalParameter.LabelDimension",
+      "Autodesk.Revit.DB.GlobalParameter.UnlabelDimension"
     ],
     "write_verbs": [
       "Acquire", "Activate", "Add", "Align", "Allow", "Append", "Apply", "Assign", "Associate", "Attach", "Bind", "Change", "Clear",
       "Combine", "Commit", "Connect", "Constrain", "Convert", "Copy", "Create", "Cut", "Deactivate", "Delete", "Detach", "Disable",
       "Disallow", "Disconnect", "Dissociate", "Divide", "Duplicate", "Edit", "Enable", "Erase", "Extend", "Flip", "Group", "Hide",
       "Insert", "Isolate", "Join", "Lock", "Make", "Merge", "Mirror", "Modify", "Move", "New", "Offset", "Override", "Paste", "Pin",
-      "Place", "Publish", "Purge", "Rebuild", "Regenerate", "Register", "Release", "Remove", "Rename", "Renumber", "Reorder", "Replace",
+      "Place", "Publish", "Purge", "Rebuild", "Regenerate", "Register", "ReInsert", "Release", "Remove", "Rename", "Renumber", "Reorder", "Replace",
       "Reset", "Restore", "Reverse", "Rotate", "Set", "Split", "Swap", "Switch", "Tag", "Toggle", "Transfer", "Trim", "Unbind", "Uncut",
       "Ungroup", "Unhide", "Unjoin", "Unlock", "Unpin", "Unplace", "Unregister", "Update"
     ],
