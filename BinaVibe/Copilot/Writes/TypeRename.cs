@@ -10,6 +10,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 
 namespace BinaVibe.Copilot.Writes
 {
@@ -42,13 +43,16 @@ namespace BinaVibe.Copilot.Writes
             ", so type_param true would rename their TYPE (every instance). Resend with type_param false to rename the element, or use 'Type Name' to rename the type; nothing was changed. " +
             "('Name' ialah sifat instance bagi elemen ini; type_param true akan menukar nama TYPE. Hantar semula dengan type_param false, atau guna 'Type Name'; tiada apa-apa diubah.)";
 
+        private static readonly Regex Whitespace = new(@"\s+", RegexOptions.Compiled);
+
         /// <summary>Revit's limit on an element name.</summary>
         public const int MaxNameLength = 255;
 
         /// <summary>The name to apply, or null when it is not a usable name; <paramref name="problem"/> says why.</summary>
         public static string? Normalize(string? given, out string? problem)
         {
-            var name = (given ?? "").Trim();
+            // AI-dc1b: "(TKm481a)  7140 x 750" (two spaces) is one name with single spaces; also tabs and line breaks.
+            var name = Whitespace.Replace((given ?? "").Trim(), " ");
             if (name.Length == 0) { problem = "A type name cannot be empty."; return null; }
             var bad = name.IndexOfAny(ForbiddenChars);
             if (bad >= 0)
@@ -65,6 +69,13 @@ namespace BinaVibe.Copilot.Writes
             return name;
         }
 
+        /// <summary>The words of a duplicate refusal; <see cref="IsDuplicateVerdict"/> and <see cref="Check"/> share this one constant.</summary>
+        public const string DuplicateText = "already exists in this family and category";
+
+        /// <summary>True when a <see cref="Check"/> verdict means "a sibling already holds the name" (skip that type, not the batch).</summary>
+        public static bool IsDuplicateVerdict(string? verdict) =>
+            verdict != null && verdict.IndexOf(DuplicateText, StringComparison.Ordinal) >= 0;
+
         /// <summary>
         /// Checks one rename. <paramref name="siblingNames"/> are the names of the OTHER types of the same family and category
         /// (never the type itself). Returns null when the rename may go ahead, "same" when the type already has the name
@@ -78,7 +89,7 @@ namespace BinaVibe.Copilot.Writes
             if (string.Equals(n, currentName, StringComparison.Ordinal)) return "same";
             var clash = siblingNames.FirstOrDefault(s => string.Equals(s, n, StringComparison.OrdinalIgnoreCase));
             if (clash != null)
-                return "A type named '" + clash + "' already exists in this family and category, so '" + n + "' would be a duplicate; give a different name.";
+                return "A type named '" + clash + "' " + DuplicateText + ", so '" + n + "' would be a duplicate; give a different name.";
             return null;
         }
     }

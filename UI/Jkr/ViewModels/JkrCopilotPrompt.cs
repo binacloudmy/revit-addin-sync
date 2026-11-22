@@ -129,7 +129,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     "Fill empty mandatory parameters", CopilotWriteLevel.Either),
                 ["Dc.1"] = new CopilotPromptVariant(
                     "Rename the type of each element below by changing the number in its name so it equals the actual geometry parameter value (number in mm, width x height order). Change the type name only; never edit dimensions or geometry parameters.",
-                    "Read the actual width and height with inspect. Then use set_parameters with param \"Type Name\", type_param true; the new name changes only the numbers and keeps the rest. One call per new name. Never write Width, Height or any dimension.",
+                    "Read the actual width and height with inspect. Then use set_parameters with param \"Type Name\", type_param true; the new name changes only the numbers and keeps the rest, with single spaces only (never two spaces in a row). If a type of the same family already has that name, Revit refuses it: the add-in skips that type and says so; do not invent another name. One call per new name. Never write Width, Height or any dimension.",
                     "Change the number in the type name", CopilotWriteLevel.Type, "Type Name"),
                 ["A5.2"] = new CopilotPromptVariant(
                     "Rename the grid lines below so the sequence has no jumps: numbers 1,2,3,4… and letters A,B,C…. Change the grid names only.",

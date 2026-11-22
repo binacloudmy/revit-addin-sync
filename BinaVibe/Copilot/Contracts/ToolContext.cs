@@ -44,6 +44,14 @@ namespace BinaVibe.Copilot.Contracts
         Envelope Execute(ToolContext ctx, JsonElement args, WritePlan plan, WritePhase phase);
     }
 
+    /// <summary>AI-dc1b: a write tool that opens its own Transaction per item (inside the runner's TransactionGroup), so one item
+    /// Revit refuses, even with a native exception, cannot abort the others. For a plan where <see cref="OwnsTransactions"/> is
+    /// true the runner opens NO outer Transaction around <see cref="IWriteTool.Execute"/>; the group (one Undo) stays.</summary>
+    public interface IPerItemTransactionTool : IWriteTool
+    {
+        bool OwnsTransactions(WritePlan plan);
+    }
+
     /// <summary>AI-529: a write tool Revit cannot preview or group: its own API call (a link load) must run with NO transaction or
     /// group open and clears Revit's Undo list. The batch runner therefore plans it, skips the rolled-back preview (the card is
     /// estimate-only), runs <see cref="IWriteTool.Execute"/> once at commit outside any group, makes no Undo entry, and refuses to
