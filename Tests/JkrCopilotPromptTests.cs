@@ -3,6 +3,7 @@ using RevitWebAppSync.Services.JkrSpec;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
+using BinaVibe.Copilot.Contracts;
 using RevitWebAppSync.UI.Jkr.ViewModels;
 using Xunit;
 
@@ -363,12 +364,13 @@ namespace RevitWebAppSync.Tests
                     f.ElementLabels = f.ElementIds.ToDictionary(i => i, i => "Doors · D1");
                     var p = Assert.Single(JkrCopilotPrompt.Build(f));
                     Assert.Equal(1, Regex.Matches(p, @"^- \d+", RegexOptions.Multiline).Count);
-                    Assert.Contains("- 1001 — Doors · D1", p);
+                    var line = id == "Dd.1" ? "Doors · D1".Replace("Doors", "Doors") : "Doors · D1";
+                    Assert.Contains(id == "Dd.1" ? "- 1001 — Doors · \"Door T1001\" -> \"Window T1001\"" : "- 1001 — " + line, p);
                     Assert.DoesNotContain("part 1 of", p);
                     Assert.Contains("one id per type", p);
                     var c = JkrCopilotConfirm.Build(f);
                     Assert.Contains("1 type (", c.Heading);
-                    Assert.Equal("1001 — Doors · D1", c.Details);
+                    Assert.Equal(id == "Dd.1" ? "1001 — Doors · \"Door T1001\" -> \"Window T1001\"" : "1001 — Doors · D1", c.Details);
                 }
         }
 
