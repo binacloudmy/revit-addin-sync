@@ -299,7 +299,7 @@ namespace BinaVibe.Copilot.Contracts
         /// <summary>One of <see cref="AskFieldTypes"/>.</summary>
         [JsonPropertyName("type")] public string Type { get; set; } = "";
         [JsonPropertyName("unit")] public string? Unit { get; set; }
-        /// <summary>At least 2; required when Type is choice. The answer value is the chosen id.</summary>
+        /// <summary>At least 1; required when Type is choice. The answer value is the chosen id.</summary>
         [JsonPropertyName("choices")] public List<AskOptionDto>? Choices { get; set; }
         /// <summary>The heading the field is listed under, e.g. "No floor plan".</summary>
         [JsonPropertyName("group")] public string? Group { get; set; }

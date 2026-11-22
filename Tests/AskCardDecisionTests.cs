@@ -125,6 +125,23 @@ namespace RevitAddinSync.Tests
             Assert.Equal("1:100", read.Fields[0].Choices![0].Meta);
         }
 
+        [Fact]
+        public void OneChoiceField_KeepsChoice_AsTiles_AndAnswersWithItsId()
+        {
+            AskFieldDto F(params AskOptionDto[] cs) => new AskFieldDto { Id = "t", Label = "Type", Type = AskFieldTypes.Choice, Choices = cs.ToList() };
+            var one = Card(new AskDto { RequestId = "r", Question = "Which type?", Purpose = AskPurposes.Clarify,
+                Fields = new List<AskFieldDto> { F(Opt("d1", "Door 900")) } });
+            Assert.Equal(AskFieldTypes.Choice, one.Fields[0].Type);
+            Assert.Equal(AskFieldShape.Tiles, AskCardModel.ShapeOf(one.Fields[0]));
+            Assert.Equal("d1", one.AnswerForFields(new Dictionary<string, string> { ["t"] = "d1" }).Values["t"].GetString());
+
+            foreach (var f in new[] { F(), F(Opt("s", "Skip", AskOptionKinds.Skip)) })
+            {
+                var none = Card(new AskDto { RequestId = "r", Question = "q", Purpose = AskPurposes.Clarify, Fields = new List<AskFieldDto> { f } });
+                Assert.Equal(AskFieldTypes.Text, none.Fields[0].Type);   // nothing to pick: a text box
+            }
+        }
+
         // ─── Shapes ───────────────────────────────────────────────────────────────────────────────────────
 
         [Fact]
