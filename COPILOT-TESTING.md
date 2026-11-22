@@ -854,3 +854,4 @@ On a model whose ST/ME/EL links are Unloaded (the test model has 6):
 - [ ] 11 links in one call: refused `invalid_args`. `load_link` plus `set_parameters` in one message: refused, nothing changed.
 - [ ] JKR pane: C5.1.1 row of an unloaded link shows "Fix via Copilot"; the confirm says loading a link clears Revit's Undo history; after the turn the row re-checks to Pass. A discipline with no link at all has no button.
 - [ ] Not verified yet (record here): a workshared host, a linked file saved in another Revit version, a closed workset, a nested link, Revit Server / cloud paths, the `WorksetConfiguration` argument on a non-workshared link.
+- [ ] Known limit: Revit's `Load`/`LoadFrom` run on Revit's thread with no way to cancel, so a big or slow linked file freezes Revit's UI until the load ends. Watch the time on a large link and note it here.
