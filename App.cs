@@ -205,6 +205,15 @@ namespace RevitWebAppSync
                 Services.TelemetryService.Init(application.ControlledApplication.VersionNumber);
                 Services.TelemetryService.Track("startup", "started");
 
+                // AI-423: CopilotSafety is read once per process; log its state once.
+                try
+                {
+                    System.Diagnostics.Debug.WriteLine(BinaVibe.Copilot.Code.CopilotSafety.StartupLine());
+                    Services.TelemetryService.Track("startup", "copilot_safety",
+                        new { enabled = BinaVibe.Copilot.Code.CopilotSafety.Enabled });
+                }
+                catch { }
+
                 // AI-327: an exception escaping our pane code on Revit's UI
                 // dispatcher is swallowed and logged instead of ending Revit
                 // (and the drafter's unsaved work) with it.
