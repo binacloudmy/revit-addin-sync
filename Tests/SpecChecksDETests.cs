@@ -330,6 +330,86 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(SpecState.Pass, Report("Dc.1", Model(ok, plain)).State);
         }
 
+        // ── Dc.1 N/A (AI-518) ──
+
+        private static SpecType Read(SpecType t, params string[] carried)
+        {
+            t.ParamNamesRead = true;
+            t.ParamNames.AddRange(carried);
+            return t;
+        }
+
+        private static SpecReport FullReport(params SpecType[] types)
+        {
+            var results = Run("Dc.1", Model(types));
+            foreach (var r in results) r.Source = SpecReport.Model;
+            return SpecReport.Build(results);
+        }
+
+        [Fact]
+        public void Dc1_ceiling_type_without_the_parameter_is_not_applicable_not_unjudged()
+        {
+            var ceiling = Read(T("Ceilings", "Compound Ceiling 600"), "Comments");
+            var r = Run("Dc.1", Model(ceiling));
+            Assert.DoesNotContain(r, x => x.Status == "cannot_verify");
+            Assert.DoesNotContain(r, x => x.Status == "fail");
+            Assert.True(r.Single().NotApplicable);
+            var res = Report("Dc.1", Model(ceiling));
+            Assert.Equal(SpecState.NotApplicable, res.State);
+            Assert.Equal(0, res.Unjudged);
+        }
+
+        [Fact]
+        public void Dc1_left_out_type_does_not_hold_back_the_pass_of_the_others()
+        {
+            var ceiling = Read(T("Ceilings", "Compound Ceiling 600"));
+            var door = Read(T("Doors", "(PT2p600a) 900 x 2100"), "Width", "Height");
+            door.Numbers["Width"] = 900; door.Numbers["Height"] = 2100;
+            var res = Report("Dc.1", Model(ceiling, door));
+            Assert.Equal(SpecState.Pass, res.State);
+            Assert.Equal(0, res.Unjudged);
+        }
+
+        [Fact]
+        public void Dc1_door_with_the_parameters_still_fails_on_a_mismatch_and_compares_exactly()
+        {
+            var bad = Read(T("Doors", "900 x 2100"), "Width", "Height");
+            bad.Numbers["Width"] = 901; bad.Numbers["Height"] = 2100;
+            Assert.Equal(SpecState.Fail, Report("Dc.1", Model(bad)).State);
+        }
+
+        [Fact]
+        public void Dc1_type_that_carries_the_parameter_but_gave_no_value_is_still_unjudged()
+        {
+            var door = Read(T("Doors", "900 x 2100"), "Width", "Height");   // listed, value not read
+            var res = Report("Dc.1", Model(door));
+            Assert.Equal(1, res.Unjudged);
+            Assert.Equal(SpecState.NeedsPerson, res.State);
+        }
+
+        [Fact]
+        public void Dc1_parameters_not_read_by_the_reader_stay_unjudged()
+        {
+            var door = T("Doors", "900 x 2100");                           // old snapshot: ParamNamesRead false
+            Assert.Equal(1, Report("Dc.1", Model(door)).Unjudged);
+        }
+
+        [Fact]
+        public void Dc1_rename_fix_flips_unjudged_to_pass_and_the_percent_rises()
+        {
+            // Before: the ceiling is left out, the door's name still mismatches (Fail).
+            // After the Copilot rename the name matches: Dc.1 is Pass and the headline % rises.
+            var ceiling = Read(T("Ceilings", "Compound Ceiling 600"));
+            var door = Read(T("Doors", "800 x 2100"), "Width", "Height");
+            door.Numbers["Width"] = 900; door.Numbers["Height"] = 2100;
+            var before = FullReport(ceiling, door);
+            Assert.Equal(SpecState.Fail, before.For("Dc.1").State);
+            door.TypeName = "900 x 2100";
+            var after = FullReport(ceiling, door);
+            Assert.Equal(SpecState.Pass, after.For("Dc.1").State);
+            Assert.True(SpecChecklist.Pct(after) > SpecChecklist.Pct(before));
+        }
+
         // ── Dd.1 ──
 
         [Fact]
