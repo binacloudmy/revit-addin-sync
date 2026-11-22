@@ -37,6 +37,8 @@ namespace RevitWebAppSync.Tests
             public int ScansRun, Rechecks;
             public List<int> Toasts = new List<int>();
             public List<string> Reopened = new List<string>();
+            public List<int> RedoToasts = new List<int>();
+            public int RedoRechecks;
 
             public JkrCopilotUndo<Row> Undo;
 
@@ -65,6 +67,17 @@ namespace RevitWebAppSync.Tests
                 },
                 Reopen = r => { r.Fixed = false; r.FixedVia = ""; Reopened.Add(r.Id); },
                 ToastUndone = Toasts.Add,
+                RecheckWritten = (ids, written) =>
+                {
+                    RedoRechecks++;
+                    var fresh = Rows.Where(r => FailingElements.Contains(r.RevitElementId))
+                        .Select(r => new Row { Id = r.Id, RevitElementId = r.RevitElementId }).ToList();
+                    var o = JkrRecheck.Reconcile(Rows, ids.ToList(), fresh, true, written);
+                    Rows = o.Issues;
+                    return Task.FromResult(o);
+                },
+                MarkFixedAgain = (rows, _) => { foreach (var r in rows) r.Fixed = true; },
+                ToastRedone = RedoToasts.Add,
             };
 
             public Row Add(string id, long elem, bool fixedViaCopilot = false, long[] written = null)
@@ -323,6 +336,132 @@ namespace RevitWebAppSync.Tests
             var v = p.Add("v1", 0, true, new long[0]);
             Assert.Equal(0, await p.Undo.RunAsync(Doc, new long[0]));
             Assert.True(v.Fixed);
+        }
+
+        // ---- AI-515: Redo ----
+
+        [Fact]
+        public async Task Fix_then_Undo_then_Redo_marks_the_row_Fixed_again_when_the_rule_passes()
+        {
+            var p = new Pane();
+            p.Add("r1", 100, true, new long[] { 101 });
+            p.FailingElements.Add(100);
+            Assert.Equal(1, await p.Undo.RunAsync(Doc, new long[] { 101 }));          // Undo: row reopens
+            Assert.False(p.Rows.Single().Fixed);
+            p.FailingElements.Clear();                                                // Redo put the value back: the rule passes
+            var n = await p.Undo.RunRedoAsync(Doc, new long[] { 101 });
+            Assert.Equal(1, n);
+            var row = Assert.Single(p.Rows);
+            Assert.True(row.Fixed);
+            Assert.Equal("Copilot", row.FixedVia);
+            Assert.True(row.FixVerified);
+            Assert.Equal(new[] { 1 }, p.RedoToasts);
+            Assert.Equal(1, p.Undo.Ledger.Count);                                     // a second Undo can reopen it again
+            Assert.Equal(0, p.Undo.Undone.Count);
+        }
+
+        [Fact]
+        public async Task Redo_without_a_prior_Undo_does_nothing()
+        {
+            var p = new Pane();
+            var r = p.Add("r1", 100, true);
+            Assert.Equal(0, await p.Undo.RunRedoAsync(Doc, new long[] { 100 }));
+            Assert.Equal(0, await p.Undo.RunRedoAsync(Doc, new long[0], allUndone: true));
+            Assert.Equal(0, p.RedoRechecks);
+            Assert.Empty(p.RedoToasts);
+            Assert.True(r.Fixed);
+        }
+
+        [Fact]
+        public async Task Redo_where_the_rule_still_fails_keeps_the_row_Open()
+        {
+            var p = new Pane();
+            p.Add("r1", 100, true);
+            p.FailingElements.Add(100);
+            await p.Undo.RunAsync(Doc, new long[] { 100 });
+            var n = await p.Undo.RunRedoAsync(Doc, new long[] { 100 });               // rule still fails after the redo
+            Assert.Equal(0, n);
+            Assert.False(p.Rows.Single().Fixed);
+            Assert.Empty(p.RedoToasts);
+            Assert.Equal(0, p.Undo.Ledger.Count);
+        }
+
+        [Fact]
+        public async Task Redo_of_unrelated_elements_leaves_the_reopened_row_alone()
+        {
+            var p = new Pane();
+            p.Add("r1", 100, true);
+            p.FailingElements.Add(100);
+            await p.Undo.RunAsync(Doc, new long[] { 100 });
+            p.FailingElements.Clear();
+            Assert.Equal(0, await p.Undo.RunRedoAsync(Doc, new long[] { 555 }));
+            Assert.False(p.Rows.Single().Fixed);
+            Assert.Equal(1, p.Undo.Undone.Count);                                     // still waiting for its own Redo
+        }
+
+        [Fact]
+        public async Task Chip_Redo_with_no_ids_rechecks_every_reopened_row()
+        {
+            var p = new Pane();
+            p.Add("r1", 100, true);
+            p.Add("r2", 200, true);
+            p.FailingElements.Add(100); p.FailingElements.Add(200);
+            Assert.Equal(2, await p.Undo.RunAsync(Doc, new long[0], allLedger: true));
+            p.FailingElements.Clear();
+            Assert.Equal(2, await p.Undo.RunRedoAsync(Doc, new long[0], allUndone: true));
+            Assert.All(p.Rows, r => Assert.True(r.Fixed));
+            Assert.Equal(new[] { 2 }, p.RedoToasts);
+            Assert.Equal(1, p.RedoRechecks);                                          // one re-check for the whole pack
+        }
+
+        [Fact]
+        public async Task Redo_of_a_JKR_Fix_All_row_puts_it_back_Fixed_without_Copilot()
+        {
+            var p = new Pane();
+            var r = p.Add("r2", 200);
+            r.Fixed = true; r.FixedVia = "";
+            p.FailingElements.Add(200);
+            Assert.Equal(1, await p.Undo.RunAsync(Doc, new long[] { 200 }));          // Ctrl+Z: the panel's own re-check reopens it
+            p.FailingElements.Clear();
+            Assert.Equal(1, await p.Undo.RunRedoAsync(Doc, new long[] { 200 }));      // Ctrl+Y
+            var row = Assert.Single(p.Rows);
+            Assert.True(row.Fixed);
+            Assert.Equal("", row.FixedVia);
+            Assert.Equal(0, p.Undo.Ledger.Count);                                     // never a Copilot row
+        }
+
+        [Fact]
+        public async Task Redo_of_a_create_type_row_goes_through_one_scan_and_needs_the_scan_to_pass()
+        {
+            var p = new Pane();
+            p.Add("v1", 0, true, new long[0]);
+            p.FailingByScan.Add("v1");
+            Assert.Equal(1, await p.Undo.RunAsync(Doc, new long[0]));                 // undo of a creation reports no ids
+            Assert.Equal(0, await p.Undo.RunRedoAsync(Doc, new long[0]));             // still failing: stays Open
+            Assert.False(p.Rows.Single().Fixed);
+
+            p.Rows.Clear();
+            var q = new Pane();
+            q.Add("v1", 0, true, new long[0]);
+            q.FailingByScan.Add("v1");
+            await q.Undo.RunAsync(Doc, new long[0]);
+            q.FailingByScan.Clear();
+            Assert.Equal(1, await q.Undo.RunRedoAsync(Doc, new long[0]));
+            Assert.True(q.Rows.Single().Fixed);
+        }
+
+        [Fact]
+        public async Task Redo_that_could_not_be_checked_marks_nothing_and_waits_for_the_next_Redo()
+        {
+            var p = new Pane { ScanCanRun = false };
+            p.Add("v1", 0, true, new long[0]);
+            p.FailingByScan.Add("v1");
+            p.ScanCanRun = true;
+            await p.Undo.RunAsync(Doc, new long[0]);
+            p.ScanCanRun = false;
+            Assert.Equal(0, await p.Undo.RunRedoAsync(Doc, new long[0]));
+            Assert.False(p.Rows.Single().Fixed);
+            Assert.Equal(1, p.Undo.Undone.Count);
         }
     }
 }
