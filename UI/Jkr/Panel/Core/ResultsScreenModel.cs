@@ -331,7 +331,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public int IgnoreAllN => _core.IgnorableVisible().Count;
         public string IgnoreAllLabel => IgnoreAllN > 0 ? T("ignoreAll") + " " + IgnoreAllN : T("ignoreAll");
         /// <summary>The host's confirm for Ignore all (row count in, true = go on). Without one nothing is ignored.</summary>
-        public Func<int, bool> ConfirmIgnoreAll { get; set; }
+        public Func<int, int, bool> ConfirmIgnoreAll { get; set; }
+        /// <summary>Ignore all works on the Open tab only (the other tabs show rows already decided or for a person).</summary>
+        public bool CanIgnoreAll => CanAct && _core.Tab == PanelTab.Open;
         /// <summary>Fix all (n): changes (not rows) for the open items in the section with a ready-made fix. AI-fixer rows are
         /// not in it: they are accepted or typed one at a time (AI-435).</summary>
         public int FixableN => _core.FixableChanges();
@@ -924,10 +926,10 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// after the host's confirm with the row count. Cancel changes nothing.</summary>
         public void IgnoreAll()
         {
-            if (!CanAct) return;
+            if (!CanIgnoreAll) return;
             var ids = _core.IgnorableVisible().Select(x => x.Id).ToList();
             if (ids.Count == 0) return;
-            if (ConfirmIgnoreAll == null || !ConfirmIgnoreAll(ids.Count)) return;
+            if (ConfirmIgnoreAll == null || !ConfirmIgnoreAll(ids.Count, _core.IgnoreSkipped())) return;
             IgnoreRequested?.Invoke(ids);
         }
 

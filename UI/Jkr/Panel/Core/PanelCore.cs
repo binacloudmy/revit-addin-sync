@@ -277,12 +277,16 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// <summary>Ignore all scope (AI-505): the open AI rows the list shows (section + search), never the
         /// High tier (it has no Ignore control, see JkrTierMap.CanIgnore).</summary>
         public List<PanelItem> IgnorableVisible() =>
-            InCat.Where(x => !x.IsHuman && x.Status == ItemStatus.Open && !x.MarkedManual && x.Sev != "High" && MatchesQuery(x)).ToList();
+            Tab != PanelTab.Open ? new List<PanelItem>()   // only the Open tab shows rows that can be ignored
+                : InCat.Where(x => !x.IsHuman && x.Status == ItemStatus.Open && !x.MarkedManual && x.Sev != "High" && MatchesQuery(x)).ToList();
+
+        /// <summary>Rows the list shows that Ignore all leaves out (High, marked manual): the confirm names them.</summary>
+        public int IgnoreSkipped() => Tab != PanelTab.Open ? 0 : Filtered().Count - IgnorableVisible().Count;
 
         /// <summary>Fix all scope: open AI items with a plain fix in the current
         /// section and search. A CopilotFixable row (AI-492) is never in it: Copilot proposes and a person confirms.</summary>
         public List<PanelItem> FixableOpen() =>
-            InCat.Where(x => !x.IsHuman && x.Status == ItemStatus.Open && !x.MarkedManual && x.Fix == FixKind.Fix && !x.CopilotFixable && MatchesQuery(x)).ToList();
+            InCat.Where(x => !x.IsHuman && x.Status == ItemStatus.Open && !x.MarkedManual && x.Fix == FixKind.Fix && !x.CopilotFixable && MatchesQuery(x) && Tab == PanelTab.Open).ToList();
 
         /// <summary>AI-442: Fix all (n) in changes, the unit of the batch, progress, toast and result
         /// window: rows that ask for the same write are one change, a rename with no name is none.</summary>

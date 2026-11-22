@@ -22,6 +22,8 @@ namespace RevitWebAppSync.Tests
                 Spec = new SpecRef { Doc = "" },
             };
 
+        private static List<int> Skips;
+
         private static ResultsScreenModel Board(out List<List<string>> ignored, out List<int> asked, bool confirm = true, bool fixable = false)
         {
             var core = new PanelCore(new List<PanelItem>(), null, new ManualClock());
@@ -42,8 +44,9 @@ namespace RevitWebAppSync.Tests
             r.Load(rows, AuditSummary.Build(new Bim010Cell[0]));
             var ign = new List<List<string>>();
             var ask = new List<int>();
+            Skips = new List<int>(); var skips = Skips;
             r.IgnoreRequested += ids => ign.Add(ids);
-            r.ConfirmIgnoreAll = n => { ask.Add(n); return confirm; };
+            r.ConfirmIgnoreAll = (n, skipped) => { ask.Add(n); skips.Add(skipped); return confirm; };
             ignored = ign; asked = ask;
             return r;
         }
@@ -59,6 +62,7 @@ namespace RevitWebAppSync.Tests
             r.IgnoreAll();
             Assert.Equal(new[] { "d1", "d2" }, Assert.Single(ignored));   // d3 is High: skipped
             Assert.Equal(new[] { 2 }, asked);
+            Assert.Equal(new[] { 1 }, Skips);                 // the confirm names the High row it leaves out
         }
 
         [Fact]
@@ -116,6 +120,37 @@ namespace RevitWebAppSync.Tests
             r.FixAll();
             Assert.Equal(new[] { "all" }, all);           // not the section-wide request
             Assert.Equal(new[] { "d1", "d2", "d3" }, Assert.Single(ids));
+        }
+
+        [Theory]
+        [InlineData(PanelTab.Ignore)]
+        [InlineData(PanelTab.Resolved)]
+        [InlineData(PanelTab.Manual)]
+        public void Other_tabs_disable_the_bulk_actions_and_act_on_nothing(PanelTab tab)
+        {
+            var r = Board(out var ignored, out var asked, fixable: true);
+            var fix = 0;
+            r.FixAllRequested += _ => fix++;
+            r.FixCheckRequested += _ => fix++;
+            r.SelectTab(tab);
+            Assert.False(r.CanIgnoreAll);
+            Assert.False(r.CanFixAll);
+            Assert.Equal(0, r.IgnoreAllN);
+            Assert.Equal("Abaikan semua", r.IgnoreAllLabel);
+            r.IgnoreAll(); r.FixAll();
+            Assert.Empty(ignored);
+            Assert.Empty(asked);
+            Assert.Equal(0, fix);
+        }
+
+        [Fact]
+        public void The_Open_tab_keeps_the_bulk_actions_on()
+        {
+            var r = Board(out _, out _, fixable: true);
+            r.SelectTab(PanelTab.Ignore);
+            r.SelectTab(PanelTab.Open);
+            Assert.True(r.CanIgnoreAll);
+            Assert.True(r.CanFixAll);
         }
     }
 }

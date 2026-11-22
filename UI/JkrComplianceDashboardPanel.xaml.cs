@@ -193,11 +193,11 @@ namespace RevitWebAppSync.UI
 
         /// <summary>Ignore these issues: one plain toast, saved to the audit file.</summary>
         /// <summary>AI-505: the confirm before "Ignore all", with the row count. True = go on.</summary>
-        public bool ConfirmIgnoreAll(int n)
+        public bool ConfirmIgnoreAll(int n, int skipped)
         {
             var dlg = new TaskDialog(Jkr.Panel.Core.PaneText.DialogTitle)
             {
-                MainInstruction = Jkr.Panel.Core.PaneText.IgnoreAllConfirm(n),
+                MainInstruction = Jkr.Panel.Core.PaneText.IgnoreAllConfirm(n, skipped),
                 CommonButtons = TaskDialogCommonButtons.Ok | TaskDialogCommonButtons.Cancel,
                 DefaultButton = TaskDialogResult.Cancel,
             };

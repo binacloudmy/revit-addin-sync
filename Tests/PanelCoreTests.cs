@@ -280,6 +280,21 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
+        public void Ignore_all_and_Fix_all_scope_is_empty_off_the_Open_tab()
+        {
+            var (core, _) = AtResults();
+            foreach (var tab in new[] { PanelTab.Ignore, PanelTab.Resolved, PanelTab.Manual })
+            {
+                core.SetTab(tab);
+                Assert.Empty(core.IgnorableVisible());
+                Assert.Empty(core.FixableOpen());
+                Assert.Equal(0, core.IgnoreSkipped());
+                core.IgnoreAll();
+                Assert.DoesNotContain(core.Issues, x => x.Status == ItemStatus.Ignored);
+            }
+        }
+
+        [Fact]
         public void Fix_all_scope_follows_the_search()
         {
             var (core, _) = AtResults();

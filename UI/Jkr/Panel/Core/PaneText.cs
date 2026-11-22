@@ -139,8 +139,10 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             n + " " + PanelStrings.Get(lang ?? PaneLanguage.Current, "toastIgn");
         public static string NoMedLowToIgnore(string lang = null) =>
             L(lang, "Tiada isu Sederhana/Rendah untuk diabaikan.", "No Medium/Low issues to ignore.");
-        public static string IgnoreAllConfirm(int n, string lang = null) =>
-            L(lang, $"Abaikan {n} isu yang dipaparkan? Isu Tinggi tidak diabaikan.", $"Ignore the {n} issue{S(n)} shown? High issues are never ignored.");
+        public static string IgnoreAllConfirm(int n, int skipped = 0, string lang = null) =>
+            L(lang, $"Abaikan {n} isu yang dipaparkan?", $"Ignore the {n} issue{S(n)} shown?")
+            + (skipped > 0 ? L(lang, $" {skipped} isu Tinggi atau ditanda manual tidak diabaikan.",
+                                      $" {skipped} High or marked-manual row{S(skipped)} will not be ignored.") : "");
         public static string IgnoredMedLow(int n, string lang = null) =>
             L(lang, $"{n} isu Sederhana/Rendah diabaikan.", $"Ignored {n} Medium/Low issue{S(n)}.");
 

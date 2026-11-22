@@ -234,7 +234,7 @@ namespace RevitWebAppSync.Tests
             var fixAll = new List<string>();
             r.FixAllRequested += section => fixAll.Add(section ?? "all");
             r.IgnoreRequested += ids => ign = ids;
-            r.ConfirmIgnoreAll = _ => true;
+            r.ConfirmIgnoreAll = (_, __) => true;
             r.OpenRequested += id => open = id;
             r.RescanRequested += (l, d) => rescan = (l, d);
 
