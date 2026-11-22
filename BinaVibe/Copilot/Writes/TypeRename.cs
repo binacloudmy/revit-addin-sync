@@ -10,6 +10,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 
 namespace BinaVibe.Copilot.Writes
 {
@@ -42,13 +43,16 @@ namespace BinaVibe.Copilot.Writes
             ", so type_param true would rename their TYPE (every instance). Resend with type_param false to rename the element, or use 'Type Name' to rename the type; nothing was changed. " +
             "('Name' ialah sifat instance bagi elemen ini; type_param true akan menukar nama TYPE. Hantar semula dengan type_param false, atau guna 'Type Name'; tiada apa-apa diubah.)";
 
+        private static readonly Regex Whitespace = new(@"\s+", RegexOptions.Compiled);
+
         /// <summary>Revit's limit on an element name.</summary>
         public const int MaxNameLength = 255;
 
         /// <summary>The name to apply, or null when it is not a usable name; <paramref name="problem"/> says why.</summary>
         public static string? Normalize(string? given, out string? problem)
         {
-            var name = (given ?? "").Trim();
+            // AI-dc1b: "(TKm481a)  7140 x 750" (two spaces) is one name with single spaces; also tabs and line breaks.
+            var name = Whitespace.Replace((given ?? "").Trim(), " ");
             if (name.Length == 0) { problem = "A type name cannot be empty."; return null; }
             var bad = name.IndexOfAny(ForbiddenChars);
             if (bad >= 0)
@@ -64,6 +68,10 @@ namespace BinaVibe.Copilot.Writes
             problem = null;
             return name;
         }
+
+        /// <summary>True when a <see cref="Check"/> verdict means "a sibling already holds the name" (skip that type, not the batch).</summary>
+        public static bool IsDuplicateVerdict(string? verdict) =>
+            verdict != null && verdict.IndexOf("already exists in this family and category", StringComparison.Ordinal) >= 0;
 
         /// <summary>
         /// Checks one rename. <paramref name="siblingNames"/> are the names of the OTHER types of the same family and category

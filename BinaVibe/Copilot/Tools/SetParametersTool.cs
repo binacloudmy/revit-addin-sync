@@ -27,12 +27,13 @@ using System.Text.Json;
 using Autodesk.Revit.DB;
 using BinaVibe.Copilot.Contracts;
 using BinaVibe.Copilot.Envelopes;
+using BinaVibe.Copilot.Undo;
 using BinaVibe.Copilot.Writes;
 using BinaVibe.Mcp.Tools;
 
 namespace BinaVibe.Copilot.Tools
 {
-    public sealed class SetParametersTool : IWriteTool
+    public sealed class SetParametersTool : IPerItemTransactionTool
     {
         private const int MaxTypesListed = 20;
 
@@ -63,6 +64,10 @@ namespace BinaVibe.Copilot.Tools
         public string Name => ToolNames.SetParameters;
 
         public ToolKind Kind => ToolKind.Write;
+
+        /// <summary>AI-dc1b: a type rename opens one Transaction per type (inside the runner's group), so a native exception on one
+        /// type cannot abort the transaction that holds the others.</summary>
+        public bool OwnsTransactions(WritePlan plan) => Notes.TryGetValue(plan, out var n) && n.Rename;
 
         /// <summary>set_parameters changes the model, so it never runs outside a write request.</summary>
         public Envelope Run(ToolContext ctx, JsonElement args) =>
@@ -283,6 +288,8 @@ namespace BinaVibe.Copilot.Tools
                     pendingRenames.Add(new TypeRenameItem(id, el.Name, rv.Text));
                     continue;
                 }
+                if (notes.Rename)
+                    throw new WriteRefusal(ErrorCodes.InvalidArgs, "Element " + key + " is not a type, so it cannot be renamed; nothing was changed.");
                 var p = FindParam(el, notes.Param)
                         ?? throw new WriteRefusal(ErrorCodes.NotFound, "Element " + key + " no longer has '" + notes.Param + "'; nothing was changed.", Array.Empty<string>());
                 var v = ParsedValue.FromCanonical(plan.IntendedValues.TryGetValue(key, out var c) ? c : null);
@@ -295,7 +302,7 @@ namespace BinaVibe.Copilot.Tools
                 written.Add((id, p, v, before));
             }
 
-            // AI-dc1: each type is renamed on its own (a SubTransaction per type). A type Revit refuses is skipped with the real
+            // AI-dc1: each type is renamed on its own (a Transaction per type, in the runner's group). A type Revit refuses is skipped with the real
             // reason; the others stay. Only when none could be renamed does the call fail (and the runner rolls it back).
             if (pendingRenames.Count > 0)
             {
@@ -303,11 +310,15 @@ namespace BinaVibe.Copilot.Tools
                 foreach (var d in ran.Done) renames.Add((d.Id, d.Before, d.Name));
                 notes.RenameFailures = ran.Failed;
                 foreach (var f in ran.Failed) notes.Skips.Add(new SkipNote { Id = f.Item.Id, Reason = f.Text, Failed = true });
+                foreach (var f in ran.NotAttempted)
+                    notes.Skips.Add(new SkipNote { Id = f.Id, Reason = "Type '" + f.Before + "' was not tried: " + TypeRenameBatch.StoppedText(ran), Failed = true });
                 if (ran.Done.Count == 0 && written.Count == 0)
-                    throw new WriteRefusal(ErrorCodes.RolledBack, "No type could be renamed, so nothing changed. " + TypeRenameBatch.FailureSummary(ran.Failed));
+                    throw new WriteRefusal(ErrorCodes.RolledBack, "No type could be renamed, so nothing changed. " + TypeRenameBatch.FailureSummary(ran.Failed)
+                        + (ran.StoppedBy != null ? " " + TypeRenameBatch.StoppedText(ran) : ""));
             }
 
-            if (written.Count + renames.Count > 0) doc.Regenerate();
+            // A rename plan has no outer Transaction (each type committed in its own), and each commit regenerated already.
+            if (written.Count > 0) doc.Regenerate();
 
             var rows = new List<FieldChangeDto>();
             var mismatches = new List<MismatchDto>();
@@ -377,24 +388,16 @@ namespace BinaVibe.Copilot.Tools
             };
         }
 
-        /// <summary>Renames one type inside its own SubTransaction, so a refusal (any exception) leaves the other renames alone.</summary>
+        /// <summary>Renames one type in its own Transaction (inside the runner's group, so one Undo), so a refusal (any exception) leaves the other renames alone.</summary>
         private static void RenameOne(Document doc, TypeRenameItem item)
         {
             var el = doc.GetElement(ElemIds.From(item.Id))
                      ?? throw new InvalidOperationException("the type no longer exists");
-            var st = new SubTransaction(doc);
-            try
-            {
-                st.Start();
-                TypeRenameBatch.ApplyWithRollback(
-                    () => el.Name = item.Name,
-                    () => TxGuard.CommitOrThrow(st),
-                    () => { if (st.GetStatus() == TransactionStatus.Started) st.RollBack(); });
-            }
-            finally
-            {
-                st.Dispose();
-            }
+            using var tx = new Transaction(doc, BinaTransactionNames.For("Rename type " + item.Before));
+            TypeRenameBatch.ApplyWithRollback(
+                () => { TxGuard.StartSwallowing(tx); el.Name = item.Name; },
+                () => TxGuard.CommitOrThrow(tx),
+                () => { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); });
         }
 
         private static string Summary(PlanNotes n, WritePhase phase, int count, int readBack, int skipped)
@@ -504,7 +507,16 @@ namespace BinaVibe.Copilot.Tools
                 notes.Unchanged++;
                 return;
             }
-            if (verdict != null) throw new WriteRefusal(ErrorCodes.InvalidArgs, "Type '" + type.Name + "': " + verdict);
+            if (verdict != null)
+            {
+                // AI-dc1b: a name a sibling type already holds skips THIS type with the reason; it never refuses the whole batch.
+                if (TypeRename.IsDuplicateVerdict(verdict))
+                {
+                    Skip(notes, type, t.Row, "name already exists: type '" + type.Name + "' not renamed. " + verdict);
+                    return;
+                }
+                throw new WriteRefusal(ErrorCodes.InvalidArgs, "Type '" + type.Name + "': " + verdict);
+            }
             if (seen.TryGetValue(ownerId, out var earlier))
             {
                 if (earlier.canonical != "text|" + name)
@@ -516,7 +528,10 @@ namespace BinaVibe.Copilot.Tools
             var scope = (type.Category?.Id.Value.ToString(CultureInfo.InvariantCulture) ?? "") + "|" + family;
             if (!renamedTo.TryGetValue(scope, out var taken)) renamedTo[scope] = taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             if (!taken.Add(name))
-                throw new WriteRefusal(ErrorCodes.InvalidArgs, "Two types of '" + family + "' would both be named '" + name + "'; give each type its own name.");
+            {
+                Skip(notes, type, t.Row, "name already exists: type '" + type.Name + "' not renamed, another type of '" + family + "' in this batch gets '" + name + "' first.");
+                return;
+            }
             seen[ownerId] = ("text|" + name, t.Row);
             edits[ownerId] = "text|" + name;
         }

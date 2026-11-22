@@ -34,6 +34,11 @@ namespace BinaVibe.Copilot.Writes
     {
         public List<TypeRenameItem> Done { get; } = new();
         public List<TypeRenameFailure> Failed { get; } = new();
+        /// <summary>Items never tried because an earlier one threw a native (SEH-class) exception that can leave the document
+        /// unusable; what committed before it stays.</summary>
+        public List<TypeRenameItem> NotAttempted { get; } = new();
+        /// <summary>The native exception that stopped the batch, or null.</summary>
+        public string? StoppedBy { get; set; }
     }
 
     public static class TypeRenameBatch
@@ -53,10 +58,33 @@ namespace BinaVibe.Copilot.Writes
                 catch (Exception ex)
                 {
                     result.Failed.Add(new TypeRenameFailure(item, Describe(ex)));
+                    if (IsPoisonous(ex))
+                    {
+                        // A native exception (SEHException, access violation) can leave Revit's document state corrupt:
+                        // stop here, keep what already committed, and say so (never keep going on a poisoned document).
+                        result.StoppedBy = Describe(ex);
+                        var seen = false;
+                        foreach (var rest in items)
+                        {
+                            if (seen) result.NotAttempted.Add(rest);
+                            else if (rest.Id == item.Id) seen = true;
+                        }
+                        break;
+                    }
                 }
             }
             return result;
         }
+
+        /// <summary>True for a native-code failure (SEH, access violation, Revit InternalException) that can poison the document.</summary>
+        public static bool IsPoisonous(Exception ex) =>
+            ex is System.Runtime.InteropServices.SEHException || ex is AccessViolationException ||
+            ex.GetType().Name == "InternalException";
+
+        /// <summary>The receipt line for items never tried after a native exception stopped the batch ("" when none).</summary>
+        public static string StoppedText(TypeRenameBatchResult r) =>
+            r.StoppedBy == null ? "" :
+            "Stopped after a native Revit error (" + r.StoppedBy + "): " + r.NotAttempted.Count + " more type(s) were not tried so Revit stays safe; the renames before it are kept. Save, then re-check and run Fix all again for the rest.";
 
         /// <summary>Runs one item's change; when it throws, rolls back (a rollback that throws too is ignored) and rethrows the ORIGINAL
         /// exception, so its text, not the rollback's, reaches the receipt.</summary>

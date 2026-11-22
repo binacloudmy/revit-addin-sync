@@ -68,6 +68,83 @@ namespace RevitAddinSync.Tests
         private static string TypeRenameBatch_Check(string given, string[] siblings) =>
             TypeRename.Check(given, "Other", siblings, out _) ?? "";
 
+        // ---- AI-dc1b: Dc.1 "Fix all" on revit 0294a595 still rolled everything back ----
+
+        [Fact]
+        public void Double_space_in_the_new_name_is_normalised_to_single_spaces()
+        {
+            Assert.Null(TypeRename.Check("(TKm481a)  7140 x 750 s3218 sp @T7", "TKm481a", new[] { "Other" }, out var name));
+            Assert.Equal("(TKm481a) 7140 x 750 s3218 sp @T7", name);
+            Assert.Null(TypeRename.Check("  A \t B\r\n  C ", "Old", Array.Empty<string>(), out var n2));
+            Assert.Equal("A B C", n2);
+        }
+
+        [Fact]
+        public void Name_that_differs_from_a_sibling_only_by_a_double_space_is_a_duplicate()
+        {
+            var v = TypeRename.Check("(A)  1 x 2", "Old", new[] { "(A) 1 x 2" }, out _);
+            Assert.True(TypeRename.IsDuplicateVerdict(v));
+            Assert.Contains("already exists", v);
+        }
+
+        [Fact]
+        public void Only_a_duplicate_verdict_is_skipped_other_refusals_stay_refusals()
+        {
+            Assert.False(TypeRename.IsDuplicateVerdict(null));
+            Assert.False(TypeRename.IsDuplicateVerdict("same"));
+            Assert.False(TypeRename.IsDuplicateVerdict(TypeRename.Check("a:b", "x", Array.Empty<string>(), out _)));
+            Assert.True(TypeRename.IsDuplicateVerdict(TypeRename.Check("dup", "x", new[] { "DUP" }, out _)));
+        }
+
+        [Fact]
+        public void A_native_exception_stops_the_batch_keeps_the_earlier_renames_and_names_the_rest()
+        {
+            var applied = new List<long>();
+            var r = TypeRenameBatch.Run(Nine(), item =>
+            {
+                if (item.Id == 4) throw new System.Runtime.InteropServices.SEHException("External component has thrown an exception.");
+                applied.Add(item.Id);
+            });
+            Assert.Equal(new long[] { 1, 2, 3 }, applied);
+            Assert.Equal(3, r.Done.Count);
+            Assert.Equal(4, Assert.Single(r.Failed).Item.Id);
+            Assert.Equal(new long[] { 5, 6, 7, 8, 9 }, r.NotAttempted.Select(i => i.Id).ToArray());
+            Assert.Contains("SEHException", r.StoppedBy);
+            var text = TypeRenameBatch.StoppedText(r);
+            Assert.Contains("5 more type(s) were not tried", text);
+            Assert.Contains("kept", text);
+        }
+
+        [Fact]
+        public void A_normal_exception_does_not_stop_the_batch()
+        {
+            var r = TypeRenameBatch.Run(Nine(), item => { if (item.Id == 2) throw new InvalidOperationException("x"); });
+            Assert.Equal(8, r.Done.Count);
+            Assert.Empty(r.NotAttempted);
+            Assert.Null(r.StoppedBy);
+            Assert.Equal("", TypeRenameBatch.StoppedText(r));
+        }
+
+        /// <summary>Models the Revit side: ONE group, one Transaction per type, the throwing one rolled back, the group assimilated once.</summary>
+        [Fact]
+        public void Each_type_commits_in_its_own_transaction_one_group_one_undo_and_the_throwing_type_rolls_back_alone()
+        {
+            var log = new List<string>();
+            var r = TypeRenameBatch.Run(Nine(), item =>
+            {
+                log.Add("start " + item.Id);
+                TypeRenameBatch.ApplyWithRollback(
+                    () => { if (item.Id == 5) throw new System.Runtime.InteropServices.ExternalException("boom"); },
+                    () => log.Add("commit " + item.Id),
+                    () => log.Add("rollback " + item.Id));
+            });
+            Assert.Equal(8, r.Done.Count);
+            Assert.Equal(8, log.Count(l => l.StartsWith("commit ")));
+            Assert.Equal(new[] { "rollback 5" }, log.Where(l => l.StartsWith("rollback ")).ToArray());
+            Assert.DoesNotContain("commit 5", log);
+            Assert.Single(r.Failed);
+        }
+
         // ---- the launcher toast ----
 
         [Fact]

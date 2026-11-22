@@ -564,13 +564,16 @@ namespace BinaVibe.Copilot.Writes
                 ChangeRecording? recording = null;
                 // AI-330: curve types and fittings before the call, only when the call can re-type a curve
                 var fittingWatch = FittingWatchPolicy.ShouldWatch(call.Tool, plan) ? FittingWatch.Start(doc) : null;
+                // AI-dc1b: a tool that commits one Transaction per item (type rename) gets no outer Transaction: a native exception
+                // on one item would abort it and roll back every other item. The group below still makes it ONE Undo.
+                var ownsTx = tool is IPerItemTransactionTool per && per.OwnsTransactions(plan);
                 var tx = new Transaction(doc, transactionName);
                 try
                 {
                     recording = ChangeRecorder.Start(doc);
                     try
                     {
-                        TxGuard.StartSwallowing(tx);
+                        if (!ownsTx) TxGuard.StartSwallowing(tx);
                     }
                     catch (Exception ex) when (ex is Autodesk.Revit.Exceptions.InvalidOperationException || ex is System.InvalidOperationException)
                     {
@@ -590,7 +593,7 @@ namespace BinaVibe.Copilot.Writes
                         }
                         else
                         {
-                            TxGuard.CommitOrThrow(tx);
+                            if (!ownsTx) TxGuard.CommitOrThrow(tx);
                             run.Envelope = env;
                         }
                     }
