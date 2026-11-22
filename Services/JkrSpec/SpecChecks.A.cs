@@ -539,9 +539,10 @@ namespace RevitWebAppSync.Services.JkrSpec
         }
 
         /// <summary>
-        /// A2.2 (T 21:22): the model code read from the file name — W00 (single model) or
-        /// WXnn (split model, e.g. segment "w-01" / "WX01"), carried to A3. Not readable →
-        /// fail, as the spec says (<see cref="SpecA.ParseModelCode"/>).
+        /// A2.2 (T 21:22): the model code read from the file name, by the Piawaian Lampiran A1 table
+        /// (<see cref="SpecA.ParseModelCode"/>): w-00 whole, w-nn whole counter, wxnn level, wtnn site,
+        /// wfnn facade, wrnn roof, wcnn core. No code in the name (ME / EL names often have none) or a
+        /// code the table does not judge → listed for a person, never a fail (AI-489).
         /// </summary>
         private static IEnumerable<SpecResult> A22ModelCode(SpecModel m)
         {
@@ -551,16 +552,14 @@ namespace RevitWebAppSync.Services.JkrSpec
                 return new[] { Unjudged(id, "File not saved — the model code cannot be read", key: "unsaved") };
             var code = SpecA.ParseModelCode(name);
             if (code == null)
-                return new[]
-                {
-                    Fail(id, $"Model code (W00 / WXnn) cannot be read from the file name \"{name}\"", actual: name, required: "W00 / WXnn", key: "file"),
-                };
-            return new[]
-            {
-                code.IsSingle
-                    ? Pass(id, $"Model code found: {code.Canonical} (single model) — segment \"{code.Raw}\"")
-                    : Pass(id, $"Model code found: {code.Canonical} (split model) — segment \"{code.Raw}\""),
-            };
+                return new[] { Unjudged(id, $"No model code (w-00, w-nn, wxnn …) is written in the file name \"{name}\" — confirm it is correct for this discipline", key: "no-code") };
+            if (code.Kind == SpecModelKind.Unknown)
+                return new[] { Unjudged(id, $"Model code \"{code.Raw}\" is not one the check judges — confirm it is correct", key: "unknown-code") };
+            var what = code.Kind == SpecModelKind.Whole ? "whole model"
+                : code.Kind == SpecModelKind.WholeCounter ? "whole model, counter " + code.Number.ToString("00", CultureInfo.InvariantCulture)
+                : code.Kind == SpecModelKind.LevelSubModel ? "level sub-model, level " + code.Number.ToString(CultureInfo.InvariantCulture)
+                : code.Kind.ToString().ToLowerInvariant() + " sub-model";
+            return new[] { Pass(id, $"Model code found: {code.Canonical} ({what}) — segment \"{code.Raw}\"") };
         }
 
         // ════════════════════════════════════════════════════════════════════
@@ -568,28 +567,30 @@ namespace RevitWebAppSync.Services.JkrSpec
         // linked. The full part list is in the BPEP, which only the backend has.
         // ════════════════════════════════════════════════════════════════════
 
-        /// <summary>A3.1 (T 21:19, 21:22): code W00 → complies. A split model → not applicable.
-        /// Code unreadable → a person (A2.2 fails on it).</summary>
+        /// <summary>A3.1 (T 21:19, 21:22): a whole model (w-00 or w-nn) → complies. A sub-model
+        /// (level, site, facade, roof, core) → not applicable. No code or an unjudged code → a
+        /// person (A2.2 lists it).</summary>
         private static IEnumerable<SpecResult> A31Single(SpecModel m)
         {
             const string id = "A3.1";
             var name = SpecA.StripExtension(m.FileName);
             if (name.Length == 0) return Enumerable.Empty<SpecResult>();
             var code = SpecA.ParseModelCode(name);
-            if (code == null)
-                return new[] { Unjudged(id, "Model code not readable (see A2.2) — single or split unknown", key: "no-code") };
-            if (code.IsSingle)
+            if (code == null || code.Kind == SpecModelKind.Unknown)
+                return new[] { Unjudged(id, "No model code the check judges (see A2.2) — whole or split unknown", key: "no-code") };
+            if (code.IsWhole)
             {
                 // AI-504 (Q16): no JKR document gives a link-count rule, so there is no remark on how
-                // many links a W00 model has. The verdict is the code alone.
-                return new[] { Pass(id, "Single model (W00) — complies") };
+                // many links a whole model has. The verdict is the code alone.
+                return new[] { Pass(id, $"Whole model ({code.Canonical}) — complies") };
             }
-            return new[] { NotApplicable(id, $"Split model ({code.Canonical}) — A3.1 does not apply") };
+            return new[] { NotApplicable(id, $"Sub-model ({code.Canonical}) — A3.1 does not apply") };
         }
 
         /// <summary>
-        /// A3.2 (T 21:19–21:21): every part of a split model is linked. The parts the
-        /// model can show are the codes 1…max(own, highest linked) of the same discipline
+        /// A3.2 (T 21:19–21:21): every part of a level-split model is linked. Only level
+        /// sub-models (wxnn) are parts; a whole-model counter (w-nn) is not. The parts the
+        /// model can show are the levels 1…max(own, highest linked) of the same discipline
         /// (links of another jkrXX discipline are not parts); each one missing from the
         /// links fails, as does a part link whose file is not found. FailOnly: parts above
         /// the highest code seen are known only from the BPEP (A3.3). No links at all and
@@ -600,7 +601,9 @@ namespace RevitWebAppSync.Services.JkrSpec
             const string id = "A3.2";
             var s = K.Split(m);
             if (s == null) return Enumerable.Empty<SpecResult>();
-            if (s.Code.IsSingle) return new[] { NotApplicable(id, "Single model (W00) — no parts to link") };
+            if (s.Code.IsWhole) return new[] { NotApplicable(id, $"Whole model ({s.Code.Canonical}) — no parts to link") };
+            if (!s.Code.IsLevelPart)
+                return new[] { Unjudged(id, $"{s.Code.Canonical} is a {s.Code.Kind.ToString().ToLowerInvariant()} sub-model, not a numbered level part — confirm its parts against the BPEP (A3.3)", key: "sub-model") };
             var list = new List<SpecResult>();
             foreach (var p in s.Parts.Where(p => K.IsNotFound(p.Link)))
                 list.Add(Fail(id, $"Part link {p.Code.Canonical} not found (NotFound): {p.Link.Name}", actual: "NotFound", required: "Loaded", key: "notfound:" + p.Link.Name));
@@ -628,7 +631,7 @@ namespace RevitWebAppSync.Services.JkrSpec
             const string id = "A3.3";
             var s = K.Split(m);
             if (s == null) return Enumerable.Empty<SpecResult>();
-            if (s.Code.IsSingle) return new[] { NotApplicable(id, "Single model (W00) — no parts to compare with the BPEP") };
+            if (s.Code.IsWhole) return new[] { NotApplicable(id, "Whole model — no parts to compare with the BPEP") };
             return new[] { Unjudged(id, "BPEP not available → cannot be checked", key: "bpep") };
         }
 
@@ -639,10 +642,10 @@ namespace RevitWebAppSync.Services.JkrSpec
             const string id = "A3.4";
             var s = K.Split(m);
             if (s == null) return Enumerable.Empty<SpecResult>();
-            if (s.Code.IsSingle) return new[] { NotApplicable(id, "Single model (W00) — A3.4 does not apply") };
+            if (s.Code.IsWhole) return new[] { NotApplicable(id, "Whole model — A3.4 does not apply") };
             if (m.Links.Count == 0)
-                return new[] { Listing(id, $"Split model ({s.Code.Canonical}) with no links: the model must be linked first before the A3 checks can run") };
-            return new[] { Listing(id, $"Split model ({s.Code.Canonical}) with {m.Links.Count} links — the A3 checks ran", m.Links.Count) };
+                return new[] { Listing(id, $"Sub-model ({s.Code.Canonical}) with no links: the model must be linked first before the A3 checks can run") };
+            return new[] { Listing(id, $"Sub-model ({s.Code.Canonical}) with {m.Links.Count} links — the A3 checks ran", m.Links.Count) };
         }
 
         /// <summary>A3.5 (list only, T 21:19–21:20): how the model is split — each part code
@@ -652,7 +655,7 @@ namespace RevitWebAppSync.Services.JkrSpec
             const string id = "A3.5";
             var s = K.Split(m);
             if (s == null) return Enumerable.Empty<SpecResult>();
-            if (s.Code.IsSingle) return new[] { NotApplicable(id, "Single model (W00) — not split") };
+            if (s.Code.IsWhole) return new[] { NotApplicable(id, "Whole model — not split") };
             var parts = new List<string> { $"{s.Code.Canonical} — {m.FileName} (this file)" };
             foreach (var p in s.Parts.OrderBy(p => p.Code.Number))
                 parts.Add($"{p.Code.Canonical} — {p.Link.Name}");
@@ -1390,21 +1393,21 @@ namespace RevitWebAppSync.Services.JkrSpec
         }
 
         /// <summary>The file's model code and the links that are parts of the same model
-        /// (a split code, same jkrXX discipline when both names carry one). Null when the
-        /// file is unsaved or the code is unreadable (A2.2 / A3.1 report that).</summary>
+        /// (level sub-models wxnn, same jkrXX discipline when both names carry one). Null when
+        /// the file is unsaved or has no judged code (A2.2 / A3.1 report that).</summary>
         internal static SplitInfo Split(SpecModel m)
         {
             var name = SpecA.StripExtension(m.FileName);
             if (name.Length == 0) return null;
             var code = SpecA.ParseModelCode(name);
-            if (code == null) return null;
+            if (code == null || code.Kind == SpecModelKind.Unknown) return null;
             var s = new SplitInfo { Code = code };
             var disc = SpecA.Discipline(name);
             foreach (var l in m.Links)
             {
                 var ln = SpecA.StripExtension(l.Name);
                 var lc = SpecA.ParseModelCode(ln);
-                if (lc == null || lc.IsSingle || lc.Number == code.Number) continue;
+                if (lc == null || !lc.IsLevelPart || (code.IsLevelPart && lc.Number == code.Number)) continue;
                 var ld = SpecA.Discipline(ln);
                 if (disc.Length > 0 && ld.Length > 0 && disc != ld) continue;
                 s.Parts.Add((l, lc));
@@ -1440,15 +1443,43 @@ namespace RevitWebAppSync.Services.JkrSpec
         public string ParentDisplay => PrefixText + Parent;
     }
 
-    /// <summary>A model code from a file name (A2.2): W00 single, WXnn split.</summary>
+    /// <summary>Kind of a model-type segment (Piawaian Lampiran A1, Medan 6, p.120-121).</summary>
+    public enum SpecModelKind
+    {
+        /// <summary>Not a model-type code the table knows (a sub-model letter such as wg / wv / wk / wb is read but not judged).</summary>
+        Unknown,
+        /// <summary>w-00 (also W00): the whole model, one file.</summary>
+        Whole,
+        /// <summary>w-nn, nn above 00: still the whole model; nn is a counter, never a split part (Jadual 2.13 example w-01).</summary>
+        WholeCounter,
+        /// <summary>wxnn: the level sub-model, nn = the level (wx30 = Aras 30). The only kind that counts as a split part in A3.2.</summary>
+        LevelSubModel,
+        /// <summary>wtnn: site model (Model Tapak).</summary>
+        Site,
+        /// <summary>wfnn: facade model.</summary>
+        Facade,
+        /// <summary>wrnn: roof model.</summary>
+        Roof,
+        /// <summary>wcnn: core (stairs) model.</summary>
+        Core,
+    }
+
+    /// <summary>A model code from a file name (A2.2): see <see cref="SpecModelKind"/>.</summary>
     public sealed class SpecModelCode
     {
         /// <summary>The text found ("w-01", "WX02", "W00").</summary>
         public string Raw = "";
+        public SpecModelKind Kind = SpecModelKind.Unknown;
+        /// <summary>The digits of the code (counter, level, sequence); 0 for a whole model.</summary>
         public int Number;
-        public bool IsSingle => Number == 0;
-        /// <summary>"W00" or "WX01".</summary>
-        public string Canonical => IsSingle ? "W00" : SpecA.SplitCode(Number);
+        /// <summary>The whole model (w-00 or w-nn): one file, nothing to split.</summary>
+        public bool IsWhole => Kind == SpecModelKind.Whole || Kind == SpecModelKind.WholeCounter;
+        /// <summary>A known sub-model kind (level, site, facade, roof, core).</summary>
+        public bool IsSubModel => Kind >= SpecModelKind.LevelSubModel;
+        /// <summary>Only a level sub-model (wxnn) is a numbered part of a split model.</summary>
+        public bool IsLevelPart => Kind == SpecModelKind.LevelSubModel;
+        /// <summary>"W00", "W-01", "WX01", "WT01", "WF01", "WR01", "WC01"; the raw text for Unknown.</summary>
+        public string Canonical => SpecA.CanonicalModelCode(Kind, Number, Raw);
     }
 
     /// <summary>
@@ -1503,16 +1534,66 @@ namespace RevitWebAppSync.Services.JkrSpec
             return list;
         }
 
-        private static readonly Regex CodeRx = new Regex(@"(?<![A-Za-z0-9])W(X)?[-\s]?(\d{2,3})(?![A-Za-z0-9])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        // The model-type table (Piawaian Lampiran A1 Medan 6, p.120-121; Jadual 2.8 / 2.13). One row per
+        // kind: the letters after "w", and the display prefix. Add a kind here, not in the parser.
+        private static readonly (SpecModelKind Kind, string Letter, string Prefix)[] ModelKindTable =
+        {
+            (SpecModelKind.LevelSubModel, "X", "WX"),
+            (SpecModelKind.Site, "T", "WT"),
+            (SpecModelKind.Facade, "F", "WF"),
+            (SpecModelKind.Roof, "R", "WR"),
+            (SpecModelKind.Core, "C", "WC"),
+        };
 
-        /// <summary>The model code in a file name: "W00" / "w-00" → single; "w-01" / "WX01" /
-        /// "W02" → split part nn. Bracketed groups are ignored. Null when none is found.</summary>
+        // Other sub-model codes the standard lists (wg, wv, we, wb, wd, wk<XX>, wa<XX>): recognised so they
+        // are not misread as a whole model, but not judged (Unknown).
+        private const string OtherSubModelPattern = @"(?:[GVEB]|D[A-Z]{0,3}|[KA](?:PB|PT|TK|PR))";
+
+        private static readonly Regex CodeRx = new Regex(
+            @"(?<![A-Za-z0-9])W(?:(?<dash>[-\s]\d{2,3})|(?<bare>\d{2,3})|(?<sub>[XTFRC])(?<subn>\d{2,3})|(?<other>" + OtherSubModelPattern + @"\d{2,3}))(?![A-Za-z0-9])",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+        /// <summary>The model code in a file name, read by <see cref="ModelKindTable"/>:
+        /// "w-00" / "W00" → Whole; "w-nn" / "Wnn" → WholeCounter (a counter, not a part);
+        /// "wxnn" → LevelSubModel (level nn); "wtnn" / "wfnn" / "wrnn" / "wcnn" → Site / Facade / Roof / Core;
+        /// other listed sub-model codes → Unknown. Bracketed groups are ignored. Null when the name
+        /// carries no model code (ME and EL names often do not) — that is "not stated", not a fault.</summary>
         public static SpecModelCode ParseModelCode(string name)
         {
             var s = Regex.Replace(StripExtension(name), @"\([^)]*\)", " ");
             var m = CodeRx.Match(s);
             if (!m.Success) return null;
-            return new SpecModelCode { Raw = m.Value, Number = int.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture) };
+            var code = new SpecModelCode { Raw = m.Value };
+            if (m.Groups["sub"].Success)
+            {
+                var letter = m.Groups["sub"].Value.ToUpperInvariant();
+                var row = ModelKindTable.First(r => r.Letter == letter);
+                code.Kind = row.Kind;
+                code.Number = int.Parse(m.Groups["subn"].Value, CultureInfo.InvariantCulture);
+            }
+            else if (m.Groups["other"].Success)
+            {
+                code.Kind = SpecModelKind.Unknown;
+            }
+            else
+            {
+                var digits = (m.Groups["dash"].Success ? m.Groups["dash"].Value : m.Groups["bare"].Value).Trim('-', ' ', '\t');
+                code.Number = int.Parse(digits, CultureInfo.InvariantCulture);
+                code.Kind = code.Number == 0 ? SpecModelKind.Whole : SpecModelKind.WholeCounter;
+            }
+            return code;
+        }
+
+        internal static string CanonicalModelCode(SpecModelKind kind, int n, string raw)
+        {
+            var nn = n.ToString("00", CultureInfo.InvariantCulture);
+            switch (kind)
+            {
+                case SpecModelKind.Whole: return "W00";
+                case SpecModelKind.WholeCounter: return "W-" + nn;
+                case SpecModelKind.Unknown: return raw;
+                default: return ModelKindTable.First(r => r.Kind == kind).Prefix + nn;
+            }
         }
 
         public static string SplitCode(int n) => "WX" + n.ToString("00", CultureInfo.InvariantCulture);
