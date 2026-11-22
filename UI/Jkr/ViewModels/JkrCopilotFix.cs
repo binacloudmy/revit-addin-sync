@@ -64,13 +64,16 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// element ids): type renames through the "Type Name" parameter (Da.1, Dc.1, Dd.1), the Material parameter (Db.2), mandatory
         /// parameters with a derivable value (Db.1), grid names (A5.2), room parameters (C1.6.3) and sheet parameters (C4.2.2).
         /// Dd.1 (WP-6): the type is renamed to a name the add-in derived (first word swapped to its category) only when the NAME is the evidence; a failing JKR code or a contradicting family gets no button (a person decides). NOT here, and hidden: A2.2 and A3.1 (the
-        /// model code lives in the FILE name: a Save As), the create-type families C1.3.1 C1.4.1 C1.5.2 C1.6.1 C2.1.1 C3.1.1
+        /// model code lives in the FILE name: a Save As), the create-type families C1.3.1 C1.4.1 C1.6.1 C2.1.1 C3.1.1
         /// (create views, schedules, legends: run_revit_code; C4.1.3 and E.1 are playbook runs, WP-4/5; C5.1.1 is the load_link tool, AI-529: a link that is not loaded, with its type id on the row; a discipline with no link at all has no id and no button) and the template views C1.1.1 / C1.1.2,
-        /// C1.6.2, C5.1.2. The gaps are listed in the AI-490 rework PR.</summary>
+        /// C1.6.2, C5.1.2. The gaps are listed in the AI-490 rework PR.
+        /// C1.5.2 (WP-3): one new 3D view per level without one, by the stored playbook create-3d-view-per-level through run_revit_code. A C1.5.2 row is one level
+        /// (SpecChecks.C1_5_2 passes the Level's id and name), so it already has an element id and the usual rule applies; the prompt passes the level NAMES
+        /// (<see cref="CopilotPromptVariant.LevelBased"/>). No <c>confirmed_write</c> field is sent for it.</summary>
         public static IReadOnlyCollection<string> Allowed => AllowedSet;
         private static readonly HashSet<string> AllowedSet = new HashSet<string>(StringComparer.Ordinal)
         {
-            "Da.1", "Db.2", "Db.1", "Dc.1", "Dd.1", "A5.2", "C1.6.3", "C4.2.2",
+            "Da.1", "Db.2", "Db.1", "Dc.1", "Dd.1", "A5.2", "C1.6.3", "C4.2.2", "C1.5.2",
             // Playbook runs (run_revit_code with a stored playbook, bina-ai data/copilot/playbooks): WP-4 C4.1.3 place a view on an empty sheet, WP-5 E.1 apply a view template.
             "C4.1.3", "E.1",
             // AI-529 (WP-7): C5.1.1 a link that is not loaded: the load_link tool (Revit's own link load, with the host file picker when the stored file is missing).
@@ -110,16 +113,21 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             (specCheckId ?? "").Trim() == "Db.2" && string.Equals((revitCategory ?? "").Trim(), "Walls", StringComparison.OrdinalIgnoreCase);
 
         /// <summary>The whole rule, on plain values (the table test drives this).</summary>
-        public static bool Eligible(string specCheckId, string revitCategory, bool needsPerson, bool hasFix, bool isPick, int elementIdCount, string renameTo = "") =>
+        public static bool Eligible(string specCheckId, string revitCategory, bool needsPerson, bool hasFix, bool isPick, int elementIdCount, string renameTo = "", string viewSet = "") =>
             !needsPerson && !hasFix && !isPick && elementIdCount >= 1
             && IsListed(specCheckId) && IsAiClass(specCheckId) && !IsWallMaterial(specCheckId, revitCategory)
-            && IsDerivableRename(specCheckId, renameTo);
+            && IsDerivableRename(specCheckId, renameTo) && IsDerivableSet(specCheckId, viewSet);
 
         /// <summary>WP-6: Dd.1 shows the button only when the add-in derived the new name (<c>SpecChecks.ProposeRename</c>): the NAME is the
         /// odd one out, not the JKR code and not the family. Without it the family may really be of another category, a rename would hide
         /// that model error, and a person decides. True for every other check.</summary>
         public static bool IsDerivableRename(string specCheckId, string renameTo) =>
             (specCheckId ?? "").Trim() != "Dd.1" || !string.IsNullOrWhiteSpace(renameTo);
+
+        /// <summary>E.1: the button shows only when the evaluator named the set (BOMBA, PBT or Dokumen) of the failing row ("required: template X"):
+        /// without it Copilot would have to read the set from a view name, so a person decides. True for every other check.</summary>
+        public static bool IsDerivableSet(string specCheckId, string viewSet) =>
+            (specCheckId ?? "").Trim() != "E.1" || !string.IsNullOrWhiteSpace(viewSet);
 
         public static string Label() =>
             "Fix via Copilot";

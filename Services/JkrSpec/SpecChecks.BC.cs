@@ -101,6 +101,19 @@ namespace RevitWebAppSync.Services.JkrSpec
             .Select(n => new Regex(@"(?<![A-Za-z])" + n + @"(?![A-Za-z])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
             .ToArray();
 
+        /// <summary>The set an E.1 failing row names in its Required text ("template BOMBA"): exactly one of BOMBA, PBT, Dokumen, else "".
+        /// The evaluator wrote that text from the set it decided (<see cref="Of"/>), so this is the evaluator's set, never a guess from a view name.</summary>
+        internal static string SetFromRequired(string required)
+        {
+            var text = (required ?? "").Trim();
+            const string prefix = "template ";
+            if (!text.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return "";
+            var word = text.Substring(prefix.Length).Trim();
+            foreach (var n in Names)
+                if (n != "WIP" && string.Equals(n, word, StringComparison.OrdinalIgnoreCase)) return n;
+            return "";
+        }
+
         /// <summary>The sets whose word <paramref name="text"/> holds, in <see cref="Names"/> order.</summary>
         internal static List<string> SetsIn(string text)
         {

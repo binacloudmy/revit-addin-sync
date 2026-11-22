@@ -44,6 +44,17 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             var parts = typeLevel ? 1 : (ids.Count + JkrCopilotPrompt.MaxIdsPerPrompt - 1) / Math.Max(1, JkrCopilotPrompt.MaxIdsPerPrompt);
 
             var c = new CopilotConfirmContent();
+            if (variant.LevelBased)
+            {
+                // WP-3 (C1.5.2): a create, not a change. Say what is made, that nothing existing is touched, and how it is undone.
+                c.Heading = $"Let Copilot create a 3D view for {ids.Count} level{(ids.Count == 1 ? "" : "s")} for check {checkId}?";
+                c.Body = "Copilot makes one new 3D view per level listed below, named \"<level> (07d_Dokumen)\", in the browser folder 07d_Dokumen, with the JKR Dokumen 3D template (when the project has it) and a section box around the level. "
+                    + "A level that already has such a view is skipped. No existing view or element is changed, renamed or deleted. "
+                    + (parts > 1 ? $"Sent in {parts} parts, with this one confirmation. " : "")
+                    + "Applied at once; you can Undo from the Copilot chat. The JKR re-check decides whether the row is fixed.";
+                c.Details = string.Join(Environment.NewLine, ids.Take(MaxListed).Select(i => i + " — " + JkrCopilotPrompt.LevelNameOf(facts, i)).Concat(ids.Count > MaxListed ? new[] { $"... and {ids.Count - MaxListed} more" } : new string[0]));
+                return c;
+            }
             if (typeLevel)
                 c.Heading = $"Let Copilot change {ids.Count} type{(ids.Count == 1 ? "" : "s")} ({instances} instance{(instanceNo == 1 && !capped ? "" : "s")}) for check {checkId}?";
             else
@@ -92,6 +103,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 label = JkrCopilotPrompt.CleanLabel(label);
                 d.Append(id);
                 if (variant.NamesFromFacts) d.Append(" — ").Append(JkrCopilotPrompt.RenameLine(facts, id));
+                else if (variant.SetFromFacts) d.Append(label.Length > 0 ? " — " + label : "").Append(" — ").Append(JkrCopilotPrompt.SetLine(facts, id));
                 else if (label.Length > 0) d.Append(" — ").Append(label);
                 d.AppendLine();
             }

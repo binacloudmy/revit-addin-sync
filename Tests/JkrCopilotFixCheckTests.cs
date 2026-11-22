@@ -21,7 +21,7 @@ namespace RevitWebAppSync.Tests
     [Collection("ForcedConfirmStatic")]
     public class JkrCopilotFixCheckTests
     {
-        private static readonly string[] FixChecks = { "Da.1", "Db.1", "Db.2", "Dc.1", "Dd.1", "A5.2", "C1.6.3", "C4.2.2", "C4.1.3", "E.1" };   // the last two: playbook runs (WP-4/5)
+        private static readonly string[] FixChecks = { "Da.1", "Db.1", "Db.2", "Dc.1", "Dd.1", "A5.2", "C1.6.3", "C4.2.2", "C4.1.3", "E.1", "C1.5.2" };   // the last three: playbook runs (WP-4/5, WP-3)
 
         // ── fixture: a failing spec check with N element rows, as the pane holds them ──
 

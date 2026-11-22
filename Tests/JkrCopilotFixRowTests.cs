@@ -29,13 +29,13 @@ namespace RevitWebAppSync.Tests
             Assert.True(ResultsAdapter.FromIssue(row).CopilotFixable);
         }
 
-        private static IssueVm Row(string check, string cat = "Doors", bool fix = false, bool pick = false, int ids = 2, bool human = false, string rename = "")
+        private static IssueVm Row(string check, string cat = "Doors", bool fix = false, bool pick = false, int ids = 2, bool human = false, string rename = "", string required = "template BOMBA")
         {
             var i = new IssueVm
             {
                 Id = "r-" + check, CheckId = "SPEC-" + check, SpecCheckId = check, Title = check, RevitCategory = cat,
                 Verification = human ? IssueVerification.Human : IssueVerification.Ai,
-                RenameTo = rename, RevitElementId = ids > 0 ? 100 : 0, AutoFixable = fix, FixAction = fix ? "rename_type" : "", FixValue = fix ? "x" : "",
+                RenameTo = rename, Required = required, RevitElementId = ids > 0 ? 100 : 0, AutoFixable = fix, FixAction = fix ? "rename_type" : "", FixValue = fix ? "x" : "",
             };
             for (var k = 0; k < ids; k++) i.AddElements(new long[] { 100 + k }, "Doors · d" + k);
             if (pick) i.SetPick(new[] { "a", "b" }, "", "", true);
@@ -72,6 +72,17 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
+        public void A_C1_5_2_row_is_one_level_and_shows_the_button_only_with_a_level_id_WP3()
+        {
+            var row = Row("C1.5.2", "Levels", ids: 1);
+            Assert.True(row.CopilotFixable);
+            Assert.Equal("C1.5.2", row.ToCopilotFixRequest().CheckId);
+            Assert.False(Row("C1.5.2", "Levels", ids: 0).CopilotFixable);
+            Assert.False(Row("C1.5.2", "Levels", human: true).CopilotFixable);
+            Assert.False(Row("C1.5.2", "Levels", fix: true).CopilotFixable);
+        }
+
+        [Fact]
         public void Rows_of_the_playbook_families_C413_and_E1_and_the_link_family_C511_show_the_button_only_with_ids_WP457()
         {
             foreach (var id in new[] { "C4.1.3", "E.1", "C5.1.1" })
@@ -82,12 +93,14 @@ namespace RevitWebAppSync.Tests
                 Assert.False(Row(id, "Views", fix: true).CopilotFixable, id);
                 Assert.False(Row(id, "Views", pick: true).CopilotFixable, id);
             }
+            Assert.False(Row("E.1", "Views", required: "").CopilotFixable);              // the evaluator named no set: a person decides
+            Assert.False(Row("E.1", "Views", required: "template WIP").CopilotFixable);
         }
 
         [Fact]
         public void Rows_of_the_hidden_families_never_show_the_button_even_with_ids()
         {
-            foreach (var id in new[] { "A2.2", "A3.1", "C1.3.1", "C1.4.1", "C1.5.2", "C1.6.1", "C2.1.1", "C3.1.1", "C5.1.2", "C1.1.1", "C1.1.2" })
+            foreach (var id in new[] { "A2.2", "A3.1", "C1.3.1", "C1.4.1", "C1.6.1", "C2.1.1", "C3.1.1", "C5.1.2", "C1.1.1", "C1.1.2" })
             {
                 Assert.False(Row(id, "Views", ids: 0).CopilotFixable, id);
                 Assert.False(Row(id, "Views", ids: 3).CopilotFixable, id);
