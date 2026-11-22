@@ -360,6 +360,23 @@ namespace RevitWebAppSync.UI.Copilot.Model
             }
         }
 
+        /// <summary>The wire code ("not_allowed", "invalid_args", ...) of the same write call <see cref="LastToolError"/> reports, or null.</summary>
+        public string? LastToolErrorCode
+        {
+            get
+            {
+                lock (_sync)
+                {
+                    for (var i = _writes.Count - 1; i >= 0; i--)
+                    {
+                        var w = _writes[i];
+                        if (!w.Ok && !string.IsNullOrWhiteSpace(w.Error?.Message)) return w.Error!.Code;
+                    }
+                    return null;
+                }
+            }
+        }
+
         /// <summary>AI-dc1: "Copilot renamed X of N types; Revit refused: Type: Reason" for a partly done rename batch, else null.</summary>
         public string? RenameRefusal
         {

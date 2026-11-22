@@ -74,6 +74,14 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         string LastToolError { get; }
     }
 
+    /// <summary>Db.2 multi-part fix: implemented by a session that can say the wire code of the newest tool error ("not_allowed" = a read-only
+    /// or locked parameter: Revit will not take it on those elements, which says nothing about the next part's elements). Optional.</summary>
+    public interface ICopilotToolErrorCode
+    {
+        /// <summary>The wire code of the newest tool error of the current part (<c>ErrorCodes.NotAllowed</c> = "not_allowed"), or null.</summary>
+        string LastToolErrorCode { get; }
+    }
+
     /// <summary>One card message on the Copilot thread (an ask card, the wide-write gate, or a committed write).</summary>
     public readonly struct CopilotCardInfo
     {
@@ -156,6 +164,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         private readonly Func<CopilotFixRequest, Task> _afterWrite;
         private readonly Func<CopilotFixRequest, bool> _confirm;
         private readonly Func<CopilotFixRequest, int, ConfirmedWriteDto> _confirmedWrite;
+        private readonly Func<CopilotFixRequest, string> _skipNote;
+        private string _skipped = "";   // this launch's "can't be written here" receipt line (read-only parameters left out up front)
         private readonly Func<TimeSpan, Task> _delay;
         private readonly TimeSpan _poll, _indexingTimeout, _turnTimeout, _startGrace, _settle;
         private int _running;
@@ -168,14 +178,19 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// <param name="confirmedWrite">AI-490: the <c>confirmed_write</c> field for prompt part i (0-based), attached ONLY to a turn sent
         /// after <paramref name="confirm"/> said Ya (null: none). Armed in <see cref="ConfirmedWriteSlot"/> just before the part is sent and
         /// cleared when the launch ends, so a normal chat turn never carries it.</param>
+        /// <param name="skipNote">Db.2: the receipt line for elements left out up front because Revit does not allow a write on their parameters
+        /// (read-only): "N elements can't be written here: Material (read-only)". Null or "" = none. Shown at the end of the launch, or alone
+        /// when nothing is left to send.</param>
         /// <param name="notify">Shows a message to the person (the JKR toast).</param>
         /// <param name="delay">Wait between polls; tests pass an instant one. Default <see cref="Task.Delay(TimeSpan)"/>.</param>
         public JkrCopilotFixLauncher(ICopilotSession session, Func<CopilotFixRequest, IReadOnlyList<string>> prompt,
             Action<string> notify, Func<TimeSpan, Task> delay = null,
             TimeSpan? indexingTimeout = null, TimeSpan? turnTimeout = null, TimeSpan? poll = null,
             TimeSpan? startGrace = null, TimeSpan? settle = null, Func<CopilotFixRequest, Task> afterWrite = null,
-            Func<CopilotFixRequest, bool> confirm = null, Func<CopilotFixRequest, int, ConfirmedWriteDto> confirmedWrite = null)
+            Func<CopilotFixRequest, bool> confirm = null, Func<CopilotFixRequest, int, ConfirmedWriteDto> confirmedWrite = null,
+            Func<CopilotFixRequest, string> skipNote = null)
         {
+            _skipNote = skipNote;
             _confirmedWrite = confirmedWrite;
             _afterWrite = afterWrite;
             _confirm = confirm;
@@ -226,9 +241,11 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             IReadOnlyList<string> parts;
             try { parts = _prompt(request); }
             catch (Exception ex) { _notify(Text.SendFailed(ex.Message)); return CopilotLaunchOutcome.SendFailed; }
+            _skipped = "";
+            try { _skipped = _skipNote?.Invoke(request) ?? ""; } catch { _skipped = ""; }
             if (parts == null || parts.Count == 0 || System.Linq.Enumerable.All(parts, string.IsNullOrWhiteSpace))
             {
-                _notify(Text.NoPrompt());
+                _notify(string.IsNullOrWhiteSpace(_skipped) ? Text.NoPrompt() : _skipped);
                 return CopilotLaunchOutcome.NoPrompt;
             }
 
@@ -279,6 +296,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
 
             // 5. send each part; the next goes only after this one's turn finished WITH a committed write (a gate, if the engine asked, was answered write_all)
             var committed = false;   // an earlier part committed a write (e.g. a type parameter changed for all instances)
+            string cantWriteWhy = null;   // Revit's reason for the first not_allowed part
+            var cantWrite = new List<int>();   // 1-based parts Copilot's tool refused as not_allowed (read-only parameter): skipped, the rest go on
             for (var i = 0; i < parts.Count; i++)
             {
                 var part = parts[i];
@@ -292,6 +311,14 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 var end = await WaitForTurnAsync().ConfigureAwait(true);
                 if (end == null) return await StopAsync(request, committed, Text.TurnTimeout(i + 1, parts.Count), CopilotLaunchOutcome.TurnTimeout).ConfigureAwait(true);
                 if (end == CopilotCardState.Declined) return await StopAsync(request, committed, Text.Declined(i + 1, parts.Count), CopilotLaunchOutcome.Declined).ConfigureAwait(true);
+                if (end == CopilotCardState.None && IsNotAllowed())
+                {
+                    // A read-only / locked parameter on THIS part's elements (e.g. 'Material' on curtain panels): Revit will not take it there.
+                    // That says nothing about the next part's elements, so go on; the skipped elements keep failing the re-check (no false pass).
+                    cantWrite.Add(i + 1);
+                    cantWriteWhy ??= (_session as ICopilotToolError)?.LastToolError;
+                    continue;
+                }
                 if (end == CopilotCardState.None && committed)
                 {
                     // A later part found nothing left to write: stop sending, keep the earlier write and re-check it.
@@ -307,6 +334,13 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 committed = true;
             }
 
+            if (!string.IsNullOrWhiteSpace(_skipped)) _notify(_skipped);
+            if (cantWrite.Count > 0)
+            {
+                _notify(Text.CantWrite(cantWrite, parts.Count, cantWriteWhy));
+                if (!committed) return CopilotLaunchOutcome.NoWrite;   // nothing written anywhere: nothing to re-check
+            }
+
             // 6. every part wrote: re-check ONCE, after the last part. The parts are one row's element ids
             //    split by the id cap, so a check per part would flicker the same row and could report "still failing"
             //    while later parts are still to come.
@@ -320,11 +354,16 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             return CopilotLaunchOutcome.Sent;
         }
 
+        /// <summary>The turn just ended on a tool refusal with wire code not_allowed.</summary>
+        private bool IsNotAllowed() =>
+            string.Equals((_session as ICopilotToolErrorCode)?.LastToolErrorCode, "not_allowed", StringComparison.Ordinal);
+
         /// <summary>A pack stopped early (declined, no write, timeout, pane closed, send failed). When an earlier part already committed a
         /// write, those elements changed: the re-check still runs (once), so their rows move without a manual Re-scan. A pack with no
         /// committed part has nothing to check.</summary>
         private async Task<CopilotLaunchOutcome> StopAsync(CopilotFixRequest request, bool committed, string message, CopilotLaunchOutcome outcome)
         {
+            if (!string.IsNullOrWhiteSpace(_skipped)) message += " " + _skipped;
             if (!committed || _afterWrite == null) { _notify(message); return outcome; }
             _notify(message + " " + Text.StoppedRecheck());
             try { await _afterWrite(request).ConfigureAwait(true); }
@@ -420,6 +459,13 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             }
             /// <param name="first">The part that ended with no write (1-based); it and the later ones were not needed.</param>
             public static string PartsNotNeeded(int first, int total) => $"{Cap(Parts(first, total))} not needed: an earlier part already changed the elements. Re-checking.";
+            /// <param name="parts">1-based parts Revit refused as read-only / not allowed; the other parts were sent.</param>
+            public static string CantWrite(IReadOnlyList<int> parts, int total, string reason)
+            {
+                var which = parts.Count == total ? "Every part" : (parts.Count == 1 ? "Part " + parts[0] : "Parts " + string.Join(", ", parts));
+                var why = string.IsNullOrWhiteSpace(reason) ? "" : ": " + Shorten(reason);
+                return $"{which} can't be written here (Revit does not allow it on those elements){why}. Those elements stay as they were and keep failing the check.";
+            }
             public static string PaneClosed(int sent, int total) => $"The Copilot pane was closed.{NotSent(sent, total)}";
             public static string CopilotBusy() => "Finish or answer the current Copilot request first.";
             public static string StoppedRecheck() => "The rows that were fixed are re-checked.";

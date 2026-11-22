@@ -15,7 +15,7 @@ namespace RevitWebAppSync.UI.Jkr
     /// <c>OpenCopilotCommand</c> does, and drives the pane's <see cref="CopilotViewModel"/> through its public members.
     /// Revit and WPF; not unit-tested (the sequence is, with a fake, in JkrCopilotLauncherTests).
     /// </summary>
-    public sealed class JkrCopilotSession : ICopilotSession, ICopilotWriteFailure, ICopilotToolError
+    public sealed class JkrCopilotSession : ICopilotSession, ICopilotWriteFailure, ICopilotToolError, ICopilotToolErrorCode
     {
         private static CopilotViewModel Vm => App.CopilotPaneHost?.Panel?.ViewModel;
 
@@ -117,6 +117,20 @@ namespace RevitWebAppSync.UI.Jkr
                 string last = null;
                 for (var i = Math.Min(_mark, vm.Thread.Count); i < vm.Thread.Count; i++)
                     last = vm.Thread[i].Evidence?.LastToolError ?? last;
+                return last;
+            }
+        }
+
+        /// <summary>The wire code of the newest tool error since this part was sent ("not_allowed" = read-only parameter), or null.</summary>
+        public string LastToolErrorCode
+        {
+            get
+            {
+                var vm = Vm;
+                if (vm == null) return null;
+                string last = null;
+                for (var i = Math.Min(_mark, vm.Thread.Count); i < vm.Thread.Count; i++)
+                    last = vm.Thread[i].Evidence?.LastToolErrorCode ?? last;
                 return last;
             }
         }

@@ -284,6 +284,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     Actual = r.Actual ?? "",
                     Required = r.Required ?? "",
                     RenameFrom = r.RenameFrom ?? "", RenameTo = r.RenameTo ?? "", RenameSource = r.RenameSource ?? "",
+                    ParamsToFill = r.ParamsToFill ?? new List<RevitWebAppSync.UI.Jkr.Panel.Core.SpecParamTarget>(),
+                    ParamsSkipped = r.ParamsSkipped ?? new List<RevitWebAppSync.UI.Jkr.Panel.Core.SpecParamTarget>(),
                     AutoFixable = false,
                     Verification = ai ? IssueVerification.Ai : IssueVerification.Human,
                     Priority = PriorityOf(check?.Severity),

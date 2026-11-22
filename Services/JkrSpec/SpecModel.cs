@@ -98,7 +98,7 @@ namespace RevitWebAppSync.Services.JkrSpec
             foreach (var x in Floors) { x.TypeName = x.TypeName ?? ""; x.LevelName = x.LevelName ?? ""; x.Loops = CleanLoops(x.Loops); }
             foreach (var x in Ceilings) { x.TypeName = x.TypeName ?? ""; x.LevelName = x.LevelName ?? ""; x.Loops = CleanLoops(x.Loops); }
             foreach (var x in Roofs) { x.TypeName = x.TypeName ?? ""; x.LevelName = x.LevelName ?? ""; x.Materials = x.Materials ?? new List<string>(); x.LayerFunctions = x.LayerFunctions ?? new List<string>(); }
-            foreach (var x in Types) { x.Category = x.Category ?? ""; x.FamilyName = x.FamilyName ?? ""; x.TypeName = x.TypeName ?? ""; x.InstanceIds = x.InstanceIds ?? new List<long>(); x.Numbers = x.Numbers ?? new Dictionary<string, double>(); x.Texts = x.Texts ?? new Dictionary<string, string>(); x.Materials = x.Materials ?? new List<string>(); x.MateriallessIds = x.MateriallessIds ?? new List<long>(); x.ParamNames = x.ParamNames ?? new List<string>(); }
+            foreach (var x in Types) { x.Category = x.Category ?? ""; x.FamilyName = x.FamilyName ?? ""; x.TypeName = x.TypeName ?? ""; x.InstanceIds = x.InstanceIds ?? new List<long>(); x.Numbers = x.Numbers ?? new Dictionary<string, double>(); x.Texts = x.Texts ?? new Dictionary<string, string>(); x.Materials = x.Materials ?? new List<string>(); x.MateriallessIds = x.MateriallessIds ?? new List<long>(); x.MaterialParams = x.MaterialParams ?? new List<SpecMaterialParam>(); x.MaterialParams.RemoveAll(y => y == null); x.ParamNames = x.ParamNames ?? new List<string>(); }
             foreach (var x in Materials) { x.Name = x.Name ?? ""; x.Class = x.Class ?? ""; }
             foreach (var x in Views) { x.Name = x.Name ?? ""; x.Kind = x.Kind ?? ""; x.LevelName = x.LevelName ?? ""; x.TemplateName = x.TemplateName ?? ""; x.SheetNumber = x.SheetNumber ?? ""; }
             foreach (var x in Schedules) { x.Name = x.Name ?? ""; x.Category = x.Category ?? ""; x.Fields = x.Fields ?? new List<string>(); x.RowElementIds = x.RowElementIds ?? new List<long>(); }
@@ -270,6 +270,23 @@ namespace RevitWebAppSync.Services.JkrSpec
         /// material — neither from the type nor on the element itself. Meaningful only when
         /// <see cref="ElementMaterialsRead"/>.</summary>
         public List<long> MateriallessIds = new List<long>();
+        /// <summary>Db.2: the material-typed parameters the type and its first placed instance carry (name, which one, read-only, the
+        /// material it holds). With <see cref="MaterialParamsRead"/>, a Db.2 fix can name the parameters Revit will take a value on.</summary>
+        public List<SpecMaterialParam> MaterialParams = new List<SpecMaterialParam>();
+        /// <summary>The reader listed <see cref="MaterialParams"/>. False for old snapshots and hand-made fixtures: no parameter is then named.</summary>
+        public bool MaterialParamsRead;
+    }
+
+    /// <summary>One material-typed parameter of a type or its first instance (Db.2).</summary>
+    public sealed class SpecMaterialParam
+    {
+        public string Name = "";
+        /// <summary>A parameter of the type (true) or of the placed instance (false).</summary>
+        public bool OnType;
+        /// <summary>Revit's <c>Parameter.IsReadOnly</c>: built-in computed, locked or family-defined; no write can change it.</summary>
+        public bool ReadOnly;
+        /// <summary>The name of the material it holds; "" = empty.</summary>
+        public string Value = "";
     }
 
     public sealed class SpecMaterial

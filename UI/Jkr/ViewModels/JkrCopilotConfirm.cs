@@ -105,6 +105,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 if (variant.NamesFromFacts) d.Append(" — ").Append(JkrCopilotPrompt.RenameLine(facts, id));
                 else if (variant.SetFromFacts) d.Append(label.Length > 0 ? " — " + label : "").Append(" — ").Append(JkrCopilotPrompt.SetLine(facts, id));
                 else if (label.Length > 0) d.Append(" — ").Append(label);
+                var matLine = checkId == "Db.2" ? JkrCopilotPrompt.MaterialLine(facts, id) : "";
+                if (matLine.Length > 0) d.Append(" — ").Append(matLine);
                 d.AppendLine();
             }
             if (ids.Count > MaxListed)

@@ -51,6 +51,20 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// <summary>Model, Dd.1 (WP-6): the type's current name, the new name the add-in derived, and the evidence that the NAME is
         /// the odd one out. Empty when no safe new name exists (a person decides).</summary>
         public string RenameFrom = "", RenameTo = "", RenameSource = "";
+        /// <summary>Model, Db.2: the writable material parameters of the failing type a fix should fill (the model fills them: it matches an
+        /// existing material or asks, the add-in only names the parameters). Empty = the reader named none: the fix falls back to "Material".</summary>
+        public List<SpecParamTarget> ParamsToFill = new List<SpecParamTarget>();
+        /// <summary>Model, Db.2: material parameters that would need a value but Revit does not allow a write on (read-only), each with the reason.
+        /// Never written: the row keeps failing for them.</summary>
+        public List<SpecParamTarget> ParamsSkipped = new List<SpecParamTarget>();
+    }
+
+    /// <summary>Db.2: one parameter a fix names. <see cref="Reason"/> is set only on a skipped one ("read-only").</summary>
+    public sealed class SpecParamTarget
+    {
+        public string Name = "";
+        public bool OnType;
+        public string Reason = "";
     }
 
     /// <summary>What a mapped result can prove about its spec check.</summary>

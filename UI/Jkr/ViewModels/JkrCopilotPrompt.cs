@@ -28,6 +28,18 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// "required: template X" (<c>SpecViewSets.SetFromRequired</c>). A family with <see cref="CopilotPromptVariant.SetFromFacts"/> lists only the ids
         /// that have one; the model never reads a set from a view name.</summary>
         public IReadOnlyDictionary<long, string> Sets { get; set; } = new Dictionary<long, string>();
+        /// <summary>Db.2: the material-parameter plan per listed id (the failing row's own, read by the add-in). An id with none falls back to "Material".</summary>
+        public IReadOnlyDictionary<long, CopilotMaterialPlan> Materials { get; set; } = new Dictionary<long, CopilotMaterialPlan>();
+    }
+
+    /// <summary>Db.2: the material parameters of one failing type, decided by the add-in from the type's own parameter list: the writable ones
+    /// a fix fills and the read-only ones it must leave alone. The model only matches an existing material or asks; it never picks a parameter.</summary>
+    public sealed class CopilotMaterialPlan
+    {
+        public IReadOnlyList<SpecParamTarget> Fill { get; set; } = new List<SpecParamTarget>();
+        public IReadOnlyList<SpecParamTarget> Skipped { get; set; } = new List<SpecParamTarget>();
+        /// <summary>Nothing writable to fill, but something Revit does not allow: the elements get no write and are reported instead.</summary>
+        public bool Unwritable => Fill.Count == 0 && Skipped.Count > 0;
     }
 
     /// <summary>WP-6 (Dd.1): one type rename the add-in derived (a pure function, never the model): the type's old name, the exact new name,
@@ -121,7 +133,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     "Create a 3D view for each level", CopilotWriteLevel.Instance) { LevelBased = true, Playbook = "create-3d-view-per-level" },
                 ["Db.2"] = new CopilotPromptVariant(
                     "Set the Material of each element below to the correct JKR material code. Fill empty Materials and change any that do not follow JKR coding.",
-                    "Use set_parameters with param \"Material\" on the ids below (type_param true if Material is a type parameter of these elements); one call per code. Take the code from lookup and use a Material that already exists in the model. Do not create Materials: if no existing Material matches a code, leave that element and say so.",
+                    "Use set_parameters on the ids below, one call per parameter and per code. When a line says `set: ...`, set exactly the parameters it names (type_param true for a parameter it marks as a type parameter): the JKR pane read them from the element's own parameters, so never use a parameter it does not name. A line with no `set:` has no known parameter: use param \"Material\" (type_param true if Material is a type parameter of these elements). A parameter a line lists under `can't be written here` is read-only: never write it, never retry it another way, and say so in your reply. Take the code from lookup and use a Material that already exists in the model. Do not create Materials: if no existing Material matches a code, leave that element and say so.",
                     "Set the Material parameter", CopilotWriteLevel.Either, "Material"),
                 ["Db.1"] = new CopilotPromptVariant(
                     "Change the elements below by filling the mandatory parameters that are empty (Buku Parameter at the project LOI). Set only parameters whose value you can derive from the model.",
@@ -200,8 +212,10 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             var labels = new Dictionary<long, string>();
             var renames = new Dictionary<long, CopilotRename>();
             var sets = new Dictionary<long, string>();
+            var mats = new Dictionary<long, CopilotMaterialPlan>();
             foreach (var r in list)
             {
+                foreach (var kv in r.Materials ?? new Dictionary<long, CopilotMaterialPlan>()) if (!mats.ContainsKey(kv.Key)) mats[kv.Key] = kv.Value;
                 foreach (var kv in r.Sets ?? new Dictionary<long, string>()) if (!sets.ContainsKey(kv.Key)) sets[kv.Key] = kv.Value;
                 foreach (var kv in r.Renames ?? new Dictionary<long, CopilotRename>()) if (!renames.ContainsKey(kv.Key)) renames[kv.Key] = kv.Value;
                 foreach (var id in r.ElementIds ?? new List<long>())
@@ -229,6 +243,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 ElementLabels = labels,
                 Renames = renames,
                 Sets = sets,
+                Materials = mats,
             };
         }
 
@@ -243,6 +258,9 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             // E.1: a view with no evaluator set gets no line and no write: a person decides which template it takes.
             if (VariantFor(facts.CheckId).SetFromFacts)
                 ids = ids.Where(i => SetOf(facts, i).Length > 0).ToList();
+            // Db.2: an element whose only material parameters are read-only has nothing Revit would take: no write is planned, it is reported.
+            if ((facts.CheckId ?? "").Trim() == "Db.2")
+                ids = ids.Where(i => !(MaterialPlanOf(facts, i)?.Unwritable ?? false)).ToList();
             // WP-3: a level-based family passes level NAMES: an id with no name has nothing to pass (none named: no prompt, no write).
             if (VariantFor(facts.CheckId).LevelBased)
                 ids = ids.Where(i => LevelNameOf(facts, i).Length > 0).ToList();
@@ -265,6 +283,42 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             string label = null;
             if (facts?.ElementLabels == null || !facts.ElementLabels.TryGetValue(id, out label)) return "";
             return CleanLabel(label);
+        }
+
+        /// <summary>Db.2: the add-in's material-parameter plan for an id, or null (none read: the fix falls back to "Material").</summary>
+        public static CopilotMaterialPlan MaterialPlanOf(CopilotPromptFacts facts, long id)
+        {
+            CopilotMaterialPlan p = null;
+            return facts?.Materials != null && facts.Materials.TryGetValue(id, out p) && p != null && (p.Fill.Count > 0 || p.Skipped.Count > 0) ? p : null;
+        }
+
+        private static string ParamText(SpecParamTarget t) => CleanLabel(t.Name) + (t.OnType ? " (type parameter)" : "");
+
+        /// <summary>Db.2: "set: Kaca_jkr_stm (type parameter), Panel_jkr_stm (type parameter); can't be written here: Material (read-only)", or "".</summary>
+        public static string MaterialLine(CopilotPromptFacts facts, long id)
+        {
+            var p = MaterialPlanOf(facts, id);
+            if (p == null) return "";
+            var sb = new StringBuilder();
+            if (p.Fill.Count > 0) sb.Append("set: ").Append(string.Join(", ", p.Fill.Select(ParamText)));
+            if (p.Skipped.Count > 0)
+            {
+                if (sb.Length > 0) sb.Append("; ");
+                sb.Append("can't be written here: ").Append(string.Join(", ", p.Skipped.Select(s => CleanLabel(s.Name) + " (" + (CleanLabel(s.Reason).Length > 0 ? CleanLabel(s.Reason) : "not allowed") + ")")));
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>Db.2: the receipt line for elements that get no write because every material parameter they have is read-only
+        /// ("3 elements can't be written here: Material (read-only)"), or "". Never changes a verdict: those rows keep failing.</summary>
+        public static string CantWriteNote(CopilotPromptFacts facts)
+        {
+            if (facts == null || (facts.CheckId ?? "").Trim() != "Db.2") return "";
+            var skipped = (facts.ElementIds ?? new List<long>()).Where(i => i > 0).Distinct()
+                .Select(i => new { Id = i, Plan = MaterialPlanOf(facts, i) }).Where(x => x.Plan != null && x.Plan.Unwritable).ToList();
+            if (skipped.Count == 0) return "";
+            var names = skipped.SelectMany(x => x.Plan.Skipped).Select(s => CleanLabel(s.Name) + " (" + (CleanLabel(s.Reason).Length > 0 ? CleanLabel(s.Reason) : "not allowed") + ")").Distinct().Take(5);
+            return $"{skipped.Count} element{(skipped.Count == 1 ? "" : "s")} can't be written here, so no change was tried: {string.Join(", ", names)}. They keep failing the check.";
         }
 
         /// <summary>The set the evaluator decided for an id (E.1), or "".</summary>
@@ -351,6 +405,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 else if (variant.NamesFromFacts) sb.Append(" — ").Append(RenameLine(f, id));
                 else if (variant.SetFromFacts) sb.Append(label.Length > 0 ? " — " + label : "").Append(" — ").Append(SetLine(f, id));
                 else if (label.Length > 0) sb.Append(" — ").Append(label);
+                var matLine = checkId == "Db.2" ? MaterialLine(f, id) : "";
+                if (matLine.Length > 0) sb.Append(" — ").Append(matLine);
                 sb.AppendLine();
             }
             if (variant.NamesFromFacts)

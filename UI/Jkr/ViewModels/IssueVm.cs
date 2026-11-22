@@ -276,6 +276,10 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public string RenameTo { get; set; } = "";
         public string RenameSource { get; set; } = "";
 
+        /// <summary>Db.2: the writable material parameters a fix fills, and the read-only ones it leaves alone (with the reason). Both empty = none named: the fix uses "Material".</summary>
+        public List<RevitWebAppSync.UI.Jkr.Panel.Core.SpecParamTarget> ParamsToFill { get; set; } = new List<RevitWebAppSync.UI.Jkr.Panel.Core.SpecParamTarget>();
+        public List<RevitWebAppSync.UI.Jkr.Panel.Core.SpecParamTarget> ParamsSkipped { get; set; } = new List<RevitWebAppSync.UI.Jkr.Panel.Core.SpecParamTarget>();
+
         /// <summary>AI-491: label per id in <see cref="ElementIds"/> ("Doors · PT1p_850x2100"); an id with no label is absent.</summary>
         public Dictionary<long, string> ElementLabels { get; set; } = new Dictionary<long, string>();
 

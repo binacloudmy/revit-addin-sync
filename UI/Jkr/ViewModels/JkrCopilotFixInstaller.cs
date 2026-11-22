@@ -49,6 +49,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 },
                 notify,
                 afterWrite: recheck == null ? (Func<CopilotFixRequest, System.Threading.Tasks.Task>)null : new JkrCopilotRecheck<IssueVm>(recheck).RunAsync,
+                skipNote: req => JkrCopilotPrompt.CantWriteNote(factsOf(req)),
                 confirmedWrite: (req, part) => JkrCopilotConfirmedWrite.ForPart(factsOf(req), part),
                 confirm: req => confirm(JkrCopilotConfirm.Build(factsOf(req))));
         }
