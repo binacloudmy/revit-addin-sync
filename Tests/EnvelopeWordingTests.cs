@@ -76,13 +76,16 @@ namespace RevitAddinSync.Tests
         [Fact]
         public void Code_LongOutputKeepsHeadAndTail()
         {
-            var text = string.Join("\n", Enumerable.Range(1, 500).Select(i => "Wall " + i));
+            var text = string.Join("\n", Enumerable.Range(1, 5000).Select(i => "Wall " + i));
             var shown = BinaVibe.Copilot.Code.CodeEnvelopes.HeadTail(text, out var cut);
             Assert.True(cut);
-            Assert.True(shown.Length <= 2100);
+            Assert.True(shown.Length <= 16 * 1024 + 100);
             Assert.StartsWith("Wall 1\n", shown);
-            Assert.EndsWith("Wall 500", shown);
+            Assert.EndsWith("Wall 5000", shown);
             Assert.Contains("lines omitted", shown);
+            var fortyLines = string.Join("\n", Enumerable.Range(1, 40).Select(i => "Wall number " + i + " with a longer description of its type"));
+            Assert.Equal(fortyLines, BinaVibe.Copilot.Code.CodeEnvelopes.HeadTail(fortyLines, out var mid));
+            Assert.False(mid);
             Assert.Equal("12 walls", BinaVibe.Copilot.Code.CodeEnvelopes.HeadTail("12 walls", out var short_));
             Assert.False(short_);
         }

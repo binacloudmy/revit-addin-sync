@@ -163,9 +163,9 @@ namespace BinaVibe.Copilot.Code
                 ["steps"] = run.Ticks,
             };
 
-        /// <summary>Output past 2 KB keeps its first and last lines: a long dump only adds noise
-        /// to the reply, and a total printed last must survive.</summary>
-        internal static string HeadTail(string text, out bool cut, int max = 2048)
+        /// <summary>Output past 16 KB (the OutputBuffer cap) keeps its first and last lines: a total
+        /// printed last must survive. It was 2 KB, which cut a run at about 24 lines.</summary>
+        internal static string HeadTail(string text, out bool cut, int max = 16 * 1024)
         {
             cut = text.Length > max;
             if (!cut) return text;

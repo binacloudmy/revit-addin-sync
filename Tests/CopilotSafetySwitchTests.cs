@@ -21,6 +21,14 @@ namespace RevitWebAppSync.Tests
 
     public class CopilotSafetySwitchTests
     {
+        [Fact]
+        public void StartupLine_NamesTheVariableAndTheState()
+        {
+            var line = CopilotSafety.StartupLine();
+            Assert.Contains(CopilotSafety.EnvVar, line);
+            Assert.Contains(CopilotSafety.Enabled ? "ON" : "OFF", line);
+        }
+
         private static readonly CodePolicySet On = new CodePolicySet(CodePolicyTable.Data, enforce: true);
         private static readonly CodePolicySet Off = new CodePolicySet(CodePolicyTable.Data, enforce: false);
 

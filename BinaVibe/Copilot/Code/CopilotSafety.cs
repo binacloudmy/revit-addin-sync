@@ -24,6 +24,10 @@ namespace BinaVibe.Copilot.Code
         /// <summary>True when the safety checks are enforced. Read once from the environment.</summary>
         public static bool Enabled { get; } = Parse(Environment.GetEnvironmentVariable(EnvVar));
 
+        /// <summary>The one INFO line App.OnStartup logs, so a session log says which mode ran.</summary>
+        public static string StartupLine() =>
+            "[BINA] INFO " + EnvVar + "=" + (Enabled ? "ON (safety checks enforced)" : "OFF (safety checks bypassed)");
+
         public static bool Parse(string? value)
         {
             var v = (value ?? "").Trim();
