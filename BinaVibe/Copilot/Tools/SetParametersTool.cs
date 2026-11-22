@@ -312,6 +312,10 @@ namespace BinaVibe.Copilot.Tools
                 foreach (var f in ran.Failed) notes.Skips.Add(new SkipNote { Id = f.Item.Id, Reason = f.Text, Failed = true });
                 foreach (var f in ran.NotAttempted)
                     notes.Skips.Add(new SkipNote { Id = f.Id, Reason = "Type '" + f.Before + "' was not tried: " + TypeRenameBatch.StoppedText(ran), Failed = true });
+                if (ran.Unsettled)
+                    throw new WriteRefusal(ErrorCodes.MayHaveApplied,
+                        "A rename ended in a native Revit error and its transaction could not be closed (" + ran.StoppedBy + "). " +
+                        "Some renames before it (" + ran.Done.Count + ") may or may not have been applied. Save nothing more: restart Revit and re-check the types.");
                 if (ran.Done.Count == 0 && written.Count == 0)
                     throw new WriteRefusal(ErrorCodes.RolledBack, "No type could be renamed, so nothing changed. " + TypeRenameBatch.FailureSummary(ran.Failed)
                         + (ran.StoppedBy != null ? " " + TypeRenameBatch.StoppedText(ran) : ""));
@@ -393,11 +397,34 @@ namespace BinaVibe.Copilot.Tools
         {
             var el = doc.GetElement(ElemIds.From(item.Id))
                      ?? throw new InvalidOperationException("the type no longer exists");
-            using var tx = new Transaction(doc, BinaTransactionNames.For("Rename type " + item.Before));
-            TypeRenameBatch.ApplyWithRollback(
-                () => { TxGuard.StartSwallowing(tx); el.Name = item.Name; },
-                () => TxGuard.CommitOrThrow(tx),
-                () => { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); });
+            var tx = new Transaction(doc, BinaTransactionNames.For("Rename type " + item.Before));
+            try
+            {
+                try
+                {
+                    TypeRenameBatch.ApplyWithRollback(
+                        () => { TxGuard.StartSwallowing(tx); el.Name = item.Name; },
+                        () => TxGuard.CommitOrThrow(tx),
+                        () => { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); });
+                }
+                catch (Exception ex) when (TypeRenameBatch.IsPoisonous(ex) && !(ex is TypeRenameUnsettledException))
+                {
+                    // A native exception whose transaction is STILL open after the rollback attempt: the document state is unknown.
+                    if (StillStarted(tx)) throw new TypeRenameUnsettledException(TypeRenameBatch.Describe(ex), ex);
+                    throw;
+                }
+            }
+            finally
+            {
+                // A Dispose that throws must never replace the real exception (the batch decides on its type).
+                try { tx.Dispose(); } catch (Exception) { /* nothing more can be done for this transaction */ }
+            }
+        }
+
+        private static bool StillStarted(Transaction tx)
+        {
+            try { return tx.GetStatus() == TransactionStatus.Started; }
+            catch (Exception) { return true; }   // cannot even read its status: treat as unsettled
         }
 
         private static string Summary(PlanNotes n, WritePhase phase, int count, int readBack, int skipped)

@@ -694,7 +694,10 @@ namespace RevitWebAppSync.Services.JkrSpec
         /// <summary>The proposal only when the renamed type passes Dd.1 for its category.</summary>
         private static RenameProposal Verified(SpecType t, string newName, string source)
         {
-            if (string.IsNullOrWhiteSpace(newName) || string.Equals(newName, t.TypeName, StringComparison.Ordinal)) return null;
+            if (string.IsNullOrWhiteSpace(newName)) return null;
+            // The writer collapses runs of whitespace to one space, so propose (and show) the name exactly as it will be written.
+            newName = Regex.Replace(newName.Trim(), @"\s+", " ");
+            if (string.Equals(newName, t.TypeName, StringComparison.Ordinal)) return null;
             var probe = new SpecType { Category = t.Category, FamilyName = t.FamilyName, TypeName = newName };
             var e = ExpectedCategories(probe);
             if (e == null || !In(e.Value.Categories, t.Category)) return null;

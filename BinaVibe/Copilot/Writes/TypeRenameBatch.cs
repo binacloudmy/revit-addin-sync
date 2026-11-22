@@ -39,6 +39,15 @@ namespace BinaVibe.Copilot.Writes
         public List<TypeRenameItem> NotAttempted { get; } = new();
         /// <summary>The native exception that stopped the batch, or null.</summary>
         public string? StoppedBy { get; set; }
+        /// <summary>The native exception left a transaction open that could not be rolled back: nothing is certain, restart Revit.</summary>
+        public bool Unsettled { get; set; }
+    }
+
+    /// <summary>A native exception after which the type's transaction was still open (rollback failed): the document may be corrupt.</summary>
+    public sealed class TypeRenameUnsettledException : Exception
+    {
+        public TypeRenameUnsettledException(string original, Exception inner)
+            : base("transaction still open after a native error (" + original + "); save and restart Revit", inner) { }
     }
 
     public static class TypeRenameBatch
@@ -63,6 +72,7 @@ namespace BinaVibe.Copilot.Writes
                         // A native exception (SEHException, access violation) can leave Revit's document state corrupt:
                         // stop here, keep what already committed, and say so (never keep going on a poisoned document).
                         result.StoppedBy = Describe(ex);
+                        result.Unsettled = ex is TypeRenameUnsettledException;
                         var seen = false;
                         foreach (var rest in items)
                         {
@@ -78,7 +88,7 @@ namespace BinaVibe.Copilot.Writes
 
         /// <summary>True for a native-code failure (SEH, access violation, Revit InternalException) that can poison the document.</summary>
         public static bool IsPoisonous(Exception ex) =>
-            ex is System.Runtime.InteropServices.SEHException || ex is AccessViolationException ||
+            ex is TypeRenameUnsettledException || ex is System.Runtime.InteropServices.SEHException || ex is AccessViolationException ||
             ex.GetType().Name == "InternalException";
 
         /// <summary>The receipt line for items never tried after a native exception stopped the batch ("" when none).</summary>

@@ -145,6 +145,27 @@ namespace RevitAddinSync.Tests
             Assert.Single(r.Failed);
         }
 
+        [Fact]
+        public void An_unsettled_transaction_after_a_native_error_stops_the_batch_and_is_flagged()
+        {
+            var r = TypeRenameBatch.Run(Nine(), item =>
+            {
+                if (item.Id == 2) throw new TypeRenameUnsettledException("SEHException: x", new Exception());
+            });
+            Assert.True(r.Unsettled);
+            Assert.Single(r.Done);
+            Assert.Equal(7, r.NotAttempted.Count);
+            Assert.Contains("restart Revit", r.Failed[0].Reason);
+        }
+
+        [Fact]
+        public void Duplicate_verdict_uses_the_shared_text()
+        {
+            var v = TypeRename.Check("dup", "x", new[] { "dup" }, out _);
+            Assert.Contains(TypeRename.DuplicateText, v);
+            Assert.True(TypeRename.IsDuplicateVerdict(v));
+        }
+
         // ---- the launcher toast ----
 
         [Fact]

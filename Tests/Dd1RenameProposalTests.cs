@@ -13,6 +13,12 @@ namespace RevitWebAppSync.Tests
             new SpecType { TypeId = ++_id, Category = category, TypeName = typeName, FamilyName = family, InstanceCount = 2, InstanceIds = new List<long> { ++_id, ++_id } };
 
         [Fact]
+        public void Proposed_name_has_single_spaces_as_the_writer_will_write_it()
+        {
+            Assert.Equal("Window 900 x 2100", SpecChecks.ProposeRename(T("Windows", "Door  900   x 2100")).NewName);
+        }
+
+        [Fact]
         public void A_first_word_that_names_another_category_is_swapped_for_the_English_word_of_the_category()
         {
             Assert.Equal("Window 900", SpecChecks.ProposeRename(T("Windows", "Door 900")).NewName);

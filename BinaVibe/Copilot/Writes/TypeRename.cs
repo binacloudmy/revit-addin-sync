@@ -69,9 +69,12 @@ namespace BinaVibe.Copilot.Writes
             return name;
         }
 
+        /// <summary>The words of a duplicate refusal; <see cref="IsDuplicateVerdict"/> and <see cref="Check"/> share this one constant.</summary>
+        public const string DuplicateText = "already exists in this family and category";
+
         /// <summary>True when a <see cref="Check"/> verdict means "a sibling already holds the name" (skip that type, not the batch).</summary>
         public static bool IsDuplicateVerdict(string? verdict) =>
-            verdict != null && verdict.IndexOf("already exists in this family and category", StringComparison.Ordinal) >= 0;
+            verdict != null && verdict.IndexOf(DuplicateText, StringComparison.Ordinal) >= 0;
 
         /// <summary>
         /// Checks one rename. <paramref name="siblingNames"/> are the names of the OTHER types of the same family and category
@@ -86,7 +89,7 @@ namespace BinaVibe.Copilot.Writes
             if (string.Equals(n, currentName, StringComparison.Ordinal)) return "same";
             var clash = siblingNames.FirstOrDefault(s => string.Equals(s, n, StringComparison.OrdinalIgnoreCase));
             if (clash != null)
-                return "A type named '" + clash + "' already exists in this family and category, so '" + n + "' would be a duplicate; give a different name.";
+                return "A type named '" + clash + "' " + DuplicateText + ", so '" + n + "' would be a duplicate; give a different name.";
             return null;
         }
     }
