@@ -25,8 +25,10 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public Func<string, T> Issue { get; set; }
         /// <summary>The panel's RecheckAsync: null when nothing could be checked (scan running, no scan yet, other model, error).</summary>
         public Func<IReadOnlyCollection<long>, IReadOnlyCollection<T>, Task<JkrRecheckOutcome<T>>> Recheck { get; set; }
-        /// <summary>Mark the row Fixed (via Copilot), update score and board together, and save the audit record.</summary>
-        public Action<T> MarkFixed { get; set; }
+        /// <summary>Mark the row Fixed (via Copilot) with this toast, update score and board together, and save the audit record.</summary>
+        public Action<T, string> MarkFixed { get; set; }
+        /// <summary>For a row with no element id (create-type checks): a full re-scan; true = the rule passes, false = still fails, null = could not check.</summary>
+        public Func<T, Task<bool?>> RecheckByScan { get; set; }
         /// <summary>Show a toast.</summary>
         public Action<string> Toast { get; set; }
         /// <summary>The pane language is Bahasa Melayu.</summary>
@@ -62,10 +64,22 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             var issue = _host.Issue(request.IssueId);
             if (issue == null) return CopilotRecheckResult.RowGone;
 
-            // The row's own elements are always checked; a Copilot write on a create-type row adds new ids the row does not carry.
+            // The row's own elements are always checked. A row with no element id of its own (create-type checks)
+            // cannot be targeted: re-scan fully and see whether its rule still fails; Open until the scan says it passes.
             var ids = request.ElementIds.Concat(new[] { issue.RevitElementId }).Where(i => i > 0).Distinct().ToList();
+            if (issue.RevitElementId <= 0)
+            {
+                bool? passes;
+                try { passes = _host.RecheckByScan == null ? null : await _host.RecheckByScan(issue).ConfigureAwait(true); }
+                catch (Exception) { passes = null; }
+                if (passes == null) { _host.Toast(JkrCopilotRecheckText.PressRescan(bm)); return CopilotRecheckResult.NotChecked; }
+                if (passes == false) { _host.Toast(JkrCopilotRecheckText.StillFailing(bm, issue.Title, issue.Required)); return CopilotRecheckResult.StillFailing; }
+                issue.FixVerified = true;
+                _host.MarkFixed(issue, JkrCopilotRecheckText.Fixed(bm, request.ElementIds.Count));
+                return CopilotRecheckResult.Fixed;
+            }
             JkrRecheckOutcome<T> outcome;
-            try { outcome = ids.Count == 0 ? null : await _host.Recheck(ids, new T[] { issue }).ConfigureAwait(true); }
+            try { outcome = await _host.Recheck(ids, new T[] { issue }).ConfigureAwait(true); }
             catch (Exception) { outcome = null; }
 
             if (outcome != null && outcome.StillFailing.Contains(issue))
@@ -80,7 +94,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 return CopilotRecheckResult.NotChecked;
             }
             issue.FixVerified = true;
-            _host.MarkFixed(issue);
+            _host.MarkFixed(issue, JkrCopilotRecheckText.Fixed(bm, ids.Count));
             return CopilotRecheckResult.Fixed;
         }
     }
@@ -96,6 +110,10 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 ? "Copilot menulis perubahan, tetapi semakan masih gagal" + t + ". Baris kekal Terbuka."
                 : "Copilot wrote the change, but the check still fails" + t + ". The row stays Open.") + why;
         }
+        /// <summary>The toast when the rule re-passed: the real number of elements the request carried.</summary>
+        public static string Fixed(bool bm, int elements) => elements > 1
+            ? (bm ? $"Dibaiki melalui Copilot ({elements} elemen)" : $"Fixed via Copilot ({elements} elements)")
+            : (bm ? "Dibaiki melalui Copilot" : "Fixed via Copilot");
         public static string PressRescan(bool bm) => bm
             ? "Copilot selesai, tetapi semakan tidak dapat dijalankan. Baris kekal Terbuka; tekan Imbas semula."
             : "Copilot finished, but the check could not run. The row stays Open. Press Re-scan.";

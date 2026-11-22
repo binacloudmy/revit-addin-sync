@@ -29,6 +29,10 @@ namespace RevitWebAppSync.Tests
             public Row Issue = new Row();
             public List<string> Toasts = new List<string>();
             public List<Row> Marked = new List<Row>();
+            public List<string> MarkToasts = new List<string>();
+            public int Scans;
+            /// <summary>The by-scan re-check of a row with no element id; default: could not check.</summary>
+            public Func<bool?> ScanResult = () => null;
             public int Rechecks;
             public IReadOnlyCollection<long> LastIds;
             public IReadOnlyCollection<Row> LastWritten;
@@ -39,7 +43,8 @@ namespace RevitWebAppSync.Tests
             {
                 Issue = id => id == "r1" ? Issue : null,
                 Recheck = (ids, written) => { Rechecks++; LastIds = ids; LastWritten = written; return Task.FromResult(Outcome(written.First())); },
-                MarkFixed = i => { i.FixedVia = "Copilot"; i.Fixed = true; Marked.Add(i); },
+                MarkFixed = (i, toast) => { i.FixedVia = "Copilot"; i.Fixed = true; Marked.Add(i); MarkToasts.Add(toast); },
+                RecheckByScan = _ => { Scans++; return Task.FromResult(ScanResult()); },
                 Toast = Toasts.Add,
                 IsBm = () => false,
             };
@@ -73,6 +78,47 @@ namespace RevitWebAppSync.Tests
             var t = Assert.Single(f.Toasts);
             Assert.Contains("still fails", t);
             Assert.Contains("D-<code>", t);
+        }
+
+        [Fact]
+        public async Task Fixed_toast_names_the_real_element_count()
+        {
+            var f = new Fake { Outcome = Verified };
+            await new JkrCopilotRecheck<Row>(f.Host()).RunAsync(Req);
+            Assert.Equal("Fixed via Copilot (2 elements)", Assert.Single(f.MarkToasts));
+            Assert.Equal("Dibaiki melalui Copilot (2 elemen)", JkrCopilotRecheckText.Fixed(true, 2));
+            Assert.Equal("Fixed via Copilot", JkrCopilotRecheckText.Fixed(false, 1));
+        }
+
+        // ── rows with no element id of their own (create-type checks): full re-scan, Open until it passes ──
+
+        [Fact]
+        public async Task No_element_id_rule_passes_in_the_scan_row_is_Fixed()
+        {
+            var f = new Fake { ScanResult = () => true }; f.Issue.RevitElementId = 0;
+            Assert.Equal(CopilotRecheckResult.Fixed, await new JkrCopilotRecheck<Row>(f.Host()).RunAsync(Req));
+            Assert.Equal(1, f.Scans);
+            Assert.Equal(0, f.Rechecks);          // the targeted path is not used
+            Assert.True(f.Issue.Fixed);
+            Assert.Equal("Copilot", f.Issue.FixedVia);
+        }
+
+        [Fact]
+        public async Task No_element_id_rule_still_fails_in_the_scan_row_stays_Open()
+        {
+            var f = new Fake { ScanResult = () => false }; f.Issue.RevitElementId = 0;
+            Assert.Equal(CopilotRecheckResult.StillFailing, await new JkrCopilotRecheck<Row>(f.Host()).RunAsync(Req));
+            Assert.False(f.Issue.Fixed);
+            Assert.Contains("still fails", Assert.Single(f.Toasts));
+        }
+
+        [Fact]
+        public async Task No_element_id_scan_could_not_run_row_stays_Open_Press_Re_scan()
+        {
+            var f = new Fake { ScanResult = () => null }; f.Issue.RevitElementId = 0;
+            Assert.Equal(CopilotRecheckResult.NotChecked, await new JkrCopilotRecheck<Row>(f.Host()).RunAsync(Req));
+            Assert.False(f.Issue.Fixed);
+            Assert.Contains("Re-scan", Assert.Single(f.Toasts));
         }
 
         [Fact]

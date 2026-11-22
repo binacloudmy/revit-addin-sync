@@ -81,7 +81,8 @@ namespace RevitWebAppSync.UI
                     {
                         Issue = id => _panel.Issue(id),
                         Recheck = (ids, written) => _panel.RecheckAsync(ids, written),
-                        MarkFixed = issue => _panel.MarkFixedViaCopilot(issue),
+                        RecheckByScan = issue => _panel.RecheckByScanAsync(issue),
+                        MarkFixed = (issue, toast) => _panel.MarkFixedViaCopilot(issue, toast),
                         Toast = message => _shell.ShowToast(message),
                         IsBm = () => !Jkr.Panel.Core.PaneLanguage.IsEn,
                     });
