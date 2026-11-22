@@ -62,7 +62,9 @@ namespace RevitWebAppSync.Tests
             Assert.True(JkrCopilotFix.LauncherReady);
             Assert.True(Row().CopilotFixable);                 // Da.1
             var dd = Row(); dd.SpecCheckId = "Dd.1";
-            Assert.False(dd.CopilotFixable);                   // not enabled: needs run_revit_code
+            Assert.True(dd.CopilotFixable);                    // Dd.1 (WP-6): enabled, the category has one code prefix
+            dd.RevitCategory = "Floors";
+            Assert.False(dd.CopilotFixable);                   // LB and LA: the new name is not derivable
             var c = Row(); c.SpecCheckId = "C1.3.1";
             Assert.False(c.CopilotFixable);                    // create-type: hidden
         }
