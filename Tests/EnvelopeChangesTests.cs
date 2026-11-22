@@ -56,6 +56,46 @@ namespace RevitAddinSync.Tests
             Assert.Equal("Mark", row.Field);
         }
 
+        private static Envelope WithData(object data) =>
+            new Envelope { Data = System.Text.Json.JsonSerializer.SerializeToElement(data) };
+
+        [Fact]
+        public void CodeModifiedCountIsAddedToDataChanges()
+        {
+            var env = WithData(new Dictionary<string, object?>
+            {
+                ["mode"] = "write",
+                ["changes"] = new Dictionary<string, object?> { ["added"] = 0, ["deleted"] = 0 },
+            });
+            EnvelopeChanges.SetCodeModifiedCount(env, 22);
+            var d = (System.Text.Json.JsonElement)env.Data!;
+            var ch = d.GetProperty("changes");
+            Assert.Equal(22, ch.GetProperty("modified").GetInt32());
+            Assert.Equal(0, ch.GetProperty("added").GetInt32());
+            Assert.Equal(0, ch.GetProperty("deleted").GetInt32());
+            Assert.Equal("write", d.GetProperty("mode").GetString());
+            Assert.Equal(22, ToolResults.CodeChangeTotal(env));
+        }
+
+        [Fact]
+        public void CodeModifiedCountZeroOrNullEnvelopeLeavesDataAlone()
+        {
+            var env = new Envelope();
+            EnvelopeChanges.SetCodeModifiedCount(env, 0);
+            Assert.Null(env.Data);
+            EnvelopeChanges.SetCodeModifiedCount(null!, 5);
+        }
+
+        [Fact]
+        public void CodeModifiedCountCreatesChangesWhenDataHasNone()
+        {
+            var env = WithData(new Dictionary<string, object?> { ["mode"] = "write" });
+            EnvelopeChanges.SetCodeModifiedCount(env, 3);
+            var d = (System.Text.Json.JsonElement)env.Data!;
+            Assert.Equal(3, d.GetProperty("changes").GetProperty("modified").GetInt32());
+            Assert.Equal("write", d.GetProperty("mode").GetString());
+        }
+
         [Fact]
         public void LongTouchedListsAreCappedWithAHandle()
         {

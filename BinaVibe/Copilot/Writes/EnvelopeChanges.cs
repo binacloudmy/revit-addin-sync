@@ -119,6 +119,23 @@ namespace BinaVibe.Copilot.Writes
             env.Data = System.Text.Json.JsonSerializer.SerializeToElement(obj);
         }
 
+        /// <summary>A code write's data.changes carries {added, deleted} from the id diff, which cannot see edits to existing
+        /// elements (a view template applied to 22 views is 22 edits, no id appears or vanishes), so a recap read "added 0 mod 0".
+        /// The recorder's full modified count is put on it as "modified" (never lowered, set once the recorder has run).</summary>
+        public static void SetCodeModifiedCount(Envelope env, int modified)
+        {
+            if (env == null || modified <= 0) return;
+            System.Text.Json.Nodes.JsonObject obj;
+            if (env.Data is System.Text.Json.JsonElement d && d.ValueKind == System.Text.Json.JsonValueKind.Object)
+                obj = System.Text.Json.Nodes.JsonNode.Parse(d.GetRawText()) as System.Text.Json.Nodes.JsonObject ?? new System.Text.Json.Nodes.JsonObject();
+            else
+                obj = new System.Text.Json.Nodes.JsonObject();
+            var changes = obj["changes"] as System.Text.Json.Nodes.JsonObject ?? new System.Text.Json.Nodes.JsonObject();
+            changes["modified"] = modified;
+            obj["changes"] = changes;
+            env.Data = System.Text.Json.JsonSerializer.SerializeToElement(obj);
+        }
+
         /// <summary>Removes modify rows that name no field (code edits the recorder saw).</summary>
         public static void DropEmptyFieldRows(ChangesDto touched)
         {

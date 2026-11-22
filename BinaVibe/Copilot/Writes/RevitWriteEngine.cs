@@ -718,6 +718,8 @@ namespace BinaVibe.Copilot.Writes
             env.Changes.TouchedByCategory = EnvelopeChanges.ByCategory(touched, changes.CategoryOf);
             // A code call emits no modify row without a field; the counts carry those (review I-1).
             if (isCode) EnvelopeChanges.DropEmptyFieldRows(env.Changes.Touched);
+            // Edits to existing elements (a view template set on 22 views) are not in the code host's id diff: count them.
+            if (isCode) EnvelopeChanges.SetCodeModifiedCount(env, env.Changes.TouchedByCategory.ModifiedByCategory.Values.Sum());
             // The full lists stay in the add-in, beside this envelope, for the marks in the model (58 tags are 58 marks);
             // the envelope itself is cut below as before and nothing more is sent.
             if (phase == WritePhase.Commit) CommitIds.Remember(env, touched, changes.CategoryOf);
