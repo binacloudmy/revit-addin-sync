@@ -42,6 +42,8 @@ namespace BinaVibe.Copilot.Tools
         {
             public string Param = "";
             public bool TypeParam;
+            /// <summary>AI-510: the call renames types (param "Type Name" on a type): written through Element.Name.</summary>
+            public bool Rename;
             public bool FromTable;
             public string ValueDisplay = "";
             public string Scope = "elements";
@@ -70,7 +72,8 @@ namespace BinaVibe.Copilot.Tools
         {
             var a = SetParametersArgs.Parse(args);
             var doc = ctx.Doc;
-            var notes = new PlanNotes { Param = a.Param, TypeParam = a.TypeParam, FromTable = a.Table != null };
+            var notes = new PlanNotes { Param = a.Param, TypeParam = a.TypeParam, Rename = a.TypeParam && TypeRename.IsRenameParam(a.Param), FromTable = a.Table != null };
+            var renamedTo = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
 
             var picked = SetParameterTargets.Resolve(ctx.UiDoc, doc, ctx.Handles, a, notes.Skips);
             if (a.Table != null)
@@ -101,6 +104,12 @@ namespace BinaVibe.Copilot.Tools
                         throw new WriteRefusal(ErrorCodes.InvalidArgs,
                             "Element " + Id(el) + " is a type ('" + el.Name + "'); set its parameters with type_param: true, which changes every instance of the type.");
                     owner = el;
+                }
+
+                if (notes.Rename && owner is ElementType renamed)
+                {
+                    PlanRename(doc, notes, t, renamed, renamedTo, edits, seen);
+                    continue;
                 }
 
                 var p = owner.LookupParameter(a.Param);
@@ -222,11 +231,26 @@ namespace BinaVibe.Copilot.Tools
             var doc = ctx.Doc;
 
             var written = new List<(long id, Parameter p, ParsedValue v, string? before)>();
+            var renames = new List<(long id, string before, string name)>();
             foreach (var id in plan.TargetIds)
             {
                 var key = id.ToString(CultureInfo.InvariantCulture);
                 var el = doc.GetElement(ElemIds.From(id))
                          ?? throw new WriteRefusal(ErrorCodes.NotFound, "Element " + key + " no longer exists; nothing was changed.", Array.Empty<string>());
+                if (notes.Rename && el is ElementType)
+                {
+                    var rv = ParsedValue.FromCanonical(plan.IntendedValues.TryGetValue(key, out var rc) ? rc : null);
+                    if (!rv.Ok) throw new WriteRefusal(ErrorCodes.InvalidArgs, "The plan holds no value for element " + key + ".");
+                    var was = el.Name;
+                    try { el.Name = rv.Text; }
+                    catch (Exception ex) when (ex is Autodesk.Revit.Exceptions.ArgumentException || ex is Autodesk.Revit.Exceptions.InvalidOperationException)
+                    {
+                        throw new WriteRefusal(ErrorCodes.RolledBack,
+                            "Revit refused to rename type '" + was + "' to '" + rv.Text + "' (" + ex.Message + "), so the whole batch was rolled back and nothing changed.");
+                    }
+                    renames.Add((id, was, rv.Text));
+                    continue;
+                }
                 var p = el.LookupParameter(notes.Param)
                         ?? throw new WriteRefusal(ErrorCodes.NotFound, "Element " + key + " no longer has '" + notes.Param + "'; nothing was changed.", Array.Empty<string>());
                 var v = ParsedValue.FromCanonical(plan.IntendedValues.TryGetValue(key, out var c) ? c : null);
@@ -239,7 +263,7 @@ namespace BinaVibe.Copilot.Tools
                 written.Add((id, p, v, before));
             }
 
-            if (written.Count > 0) doc.Regenerate();
+            if (written.Count + renames.Count > 0) doc.Regenerate();
 
             var rows = new List<FieldChangeDto>();
             var mismatches = new List<MismatchDto>();
@@ -264,19 +288,30 @@ namespace BinaVibe.Copilot.Tools
                     mismatches.Add(new MismatchDto { Id = w.id, Field = notes.Param, Expected = w.v.Display, Actual = after });
             }
 
+            foreach (var r in renames)
+            {
+                var now = doc.GetElement(ElemIds.From(r.id))?.Name;
+                if (rows.Count < EnvelopeLimits.MaxRows)
+                    rows.Add(FieldChangeTyping.Type(new FieldChangeDto { Id = r.id, Field = notes.Param, Before = r.before, After = now }, true, now, null, notes.FromTable ? null : declared, numeric: false));
+                if (string.Equals(now, r.name, StringComparison.Ordinal)) matched++;
+                else if (mismatches.Count < EnvelopeLimits.MaxRows)
+                    mismatches.Add(new MismatchDto { Id = r.id, Field = notes.Param, Expected = r.name, Actual = now });
+            }
+            var total = written.Count + renames.Count;
+
             var handle = TryHandle(ctx, plan.TargetIds, notes);
             var skipped = notes.Skips.Count;
-            var status = written.Count == 0 ? EnvelopeStatus.Noop
+            var status = total == 0 ? EnvelopeStatus.Noop
                 : mismatches.Count > 0 || skipped > 0 ? EnvelopeStatus.Partial
                 : EnvelopeStatus.Done;
 
-            var builder = EnvelopeBuilder.Write(phase, Summary(notes, phase, written.Count, matched, skipped))
+            var builder = EnvelopeBuilder.Write(phase, Summary(notes, phase, total, matched, skipped))
                 .Status(status)
-                .WithCount(written.Count)
+                .WithCount(total)
                 .WithChanges(new ChangesDto { Modified = rows })
-                .WithVerified(new VerifiedDto { Method = VerifyMethods.ParamReadback, Checked = written.Count, Mismatches = mismatches })
-                .WithData(Data(notes, written.Count, skipped))
-                .WithNext(written.Count == 0 ? WriteEnvelopes.NoChangeNext : Next(notes, phase, handle, mismatches.Count));
+                .WithVerified(new VerifiedDto { Method = VerifyMethods.ParamReadback, Checked = total, Mismatches = mismatches })
+                .WithData(Data(notes, total, skipped))
+                .WithNext(total == 0 ? WriteEnvelopes.NoChangeNext : Next(notes, phase, handle, mismatches.Count));
             if (handle != null) builder = builder.WithHandle(handle);
             return builder.Build();
         }
@@ -358,9 +393,47 @@ namespace BinaVibe.Copilot.Tools
             {
                 Param = a.Param,
                 TypeParam = a.TypeParam,
+                Rename = a.TypeParam && TypeRename.IsRenameParam(a.Param),
                 FromTable = a.Table != null,
                 ValueDisplay = a.Table != null ? "values from the attached table" : Raw(a.Value!.Value),
             };
+        }
+
+        /// <summary>AI-510: plans the rename of one type. "Type Name" is read-only as a Parameter, so the rename goes through
+        /// Element.Name; the rules (empty, forbidden characters, a sibling already holding the name) are TypeRename's.</summary>
+        private static void PlanRename(Document doc, PlanNotes notes, PickedTarget t, ElementType type, Dictionary<string, HashSet<string>> renamedTo,
+            SortedDictionary<long, string> edits, Dictionary<long, (string canonical, int? row)> seen)
+        {
+            if (t.Value.ValueKind != JsonValueKind.String)
+                throw new WriteRefusal(ErrorCodes.InvalidArgs, "Value " + Raw(t.Value) + " for '" + notes.Param + "': a type name is text.");
+            var family = type.FamilyName ?? "";
+            var siblings = new FilteredElementCollector(doc).WhereElementIsElementType().Cast<ElementType>()
+                .Where(x => x.Id != type.Id && x.Category?.Id == type.Category?.Id && string.Equals(x.FamilyName ?? "", family, StringComparison.OrdinalIgnoreCase))
+                .Select(x => x.Name).ToList();
+            var verdict = TypeRename.Check(t.Value.GetString(), type.Name, siblings, out var name);
+            var ownerId = (long)type.Id.Value;
+            if (verdict == "same")
+            {
+                if (seen.ContainsKey(ownerId)) return;
+                seen[ownerId] = ("text|" + name, t.Row);
+                notes.Unchanged++;
+                return;
+            }
+            if (verdict != null) throw new WriteRefusal(ErrorCodes.InvalidArgs, "Type '" + type.Name + "': " + verdict);
+            if (seen.TryGetValue(ownerId, out var earlier))
+            {
+                if (earlier.canonical != "text|" + name)
+                    throw new WriteRefusal(ErrorCodes.InvalidArgs,
+                        "Element " + ownerId.ToString(CultureInfo.InvariantCulture) + " would get two different values for '" + notes.Param + "' (several rows or instances share its type).");
+                return;
+            }
+            // Two types of one family and category cannot take the same new name in one batch.
+            var scope = (type.Category?.Id.Value.ToString(CultureInfo.InvariantCulture) ?? "") + "|" + family;
+            if (!renamedTo.TryGetValue(scope, out var taken)) renamedTo[scope] = taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (!taken.Add(name))
+                throw new WriteRefusal(ErrorCodes.InvalidArgs, "Two types of '" + family + "' would both be named '" + name + "'; give each type its own name.");
+            seen[ownerId] = ("text|" + name, t.Row);
+            edits[ownerId] = "text|" + name;
         }
 
         private static void Skip(PlanNotes n, Element e, int? row, string reason) =>
