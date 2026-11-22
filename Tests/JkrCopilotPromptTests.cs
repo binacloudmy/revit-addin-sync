@@ -44,6 +44,20 @@ namespace RevitWebAppSync.Tests
             foreach (var id in FixableFamilies) Assert.True(JkrCopilotPrompt.HasVariant(id), id);
         }
 
+        // AI-511: ask_user text follows the pane language: every family's prompt says so, in the prompt's own language.
+        [Theory]
+        [MemberData(nameof(Families))]
+        public void Each_family_prompt_tells_copilot_to_write_ask_user_in_the_pane_language(string id)
+        {
+            var ms = Assert.Single(JkrCopilotPrompt.Build(Facts(id, 3), true));
+            Assert.Contains("ask_user", ms);
+            Assert.Contains("Bahasa Malaysia", ms);
+            Assert.DoesNotContain("in English", ms);
+            var en = Assert.Single(JkrCopilotPrompt.Build(Facts(id, 3), false));
+            Assert.Contains("write every ask_user question, every option and every button label in English", en);
+            Assert.DoesNotContain("Bahasa Malaysia", en);
+        }
+
         [Theory]
         [MemberData(nameof(Families))]
         public void Each_family_prompt_starts_with_its_task_names_set_parameters_and_the_check_id(string id)
@@ -103,7 +117,9 @@ namespace RevitWebAppSync.Tests
                 {
                     var p = Assert.Single(JkrCopilotPrompt.Build(Facts(id, 2), bm));
                     Assert.DoesNotMatch(new Regex(@"\b(Ya/Tidak|Yes/No|Ya atau Tidak|Yes or No)\b", RegexOptions.IgnoreCase), p);
-                    if (p.Contains("ask_user")) Assert.True(id == "C1.6.3" || id == "C4.2.2", id);
+                    // AI-511: the language line names ask_user in every family; only the rest of the prompt is checked
+                    var rest = string.Join("\n", p.Split('\n').Where(l => !l.StartsWith("Language:") && !l.StartsWith("Bahasa:")));
+                    if (rest.Contains("ask_user")) Assert.True(id == "C1.6.3" || id == "C4.2.2", id);
                 }
         }
 

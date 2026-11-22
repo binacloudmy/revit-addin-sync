@@ -251,6 +251,9 @@ namespace RevitWebAppSync.UI.Copilot
             var tables = PendingTables; PendingTables = null;
             var documents = PendingDocuments; PendingDocuments = null;
             var lang = PromptLanguage.Detect(message);   // receipts follow the prompt's language
+            // AI-511: a Fix via Copilot prompt carries the PANE language (BM/EN), not the language its words read as
+            var paneLang = RevitWebAppSync.Services.FixTurnLanguageSlot.TakeFor(message);
+            if (paneLang.HasValue) lang = paneLang.Value ? ReceiptLanguage.Ms : ReceiptLanguage.En;
 
             // A pending forced update: nothing of the copilot may act on the model.
             if (_hooks.UpdateBlocked())

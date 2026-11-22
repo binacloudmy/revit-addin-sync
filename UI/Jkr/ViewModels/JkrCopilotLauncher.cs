@@ -193,6 +193,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             }
             finally
             {
+                FixTurnLanguageSlot.Clear();
                 ConfirmedWriteSlot.Clear();   // AI-490: whatever ended the launch, nothing stays armed for the next chat turn
                 Interlocked.Exchange(ref _running, 0);
             }
@@ -265,8 +266,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 if (string.IsNullOrWhiteSpace(part)) continue;
                 if (i > 0 && !_session.IsPaneVisible)
                     return await StopAsync(request, committed, Text.PaneClosed(bm, i, parts.Count), CopilotLaunchOutcome.PaneClosed).ConfigureAwait(true);
-                try { ConfirmedWriteSlot.Arm(part, ok ? ConfirmedFor(request, i) : null); _session.Send(part); }
-                catch (Exception ex) { ConfirmedWriteSlot.Clear(); return await StopAsync(request, committed, Text.SendFailed(bm, ex.Message), CopilotLaunchOutcome.SendFailed).ConfigureAwait(true); }
+                try { ConfirmedWriteSlot.Arm(part, ok ? ConfirmedFor(request, i) : null); FixTurnLanguageSlot.Arm(part, bm); _session.Send(part); }
+                catch (Exception ex) { ConfirmedWriteSlot.Clear(); FixTurnLanguageSlot.Clear(); return await StopAsync(request, committed, Text.SendFailed(bm, ex.Message), CopilotLaunchOutcome.SendFailed).ConfigureAwait(true); }
 
                 // AI-495: the last turn is awaited too: the re-check runs once its write is done.
                 var end = await WaitForTurnAsync().ConfigureAwait(true);

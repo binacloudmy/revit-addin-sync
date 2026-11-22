@@ -163,6 +163,7 @@ namespace RevitWebAppSync.Tests
         private sealed class SeeingSession : ICopilotSession
         {
             public readonly List<(string Text, string Check)> Seen = new List<(string, string)>();
+            public readonly List<bool?> SeenLang = new List<bool?>();
             private int _sends;
             public Task<string> OpenPaneAsync() => Task.FromResult<string>(null);
             public void NewChat() { }
@@ -175,6 +176,7 @@ namespace RevitWebAppSync.Tests
             {
                 _sends++;
                 var taken = ConfirmedWriteSlot.TakeFor(text);   // what the router would take for this message
+                SeenLang.Add(FixTurnLanguageSlot.TakeFor(text));   // AI-511: the pane language the router would take
                 Seen.Add((text, taken?.CheckId));
             }
         }
@@ -186,6 +188,17 @@ namespace RevitWebAppSync.Tests
                 turnTimeout: TimeSpan.FromSeconds(2), startGrace: TimeSpan.FromSeconds(1), settle: TimeSpan.FromSeconds(1), confirm: confirm, confirmedWrite: cw);
 
         private static ConfirmedWriteDto Dto(int part) => new ConfirmedWriteDto { CheckId = "part" + part, Ids = new List<long> { part + 1 }, Params = new List<string> { "Material" } };
+
+        // AI-511: every Fix part goes out carrying the pane language (isBm = false here, so English), and nothing stays armed.
+        [Fact]
+        public async Task Each_fix_part_carries_the_pane_language_and_nothing_stays_armed()
+        {
+            FixTurnLanguageSlot.Clear();
+            var s = new SeeingSession();
+            await Launcher(s, r => true, (r, i) => Dto(i), "A", "B").LaunchAsync(Req);
+            Assert.Equal(new bool?[] { false, false }, s.SeenLang.ToArray());
+            Assert.False(FixTurnLanguageSlot.IsArmed);
+        }
 
         [Fact]
         public async Task After_Ya_each_part_goes_out_with_its_own_field_and_nothing_stays_armed()
