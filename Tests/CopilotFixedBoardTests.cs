@@ -33,13 +33,13 @@ namespace RevitWebAppSync.Tests
             var ignored = Row("g"); ignored.Status = IssueStatus.Ignored; rows.Add(ignored);
 
             var b0 = Load(rows).TabCounts();
-            var t0 = JkrCheckStatus.Count(rows);
+            var t0 = JkrIssueCounts.Count(rows);
             Assert.Equal(t0.Total, b0.Values.Sum());
 
             foreach (var r in rows.Take(4)) CopilotFix(r);
             var core = Load(rows);
             var b1 = core.TabCounts();
-            var t1 = JkrCheckStatus.Count(rows);
+            var t1 = JkrIssueCounts.Count(rows);
 
             Assert.Equal(b0[PanelTab.Open] - 4, b1[PanelTab.Open]);
             Assert.Equal(b0[PanelTab.Resolved] + 4, b1[PanelTab.Resolved]);
