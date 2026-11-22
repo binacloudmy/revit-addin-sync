@@ -141,6 +141,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// <summary>AI-492: "Fix via Copilot" on one row (id). The host hands the issue to the Copilot launcher
         /// (<c>JkrCopilotFix.Request</c>); until AI-494 wires it, nothing happens.</summary>
         public event Action<string> CopilotFixRequested;
+
+        /// <summary>AI-509: "Fix all elements via Copilot" on a check header: the check id and the rows it acts on (one confirm for all).</summary>
+        public event Action<string, List<string>> CopilotFixCheckRequested;
         /// <summary>Put an ignored or marked item back to Open.</summary>
         public event Action<string> ReopenRequested;
         /// <summary>Fix the issues behind one spec check: its ready-made fixes (never the AI fixer's rows); the host confirms and writes.</summary>
@@ -810,6 +813,18 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 : Checklist.SelectMany(s => s.Items).SelectMany(i => i.Checks).FirstOrDefault(c => c.Id == checkId);
             if (row == null || !row.CanFix) return;
             FixCheckRequested?.Invoke(row.FixIds.ToList());
+        }
+
+        /// <summary>AI-509: the check header's "Fix all elements via Copilot". Built for the check itself (a closed section or a state
+        /// filter does not hide it); nothing happens while busy or when the check has no eligible row.</summary>
+        public void FixCheckViaCopilot(string checkId)
+        {
+            if (!CanAct) return;
+            var spec = _spec?.For(checkId);
+            if (spec == null) return;
+            var row = SpecChecklist.CheckRow(spec, _spec, ItemsById(), _core.Lang, id => true);
+            if (row == null || !row.CanFixViaCopilot || row.CopilotFixIds.Count == 0) return;
+            CopilotFixCheckRequested?.Invoke(checkId, row.CopilotFixIds.ToList());
         }
 
         private Dictionary<string, PanelItem> ItemsById()

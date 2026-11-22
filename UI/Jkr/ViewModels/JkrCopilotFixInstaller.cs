@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using RevitWebAppSync.UI.Jkr.Panel.Core;
 
 namespace RevitWebAppSync.UI.Jkr.ViewModels
@@ -25,28 +26,32 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             JkrCopilotRecheckHost<IssueVm> recheck = null, Func<CopilotConfirmContent, bool> confirm = null)
         {
             if (PromptBuilder == null || session == null || confirm == null) { JkrCopilotFix.Launcher = null; return; }
+            // AI-509: one request can cover every open row of a check; the facts are the merge of those rows, one value for the
+            // prompt, the confirm and confirmed_write. A row-level request keeps the row-level builder (PromptBuilder).
+            Func<CopilotFixRequest, CopilotPromptFacts> factsOf = req =>
+            {
+                var rows = req.Rows.Select(issueById).Where(i => i != null).ToList();
+                if (rows.Count == 0) throw new InvalidOperationException("the row is no longer in the list");
+                return JkrCopilotPrompt.FactsOfRows(rows, !PaneLanguage.IsEn);
+            };
             JkrCopilotFix.Launcher = new JkrCopilotFixLauncher(
                 session,
                 req =>
                 {
                     var build = PromptBuilder ?? throw new InvalidOperationException("the Copilot prompt builder is not set");
+                    if (req.IsCheckWide)
+                    {
+                        if (!ReferenceEquals(build, DefaultPromptBuilder)) throw new InvalidOperationException("the prompt builder has no check-wide form");
+                        return JkrCopilotPrompt.Build(factsOf(req), !PaneLanguage.IsEn);
+                    }
                     var issue = issueById(req.IssueId) ?? throw new InvalidOperationException("the row is no longer in the list");
                     return build(issue, !PaneLanguage.IsEn);
                 },
                 notify,
                 () => !PaneLanguage.IsEn,
                 afterWrite: recheck == null ? (Func<CopilotFixRequest, System.Threading.Tasks.Task>)null : new JkrCopilotRecheck<IssueVm>(recheck).RunAsync,
-                confirmedWrite: (req, part) =>
-                {
-                    var issue = issueById(req.IssueId);
-                    return issue == null ? null : JkrCopilotConfirmedWrite.ForPart(JkrCopilotPrompt.FactsOf(issue, !PaneLanguage.IsEn), part);
-                },
-                confirm: req =>
-                {
-                    var issue = issueById(req.IssueId) ?? throw new InvalidOperationException("the row is no longer in the list");
-                    var bm = !PaneLanguage.IsEn;
-                    return confirm(JkrCopilotConfirm.Build(JkrCopilotPrompt.FactsOf(issue, bm), bm));
-                });
+                confirmedWrite: (req, part) => JkrCopilotConfirmedWrite.ForPart(factsOf(req), part),
+                confirm: req => confirm(JkrCopilotConfirm.Build(factsOf(req), !PaneLanguage.IsEn)));
         }
     }
 }

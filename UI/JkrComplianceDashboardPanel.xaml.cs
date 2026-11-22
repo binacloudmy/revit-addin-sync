@@ -1784,6 +1784,42 @@ namespace RevitWebAppSync.UI
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[BINA] audit save failed: {ex.Message}"); }
         }
 
+        /// <summary>AI-509: a check-wide Copilot fix re-passed its rule for these rows: all Fixed (via Copilot) in ONE step, so the % (the
+        /// re-check just rebuilt the spec report), the board and the tab counts move together, one toast, one audit save per row.</summary>
+        public void MarkFixedManyViaCopilot(IReadOnlyList<IssueVm> issues, string toast)
+        {
+            var list = (issues ?? new IssueVm[0]).Where(i => i != null).ToList();
+            if (list.Count == 0) return;
+            foreach (var i in list) i.FixedVia = "Copilot";
+            // A re-scan that passed the rule dropped the row from the list: put it back as Fixed.
+            var missing = list.Where(i => !_vm.Issues.Contains(i)).ToList();
+            if (missing.Count > 0) _vm.ReplaceIssues(_vm.Issues.Concat(missing).ToList());
+            _vm.ApplyDecisions(list, IssueStatus.Fixed, toast);
+            foreach (var i in list)
+            {
+                try { JkrAuditStore.Save(_scannedDocPath, i); }
+                catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[BINA] audit save failed: {ex.Message}"); }
+            }
+            RenderAll();
+        }
+
+        /// <summary>AI-509: rows a check-wide Copilot write did not fix stay Open and carry the reason on the row.</summary>
+        public void MarkStillFailingAfterCopilot(IReadOnlyList<IssueVm> issues, string reason)
+        {
+            var list = (issues ?? new IssueVm[0]).Where(i => i != null && i.Status != IssueStatus.Fixed).ToList();
+            if (list.Count == 0) return;
+            foreach (var i in list) i.FixError = reason;
+            RenderAll();
+        }
+
+        /// <summary>AI-509: "Fix all elements via Copilot" on a check header: the rows must still be open and Copilot-fixable.</summary>
+        public CopilotFixRequest CopilotFixRequestForCheck(string checkId, IEnumerable<string> issueIds)
+        {
+            var rows = (issueIds ?? new string[0]).Select(FindIssue).Where(i => i != null && i.CopilotFixable && i.IsAiOpen && i.SpecCheckId == checkId).ToList();
+            if (rows.Count == 0) return null;
+            return CopilotFixRequest.ForCheck(checkId, rows.Select(r => r.Id), rows.SelectMany(r => r.ElementIds.Count > 0 ? r.ElementIds : new List<long> { r.RevitElementId }), rows[0].Title);
+        }
+
         /// <summary>After a single auto-fix wrote: resolve the row only if its rule re-passed.</summary>
         private async Task FinishSingleFixAsync(IssueVm issue, bool advance)
         {

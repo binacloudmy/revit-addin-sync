@@ -68,6 +68,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// <summary>AI-492: the row offers "Fix via Copilot" (<c>IssueVm.CopilotFixable</c>). Never part of Fix all.</summary>
         public bool CopilotFixable;
 
+        /// <summary>AI-509: the Revit element ids behind the row (the count on the check header's "Fix all n elements via Copilot").</summary>
+        public System.Collections.Generic.IReadOnlyList<long> ElementIds = System.Array.Empty<long>();
+
         /// <summary>AI-434: several valid codes; the row's input is a dropdown of <see cref="Options"/> and
         /// <see cref="PickCode"/> (the AI's choice, or "") is preselected. Never in Fix all.</summary>
         public bool Pick;
