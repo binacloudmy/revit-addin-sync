@@ -663,7 +663,7 @@
               },
               "choices": {
                 "type": "array",
-                "minItems": 2,
+                "minItems": 1,
                 "description": "Required with type choice.",
                 "items": {
                   "type": "object",
