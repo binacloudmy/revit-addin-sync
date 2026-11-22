@@ -261,9 +261,10 @@ namespace RevitWebAppSync.Services.JkrSpec
             if (kj.Count > 0) parts.Add("type-code prefix from the JKR list (only these): " + string.Join(", ", kj));
             else parts.Add("JKR has no code list for " + t.Category + ": person confirm, offer no prefix; only codes in use in this model can be offered");
             var inUse = (m?.Types ?? new List<SpecType>())
-                .Where(x => string.Equals(x.Category, t.Category, StringComparison.OrdinalIgnoreCase))
+                .Where(x => string.Equals(x.Category, t.Category, StringComparison.OrdinalIgnoreCase) && Dd1Conflict(x, x.TypeName) == null)   // a coded type that itself fails Dd.1 offers no code
                 .SelectMany(x => JkrCodeList.ComponentCodesIn(x.TypeName, t.Category).Concat(JkrCodeList.ComponentCodesIn(x.FamilyName, t.Category)).Select(c => (Code: c, N: Math.Max(1, x.InstanceCount))))
                 .GroupBy(x => x.Code, StringComparer.Ordinal).Select(g => (Code: g.Key, N: g.Sum(x => x.N)))
+                .Where(x => Dd1Conflict(t, "(" + x.Code + ") x") == null)   // never offer a code that would fail Dd.1 in this category
                 .OrderByDescending(x => x.N).ThenBy(x => x.Code, StringComparer.Ordinal).Take(6).Select(x => "(" + x.Code + ")").ToList();
             if (inUse.Count > 0) parts.Add("codes already in use for " + t.Category + " in this model: " + string.Join(", ", inUse));
             return string.Join("; ", parts);

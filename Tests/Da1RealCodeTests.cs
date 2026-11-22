@@ -281,12 +281,9 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void A_derived_rename_that_would_fail_Dd1_is_not_proposed_and_the_reason_is_listed()
         {
-            // Casework type whose own code is a real Casework code (PBa) but whose name says "Door": Dd.1 would...
-            // the code is the stronger evidence, so use a code the Dd.1 table puts in another category: PT in a Floors list? not in list: use Floors + LAk? (LA is Ramps/Floors: ok)
             var okT = T("Floors", "Slab 150", codeParam: "LFa001");
             var good = Fails(Run(okT)).Single();
             Assert.Equal("(LFa001) Slab 150", good.RenameTo);
-            // Dd.1 conflict: a code of the list whose Dd.1 category is another one
             var m = new SpecModel();
             var t = T("Casework", "Counter 1", codeParam: "PBa001");
             m.Types.Add(t); m.Normalize();
@@ -294,6 +291,20 @@ namespace RevitWebAppSync.Tests
             Assert.NotNull(SpecChecks.Dd1Conflict(T("Doors", "Door 1"), "(TKh281a) Door 1"));
             var floorWithDoorCode = T("Floors", "Slab 2", codeParam: "LFa001");
             Assert.NotNull(SpecChecks.Dd1Conflict(floorWithDoorCode, "(PTa001) Slab 2"));
+        }
+
+        [Fact]
+        public void End_to_end_a_rename_that_fails_Dd1_gets_no_name_and_the_reason_and_the_hint_offers_no_conflicting_code()
+        {
+            // "Door 900" in Floors with its own real Floors code (LFa001): "(LFa001) Door 900" passes Da.1 but Dd.1 reads the word "Door".
+            var blocked = T("Floors", "Door 900", codeParam: "LFa001");
+            // a coded Floors type already in the model whose name also fails Dd.1: its code must not be offered
+            var coded = T("Floors", "(LFb002) Door 150", instances: 9);
+            var f = Fails(Run(blocked, coded)).Single();
+            Assert.Equal("", f.RenameTo);
+            Assert.Equal("Door 900", f.RenameFrom);
+            Assert.Contains("no rename proposed: the new name '(LFa001) Door 900' would fail Dd.1", f.CodeHint);
+            Assert.DoesNotContain("(LFb002)", f.CodeHint);
         }
     }
 }
