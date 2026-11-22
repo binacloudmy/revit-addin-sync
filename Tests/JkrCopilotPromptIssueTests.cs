@@ -32,5 +32,14 @@ namespace RevitWebAppSync.Tests
             var r = Row(); r.ElementIds.Clear();
             Assert.Empty(JkrCopilotPrompt.Build(r, false));
         }
+
+        [Fact]
+        public void A_create_type_row_with_no_ids_still_gives_one_prompt_AI498()
+        {
+            var r = new IssueVm { SpecCheckId = "C1.5.2", Title = "3D view", RevitCategory = "Views", Required = "3D view per level", Actual = "Level 3 has none" };
+            var p = Assert.Single(JkrCopilotPrompt.Build(r, false));
+            Assert.Contains("Create a 3D view for every level", p);
+            Assert.Contains("Actual (what is missing): Level 3 has none", p);
+        }
     }
 }

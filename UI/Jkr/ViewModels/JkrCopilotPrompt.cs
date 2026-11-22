@@ -92,10 +92,12 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
 
         /// <summary>The wording for a check id (the generic one when the family has no variant yet).</summary>
         public static CopilotPromptVariant VariantFor(string checkId) =>
-            Variants.TryGetValue((checkId ?? "").Trim(), out var v) ? v : Generic;
+            Variants.TryGetValue((checkId ?? "").Trim(), out var v) ? v
+            : CreateTypeVariants.TryGetValue((checkId ?? "").Trim(), out var c) ? c.Variant : Generic;
 
         /// <summary>True when the check id has its own wording (not the generic one).</summary>
-        public static bool HasVariant(string checkId) => Variants.ContainsKey((checkId ?? "").Trim());
+        public static bool HasVariant(string checkId) =>
+            Variants.ContainsKey((checkId ?? "").Trim()) || CreateTypeVariants.ContainsKey((checkId ?? "").Trim());
 
         /// <summary>
         /// One prompt string per chunk of at most <see cref="MaxIdsPerPrompt"/> ids, in id order. No ids gives no
@@ -107,7 +109,12 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             if (facts == null) throw new ArgumentNullException(nameof(facts));
             var ids = (facts.ElementIds ?? new List<long>()).Where(i => i > 0).Distinct().ToList();
             var prompts = new List<string>();
-            if (ids.Count == 0) return prompts;
+            if (ids.Count == 0)
+            {
+                // A model-level create-type check (AI-498) has nothing to point at: its prompt states what is missing.
+                if (IsCreateType((facts.CheckId ?? "").Trim())) prompts.Add(BuildOne(facts, bm, ids, 1, 1));
+                return prompts;
+            }
             var parts = (ids.Count + MaxIdsPerPrompt - 1) / MaxIdsPerPrompt;
             for (var p = 0; p < parts; p++)
                 prompts.Add(BuildOne(facts, bm, ids.Skip(p * MaxIdsPerPrompt).Take(MaxIdsPerPrompt).ToList(), p + 1, parts));
@@ -121,6 +128,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             var lang = bm ? PanelStrings.Ms : PanelStrings.En;
             var title = spec != null ? spec.Title.In(lang) : (f.Title ?? "");
             var variant = VariantFor(checkId);
+            if (IsCreateType(checkId)) return BuildCreateType(f, bm, ids, part, parts, spec, title, CreateTypeVariants[checkId]);
             var sb = new StringBuilder();
 
             sb.Append(variant.Task(bm)).Append(' ')

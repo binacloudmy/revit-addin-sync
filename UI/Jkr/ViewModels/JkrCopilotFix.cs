@@ -36,7 +36,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
     /// (<see cref="Allowed"/>); add an id there and the button follows, no UI change. Revit- and WPF-free.
     /// A row shows the button only when ALL hold (<see cref="Eligible"/>): the check is in the list and not
     /// in <see cref="Denied"/>, the catalog class is AI (never Human / List), no ready-made Fix, no picker,
-    /// and at least one element id.
+    /// and at least one element id (except the model-level create-type checks in <see cref="ModelLevel"/>, which
+    /// have no element to point at).
     /// </summary>
     public static class JkrCopilotFix
     {
@@ -82,9 +83,22 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public static bool IsWallMaterial(string specCheckId, string revitCategory) =>
             (specCheckId ?? "").Trim() == "Db.2" && string.Equals((revitCategory ?? "").Trim(), "Walls", StringComparison.OrdinalIgnoreCase);
 
+        /// <summary>AI-498: create-type checks whose row says "something is missing" and so usually has no element id
+        /// (no PBT view, no 3D view for a level, no room schedule, no legend, no category schedule, no sheet with a view).
+        /// Only these may show the button with zero ids; every other id still needs at least one. C5.1.1 (links, AI-499)
+        /// and C1.1.1 / C1.1.2 / C1.6.2 / C5.1.2 are deliberately not here.</summary>
+        public static IReadOnlyCollection<string> ModelLevel => ModelLevelSet;
+        private static readonly HashSet<string> ModelLevelSet = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "C1.3.1", "C1.4.1", "C1.5.2", "C1.6.1", "C2.1.1", "C3.1.1", "C4.1.3",
+        };
+
+        /// <summary>The check may offer the button with no element id (a model-level create-type check).</summary>
+        public static bool AllowsNoElementIds(string specCheckId) => ModelLevelSet.Contains((specCheckId ?? "").Trim());
+
         /// <summary>The whole rule, on plain values (the table test drives this).</summary>
         public static bool Eligible(string specCheckId, string revitCategory, bool needsPerson, bool hasFix, bool isPick, int elementIdCount) =>
-            !needsPerson && !hasFix && !isPick && elementIdCount >= 1
+            !needsPerson && !hasFix && !isPick && (elementIdCount >= 1 || AllowsNoElementIds(specCheckId))
             && IsListed(specCheckId) && IsAiClass(specCheckId) && !IsWallMaterial(specCheckId, revitCategory);
 
         public static string Label(string lang = null) =>

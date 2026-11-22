@@ -82,12 +82,12 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void Generic_variant_for_an_id_with_no_family_yet_still_passes_the_gate()
         {
-            Assert.False(JkrCopilotPrompt.HasVariant("C1.3.1"));   // create-type: AI-498/499
+            Assert.False(JkrCopilotPrompt.HasVariant("C5.1.1"));   // links: AI-499
             foreach (var bm in new[] { true, false })
             {
-                var p = Assert.Single(JkrCopilotPrompt.Build(Facts("C1.3.1", 2), bm));
+                var p = Assert.Single(JkrCopilotPrompt.Build(Facts("C5.1.1", 2), bm));
                 Assert.False(ReadIntent(p));
-                Assert.Matches(MutateHint, JkrCopilotPrompt.VariantFor("C1.3.1").Task(bm));
+                Assert.Matches(MutateHint, JkrCopilotPrompt.VariantFor("C5.1.1").Task(bm));
             }
         }
 
@@ -217,6 +217,106 @@ namespace RevitWebAppSync.Tests
             var p = Assert.Single(JkrCopilotPrompt.Build(f, false));
             Assert.Contains("ZZ.9 — Extra row", p);
             Assert.DoesNotContain("Complies when", p);
+        }
+
+        // ── AI-498: create-type families ──
+
+        private static readonly string[] CreateTypes = { "C1.3.1", "C1.4.1", "C1.5.2", "C1.6.1", "C2.1.1", "C3.1.1", "C4.1.3" };
+        public static IEnumerable<object[]> CreateTypeIds() => CreateTypes.Select(i => new object[] { i });
+
+        private static CopilotPromptFacts NoIds(string check) => new CopilotPromptFacts
+        {
+            CheckId = check, Category = "Views", Required = "Set lengkap", Actual = "Tiada section", ElementIds = new List<long>(),
+        };
+
+        [Theory]
+        [MemberData(nameof(CreateTypeIds))]
+        public void Create_type_prompt_works_with_zero_ids_and_passes_the_gate_in_both_languages(string id)
+        {
+            Assert.True(JkrCopilotPrompt.IsCreateType(id));
+            Assert.True(JkrCopilotPrompt.HasVariant(id));
+            foreach (var bm in new[] { true, false })
+            {
+                var task = JkrCopilotPrompt.VariantFor(id).Task(bm);
+                Assert.Matches(MutateHint, task);
+                Assert.DoesNotMatch(SimpleQuery, task);
+                var p = Assert.Single(JkrCopilotPrompt.Build(NoIds(id), bm));
+                Assert.StartsWith(task, p);
+                Assert.Contains(id, p);
+                Assert.False(ReadIntent(p), p);
+                Assert.DoesNotContain("Elements (", p);
+                Assert.DoesNotContain("Elemen (", p);
+                Assert.DoesNotMatch(new Regex(@"\b(the selection|current selection|this view|active view|current view)\b", RegexOptions.IgnoreCase), p);
+                Assert.DoesNotMatch(new Regex(@"\b(pilihan semasa|paparan ini|paparan aktif|paparan semasa)\b", RegexOptions.IgnoreCase), p);
+            }
+        }
+
+        [Theory]
+        [MemberData(nameof(CreateTypeIds))]
+        public void Create_type_prompt_is_create_only_proposes_names_and_scope_previews_and_stops_on_failure(string id)
+        {
+            var en = Assert.Single(JkrCopilotPrompt.Build(NoIds(id), false));
+            Assert.Contains("create new items only", en);
+            Assert.Contains("Do not modify or delete any existing", en);
+            Assert.Contains("propose them first", en);
+            Assert.Contains("I will confirm or correct them", en);
+            Assert.Contains("preview that lists every item to be created", en);
+            Assert.Contains("wait for my confirmation before you create anything", en);
+            Assert.Contains("If a step fails or is not supported, stop and tell me", en);
+            Assert.Contains("do not leave behind any item I did not confirm", en);   // AI-461
+            Assert.Contains("Do not decide pass or fail", en);
+            var bm = Assert.Single(JkrCopilotPrompt.Build(NoIds(id), true));
+            Assert.Contains("buat item baharu sahaja", bm);
+            Assert.Contains("Jangan ubah atau padam sebarang", bm);
+            Assert.Contains("cadangkan dahulu", bm);
+            Assert.Contains("pratonton yang menyenaraikan setiap item yang akan dibuat", bm);
+            Assert.Contains("tunggu pengesahan saya", bm);
+            Assert.Contains("berhenti dan beritahu saya", bm);
+            Assert.Contains("Jangan putuskan comply atau tidak comply", bm);
+            Assert.DoesNotContain("Do not delete", bm);
+        }
+
+        [Fact]
+        public void Create_type_tools_are_named_where_a_tool_exists()
+        {
+            foreach (var id in new[] { "C1.3.1", "C1.4.1", "C1.5.2" })
+                Assert.Contains("create_views_for_levels", JkrCopilotPrompt.VariantFor(id).Task(false));
+            foreach (var id in new[] { "C1.6.1", "C3.1.1" })
+                Assert.Contains("create_schedule", JkrCopilotPrompt.VariantFor(id).Task(false));
+            Assert.Contains("place_view_on_sheet", JkrCopilotPrompt.VariantFor("C4.1.3").Task(false));
+            // legend: no known tool; the prompt must not invent one and must say what to do if none works
+            Assert.Contains("If no tool can create a legend", JkrCopilotPrompt.VariantFor("C2.1.1").Task(false));
+        }
+
+        [Fact]
+        public void Empty_sheet_adds_views_only_and_never_creates_or_deletes_sheets()
+        {
+            var en = Assert.Single(JkrCopilotPrompt.Build(NoIds("C4.1.3"), false));
+            Assert.Contains("do not create new sheets and do not delete sheets", en);
+        }
+
+        [Fact]
+        public void Create_type_prompt_with_ids_lists_them_as_existing_items_and_does_not_widen_scope()
+        {
+            var p = Assert.Single(JkrCopilotPrompt.Build(Facts("C4.1.3", 2, "Sheets"), false));
+            Assert.Contains("Existing items this row concerns (2, by Revit id):", p);
+            Assert.Contains("- 1001 — Doors · T1001", p);
+            Assert.Contains("create new items only", p);
+            Assert.False(ReadIntent(p));
+        }
+
+        [Fact]
+        public void Other_families_still_give_no_prompt_without_ids()
+        {
+            foreach (var id in new[] { "Da.1", "C5.1.1", "C1.6.3", "C1.1.1", "C1.1.2", "C5.1.2" })
+                Assert.Empty(JkrCopilotPrompt.Build(NoIds(id), false));
+        }
+
+        [Fact]
+        public void Links_are_not_a_create_type_family_here_AI499()
+        {
+            Assert.False(JkrCopilotPrompt.IsCreateType("C5.1.1"));
+            Assert.False(JkrCopilotPrompt.HasVariant("C5.1.1"));
         }
     }
 }
