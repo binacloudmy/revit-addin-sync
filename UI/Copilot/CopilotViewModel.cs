@@ -57,6 +57,7 @@ namespace RevitWebAppSync.UI.Copilot
             CancelRunCommand = new RelayCommand(_ => CancelRun());
             ClearChatCommand = new RelayCommand(_ =>
             {
+                RevitWebAppSync.Services.ForcedConfirm.EndTurn();
                 Thread.Clear();
                 _currentSession = null;
                 (Router as RevitChatRouter)?.ResetSession();
@@ -649,6 +650,7 @@ namespace RevitWebAppSync.UI.Copilot
         public void CancelSend()
         {
             _stopRequested = true;
+            RevitWebAppSync.Services.ForcedConfirm.EndTurn();
             try { (Router as RevitChatRouter)?.CancelStream(); } catch { /* already done */ }
         }
         public RelayCommand ChatRunCommand { get; }
@@ -833,6 +835,7 @@ namespace RevitWebAppSync.UI.Copilot
             SlashTool slashChip = null, Dictionary<string, object> commandArgs = null)
         {
             text = (text ?? "").Trim();
+            RevitWebAppSync.Services.ForcedConfirm.BeginTurn();   // AI-501: armed -> this turn, else reset
             // A slash command may carry no typed args (a bare "/level-builder"),
             // so an empty text is valid when a command chip is attached.
             if (text.Length == 0 && slashChip == null) return;
@@ -1315,7 +1318,7 @@ namespace RevitWebAppSync.UI.Copilot
             if (rr != null && rr.Failed)
             {
                 var card = CardForFailure(rr.Reply, new PromptPayload { Text = routeText });
-                if (card != null) { ReplaceLastThinking(card); return; }
+                if (card != null) { RevitWebAppSync.Services.ForcedConfirm.EndTurn(); ReplaceLastThinking(card); return; }
             }
 
             RenderRouteResult(rr, routeText, displayText, fallbackToolId, historyFiles);
@@ -1466,6 +1469,11 @@ namespace RevitWebAppSync.UI.Copilot
         /// a clarify question, or the final reply).</summary>
         private void RenderRouteResult(RouteResult rr, string routeText, string displayText, string fallbackToolId, List<HistoryFile> historyFiles)
         {
+            // AI-501 forced-confirm turn: stays active while parked on a card
+            // (Ya/Tidak resumes the same turn); any other result ends it.
+            bool forcedConfirm = RevitWebAppSync.Services.ForcedConfirm.IsActive;
+            if (rr == null || !rr.NeedsActionConfirmation)
+                RevitWebAppSync.Services.ForcedConfirm.EndTurn();
             // HITL clarify pause: the agent needs an answer before acting. Render
             // the question as a Clarify card; the user's NEXT message is routed
             // back into the paused run by the router (resume-input), so no
@@ -1528,7 +1536,8 @@ namespace RevitWebAppSync.UI.Copilot
             // no partial auto per the spec.
             if (rr != null && rr.NeedsActionConfirmation)
             {
-                bool auto = CopilotPrefs.Load().AutoApproveWrites && rr.AutoApprovable;
+                bool auto = RevitWebAppSync.Services.ForcedConfirm.ShouldAutoApprove(
+                    CopilotPrefs.Load().AutoApproveWrites, rr.AutoApprovable, forcedConfirm);
                 var confirmMsg = new ChatMessage
                 {
                     Role = "ai", Kind = CpMsgKind.ConfirmActions,
@@ -1613,7 +1622,7 @@ namespace RevitWebAppSync.UI.Copilot
             if (rr != null && !string.IsNullOrWhiteSpace(rr.Code))
             {
                 bool autoMode = CopilotPrefs.Load().AutoApproveWrites;
-                bool showCard = !autoMode || rr.CodeRequiresConfirmation;
+                bool showCard = RevitWebAppSync.Services.ForcedConfirm.ShouldShowCodeCard(autoMode, rr.CodeRequiresConfirmation, forcedConfirm);
                 int lines = rr.Code.Split('\n').Length;
                 var codeMsg = new ChatMessage
                 {
@@ -1888,6 +1897,7 @@ namespace RevitWebAppSync.UI.Copilot
             _ = RefreshUsageAsync();
             if (rr == null)
             {
+                RevitWebAppSync.Services.ForcedConfirm.EndTurn();
                 // Two very different situations used to collapse into the same
                 // silent "Tiada tindakan tertunda." line (2026-08-18 UAT: Ya
                 // clicked, nothing executed, no evidence). Separate them:
