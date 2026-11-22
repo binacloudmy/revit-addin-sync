@@ -84,6 +84,18 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     "which categories have no schedule, and the name and fields of each schedule",
                     "satu schedule baharu bagi setiap kategori yang tiada sahaja",
                     "one new schedule for each category that has none, and nothing else"),
+                // AI-499 (C5.1.1 only; C5.1.2 waits for AI-487 and has no entry). link_file(path) links ONE file, absolute
+                // path, positioning origin; batch_link_models(folder) matches only AR/ST/ACMV name tokens, so ME/EL files
+                // would be missed: this prompt uses link_file per file. Neither tool has a dry_run, so the preview is the
+                // plan in words. Checked against bina-ai ai-423-test tools.py on 2026-11-22.
+                ["C5.1.1"] = new CreateTypeSpec(
+                    new CopilotPromptVariant(
+                        "Buat link model disiplin (ST, ME, EL) yang tiada dalam model. Baca Sebenar di bawah dan nyatakan disiplin yang tiada dan yang sudah dipaut tetapi belum Loaded. Bagi setiap disiplin yang tiada, panggil get_user_input untuk meminta laluan fail (satu medan bagi setiap disiplin) supaya saya pilih failnya; jangan tanya dalam teks biasa, dan jangan teka atau cipta laluan. Selepas saya jawab, guna link_file dengan laluan penuh fail itu, satu fail bagi setiap link. link_file sentiasa mencipta link baharu dan tiada tool untuk memuatkan semula link: jangan panggil link_file bagi disiplin yang sudah dipaut tetapi belum Loaded; beritahu saya supaya memuatkannya dalam Manage Links. Tiada pratonton dry-run bagi link_file: tunjukkan pelan dalam kata-kata dahulu. Jika satu link gagal (fail atau versi salah), berhenti dan beritahu saya puncanya; jangan cuba laluan atau tool lain.",
+                        "Create the discipline model links (ST, ME, EL) that are missing from the model. Read Actual below and name the disciplines that are missing and those that are linked but not Loaded. For each missing discipline, call get_user_input to ask me for the file path (one field per discipline) so I pick the file; do not ask in plain text, and never guess or invent a path. After I answer, use link_file with the full path of that file, one file per link. link_file always creates a new link and no tool reloads a link: do not call link_file for a discipline that is already linked but not Loaded; tell me to load it in Manage Links. link_file has no dry-run preview: show the plan in words first. If a link fails (wrong file or version), stop and tell me the reason; do not try other paths or other tools."),
+                    "disiplin yang tiada (bukan yang sudah dipaut tetapi belum Loaded) dan fail yang saya pilih bagi setiap satu",
+                    "which disciplines are missing (not the ones already linked but not Loaded), and the file I pick for each",
+                    "link baharu bagi disiplin yang tiada sahaja; jangan alih, ubah, muat semula atau padam link yang sedia ada",
+                    "new links for the missing disciplines only; do not move, change, reload or delete any existing link"),
                 ["C4.1.3"] = new CreateTypeSpec(
                     new CopilotPromptVariant(
                         "Isi setiap sheet kosong dengan meletakkan sekurang-kurangnya satu view padanya. Guna place_view_on_sheet; buat view baharu hanya jika tiada view sesuai.",
@@ -95,6 +107,10 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             };
 
         /// <summary>The check is a create-type family of AI-498 (its prompt states what is missing and what to create).</summary>
+        /// <summary>AI-499: the prompt makes Copilot ask the person a question (a file path) before it writes. A turn of this
+        /// check that ends with no card has most likely asked in plain text, so the launcher says "waiting", not "no change".</summary>
+        public static bool AsksPerson(string checkId) => string.Equals((checkId ?? "").Trim(), "C5.1.1", StringComparison.Ordinal);
+
         public static bool IsCreateType(string checkId) => CreateTypeVariants.ContainsKey((checkId ?? "").Trim());
 
         private static string CreateTitle(CopilotPromptFacts f, bool bm)

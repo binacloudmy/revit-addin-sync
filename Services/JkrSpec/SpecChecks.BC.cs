@@ -45,8 +45,6 @@ namespace RevitWebAppSync.Services.JkrSpec
 
         static partial void BackendBC(Dictionary<string, string> reasons)
         {
-            reasons["C1.1.1"] = "The JKR AR Revit template's view list is held by the backend, so the add-in cannot tell a deleted template view; it lists the project's views by kind for a person to compare.";
-            reasons["C1.1.2"] = "The original names of the JKR AR Revit template's views are held by the backend, so the add-in cannot tell a renamed template view; it lists the project's view names.";
             reasons["C5.1.2"] = "The project's BPEP (its list of model files) is attached on the backend; the add-in has no BPEP to compare the link file names with.";
         }
     }
@@ -470,43 +468,135 @@ namespace RevitWebAppSync.Services.JkrSpec
             }));
         }
 
+        /// <summary>The project's view templates set against the JKR AR template's judged ones (SpecTemplateViews.Judged).</summary>
+        internal sealed class TemplateMatch
+        {
+            public List<string> Intact = new List<string>();
+            /// <summary>Expected JKR name → the project name that equals it only without case / spaces / punctuation.</summary>
+            public List<KeyValuePair<string, string>> Renamed = new List<KeyValuePair<string, string>>();
+            public List<string> Missing = new List<string>();
+            /// <summary>Project templates that match no name of the JKR file (any of its 80): a person may know one is a rename.</summary>
+            public List<string> Extra = new List<string>();
+            public int Expected;
+        }
+
+        internal static TemplateMatch MatchTemplates(SpecModel m, IReadOnlyCollection<string> judged = null, IReadOnlyCollection<string> allJkrFileTemplates = null)
+        {
+            judged = judged ?? SpecTemplateViews.Judged;
+            allJkrFileTemplates = allJkrFileTemplates ?? SpecTemplateViews.ViewTemplates.Select(r => r.Name).ToList();
+            var project = m.ViewTemplates.Where(t => !string.IsNullOrWhiteSpace(t)).Select(t => t.Trim()).Distinct(StringComparer.Ordinal).ToList();
+            var used = new HashSet<string>(StringComparer.Ordinal);
+            var r = new TemplateMatch { Expected = judged.Count };
+            foreach (var e in judged)
+                if (project.Contains(e, StringComparer.Ordinal)) { r.Intact.Add(e); used.Add(e); }
+            foreach (var e in judged.Where(e => !r.Intact.Contains(e)))
+            {
+                var key = SpecTemplateViews.LooseKey(e);
+                var hit = project.FirstOrDefault(p => !used.Contains(p) && SpecTemplateViews.LooseKey(p) == key
+                                                      && !allJkrFileTemplates.Contains(p, StringComparer.Ordinal));
+                if (hit != null) { used.Add(hit); r.Renamed.Add(new KeyValuePair<string, string>(e, hit)); }
+                else r.Missing.Add(e);
+            }
+            var known = new HashSet<string>(allJkrFileTemplates, StringComparer.Ordinal);
+            r.Extra = project.Where(p => !used.Contains(p) && !known.Contains(p)).ToList();
+            return r;
+        }
+
+        /// <summary>Unjudged when the view templates were not read (a read error, or none came back), else null.</summary>
+        private static SpecResult TemplatesUnread(SpecModel m, string id)
+        {
+            var err = ReadError(m, "Views", "View");
+            if (err != null) return SpecChecks.Unjudged(id, "View tidak dapat dibaca: " + err).En("Views could not be read: " + err);
+            if (!m.ViewTemplates.Any(t => !string.IsNullOrWhiteSpace(t)))
+                return SpecChecks.Unjudged(id, "Tiada view template dibaca: sama ada tiada dalam model ini atau tidak dapat dibaca — tidak dapat dibandingkan dengan template JKR AR")
+                    .En("No view templates read; either none in this model or not readable — cannot compare with the JKR AR template");
+            return null;
+        }
+
+        private static string Names(IEnumerable<string> l, int n = 6)
+        {
+            var x = l.ToList();
+            return string.Join(", ", x.Take(n)) + (x.Count > n ? ", … (+" + (x.Count - n) + ")" : "");
+        }
+
         /// <summary>
-        /// C1.1.1 — every view of the JKR AR template exists in the project (compared with the
-        /// template, not with the project). The template's view list is backend data, so the
-        /// add-in cannot judge it: unjudged, with the project's views by kind for a person to compare.
+        /// C1.1.1 — every JKR-made view template of the official JKR AR template (jkrAR27 TEMFLEX, 67 "jkrAR_…" of its
+        /// 80 view templates; SpecTemplateViews) exists in the project. A name that differs only in case, spaces or
+        /// punctuation counts as present (that rename is C1.1.2's warning). Anything else is missing: one fail each, with
+        /// the project's unmatched view templates listed as possible renames for a person. View templates not read: unjudged.
         /// </summary>
         internal static IEnumerable<SpecResult> C1_1_1(SpecModel m)
         {
             const string id = "C1.1.1";
-            var unread = ViewsUnread(m, id);
+            var unread = TemplatesUnread(m, id);
             if (unread != null) { yield return unread; yield break; }
-            yield return SpecChecks.Unjudged(id,
-                    "Senarai view template JKR AR tiada dalam add-in (disimpan di backend) — tidak dapat disemak view yang dipadam; "
-                    + m.Views.Count + " view dalam projek: " + ViewsByKind(m.Views, false))
-                .En("The JKR AR template's view list is not in the add-in (it is held on the backend) — deleted views cannot be checked; "
-                    + m.Views.Count + " views in the project: " + ViewsByKind(m.Views, true));
+            var t = MatchTemplates(m);
+            if (t.Missing.Count == 0)
+            {
+                var skipped = SpecTemplateViews.NotJudged.Count;
+                yield return SpecChecks.Pass(id, "Semua " + t.Expected + " view template JKR AR wujud dalam projek"
+                        + (t.Renamed.Count > 0 ? " (" + t.Renamed.Count + " ditukar nama sedikit — lihat C1.1.2)" : "")
+                        + "; " + skipped + " nama default Revit dalam fail template JKR tidak disemak", t.Expected)
+                    .En("All " + t.Expected + " JKR AR view templates exist in the project"
+                        + (t.Renamed.Count > 0 ? " (" + t.Renamed.Count + " renamed slightly — see C1.1.2)" : "")
+                        + "; " + skipped + " Revit default names in the JKR template file are not checked");
+                yield break;
+            }
+            var list = Names(t.Missing, 12);
+            if (t.Extra.Count == 0)
+            {
+                // Nothing else in the project could be a renamed one: clearly just absent.
+                yield return SpecChecks.Fail(id,
+                        t.Missing.Count + " view template JKR AR tiada daripada " + t.Expected + ": " + list,
+                        actual: t.Missing.Count + " tiada", required: string.Join(" | ", t.Missing), key: "tv:missing")
+                    .EnAct(t.Missing.Count + " missing")
+                    .En(t.Missing.Count + " of " + t.Expected + " JKR AR view templates missing: " + list);
+                yield break;
+            }
+            // The project holds view templates that match no JKR name: some may be renamed ones. Nothing in a JKR
+            // document says a rename is wrong (D3), so a person decides (AI-504: undocumented judgement is not failed).
+            var r = SpecChecks.Context(id,
+                    t.Missing.Count + " view template JKR AR tiada daripada " + t.Expected + ": " + list
+                    + "; " + t.Extra.Count + " view template lain dalam projek (mungkin ditukar nama, orang semak): " + Names(t.Extra),
+                    key: "tv:missing", elementName: t.Missing.Count + " view template");
+            r.Actual = t.Missing.Count + " tiada"; r.Required = string.Join(" | ", t.Missing);
+            r.ActualEn = t.Missing.Count + " missing";
+            r.NoteEn = t.Missing.Count + " of " + t.Expected + " JKR AR view templates missing: " + list
+                       + "; " + t.Extra.Count + " other view templates in the project (possibly renamed, a person checks): " + Names(t.Extra);
+            yield return r;
         }
 
         /// <summary>
-        /// C1.1.2 — every view of the JKR AR template keeps its original name. The original
-        /// names are backend data (and JKR has yet to say whether a renamed view that exists is
-        /// accepted): unjudged, with the project's view names and view templates listed.
+        /// C1.1.2 — a JKR AR view template that exists under a changed name. Researcher D3 (21 Nov): no JKR document says a
+        /// rename is acceptable or wrong, so it is a WARNING (status "warning": scored as a pass, still an issue), one per
+        /// template, "tidak disahkan oleh dokumen JKR". Only a rename that differs in case, spaces or punctuation is seen;
+        /// any other new name looks like a missing template (C1.1.1 lists it, with the unmatched project templates).
         /// </summary>
         internal static IEnumerable<SpecResult> C1_1_2(SpecModel m)
         {
-            var views = m.Views.Select(v => v.Name).Where(n => !string.IsNullOrWhiteSpace(n)).Select(n => n.Trim()).ToList();
-            var names = m.ViewTemplates.Where(t => !string.IsNullOrWhiteSpace(t)).Select(t => t.Trim()).ToList();
-            Func<List<string>, string, string> list = (l, none) =>
-                l.Count == 0 ? none : string.Join(", ", l.Take(12)) + (l.Count > 12 ? " …" : "");
-            yield return SpecChecks.Unjudged("C1.1.2",
-                    "Nama asal view dalam template JKR AR disimpan di backend — tidak dapat disemak sama ada nama ditukar"
-                    + " (menunggu pengesahan JKR sama ada nama ditukar diterima asalkan view wujud); "
-                    + views.Count + " view dalam projek: " + list(views, "tiada")
-                    + "; " + names.Count + " view template: " + list(names, "tiada"))
-                .En("The original names of the JKR AR template's views are held on the backend — a renamed view cannot be checked"
-                    + " (awaiting JKR's confirmation whether a renamed view is accepted as long as it exists); "
-                    + views.Count + " views in the project: " + list(views, "none")
-                    + "; " + names.Count + " view templates: " + list(names, "none"));
+            const string id = "C1.1.2";
+            var unread = TemplatesUnread(m, id);
+            if (unread != null) { yield return unread; yield break; }
+            var t = MatchTemplates(m);
+            if (t.Renamed.Count == 0)
+            {
+                yield return SpecChecks.Pass(id, t.Intact.Count + " view template JKR AR kekal nama asal"
+                        + (t.Missing.Count > 0 ? "; " + t.Missing.Count + " tiada (lihat C1.1.1)" : ""), Math.Max(1, t.Intact.Count))
+                    .En(t.Intact.Count + " JKR AR view templates keep their original name"
+                        + (t.Missing.Count > 0 ? "; " + t.Missing.Count + " missing (see C1.1.1)" : ""));
+                yield break;
+            }
+            var pairs = string.Join("; ", t.Renamed.Take(12).Select(kv => "\"" + kv.Key + "\" → \"" + kv.Value + "\""))
+                        + (t.Renamed.Count > 12 ? "; … (+" + (t.Renamed.Count - 12) + ")" : "");
+            yield return new SpecResult
+            {
+                CheckId = id, Status = "warning", Coverage = SpecCoverage.Full, Rule = id, ElementCount = 1,
+                ElementName = t.Renamed.Count + " view template", Actual = t.Renamed.Count + " ditukar nama",
+                Required = string.Join(" | ", t.Renamed.Select(kv => kv.Key)), ActualEn = t.Renamed.Count + " renamed",
+                Note = "AMARAN: " + t.Renamed.Count + " view template JKR AR ditukar nama: " + pairs + " — tidak disahkan oleh dokumen JKR",
+                NoteEn = "WARNING: " + t.Renamed.Count + " JKR AR view templates renamed: " + pairs + " — not confirmed by a JKR document",
+                IssueId = SpecChecks.StableId(id, "rn"),
+            };
         }
 
         /// <summary>

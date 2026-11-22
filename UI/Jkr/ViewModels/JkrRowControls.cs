@@ -44,6 +44,9 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public static bool HasFixControl(bool autoFixable, bool aiFixCandidate, bool isPick, bool copilotButton = false) =>
             autoFixable || aiFixCandidate || isPick || copilotButton;
 
+        // AI-499: C5.1.1's Copilot button needs the person to have the link files. It is not counted as a fix control for
+        // Mark manual (IssueVm passes copilotButton false for it), so a person with no files can defer the row.
+
         /// <summary>Mark manual: the tier allows it (<see cref="JkrTierMap.CanMarkManual"/>), or the row has no fix control at all.</summary>
         public static bool CanMarkManual(bool tierAllows, bool hasFixControl) =>
             tierAllows || !hasFixControl;

@@ -104,6 +104,48 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
+        public async Task C511_with_no_element_id_goes_Fixed_through_the_full_scan_AI499()
+        {
+            var f = new Fake { ScanResult = () => true }; f.Issue.RevitElementId = 0;
+            var req = new CopilotFixRequest("r1", "C5.1.1", new long[0], "Links");
+            Assert.Equal(CopilotRecheckResult.Fixed, await new JkrCopilotRecheck<Row>(f.Host()).RunAsync(req));
+            Assert.Equal(1, f.Scans);
+            Assert.Equal(0, f.Rechecks);
+            Assert.Equal("Copilot", f.Issue.FixedVia);
+        }
+
+        [Fact]
+        public async Task C511_turn_that_ends_with_no_card_is_waiting_for_the_person_not_no_change_AI499()
+        {
+            var f = new Fake { ScanResult = () => true }; f.Issue.RevitElementId = 0;
+            var s = new Session { End = CopilotCardState.None };
+            var toasts = new List<string>();
+            var l = new JkrCopilotFixLauncher(s, _ => new[] { "A" }, toasts.Add, () => false, _ => Task.CompletedTask,
+                indexingTimeout: TimeSpan.FromSeconds(1), turnTimeout: TimeSpan.FromSeconds(5), settle: TimeSpan.FromMilliseconds(500),
+                afterWrite: new JkrCopilotRecheck<Row>(f.Host()).RunAsync);
+            var req = new CopilotFixRequest("r1", "C5.1.1", new long[0], "Links");
+            Assert.Equal(CopilotLaunchOutcome.WaitingForAnswer, await l.LaunchAsync(req));
+            Assert.Equal(new[] { "Copilot is waiting for your answer in the chat." }, toasts);
+            Assert.Equal(0, f.Scans);
+            Assert.False(f.Issue.Fixed);
+            // another check with no card is still "no change"
+            toasts.Clear();
+            Assert.Equal(CopilotLaunchOutcome.NoWrite, await l.LaunchAsync(Req));
+            Assert.Contains("ended without a change", toasts[0]);
+        }
+
+        [Fact]
+        public async Task C511_with_a_question_card_then_Ya_rechecks_by_scan_AI499()
+        {
+            var f = new Fake { ScanResult = () => true }; f.Issue.RevitElementId = 0;
+            var s = new Session();   // the turn held a card and ended Approved
+            var req = new CopilotFixRequest("r1", "C5.1.1", new long[0], "Links");
+            Assert.Equal(CopilotLaunchOutcome.Sent, await Launcher(s, f, new[] { "A" }).LaunchAsync(req));
+            Assert.Equal(1, f.Scans);
+            Assert.True(f.Issue.Fixed);
+        }
+
+        [Fact]
         public async Task No_element_id_rule_still_fails_in_the_scan_row_stays_Open()
         {
             var f = new Fake { ScanResult = () => false }; f.Issue.RevitElementId = 0;
