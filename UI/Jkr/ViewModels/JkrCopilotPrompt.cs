@@ -83,7 +83,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
     }
 
     /// <summary>
-    /// AI-493 / AI-490 rework: the prompt "Fix via Copilot" sends to the protocol-3 engine (11 tools: set_parameters, load_link, the reads,
+    /// AI-493 / AI-490 rework: the prompt "Fix via Copilot" sends to the protocol-3 engine (12 tools: set_parameters, load_link, bind_parameters, the reads,
     /// lookup, ask_user, report, run_revit_code). That engine applies writes at once and its rule is "never ask permission"
     /// (ask_user is for missing input only, and the pane drops approval-worded options), so a prompt cannot make it ask Yes/No.
     /// The confirm therefore happens BEFORE this prompt is sent (<see cref="JkrCopilotConfirm"/>, shown by the launcher), and
@@ -125,7 +125,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     "Set the Material parameter", CopilotWriteLevel.Either, "Material"),
                 ["Db.1"] = new CopilotPromptVariant(
                     "Change the elements below by filling the mandatory parameters that are empty (Buku Parameter at the project LOI). Set only parameters whose value you can derive from the model.",
-                    "Find the empty mandatory parameters with check or inspect, then use set_parameters for each parameter whose value you can take from the model or from lookup (type_param true for type parameters). Leave the others empty and say which; never guess a value.",
+                    "Find the empty mandatory parameters with check or inspect, then use set_parameters for each parameter whose value you can take from the model or from lookup (type_param true for type parameters). Leave the others empty and say which; never guess a value. A parameter the element does not have at all (missing, not just empty) is not bound to its category yet: first call bind_parameters with the exact names of those parameters (it binds only definitions that already exist in the loaded JKR shared parameter file, to the categories the JKR spec lists, and never creates one; it refuses when that file is not loaded, and then you say so and stop), then fill them with set_parameters. One Undo restores the binding.",
                     "Fill empty mandatory parameters", CopilotWriteLevel.Either),
                 ["Dc.1"] = new CopilotPromptVariant(
                     "Rename the type of each element below by changing the number in its name so it equals the actual geometry parameter value (number in mm, width x height order). Change the type name only; never edit dimensions or geometry parameters.",
