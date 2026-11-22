@@ -15,7 +15,7 @@ namespace RevitWebAppSync.UI.Jkr
     /// <c>OpenCopilotCommand</c> does, and drives the pane's <see cref="CopilotViewModel"/> through its public members.
     /// Revit and WPF; not unit-tested (the sequence is, with a fake, in JkrCopilotLauncherTests).
     /// </summary>
-    public sealed class JkrCopilotSession : ICopilotSession
+    public sealed class JkrCopilotSession : ICopilotSession, ICopilotWriteFailure
     {
         private static CopilotViewModel Vm => App.CopilotPaneHost?.Panel?.ViewModel;
 
@@ -84,9 +84,40 @@ namespace RevitWebAppSync.UI.Jkr
                     {
                         if (ev.AnyCommitted) cards.Add(new CopilotCardInfo(true, true));
                         else if (ev.Receipt.Declined > 0 && ev.Receipt.Done == 0) cards.Add(new CopilotCardInfo(true, false));
+                        else if (ev.Receipt.FailedCount > 0) cards.Add(new CopilotCardInfo(true, false, failed: true));   // AI-dc1: tried, Revit refused
                     }
                 }
                 return CopilotCards.Read(cards);
+            }
+        }
+
+        /// <summary>AI-dc1: Revit's reason for the first failed write since this part was sent.</summary>
+        public string WriteFailure
+        {
+            get
+            {
+                var vm = Vm;
+                if (vm == null) return null;
+                for (var i = Math.Min(_mark, vm.Thread.Count); i < vm.Thread.Count; i++)
+                {
+                    var why = vm.Thread[i].Evidence?.FirstWriteFailure;
+                    if (why != null) return why;
+                }
+                return null;
+            }
+        }
+
+        /// <summary>AI-dc1: how many changes failed since this part was sent.</summary>
+        public int WriteFailedCount
+        {
+            get
+            {
+                var vm = Vm;
+                if (vm == null) return 0;
+                var n = 0;
+                for (var i = Math.Min(_mark, vm.Thread.Count); i < vm.Thread.Count; i++)
+                    n += vm.Thread[i].Evidence?.Receipt.FailedCount ?? 0;
+                return n;
             }
         }
 

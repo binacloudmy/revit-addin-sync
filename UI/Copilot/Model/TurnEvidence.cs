@@ -327,6 +327,21 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>Failed-before-commit attempts that a later done write of the same tool retried.</summary>
         public int RetriedAttempts { get { lock (_sync) { var n = 0; for (var i = 0; i < _writes.Count; i++) if (Retried(i)) n++; return n; } } }
 
+        /// <summary>AI-dc1: the real message of the first write that failed (Revit's reason, not the code), or null when no write failed.</summary>
+        public string? FirstWriteFailure
+        {
+            get
+            {
+                lock (_sync)
+                {
+                    foreach (var w in _writes)
+                        if (!w.Ok && w.StatusKind() != EnvelopeStatusKind.Rejected && !string.IsNullOrWhiteSpace(w.Error?.Message))
+                            return w.Error!.Message;
+                    return null;
+                }
+            }
+        }
+
         /// <summary>True when a write committed (an Undo may apply).</summary>
         public bool AnyCommitted { get { lock (_sync) return _writes.Any(IsCommitted); } }
 

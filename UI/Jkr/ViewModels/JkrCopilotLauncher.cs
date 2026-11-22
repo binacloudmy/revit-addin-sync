@@ -52,12 +52,25 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         Approved,
         /// <summary>Tidak.</summary>
         Declined,
+        /// <summary>AI-dc1: Copilot tried a write and Revit refused it (receipt shows failures, nothing committed). Not "no write": no question was asked.</summary>
+        WriteFailed,
+    }
+
+    /// <summary>AI-dc1: implemented by a session that can say why a write failed. Optional: a session without it reports "Revit refused it".</summary>
+    public interface ICopilotWriteFailure
+    {
+        /// <summary>Revit's own reason for the failed write of the current part, or null.</summary>
+        string WriteFailure { get; }
+        /// <summary>How many changes failed in the current part's receipt.</summary>
+        int WriteFailedCount { get; }
     }
 
     /// <summary>One card message on the Copilot thread (an ask card, the wide-write gate, or a committed write).</summary>
     public readonly struct CopilotCardInfo
     {
-        public CopilotCardInfo(bool resolved, bool? approved) { Resolved = resolved; Approved = approved; }
+        public CopilotCardInfo(bool resolved, bool? approved, bool failed = false) { Resolved = resolved; Approved = approved; Failed = failed; }
+        /// <summary>AI-dc1: a write was tried and failed (nothing committed).</summary>
+        public bool Failed { get; }
         public bool Resolved { get; }
         /// <summary>Ya = true, Tidak = false; null while open.</summary>
         public bool? Approved { get; }
@@ -74,6 +87,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             foreach (var c in cardsSinceSend)
             {
                 if (!c.Resolved) return CopilotCardState.Open;
+                if (c.Failed) { state = CopilotCardState.WriteFailed; continue; }
                 state = c.Approved == false ? CopilotCardState.Declined : CopilotCardState.Approved;
             }
             return state;
@@ -102,6 +116,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         Declined,
         /// <summary>The turn ended with no write (no card); later parts were not sent.</summary>
         NoWrite,
+        /// <summary>AI-dc1: Copilot tried the write and Revit refused it; later parts were not sent and no re-check ran for this part.</summary>
+        WriteFailed,
         /// <summary>The person answered No in the confirm dialog: nothing was opened, cleared or sent.</summary>
         NotConfirmed,
         /// <summary>The pane was closed mid-sequence; later parts were not sent.</summary>
@@ -273,6 +289,11 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     _notify(Text.PartsNotNeeded(i + 1, parts.Count));
                     break;
                 }
+                if (end == CopilotCardState.WriteFailed)
+                {
+                    var f = _session as ICopilotWriteFailure;
+                    return await StopAsync(request, committed, Text.WriteFailed(i + 1, parts.Count, f?.WriteFailedCount ?? 0, f?.WriteFailure), CopilotLaunchOutcome.WriteFailed).ConfigureAwait(true);
+                }
                 if (end != CopilotCardState.Approved) return await StopAsync(request, committed, Text.NoWrite(i + 1, parts.Count), CopilotLaunchOutcome.NoWrite).ConfigureAwait(true);
                 committed = true;
             }
@@ -375,6 +396,13 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             public static string TurnTimeout(int sent, int total) => $"Copilot has not finished part {sent} of {total}.{NotSent(sent, total)}";
             public static string Declined(int sent, int total) => $"You answered No on part {sent}.{NotSent(sent, total)}";
             public static string NoWrite(int sent, int total) => $"Part {sent} ended without a change. Check the Copilot chat: it may have asked a question.{NotSent(sent, total)}";
+            /// <summary>The write was tried and Revit refused it (not a question, not "no change").</summary>
+            public static string WriteFailed(int sent, int total, int failed, string reason)
+            {
+                var n = failed > 0 ? $" ({failed} failed)" : "";
+                var why = string.IsNullOrWhiteSpace(reason) ? "" : ": " + reason.Trim();
+                return $"Copilot tried the change but Revit refused it{n}{why}{NotSent(sent, total)}";
+            }
             /// <param name="first">The part that ended with no write (1-based); it and the later ones were not needed.</param>
             public static string PartsNotNeeded(int first, int total) => $"{Cap(Parts(first, total))} not needed: an earlier part already changed the elements. Re-checking.";
             public static string PaneClosed(int sent, int total) => $"The Copilot pane was closed.{NotSent(sent, total)}";
