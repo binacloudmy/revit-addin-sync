@@ -29,13 +29,13 @@ namespace RevitWebAppSync.Tests
             Assert.True(ResultsAdapter.FromIssue(row).CopilotFixable);
         }
 
-        private static IssueVm Row(string check, string cat = "Doors", bool fix = false, bool pick = false, int ids = 2, bool human = false)
+        private static IssueVm Row(string check, string cat = "Doors", bool fix = false, bool pick = false, int ids = 2, bool human = false, string rename = "")
         {
             var i = new IssueVm
             {
                 Id = "r-" + check, CheckId = "SPEC-" + check, SpecCheckId = check, Title = check, RevitCategory = cat,
                 Verification = human ? IssueVerification.Human : IssueVerification.Ai,
-                RevitElementId = ids > 0 ? 100 : 0, AutoFixable = fix, FixAction = fix ? "rename_type" : "", FixValue = fix ? "x" : "",
+                RenameTo = rename, RevitElementId = ids > 0 ? 100 : 0, AutoFixable = fix, FixAction = fix ? "rename_type" : "", FixValue = fix ? "x" : "",
             };
             for (var k = 0; k < ids; k++) i.AddElements(new long[] { 100 + k }, "Doors · d" + k);
             if (pick) i.SetPick(new[] { "a", "b" }, "", "", true);
@@ -56,18 +56,18 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void A_Dd1_row_shows_the_button_when_the_launcher_is_ready_and_the_category_has_one_prefix_WP6()
+        public void A_Dd1_row_shows_the_button_only_with_a_derived_new_name_WP6()
         {
-            Assert.True(Row("Dd.1", "Windows").CopilotFixable);
-            Assert.False(Row("Dd.1", "Floors").CopilotFixable);          // LB and LA: the name is not derivable
-            Assert.False(Row("Dd.1", "Windows", human: true).CopilotFixable);
-            Assert.False(Row("Dd.1", "Windows", fix: true).CopilotFixable);
-            Assert.False(Row("Dd.1", "Windows", pick: true).CopilotFixable);
-            Assert.False(Row("Dd.1", "Windows", ids: 0).CopilotFixable);
-            var r = Row("Dd.1", "Windows").ToCopilotFixRequest();
+            Assert.True(Row("Dd.1", "Windows", rename: "Window 900").CopilotFixable);
+            Assert.False(Row("Dd.1", "Windows").CopilotFixable);          // no derived name: code evidence, a contradicting family, a clash
+            Assert.False(Row("Dd.1", "Windows", human: true, rename: "Window 900").CopilotFixable);
+            Assert.False(Row("Dd.1", "Windows", fix: true, rename: "Window 900").CopilotFixable);
+            Assert.False(Row("Dd.1", "Windows", pick: true, rename: "Window 900").CopilotFixable);
+            Assert.False(Row("Dd.1", "Windows", ids: 0, rename: "Window 900").CopilotFixable);
+            var r = Row("Dd.1", "Windows", rename: "Window 900").ToCopilotFixRequest();
             Assert.Equal("Dd.1", r.CheckId);
             JkrCopilotFix.Launcher = null;
-            Assert.False(Row("Dd.1", "Windows").CopilotFixable);
+            Assert.False(Row("Dd.1", "Windows", rename: "Window 900").CopilotFixable);
             JkrCopilotFix.Launcher = new NoopLauncher();
         }
 

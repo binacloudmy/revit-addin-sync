@@ -11,8 +11,8 @@ namespace RevitWebAppSync.Tests
     [Collection("CopilotLauncher")]
     public class JkrCopilotFixTests
     {
-        private static bool Ok(string id, string cat = "Doors", bool person = false, bool fix = false, bool pick = false, int ids = 2) =>
-            JkrCopilotFix.Eligible(id, cat, person, fix, pick, ids);
+        private static bool Ok(string id, string cat = "Doors", bool person = false, bool fix = false, bool pick = false, int ids = 2, string rename = "New 1") =>
+            JkrCopilotFix.Eligible(id, cat, person, fix, pick, ids, rename);
 
         public static IEnumerable<object[]> Allowed() => JkrCopilotFix.Allowed.Select(id => new object[] { id });
 
@@ -87,22 +87,20 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void Dd1_shows_the_button_only_when_the_new_name_is_derivable_WP6()
+        public void Dd1_shows_the_button_only_when_the_add_in_derived_a_new_name_WP6()
         {
-            // one JKR code prefix for the category the type sits in: derivable
-            foreach (var cat in new[] { "Doors", "Windows", "Walls", "Ceilings", "Roofs", "Stairs", "Railings", "Ramps", "Columns", "Structural Columns", "Planting", "Plumbing Fixtures" })
-                Assert.True(Ok("Dd.1", cat), cat);
-            // two or more prefixes, unlisted or no category: a person names the type
-            foreach (var cat in new[] { "Floors", "Curtain Panels", "Casework", "Furniture", "Generic Models", "", null })
-                Assert.False(Ok("Dd.1", cat), cat ?? "(null)");
+            Assert.True(Ok("Dd.1", "Windows", rename: "Window 900"));
+            // no derived name (a failing code, a family that contradicts, a clash, an unknown word): a person decides
+            Assert.False(Ok("Dd.1", "Windows", rename: ""));
+            Assert.False(Ok("Dd.1", "Windows", rename: null));
+            Assert.False(Ok("Dd.1", "Windows", rename: "  "));
             // the other gates still apply
             Assert.False(Ok("Dd.1", "Doors", person: true));
             Assert.False(Ok("Dd.1", "Doors", fix: true));
             Assert.False(Ok("Dd.1", "Doors", pick: true));
             Assert.False(Ok("Dd.1", "Doors", ids: 0));
-            // the category rule is Dd.1 only
-            Assert.True(Ok("Da.1", "Floors"));
-            Assert.True(Ok("Da.1", ""));
+            // the rename rule is Dd.1 only
+            Assert.True(Ok("Da.1", "Floors", rename: ""));
         }
 
         [Fact]

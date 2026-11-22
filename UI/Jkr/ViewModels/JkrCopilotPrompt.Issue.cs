@@ -19,7 +19,17 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 Actual = issue.Actual,
                 ElementIds = issue.ElementIds,
                 ElementLabels = issue.ElementLabels,
+                Renames = RenamesOf(issue),
             };
+        }
+
+        private static IReadOnlyDictionary<long, CopilotRename> RenamesOf(IssueVm issue)
+        {
+            var map = new Dictionary<long, CopilotRename>();
+            if (string.IsNullOrWhiteSpace(issue.RenameTo)) return map;
+            var r = new CopilotRename { Old = issue.RenameFrom, New = issue.RenameTo, Source = issue.RenameSource };
+            foreach (var id in issue.ElementIds ?? new List<long>()) if (id > 0) map[id] = r;
+            return map;
         }
 
         /// <summary>AI-509: the facts of a request: one row's, or the merge of every row of a check-wide request. Null rows (gone from the list) are skipped.</summary>

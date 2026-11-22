@@ -48,6 +48,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public string ElementName = "";
         /// <summary>Model: Revit element ids behind the result (first one is located).</summary>
         public List<long> ElementIds = new List<long>();
+        /// <summary>Model, Dd.1 (WP-6): the type's current name, the new name the add-in derived, and the evidence that the NAME is
+        /// the odd one out. Empty when no safe new name exists (a person decides).</summary>
+        public string RenameFrom = "", RenameTo = "", RenameSource = "";
     }
 
     /// <summary>What a mapped result can prove about its spec check.</summary>

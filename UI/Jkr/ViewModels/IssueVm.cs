@@ -210,6 +210,12 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public List<long> ElementIds { get; set; } = new List<long>();
         IReadOnlyList<long> IRowElementIds.ElementIds => ElementIds;
 
+        /// <summary>WP-6 (Dd.1): the type's current name, the new name the add-in derived (pure function, never the model) and the
+        /// evidence that the NAME is the odd one out. Empty = no safe new name: no Copilot button.</summary>
+        public string RenameFrom { get; set; } = "";
+        public string RenameTo { get; set; } = "";
+        public string RenameSource { get; set; } = "";
+
         /// <summary>AI-491: label per id in <see cref="ElementIds"/> ("Doors · PT1p_850x2100"); an id with no label is absent.</summary>
         public Dictionary<long, string> ElementLabels { get; set; } = new Dictionary<long, string>();
 
@@ -264,10 +270,10 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public bool IsNamePick => IsPick && string.IsNullOrEmpty(JkrManualFix.ParameterOf(RawRule));
 
         /// <summary>AI-492: the row offers "Fix via Copilot": its check is on the code-side list, no ready fix, no picker,
-        /// at least one element id (model-level create-type checks need none, AI-498), and never a person-decides row (<see cref="JkrCopilotFix.Eligible(string, string, bool, bool, bool, int)"/>).
+        /// at least one element id (model-level create-type checks need none, AI-498), and never a person-decides row (<see cref="JkrCopilotFix.Eligible(string, string, bool, bool, bool, int, string)"/>).
         /// Hidden while no Copilot launcher is set (no dead button). Not persisted: ids are not in the audit snapshot, so a restored row shows no button until a re-scan.</summary>
         public bool CopilotFixable => JkrCopilotFix.LauncherReady && JkrCopilotFix.Eligible(SpecCheckId, RevitCategory, NeedsPerson,
-            AutoFixable || !string.IsNullOrEmpty(FixAction), IsPick || ValidOptions.Count > 0, ElementIds?.Count ?? 0);
+            AutoFixable || !string.IsNullOrEmpty(FixAction), IsPick || ValidOptions.Count > 0, ElementIds?.Count ?? 0, RenameTo);
 
         /// <summary>AI-492: what the Copilot launcher gets for this row.</summary>
         public CopilotFixRequest ToCopilotFixRequest() => new CopilotFixRequest(Id, SpecCheckId, ElementIds, Title);

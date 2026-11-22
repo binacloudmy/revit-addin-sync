@@ -153,7 +153,8 @@ namespace RevitWebAppSync.Tests
         private static CopilotPromptFacts RowFacts(string check, int from, int count, string cat = "Doors", string required = "JKR code")
         {
             var ids = Enumerable.Range(from, count).Select(i => 5000L + i).ToList();
-            return new CopilotPromptFacts { CheckId = check, Category = cat, Required = required, Actual = "x", ElementIds = ids, ElementLabels = ids.ToDictionary(i => i, i => "Doors · T" + i) };
+            return new CopilotPromptFacts { CheckId = check, Category = cat, Required = required, Actual = "x", ElementIds = ids, ElementLabels = ids.ToDictionary(i => i, i => "Doors · T" + i),
+                Renames = check == "Dd.1" ? ids.ToDictionary(i => i, i => new CopilotRename { Old = "Door T" + i, New = "Window T" + i, Source = "the type name's first word" }) : new Dictionary<long, CopilotRename>() };
         }
 
         [Fact]
