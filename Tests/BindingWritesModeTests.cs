@@ -96,7 +96,7 @@ namespace RevitWebAppSync.Tests
         [InlineData("// S9 ", CodeMode.Write)]
         public void SpikePackSnippetsKeepTheirMode(string marker, CodeMode expected)
         {
-            var doc = System.IO.File.ReadAllText(CodeTestSupport.RepoFile("docs/spikes/WP-1-spike-pack.md"));
+            var doc = System.IO.File.ReadAllText(CodeTestSupport.RepoFile("docs/spikes/WP-1-spike-pack.md")).Replace("\r\n", "\n");
             var start = doc.IndexOf("```csharp\n" + marker, StringComparison.Ordinal);
             Assert.True(start >= 0, "snippet " + marker + " not found");
             start += "```csharp\n".Length;
