@@ -1391,6 +1391,8 @@ namespace RevitWebAppSync.UI
             // A targeted re-check of another model's elements would corrupt this pane's rows.
             if (onlyElements != null && snapshot.DocPath != _scannedDocPath) return false;
             _scannedDocPath = snapshot.DocPath;
+            // AI-515: a full scan starts over; a row the person fixed by hand since the Undo must not be "put back" by a later Redo.
+            if (!isRecheck && onlyElements == null) _copilotUndo.Undone.Clear();
             // Failed fixes are remembered per model (element ids repeat across models).
             IssueMapper.BlockScope = _scannedDocPath ?? "";
 
@@ -1636,6 +1638,7 @@ namespace RevitWebAppSync.UI
                 if (doc == null || ids == null) return;
                 if ((doc.PathName ?? "") != _scannedDocPath) return;
                 // AI-496: undoing a creation reports no added/modified ids; a Copilot-fixed create-type row still needs its re-check.
+                // a Redo of a creation reports ids that match no row, so ids alone never decide for a remembered create-type row
                 if (ids.Count == 0 && _copilotUndo.Ledger.ScanOnly(_scannedDocPath).Count == 0
                     && !(isRedo && _copilotUndo.Undone.ScanOnly(_scannedDocPath).Count > 0)) return;
                 Dispatcher.BeginInvoke(new Action(() =>
@@ -1666,9 +1669,12 @@ namespace RevitWebAppSync.UI
                     if (redone)
                     {
                         // AI-515: the chip's Redo (or Revit's list): put back the rows the Undo reopened, if their rule re-passes.
-                        if (!_copilotUndo.HasUndone(_scannedDocPath)) return;
-                        _redoAllUndone = true;
-                        ArmUndoRecheck();
+                        // AI-508 stays: a Redo can also break a row fixed earlier, so every Copilot-fixed row is re-checked too.
+                        var work = _copilotUndo.ChipRedoWork(_scannedDocPath);
+                        if (work.PutBack) _redoAllUndone = true;
+                        if (work.RecheckFixed) _undoAllLedger = true;
+                        var any = work.PutBack || work.RecheckFixed;
+                        if (any) ArmUndoRecheck();
                         return;
                     }
                     if (!_copilotUndo.HasRows(_scannedDocPath)) return;
@@ -1733,13 +1739,13 @@ namespace RevitWebAppSync.UI
             // AI-515: Redo re-checks the rows the Undo reopened and marks them Fixed again only if the rule re-passes.
             RecheckWritten = (ids, rows) => RecheckAsync(ids, rows),
             MarkFixedAgain = (rows, _) => MarkFixedAgainAfterRedo(rows),
-            ToastRedone = n => _vm.ShowToast(Jkr.Panel.Core.PaneText.FixRedone(n)),
         }));
 
         /// <summary>AI-496: remember a row Copilot just fixed so an Undo can reopen it.</summary>
         public void RememberCopilotFix(CopilotFixRequest request, IssueVm issue)
         {
             if (request == null || issue == null) return;
+            _copilotUndo.Undone.Forget(issue.Id);   // fixed again by a new write: no stale "reopened by undo" memory
             _copilotUndo.Ledger.Remember(_scannedDocPath, issue.Id, issue.RevitElementId, request.ElementIds);
         }
 

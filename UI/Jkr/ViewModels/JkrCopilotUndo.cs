@@ -80,8 +80,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public Func<IReadOnlyCollection<long>, IReadOnlyCollection<T>, Task<JkrRecheckOutcome<T>>> RecheckWritten { get; set; }
         /// <summary>AI-515: mark these rows Fixed again (score, board and tabs together, audit saved); each row's FixedVia is already set.</summary>
         public Action<IReadOnlyList<T>, string> MarkFixedAgain { get; set; }
-        /// <summary>AI-515: show the "fix redone" toast for this many rows.</summary>
-        public Action<int> ToastRedone { get; set; }
+
     }
 
     /// <summary>
@@ -144,7 +143,11 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
 
         /// <summary>AI-515: is there something a Redo of <paramref name="redone"/> could put back?</summary>
         public bool InterestedInRedo(string docPath, IReadOnlyCollection<long> redone) =>
-            Undone.HitBy(docPath, redone).Count > 0 || ((redone == null || redone.Count == 0) && Undone.ScanOnly(docPath).Count > 0);
+            Undone.HitBy(docPath, redone).Count > 0 || Undone.ScanOnly(docPath).Count > 0;
+
+        /// <summary>AI-515 / AI-508: what the chip's (or Revit's list's) Redo asks for: put back the rows the Undo reopened, AND re-check every
+        /// Copilot-fixed row (a Redo can break a row fixed earlier).</summary>
+        public (bool PutBack, bool RecheckFixed) ChipRedoWork(string docPath) => (HasUndone(docPath), HasRows(docPath));
 
         public bool HasUndone(string docPath) => Undone.ForDoc(docPath).Count > 0;
 
@@ -158,8 +161,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         {
             var hits = allUndone ? Undone.ForDoc(docPath) : Undone.HitBy(docPath, redone);
             var targets = hits.ToList();
-            if (allUndone || redone == null || redone.Count == 0)
-                foreach (var e in Undone.ScanOnly(docPath)) if (targets.All(t => t.IssueId != e.IssueId)) targets.Add(e);
+            // Redoing a creation re-creates elements, so Revit reports ids that match no row: a create-type row is re-checked on ANY Redo (one scan).
+            foreach (var e in Undone.ScanOnly(docPath)) if (targets.All(t => t.IssueId != e.IssueId)) targets.Add(e);
             if (targets.Count == 0) return 0;
 
             // a row the person changed meanwhile (or that left the list) is no longer ours to put back
@@ -173,7 +176,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             if (live.Count == 0) return 0;
 
             var verified = new List<KeyValuePair<JkrCopilotFixLedger.Entry, T>>();
-            var checkedIds = new List<string>();
+            var checkedIds = new List<string>();   // rows to forget: marked Fixed again. A row that still fails stays remembered for the next Redo (multi-part packs)
             var byElement = live.Where(l => l.Key.RowElementId > 0).ToList();
             if (byElement.Count > 0 && _host.RecheckWritten != null)
             {
@@ -185,7 +188,6 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     foreach (var l in byElement)
                     {
                         if (outcome.Verified.Contains(l.Value)) { verified.Add(l); checkedIds.Add(l.Key.IssueId); }
-                        else if (outcome.StillFailing.Contains(l.Value)) checkedIds.Add(l.Key.IssueId);   // the rule fails: stays Open
                     }
             }
             var byScan = live.Where(l => l.Key.RowElementId <= 0).ToList();
@@ -198,7 +200,6 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     bool? passes = null;
                     if (verdicts != null && verdicts.TryGetValue(l.Value.Id, out var v)) passes = v;
                     if (passes == true) { verified.Add(l); checkedIds.Add(l.Key.IssueId); }
-                    else if (passes == false) checkedIds.Add(l.Key.IssueId);
                 }
             }
 
@@ -210,9 +211,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 // a Copilot row is Fixed via Copilot again: a second Undo can reopen it
                 foreach (var l in verified)
                     if (l.Key.FixedVia == "Copilot") Ledger.Remember(docPath, l.Key.IssueId, l.Key.RowElementId, l.Key.WrittenIds);
-                _host.ToastRedone?.Invoke(verified.Count);
             }
-            foreach (var id in checkedIds) Undone.Forget(id);   // judged: a failing row stays Open and is not remembered again
+            foreach (var id in checkedIds) Undone.Forget(id);
             return verified.Count;
         }
 

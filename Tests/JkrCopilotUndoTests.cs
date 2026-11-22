@@ -76,8 +76,7 @@ namespace RevitWebAppSync.Tests
                     Rows = o.Issues;
                     return Task.FromResult(o);
                 },
-                MarkFixedAgain = (rows, _) => { foreach (var r in rows) r.Fixed = true; },
-                ToastRedone = RedoToasts.Add,
+                MarkFixedAgain = (rows, _) => { foreach (var r in rows) r.Fixed = true; RedoToasts.Add(rows.Count); },
             };
 
             public Row Add(string id, long elem, bool fixedViaCopilot = false, long[] written = null)
@@ -384,6 +383,36 @@ namespace RevitWebAppSync.Tests
             Assert.False(p.Rows.Single().Fixed);
             Assert.Empty(p.RedoToasts);
             Assert.Equal(0, p.Undo.Ledger.Count);
+            Assert.Equal(1, p.Undo.Undone.Count);                                     // still remembered: the next Redo may make it pass
+        }
+
+        [Fact]
+        public async Task Two_part_row_Redo_1_fails_stays_Open_and_remembered_Redo_2_passes_Fixed()
+        {
+            var p = new Pane();
+            p.Add("r1", 100, true, new long[] { 101, 102 });
+            p.FailingElements.Add(100);
+            await p.Undo.RunAsync(Doc, new long[] { 101, 102 });
+            Assert.Equal(0, await p.Undo.RunRedoAsync(Doc, new long[] { 101 }));      // part 1 redone: rule still fails
+            Assert.False(p.Rows.Single().Fixed);
+            Assert.Equal(1, p.Undo.Undone.Count);
+            p.FailingElements.Clear();
+            Assert.Equal(1, await p.Undo.RunRedoAsync(Doc, new long[] { 102 }));      // part 2 redone: passes
+            Assert.True(p.Rows.Single().Fixed);
+            Assert.Equal(0, p.Undo.Undone.Count);
+        }
+
+        [Fact]
+        public async Task Redo_of_a_creation_reporting_unrelated_ids_still_rechecks_the_create_type_row()
+        {
+            var q = new Pane();
+            q.Add("v1", 0, true, new long[0]);
+            q.FailingByScan.Add("v1");
+            await q.Undo.RunAsync(Doc, new long[0]);
+            q.FailingByScan.Clear();
+            Assert.Equal(1, await q.Undo.RunRedoAsync(Doc, new long[] { 9001, 9002 }));   // re-created elements: new ids, no row match
+            Assert.True(q.Rows.Single().Fixed);
+            Assert.Equal(2, q.ScansRun);                                              // the undo scan and ONE redo scan
         }
 
         [Fact]
@@ -462,6 +491,23 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(0, await p.Undo.RunRedoAsync(Doc, new long[0]));
             Assert.False(p.Rows.Single().Fixed);
             Assert.Equal(1, p.Undo.Undone.Count);
+        }
+
+        [Fact]
+        public async Task Chip_Redo_asks_for_both_the_put_back_and_the_recheck_of_rows_still_Fixed()
+        {
+            var p = new Pane();
+            p.Add("r1", 100, true);
+            p.Add("r2", 200, true);
+            p.FailingElements.Add(100);
+            await p.Undo.RunAsync(Doc, new long[] { 100 });                           // r1 reopened, r2 still Fixed via Copilot
+            var work = p.Undo.ChipRedoWork(Doc);
+            Assert.True(work.PutBack);
+            Assert.True(work.RecheckFixed);                                           // AI-508 kept: a Redo can break r2
+            p.FailingElements.Add(200);
+            Assert.Equal(1, await p.Undo.RunAsync(Doc, new long[0], allLedger: true));   // the all-ledger re-check reopens r2
+            Assert.False(p.Rows.Single(r => r.Id == "r2").Fixed);
+            Assert.Equal((false, false), new Pane().Undo.ChipRedoWork(Doc));
         }
     }
 }
