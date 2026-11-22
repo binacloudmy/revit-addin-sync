@@ -310,7 +310,7 @@ namespace BinaVibe.Copilot.Tools
             {
                 tx.Start();
                 RevitLinkInstance.Create(doc, typeId);
-                if (tx.Commit() != TransactionStatus.Committed) throw new InvalidOperationException("Revit did not keep the link instance.");
+                BinaVibe.Mcp.Tools.TxGuard.CommitOrThrow(tx);
             }
             finally
             {
