@@ -333,7 +333,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public int FixableN => _core.FixableChanges();
 
         public string FixAllLabel => string.Format(S(FixableN == 1 ? "fixAllN1" : "fixAllN"), FixableN);
-        public bool CanFixAll => FixableN > 0 && CanAct && !(_spec?.IsPartial ?? false);   // AI-506: never from a partial board
+        public bool CanFixAll => FixableN > 0 && CanAct && !(_spec?.BackendMissing ?? false);   // AI-506: never from a board built without the backend (checker / spec missing: stays on, the banner says so)
 
         // ── list toolbar ──
         public string Query
@@ -670,10 +670,12 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public bool ShowLodBanner => LodChanged;
         public string LodBannerStrong => string.Format(S("lodStrong"), _core.RunLod);
         public string LodBannerRest => string.Format(S("lodRest"), _core.Lod);
-        public string BackendBannerStrong => _spec != null && _spec.MissingCount > 0
-            ? string.Format(S("partialStrong"), _spec.MissingCount, string.Join(", ", _spec.MissingSources))
-            : S("beStrong");
-        public string BackendBannerRest => SpecChecklist.BackendNeedsLine(SpecChecklist.BackendNotChecked(_spec), L);
+        // The old backend banner stays as it was when the backend is down; other missing sources (AI-506) are added after it.
+        private string OtherMissingText => _spec == null || _spec.OtherMissing.Count == 0 ? ""
+            : string.Format(S("partialStrong"), _spec.OtherMissing.Count, string.Join(", ", _spec.OtherMissing));
+        public string BackendBannerStrong => _spec != null && !_spec.BackendMissing && _spec.OtherMissing.Count > 0 ? OtherMissingText : S("beStrong");
+        public string BackendBannerRest => _spec != null && !_spec.BackendMissing ? ""
+            : SpecChecklist.BackendNeedsLine(SpecChecklist.BackendNotChecked(_spec), L) + (OtherMissingText.Length > 0 ? " " + OtherMissingText : "");
         public bool ShowBanner => ShowLodBanner || ShowBackendBanner;
         public bool ShowBothBanners => ShowLodBanner && ShowBackendBanner;
 

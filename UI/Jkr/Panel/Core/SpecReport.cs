@@ -185,6 +185,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// <summary>AI-506: the sources of the run that gave nothing ("backend", "BIM010", "spec"). A run with any is partial:
         /// its board is not final, and Fix all is not offered from it.</summary>
         public List<string> MissingSources = new List<string>();
+        public bool BackendMissing => BackendUnavailable || MissingSources.Contains("backend");
+        /// <summary>The missing sources other than the backend (BIM010 checker, spec read).</summary>
+        public List<string> OtherMissing => MissingSources.Where(x => x != "backend").ToList();
         public bool IsPartial => BackendUnavailable || MissingSources.Count > 0;
         /// <summary>How many sources are missing (the backend counts once, however it is reported).</summary>
         public int MissingCount => MissingSources.Union(BackendUnavailable ? new[] { "backend" } : new string[0]).Count();
