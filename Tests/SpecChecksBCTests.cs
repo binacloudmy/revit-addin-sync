@@ -62,7 +62,7 @@ namespace RevitWebAppSync.Tests
             m.Views.Add(View(54, "BOMBA Section B-B", "Section"));
             m.Views.Add(View(55, "BOMBA Drafting Laluan", "DraftingView"));
             m.Views.Add(View(56, "Legend Pintu", "Legend", "", true, "A-901"));
-            m.ViewTemplates.Add("jkrAR_Pelan");
+            foreach (var t in SpecTemplateViews.Judged) m.ViewTemplates.Add(t);   // a project made from the JKR template
 
             m.Rooms.Add(new SpecRoom { Id = 100, Name = "Bilik Mesyuarat 1", Number = "001", LevelName = "Aras 01", Area = 20,
                 Params = SpecPbData.RoomFields.ToDictionary(f => f.Name, f => "x") });
@@ -104,8 +104,6 @@ namespace RevitWebAppSync.Tests
         }
 
         [Theory]
-        [InlineData("C1.1.1")]
-        [InlineData("C1.1.2")]
         [InlineData("C5.1.2")]
         public void Backend_dependencies_are_stated(string id)
         {
@@ -362,48 +360,6 @@ namespace RevitWebAppSync.Tests
             var r = Assert.Single(Run("C1.0.1", new SpecModel()));
             Assert.Equal(SpecCoverage.Listing, r.Coverage);
             Assert.Contains("baris induk", r.Note);
-        }
-
-        [Fact]
-        public void C1_1_1_is_unjudged_because_the_template_view_list_is_backend_data()
-        {
-            var m = Compliant();
-            m.Views.RemoveAll(v => v.Kind == "CeilingPlan" && v.LevelName == "Aras 02");   // no longer a fail here
-            m.Views.RemoveAll(v => v.Kind == "Section");
-            var r = Assert.Single(Run("C1.1.1", m));
-            Assert.Equal("cannot_verify", r.Status);
-            Assert.StartsWith("Senarai view template JKR AR tiada dalam add-in (disimpan di backend)", r.Note);
-            // the project's views by kind, so a person can compare
-            Assert.Contains("floor plan (4): WIP Aras 01, WIP Aras 02, PBT Pelan Aras 01, BOMBA Pelan Aras 01", r.Note);
-            Assert.Contains("ceiling plan (1): WIP Siling Aras 01", r.Note);
-            Assert.Contains("3D (4):", r.Note);
-            Assert.DoesNotContain("section (", r.Note);
-            Assert.Contains("floor plan (4):", r.NoteEn);
-            Assert.Contains("backend", SpecChecks.BackendOnly["C1.1.1"]);
-            Assert.Equal(SpecState.NeedsPerson, State("C1.1.1", Compliant()).State);
-        }
-
-        [Fact]
-        public void C1_1_1_without_views_is_unjudged()
-        {
-            var r = Assert.Single(Run("C1.1.1", new SpecModel()));
-            Assert.Equal("cannot_verify", r.Status);
-            Assert.Equal("Tiada view dibaca daripada model", r.Note);
-            var m = Compliant();
-            m.ReadErrors.Add("Views: access denied");
-            Assert.Contains("access denied", Assert.Single(Run("C1.1.1", m)).Note);
-        }
-
-        [Fact]
-        public void C1_1_2_is_unjudged_and_lists_the_project_views_and_templates()
-        {
-            var r = Assert.Single(Run("C1.1.2", Compliant()));
-            Assert.Equal("cannot_verify", r.Status);
-            Assert.Contains("nama ditukar", r.Note);
-            Assert.Contains("menunggu pengesahan JKR", r.Note);
-            Assert.Contains("WIP Aras 01", r.Note);
-            Assert.Contains("1 view template: jkrAR_Pelan", r.Note);
-            Assert.Contains("renamed", r.NoteEn);
         }
 
         [Fact]
