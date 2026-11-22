@@ -102,13 +102,8 @@ namespace RevitWebAppSync.UI.Jkr.Modals
 
         private void WriteCsvTo(string path)
         {
-            var rows = FilteredRows();
-            var header = BuildHeader();
             var sb = new StringBuilder();
-            sb.AppendLine(string.Join(",", header.Select(CsvCell)));
-
-            foreach (var i in rows)
-                sb.AppendLine(string.Join(",", RowCells(i).Select(CsvCell)));
+            foreach (var line in IssueExportRows.CsvLines(FilteredRows())) sb.AppendLine(line);
 
             File.WriteAllText(path, sb.ToString(), Encoding.UTF8);
         }

@@ -100,6 +100,14 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// <summary>AI-506: the numbers of the pane and the export, from one list (<see cref="ScanBoard.Tally"/>).</summary>
         public static ScanBoard.Tally Count(IEnumerable<IssueVm> issues) => ScanBoard.Count(Rows(issues));
 
+        /// <summary>AI-512: the tab a row sits in (<see cref="ScanBoard.Open"/> / Manual / Ignored / Resolved).
+        /// The one classification: the board tally and the export's status column both call it.</summary>
+        public static int BucketOf(IssueVm i) =>
+            i.InManualTab ? ScanBoard.Manual
+            : i.Status == IssueStatus.Open ? ScanBoard.Open
+            : i.Status == IssueStatus.Ignored || i.Status == IssueStatus.Approved ? ScanBoard.Ignored
+            : ScanBoard.Resolved;
+
         private static IEnumerable<SpecDedupe.Row> Rows(IEnumerable<IssueVm> issues) =>
             (issues ?? Enumerable.Empty<IssueVm>()).Where(i => i != null).Select(ToRow);
 
@@ -117,10 +125,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             ElementId = i.RevitElementId,
             Params = SpecDedupe.ParamsOfActual(i.Actual),
             ElementIds = i.ElementIds != null && i.ElementIds.Count > 0 ? (IReadOnlyCollection<long>)i.ElementIds : new[] { i.RevitElementId },
-            Bucket = i.InManualTab ? ScanBoard.Manual
-                   : i.Status == IssueStatus.Open ? ScanBoard.Open
-                   : i.Status == IssueStatus.Ignored || i.Status == IssueStatus.Approved ? ScanBoard.Ignored
-                   : ScanBoard.Resolved,
+            Bucket = BucketOf(i),
             Extra = i.IsExtra,
             // What Fix all counts: an open AI row with a plain fix (a Copilot row never); one change per distinct write.
             FixKey = i.IsAiOpen && i.AutoFixable && !string.IsNullOrEmpty(i.FixAction) && !i.CopilotFixable
