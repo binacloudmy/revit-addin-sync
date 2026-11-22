@@ -138,6 +138,19 @@ namespace BinaVibe.Copilot.Contracts
         }
 
         /// <summary>run_revit_code's data.mode.</summary>
+        /// <summary>AI-dc1: the first type a set_parameters rename batch could not rename (type name, Revit's reason) and how many types
+        /// the batch held, or null when none failed.</summary>
+        public static (string Type, string Reason, int Total, int Failed)? RenameRefusal(Envelope? env)
+        {
+            if (env?.Data is not JsonElement d || d.ValueKind != JsonValueKind.Object) return null;
+            if (!d.TryGetProperty("rename_failed", out var rf) || rf.ValueKind != JsonValueKind.Array || rf.GetArrayLength() == 0) return null;
+            var first = rf[0];
+            var type = first.TryGetProperty("type", out var t) && t.ValueKind == JsonValueKind.String ? t.GetString() ?? "" : "";
+            var reason = first.TryGetProperty("reason", out var r) && r.ValueKind == JsonValueKind.String ? r.GetString() ?? "" : "";
+            var total = d.TryGetProperty("rename_total", out var tt) && tt.ValueKind == JsonValueKind.Number ? tt.GetInt32() : rf.GetArrayLength();
+            return (type, reason, total, rf.GetArrayLength());
+        }
+
         public static EnvelopeCodeMode Mode(Envelope? env) =>
             Obj(env) is JsonElement data ? WireEnums.ParseMode(Str(data, "mode")) : EnvelopeCodeMode.Unknown;
 

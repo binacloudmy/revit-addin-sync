@@ -31,6 +31,8 @@ namespace BinaVibe.Copilot.Writes
         public long? Id;
         public int? Row;
         public string Reason = "";
+        /// <summary>AI-dc1: a rename Revit refused during Execute (not a Plan skip); cleared when Execute runs again (preview, then commit).</summary>
+        public bool Failed;
     }
 
     internal static class SetParameterTargets
