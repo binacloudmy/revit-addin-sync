@@ -260,7 +260,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 };
                 var safeChoices = field.Choices.Where(c => !IsApprovalLike(c.Label)).ToList();
                 if (safeChoices.Count != field.Choices.Count) { card.SomethingWasDropped = true; field.Choices = safeChoices; }
-                if (field.Type == AskFieldTypes.Choice && field.Choices.Count < 2) field.Type = AskFieldTypes.Text;
+                // One pickable choice stays a choice (a single candidate is shown as a tile); none, or only a skip, has nothing to pick: a text box.
+                if (field.Type == AskFieldTypes.Choice && !field.Choices.Any(c => !c.IsSkip)) field.Type = AskFieldTypes.Text;
                 card.Fields.Add(field);
             }
 

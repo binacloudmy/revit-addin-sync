@@ -294,7 +294,7 @@
         "multi": { "type": "boolean", "description": "Several choices may be ticked; the answer value is the ticked ids joined with \" | \"." },
         "choices": {
           "type": "array",
-          "minItems": 2,
+          "minItems": 1,
           "items": { "$ref": "#/$defs/ask_option" },
           "description": "The choices of a choice field; required when type is choice. The answer value is the chosen choice id."
         },

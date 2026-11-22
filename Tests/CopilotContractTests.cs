@@ -330,7 +330,7 @@ namespace RevitAddinSync.Tests
             foreach (var field in new[] { toolField, eventField })
             {
                 Assert.True(field.GetProperty("properties").TryGetProperty("choices", out var choices));
-                Assert.Equal(2, choices.GetProperty("minItems").GetInt32());
+                Assert.Equal(1, choices.GetProperty("minItems").GetInt32());
                 Assert.Equal(AskFieldTypes.Choice, field.GetProperty("if").GetProperty("properties").GetProperty("type").GetProperty("const").GetString());
                 Assert.Equal(new[] { "choices" }, field.GetProperty("then").GetProperty("required").EnumerateArray().Select(r => r.GetString()).ToArray());
                 Assert.Equal(AskFieldTypes.All, EnumOf(field.GetProperty("properties").GetProperty("type")));
