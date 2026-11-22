@@ -90,6 +90,7 @@ namespace RevitWebAppSync.UI.Jkr.Modals
             try
             {
                 WriteCsvTo(dlg.FileName);
+                DedupeDump.WriteBesideExport(dlg.FileName);   // AI-516
                 Outcome = PaneText.IssuesExported(dlg.FileName);
             }
             catch (System.Exception ex)
@@ -122,6 +123,7 @@ namespace RevitWebAppSync.UI.Jkr.Modals
             try
             {
                 WriteXlsxTo(dlg.FileName);
+                DedupeDump.WriteBesideExport(dlg.FileName);   // AI-516
                 Outcome = PaneText.IssuesExported(dlg.FileName);
             }
             catch (System.Exception ex)
