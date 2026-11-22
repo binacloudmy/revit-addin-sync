@@ -9,13 +9,13 @@ namespace RevitWebAppSync.UI.Jkr.Export
 
     /// <summary>
     /// What the issue-list export writes (Excel / CSV): which issues for the Open /
-    /// Resolved options, the seven columns, and the cell text. The export dialog and
+    /// Resolved options, the eight columns, and the cell text. The export dialog and
     /// the Borang preview's footer ("Excel · 99 issues") both read it, so the count
     /// shown is the count written.
     /// </summary>
     public static class IssueExportRows
     {
-        public static readonly string[] Header = { "ID", "Title", "Category", "Priority", "Status", "Required", "Actual" };
+        public static readonly string[] Header = { "ID", "Title", "Category", "Priority", "Status", "Required", "Actual", "Board status" };
 
         /// <summary>The issues the export writes: open ones and/or the rest (resolved or ignored).</summary>
         public static IssueVm[] Select(IEnumerable<IssueVm> issues, bool includeOpen, bool includeResolved) =>
@@ -32,8 +32,28 @@ namespace RevitWebAppSync.UI.Jkr.Export
         public static string[] Cells(IssueVm i) => new[]
         {
             // An item a person marked as reviewed exports as "Reviewed" (the pane's Manual tab).
-            i.Id, i.Title, i.Category, i.PriorityLabel, i.NeedsPerson && i.Reviewed ? "Reviewed" : i.StatusLabel, i.Required, i.Actual
+            i.Id, i.Title, i.Category, i.PriorityLabel, i.NeedsPerson && i.Reviewed ? "Reviewed" : i.StatusLabel, i.Required, i.Actual, BoardStatus(i)
         };
+
+        /// <summary>AI-512: the tab the row sits in on the board (Open / Fixed / Manual / Ignored), from the
+        /// same classification as the tab counts (<see cref="JkrIssueCounts.BucketOf"/>). "Fixed" includes
+        /// rows fixed via Copilot. Appended last so the older columns keep their place.</summary>
+        public static string BoardStatus(IssueVm i)
+        {
+            switch (JkrIssueCounts.BucketOf(i))
+            {
+                case Panel.Core.ScanBoard.Open: return "Open";
+                case Panel.Core.ScanBoard.Manual: return "Manual";
+                case Panel.Core.ScanBoard.Ignored: return "Ignored";
+                default: return "Fixed";
+            }
+        }
+
+        /// <summary>The CSV file's lines (header first) for the rows chosen. Pure: the dialog writes them.</summary>
+        public static string[] CsvLines(IEnumerable<IssueVm> rows) =>
+            new[] { string.Join(",", Header.Select(CsvCell)) }
+                .Concat((rows ?? Enumerable.Empty<IssueVm>()).Select(r => string.Join(",", Cells(r).Select(CsvCell))))
+                .ToArray();
 
         public static string CsvCell(string s)
         {
