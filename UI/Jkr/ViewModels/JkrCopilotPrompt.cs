@@ -28,6 +28,9 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// "required: template X" (<c>SpecViewSets.SetFromRequired</c>). A family with <see cref="CopilotPromptVariant.SetFromFacts"/> lists only the ids
         /// that have one; the model never reads a set from a view name.</summary>
         public IReadOnlyDictionary<long, string> Sets { get; set; } = new Dictionary<long, string>();
+        /// <summary>C1.6.3 (AI-531): for a room SCHEDULE row (its id is the schedule's), the columns the schedule lacks, read from the evaluator's own note
+        /// (<c>SpecBC.TryLacksColumns</c>). A row id with no entry here is a room (or area) whose values are empty. The model never names a column.</summary>
+        public IReadOnlyDictionary<long, IReadOnlyList<string>> Columns { get; set; } = new Dictionary<long, IReadOnlyList<string>>();
         /// <summary>Db.2: the material-parameter plan per listed id (the failing row's own, read by the add-in). An id with none falls back to "Material".</summary>
         public IReadOnlyDictionary<long, CopilotMaterialPlan> Materials { get; set; } = new Dictionary<long, CopilotMaterialPlan>();
     }
@@ -98,6 +101,11 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// <summary>E.1: the set of each view comes from the facts (the evaluator decided it): the prompt and the confirm list "id — label — set X
         /// (required: template X)" and only ids that have one.</summary>
         public bool SetFromFacts { get; set; }
+        /// <summary>C1.6.3 (AI-531): a row id may be a room schedule that lacks columns (<see cref="CopilotPromptFacts.Columns"/>): those ids go to the stored
+        /// playbook <c>edit-schedule</c> (add the columns to the schedule that exists), every other id is a room whose empty values <c>set_parameters</c> fills.</summary>
+        public bool ColumnsFromFacts { get; set; }
+        /// <summary>The text for the schedule ids of a <see cref="ColumnsFromFacts"/> family.</summary>
+        public string ScheduleHow { get; set; } = "";
     }
 
     /// <summary>
@@ -122,6 +130,17 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// <summary>Per-check-id wording. The extension point: add an entry (and the id in <see cref="JkrCopilotFix.Allowed"/>)
         /// for a new family; an id with no entry gets <see cref="Generic"/>. Each "How" names only tools of the merged engine and
         /// only what set_parameters can do (one parameter, one value per call; the value with its unit).</summary>
+        /// <summary>AI-531: how a room schedule that lacks columns is fixed: the stored edit-schedule playbook, one call per schedule, fields only.</summary>
+        private const string ScheduleColumnsHow =
+            // No "make", "new" or "create" next to "schedule" anywhere: the backend's playbook suggestion vetoes edit-schedule on those words (its not_for list).
+            "For each schedule line above (its name between the quotes, with the columns it lacks), use run_revit_code with the stored playbook \"edit-schedule\" and no code of your own: inputs target = that schedule name and add = the columns on its line, exactly as written; one call per schedule, all in one message. " +
+            "The playbook adds the fields to the schedule that exists and skips a field the schedule already has, so a second run changes nothing. Never add a schedule, and never delete, rename, filter or sort one. " +
+            "If the result has a SKIP line for a column (the project has no such room parameter), say which column and stop for that column: never bind or add a parameter yourself. " +
+            "Say a column was added only if the result shows an EDITED line with it; never claim a column was added when it was not.";
+
+        private const string ScheduleOnlyTask = "Update the schedules below: add a field to each schedule for every mandatory column it lacks. Change the schedules only.";
+        private const string ScheduleAndRoomsTask = "Update the schedules and rooms below: add a field to each schedule for every mandatory column it lacks, and fill every empty mandatory room value (Room parameters). Set only values you can derive from the model.";
+
         private static readonly Dictionary<string, CopilotPromptVariant> Variants =
             new Dictionary<string, CopilotPromptVariant>(StringComparer.Ordinal)
             {
@@ -155,8 +174,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     "Rename the grid lines", CopilotWriteLevel.Instance, "Name"),
                 ["C1.6.3"] = new CopilotPromptVariant(
                     "Change the rooms below by filling every empty mandatory room-schedule column (Room parameters). Set only values you can derive from the model.",
-                    "Find the empty columns with inspect, then use set_parameters for each column on the room ids below. If a value cannot be taken from the model or from lookup, ask me once with ask_user; never guess.",
-                    "Fill empty room parameters"),
+                    "For the room ids, find the empty columns with inspect, then use set_parameters for each column on the room ids above. If a value cannot be taken from the model or from lookup, ask me once with ask_user for all of them together; never guess.",
+                    "Fill empty room parameters") { ColumnsFromFacts = true, ScheduleHow = ScheduleColumnsHow },
                 ["C4.1.3"] = new CopilotPromptVariant(
                     "Place a view on each empty sheet below, so that no sheet is empty. Add the view only; never change the sheet.",
                     "Read each id's sheet number and name with inspect. Then use run_revit_code with playbook \"place-view-on-sheet\" and no code: inputs sheets = those sheet numbers. If the result has ASK lines, ask me once with ask_user which view goes on each sheet, offering only the view names it lists, then run it again with viewFor from my answer. Never choose a view yourself and never create a view. Pass expected {adds: N}, N = the number of sheets that get a view. Never delete a sheet, even an empty one: a person decides that.",
@@ -218,10 +237,12 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             var labels = new Dictionary<long, string>();
             var renames = new Dictionary<long, CopilotRename>();
             var sets = new Dictionary<long, string>();
+            var columns = new Dictionary<long, IReadOnlyList<string>>();
             var mats = new Dictionary<long, CopilotMaterialPlan>();
             foreach (var r in list)
             {
                 foreach (var kv in r.Materials ?? new Dictionary<long, CopilotMaterialPlan>()) if (!mats.ContainsKey(kv.Key)) mats[kv.Key] = kv.Value;
+                foreach (var kv in r.Columns ?? new Dictionary<long, IReadOnlyList<string>>()) if (!columns.ContainsKey(kv.Key)) columns[kv.Key] = kv.Value;
                 foreach (var kv in r.Sets ?? new Dictionary<long, string>()) if (!sets.ContainsKey(kv.Key)) sets[kv.Key] = kv.Value;
                 foreach (var kv in r.Renames ?? new Dictionary<long, CopilotRename>()) if (!renames.ContainsKey(kv.Key)) renames[kv.Key] = kv.Value;
                 foreach (var id in r.ElementIds ?? new List<long>())
@@ -249,9 +270,30 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 ElementLabels = labels,
                 Renames = renames,
                 Sets = sets,
+                Columns = columns,
                 Materials = mats,
             };
         }
+
+        /// <summary>C1.6.3: the columns a schedule id lacks (cleaned, in order), or none for a room.</summary>
+        public static IReadOnlyList<string> ColumnsOf(CopilotPromptFacts facts, long id)
+        {
+            IReadOnlyList<string> c = null;
+            if (facts?.Columns == null || !facts.Columns.TryGetValue(id, out c) || c == null) return new string[0];
+            return c.Select(CleanLabel).Where(x => x.Length > 0).Distinct(StringComparer.Ordinal).ToList();
+        }
+
+        /// <summary>C1.6.3: the schedule name of a schedule id: its label without the "Schedule · " prefix, cleaned.</summary>
+        public static string ScheduleNameOf(CopilotPromptFacts facts, long id)
+        {
+            var l = LevelNameOf(facts, id);
+            var i = l.IndexOf(" · ", StringComparison.Ordinal);
+            return i >= 0 && l.StartsWith("Schedule", StringComparison.OrdinalIgnoreCase) ? l.Substring(i + 3).Trim() : l;
+        }
+
+        /// <summary>C1.6.3: true for an id that is a room schedule with columns to add (and a name to pass).</summary>
+        public static bool IsScheduleId(CopilotPromptFacts facts, long id) =>
+            VariantFor(facts?.CheckId).ColumnsFromFacts && ColumnsOf(facts, id).Count > 0 && ScheduleNameOf(facts, id).Length > 0;
 
         /// <summary>The ids a prompt and the confirm list: every distinct positive id, except for a type-level family, where only the
         /// first id of each type (an element label is its type name; an id with no label counts as its own type).</summary>
@@ -270,6 +312,9 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             // WP-3: a level-based family passes level NAMES: an id with no name has nothing to pass (none named: no prompt, no write).
             if (VariantFor(facts.CheckId).LevelBased)
                 ids = ids.Where(i => LevelNameOf(facts, i).Length > 0).ToList();
+            // C1.6.3: a schedule whose missing columns the note did not name has nothing to add, and set_parameters cannot fill a schedule: no line, no write.
+            if (VariantFor(facts.CheckId).ColumnsFromFacts)
+                ids = ids.Where(i => IsScheduleId(facts, i) || !LevelNameOf(facts, i).StartsWith("Schedule", StringComparison.OrdinalIgnoreCase)).ToList();
             if (VariantFor(facts.CheckId).Level != CopilotWriteLevel.Type) return ids;
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var one = new List<long>();
@@ -389,7 +434,11 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             var variant = VariantFor(checkId);
             var sb = new StringBuilder();
 
-            sb.Append(variant.Task).Append(' ')
+            var scheduleIds = variant.ColumnsFromFacts ? ids.Where(i => IsScheduleId(f, i)).ToList() : new List<long>();
+            // AI-531: the opening words of a prompt with schedules say "add a field to the schedule": the backend ranks the stored edit-schedule
+            // playbook (a schedule that exists) first on them; "columns" alone ranks the one that makes a new schedule.
+            sb.Append(scheduleIds.Count == 0 ? variant.Task
+                    : scheduleIds.Count == ids.Count ? ScheduleOnlyTask : ScheduleAndRoomsTask).Append(' ')
               .Append("JKR check ").Append(checkId);
             if (title.Length > 0) sb.Append(" — ").Append(title);
             if (parts > 1) sb.Append($" (part {part} of {parts}).");
@@ -412,6 +461,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 sb.AppendLine($"Levels ({ids.Count}, by Revit id and exact name):");
             else if (variant.Level == CopilotWriteLevel.Type)
                 sb.AppendLine($"Elements ({ids.Count}, one id per type; each type has more instances that change with it):");
+            else if (variant.ColumnsFromFacts && ids.Any(i => IsScheduleId(f, i)))
+                sb.AppendLine($"Schedules and rooms ({ids.Count}, by Revit id):");
             else
                 sb.AppendLine($"Elements ({ids.Count}, by Revit id):");
             foreach (var id in ids)
@@ -420,7 +471,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 if (f.ElementLabels != null) f.ElementLabels.TryGetValue(id, out label);
                 sb.Append("- ").Append(id);
                 label = CleanLabel(label);
-                if (variant.LevelBased) sb.Append(" — \"").Append(LevelNameOf(f, id)).Append('"');
+                if (variant.ColumnsFromFacts && IsScheduleId(f, id)) sb.Append(" — schedule \"").Append(ScheduleNameOf(f, id)).Append("\" — add columns: ").Append(string.Join(", ", ColumnsOf(f, id)));
+                else if (variant.LevelBased) sb.Append(" — \"").Append(LevelNameOf(f, id)).Append('"');
                 else if (variant.NamesFromFacts) sb.Append(" — ").Append(RenameLine(f, id));
                 else if (variant.SetFromFacts) sb.Append(label.Length > 0 ? " — " + label : "").Append(" — ").Append(SetLine(f, id));
                 else if (label.Length > 0) sb.Append(" — ").Append(label);
@@ -435,7 +487,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             }
             sb.AppendLine();
 
-            sb.AppendLine(variant.How);
+            if (scheduleIds.Count > 0) sb.AppendLine(variant.ScheduleHow);
+            if (scheduleIds.Count == 0 || scheduleIds.Count < ids.Count) sb.AppendLine(variant.How);
             // AI-490: the engine skips its own question only for a write it can tie to the ids the dialog confirmed: ids as the target
             // (never a filter), and, for a type write, ids it has already read in this turn (so it knows each type and category).
             if (variant.LevelBased)
@@ -449,6 +502,11 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 sb.AppendLine("Use the ids above only to read names with inspect; never use a filter to find elements.");
             else if (variant.NoUndo)
                 sb.AppendLine("The ids above are the Revit link types to load; load no other link and never use a filter.");
+            else if (scheduleIds.Count > 0)
+            {
+                sb.AppendLine("Use the schedule names above only as the target of edit-schedule" + (scheduleIds.Count < ids.Count ? ", and the other ids above only as the target of set_parameters" : "") + "; never use a filter.");
+                sb.AppendLine("Scope: change only the schedules named above" + (scheduleIds.Count < ids.Count ? " and the room ids above" : "") + ". Do not delete anything. Do not touch any other element, including ones that look similar. Do not use the selection or the active view to find elements.");
+            }
             else
             sb.AppendLine("Use the ids above as ids only as the target; never use a filter." + (variant.Level == CopilotWriteLevel.Type
                 ? " Read these ids first, in this turn, before set_parameters: read them with inspect AND run find_elements for their category grouped by type (both), so each type, its category and its instance count are known."

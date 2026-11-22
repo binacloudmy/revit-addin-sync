@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 
 namespace RevitWebAppSync.UI.Jkr.ViewModels
 {
@@ -21,8 +22,21 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 ElementLabels = issue.ElementLabels,
                 Renames = RenamesOf(issue),
                 Sets = SetsOf(issue),
+                Columns = ColumnsOfIssue(issue),
                 Materials = MaterialsOf(issue),
             };
+        }
+
+        /// <summary>C1.6.3: a room schedule row names the PB columns it lacks in the evaluator's note (<c>SpecBC.LacksNote</c>): read them back from
+        /// the row's description, for a row with exactly one id (the schedule's). Any other row (a room, an area) gets none.</summary>
+        private static IReadOnlyDictionary<long, IReadOnlyList<string>> ColumnsOfIssue(IssueVm issue)
+        {
+            var map = new Dictionary<long, IReadOnlyList<string>>();
+            if ((issue.SpecCheckId ?? "").Trim() != "C1.6.3") return map;
+            var ids = (issue.ElementIds ?? new List<long>()).Where(i => i > 0).Distinct().ToList();
+            if (ids.Count != 1) return map;
+            if (RevitWebAppSync.Services.JkrSpec.SpecBC.TryLacksColumns(issue.Description, out var cols)) map[ids[0]] = cols;
+            return map;
         }
 
         /// <summary>E.1: the set of the failing row's views, read from its "required: template X" (the evaluator's own text).</summary>
