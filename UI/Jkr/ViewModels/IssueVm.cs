@@ -115,6 +115,9 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public List<string> StepsIn()
         {
             var check = CheckSteps();
+            // The csv holds the manual path only; the Copilot sentence is added here, and only for a row the
+            // Copilot may fix (JkrCopilotFix.Eligible, as the button).
+            if (check.Count > 0 && CopilotFixable) check.Add(Services.JkrSpec.SpecHowToFix.CopilotSentence);
             var backend = BackendSteps();
             if (backend.Count > 0)
             {
