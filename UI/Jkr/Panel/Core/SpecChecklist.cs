@@ -334,6 +334,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             // The split banner on a result that is out of date or missing the backend's checks.
             ["lodStrong"] = ("Keputusan ini untuk LOD {0}.", "This result is for LOD {0}."),
             ["lodRest"] = ("Imbas semula untuk menyemak model terhadap LOD {0}.", "Re-scan to check the model against LOD {0}."),
+            ["partialStrong"] = ("Sebahagian · belum lengkap: {0} sumber tiada ({1}). Papan ini bukan muktamad.",
+                "Partial · incomplete: {0} source(s) missing ({1}). This board is not final."),
             ["beStrong"] = ("Backend BINA tidak tersedia.", "BINA backend unavailable."),
             ["beOne"] = ("{0} memerlukannya, jadi ia ditunjuk sebagai belum disemak, bukan sebagai lulus.",
                          "{0} needs it, so it shows as not checked, never as passed."),

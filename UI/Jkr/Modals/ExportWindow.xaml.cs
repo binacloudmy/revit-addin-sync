@@ -56,7 +56,8 @@ namespace RevitWebAppSync.UI.Jkr.Modals
             CsvOpt.IsChecked = f == IssueExportFormat.Csv;
         }
 
-        private void UpdateCount() => CountText.Text = PaneText.ExportWillWrite(FilteredRows().Length);
+        private void UpdateCount() => CountText.Text = PaneText.ExportWillWrite(FilteredRows().Length)
+            + "\n" + ScanBoard.Line(JkrIssueCounts.Count(_vm.Issues), PaneText.IsEn(null));   // AI-506: the groups that make the file's total
 
         private void Scrim_Click(object s, MouseButtonEventArgs e) { if (e.Source == s) Close(); }
         private void Close_Click(object s, RoutedEventArgs e) => Close();

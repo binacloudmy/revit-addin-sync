@@ -311,6 +311,32 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
+        public void AI506_Fix_all_is_off_without_the_backend_but_stays_on_when_only_a_checker_or_the_spec_read_is_missing()
+        {
+            var (r, _) = New();
+            var backendDown = SpecReport.Build(new List<SpecResult>(), "timeout");
+            r.Load(new[] { Issue("1", "A4", fixable: true) }, Summary(), backendDown);
+            Assert.False(r.CanFixAll);
+            Assert.Equal("Backend BINA tidak tersedia.", r.BackendBannerStrong);   // the old banner, as before
+
+            var (r2, _) = New();
+            var checkerDown = SpecReport.Build(new List<SpecResult>(), "");
+            checkerDown.MissingSources = new List<string> { "BIM010" };
+            r2.Load(new[] { Issue("1", "A4", fixable: true) }, Summary(), checkerDown);
+            Assert.True(r2.ShowBackendBanner);
+            Assert.StartsWith("Sebahagian · belum lengkap: 1 sumber tiada (BIM010)", r2.BackendBannerStrong);
+            Assert.True(r2.CanFixAll);
+
+            var (r3, _) = New();
+            var both = SpecReport.Build(new List<SpecResult>(), "timeout");
+            both.MissingSources = new List<string> { "backend", "spec" };
+            r3.Load(new[] { Issue("1", "A4", fixable: true) }, Summary(), both);
+            Assert.False(r3.CanFixAll);
+            Assert.Equal("Backend BINA tidak tersedia.", r3.BackendBannerStrong);
+            Assert.Contains("1 sumber tiada (spec)", r3.BackendBannerRest);
+        }
+
+        [Fact]
         public void While_a_fix_is_written_the_write_actions_are_off()
         {
             var (r, _) = New();
