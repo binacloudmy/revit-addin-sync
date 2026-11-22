@@ -318,7 +318,7 @@ namespace RevitWebAppSync.Tests
             var (d, _, core) = New(Issue("1", "A1"), Issue("2", "A4"));
             d.Open("1");
             Assert.Equal(("Element", "Required", "In model"), (d.ElementLabel, d.RequiredLabel, d.ActualLabel));
-            Assert.Equal("Cara membaiki secara manual", d.HowToFixLabel);
+            Assert.Equal("How to fix manually", d.HowToFixLabel);
         }
 
         // ── Task 14: Clear Sheet detail (Mark as Manual / Reopen, AI fixer proposal, copy) ──
@@ -453,8 +453,8 @@ namespace RevitWebAppSync.Tests
             Assert.Equal("You see every change again before anything is written.", d.SeeAgainNote);
             Assert.Equal("Source: Borang A5, x", d.SourceLine("Borang A5 · x"));
             Assert.Equal("This item is not counted in the compliance % and not counted as a failure. It prints as “manual review” on the Borang.", d.ManualNote);
-            Assert.Equal("Tanda manual", d.MarkManualLabel);
-            Assert.Equal("Sumber: Borang A5, x", d.SourceLine("Borang A5 · x"));
+            Assert.Equal("Mark as Manual", d.MarkManualLabel);
+            Assert.Equal("Source: Borang A5, x", d.SourceLine("Borang A5 · x"));
         }
 
         // ── AI-435: the AI-fixer row ──

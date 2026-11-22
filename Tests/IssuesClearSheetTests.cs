@@ -64,8 +64,8 @@ namespace RevitWebAppSync.Tests
             Assert.Equal("4 shown", r.ShownLabel);
             Assert.Equal("Issue state", r.StateTabsAria);
 
-            Assert.Equal(new[] { "1 tinggi", "2 sederhana", "1 rendah" }, r.SevChips.Select(c => c.Text));
-            Assert.Equal("4 dipapar", r.ShownLabel);
+            Assert.Equal(new[] { "1 high", "2 medium", "1 low" }, r.SevChips.Select(c => c.Text));
+            Assert.Equal("4 shown", r.ShownLabel);
         }
 
         // ── rows ──
@@ -97,7 +97,7 @@ namespace RevitWebAppSync.Tests
             Assert.False(withValue.HasChange);
             Assert.Equal("Still reads “Enter address here”. Needs manual action.", withValue.NoFixText);
             Assert.Equal("No ready-made fix. Needs manual action.", without.NoFixText);
-            Assert.Equal("Masih tertulis “Enter address here”. Perlu tindakan manual.", r.Rows.Single(x => x.Id == "1").NoFixText);
+            Assert.Equal("Still reads “Enter address here”. Needs manual action.", r.Rows.Single(x => x.Id == "1").NoFixText);
         }
 
         [Fact]

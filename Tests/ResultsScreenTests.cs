@@ -311,7 +311,7 @@ namespace RevitWebAppSync.Tests
             var backendDown = SpecReport.Build(new List<SpecResult>(), "timeout");
             r.Load(new[] { Issue("1", "A4", fixable: true) }, Summary(), backendDown);
             Assert.False(r.CanFixAll);
-            Assert.Equal("Backend BINA tidak tersedia.", r.BackendBannerStrong);   // the old banner, as before
+            Assert.Equal("BINA backend unavailable.", r.BackendBannerStrong);   // the old banner, as before
 
             var (r2, _) = New();
             var checkerDown = SpecReport.Build(new List<SpecResult>(), "");
@@ -325,7 +325,7 @@ namespace RevitWebAppSync.Tests
             both.MissingSources = new List<string> { "backend", "spec" };
             r3.Load(new[] { Issue("1", "A4", fixable: true) }, Summary(), both);
             Assert.False(r3.CanFixAll);
-            Assert.Equal("Backend BINA tidak tersedia.", r3.BackendBannerStrong);
+            Assert.Equal("BINA backend unavailable.", r3.BackendBannerStrong);
         }
 
         [Fact]

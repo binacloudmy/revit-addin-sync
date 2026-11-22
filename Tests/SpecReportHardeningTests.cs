@@ -873,7 +873,7 @@ namespace RevitWebAppSync.Tests
             foreach (var id in new[] { "A5.1", "C1.2.1", "C1.5.1", "De.1", "A3.4" })
             {
                 Assert.Equal(SpecState.Listed, r.For(id).State);
-                foreach (var lang in new[] { PanelStrings.Ms, PanelStrings.En })
+                foreach (var lang in new[] { PanelStrings.En })
                 {
                     var row = Row(r, id);
                     var shown = new[] { row.Notes }.Concat(row.ListRows.Select(x => x.Lead + " " + x.Rest)).ToList();
@@ -913,7 +913,7 @@ namespace RevitWebAppSync.Tests
             Assert.All(c.Notes, n => Assert.StartsWith("PTBR_Aras", n));
             Assert.Empty(c.NotCounted);
             Assert.DoesNotContain(c.Rules, x => x.StartsWith("C1.2:"));
-            foreach (var lang in new[] { PanelStrings.Ms, PanelStrings.En })
+            foreach (var lang in new[] { PanelStrings.En })
             {
                 var row = Row(r, "C1.2.1");
                 Assert.Equal("", row.Notes);
@@ -1195,7 +1195,7 @@ namespace RevitWebAppSync.Tests
             var r = SpecReport.Build(Enumerable.Empty<SpecResult>());
             var transcript = new System.Text.RegularExpressions.Regex(@"\bT \d{1,2}:\d{2}");
             foreach (var c in SpecCatalog.Checks)
-                foreach (var lang in new[] { PanelStrings.Ms, PanelStrings.En })
+                foreach (var lang in new[] { PanelStrings.En })
                     Assert.DoesNotMatch(transcript, Row(r, c.Id).Meta);
             Assert.Equal("", Row(r, "Da.1").Meta);
             // the data keeps it

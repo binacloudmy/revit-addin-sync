@@ -147,7 +147,7 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(new[] { "N", "P", "Q", "G" }, r.GroupRows.Select(g => g.Letter));
             Assert.Equal(SpecCatalog.Checks.Count, r.GroupRows.Sum(g => g.Checks));
 
-            Assert.Equal("Aspek", r.AspectsToggleLabel);
+            Assert.Equal("Aspects", r.AspectsToggleLabel);
             Assert.Equal("Penamaan", r.GroupRows[0].Name);
         }
 

@@ -87,7 +87,7 @@ namespace RevitWebAppSync.Tests
             Assert.False(r.ShowOverview);
             Assert.Equal("person", r.StateFilter);
             Assert.Equal(r.Spec.NeedsPersonChecks, Checks(r).Count);
-            Assert.Equal("Semua semakan", r.FocusName);
+            Assert.Equal("All checks", r.FocusName);
         }
 
         // ── tabs ──
@@ -222,7 +222,7 @@ namespace RevitWebAppSync.Tests
             var (r, core) = Failing();
             var failing = r.Spec.Others.Count(o => o.State == SpecState.Fail);
             Assert.True(r.HasOtherRow);
-            Assert.Equal("Peraturan JKR lain", r.OtherRowName);
+            Assert.Equal("Other JKR rules", r.OtherRowName);
             Assert.Equal("Other JKR rules", r.OtherRowName);
             Assert.Equal("not in the Borang spec", r.OtherRowNote);
             Assert.Equal(failing + " fail", r.OtherRowCount);
@@ -338,7 +338,7 @@ namespace RevitWebAppSync.Tests
             Assert.True(r.ShowBackendBanner);
             Assert.True(r.ShowBanner);
             Assert.False(r.ShowBothBanners);
-            Assert.Equal("Backend BINA tidak tersedia.", r.BackendBannerStrong);
+            Assert.Equal("BINA backend unavailable.", r.BackendBannerStrong);
             Assert.Equal(SpecChecklist.BackendNeedsLine(ids), r.BackendBannerRest);
             Assert.Equal("BINA backend unavailable.", r.BackendBannerStrong);
             core.SetLod("400");
