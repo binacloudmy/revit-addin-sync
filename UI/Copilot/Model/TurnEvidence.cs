@@ -351,13 +351,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 {
                     foreach (var w in _writes)
                     {
-                        if (w.Data is not JsonElement d || d.ValueKind != JsonValueKind.Object) continue;
-                        if (!d.TryGetProperty("rename_failed", out var rf) || rf.ValueKind != JsonValueKind.Array || rf.GetArrayLength() == 0) continue;
-                        var first = rf[0];
-                        var type = first.TryGetProperty("type", out var t) && t.ValueKind == JsonValueKind.String ? t.GetString() : "";
-                        var reason = first.TryGetProperty("reason", out var r) && r.ValueKind == JsonValueKind.String ? r.GetString() : "";
-                        var total = d.TryGetProperty("rename_total", out var tt) && tt.ValueKind == JsonValueKind.Number ? tt.GetInt32() : rf.GetArrayLength();
-                        return RenameRefusalText(total - rf.GetArrayLength(), total, type ?? "", reason ?? "");
+                        var rr = ToolResults.RenameRefusal(w);
+                        if (rr != null) return RenameRefusalText(rr.Value.Total - rr.Value.Failed, rr.Value.Total, rr.Value.Type, rr.Value.Reason);
                     }
                     return null;
                 }
