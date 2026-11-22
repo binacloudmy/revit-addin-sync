@@ -115,7 +115,50 @@
           "description": "The language of the drafter's prompt, detected by the add-in. The reply follows it. Absent: the reply follows the language of the prompt text."
         },
         "snapshot": { "$ref": "snapshot.schema.json" },
-        "attachments": { "type": "array", "items": { "$ref": "#/$defs/attachment" } }
+        "attachments": { "type": "array", "items": { "$ref": "#/$defs/attachment" } },
+        "mentions": {
+          "type": "array",
+          "maxItems": 20,
+          "description": "The @ mentions the drafter picked: kind (level, view, sheet, category, family, type, selection), the text it put in the message, and the element id of a level, view or sheet. Absent: none.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "name"],
+            "properties": {
+              "kind": { "type": "string" },
+              "name": { "type": "string" },
+              "id": { "type": "integer" }
+            }
+          }
+        },
+        "command_id": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "The curated slash command the message comes from (app/commands/*.md id, e.g. quick-create): the cloud adds its instructions. Absent: a plain message."
+        },
+        "confirmed_write": { "$ref": "#/$defs/confirmed_write" }
+      }
+    },
+    "confirmed_write": {
+      "description": "AI-490. The scope the add-in's own confirm dialog (Fix via Copilot) already got a yes for, this turn only. The server skips its \"Needs your OK\" question for a set_parameters call whose param is in params and whose target is wholly inside the scope; anything else is asked about as usual. Instance level (type_level absent or false): the call must be an instance write (no type_param) on target.ids inside ids; a filter-only target is never covered. Type level (type_level true): ids are INSTANCE ids, one per type. A type_param call whose target is ids only, all of them in ids, is covered with no find rows: the types it changes are those of the ids the dialog showed, and instances (the dialog's total) bounds it; when the turn's finds do show the reach (rows for the ids and a find grouped by type) it must not be above instances. A call with a filter target (or ids outside ids) is covered only when the server resolves the confirmed ids to types from the rows of this turn's finds and the filter names one (type, as 'Family: Type' when known, and category, no text) with a known reach not above instances. A malformed or oversized field is ignored (the normal gate applies); unknown keys are ignored; absent: no effect. Integers in types are taken as given, not checked against the document.",
+      "type": "object",
+      "required": ["source", "check_id", "tool", "params"],
+      "properties": {
+        "source": { "const": "jkr_fix" },
+        "check_id": { "type": "string", "minLength": 1, "maxLength": 120, "description": "For the audit log line only." },
+        "tool": { "const": "set_parameters" },
+        "type_level": { "type": "boolean", "default": false, "description": "true: ids are instance ids, one per type, and a type_param write through exactly those ids is covered." },
+        "ids": { "type": "array", "maxItems": 2000, "items": { "type": "integer" }, "description": "Element ids the dialog showed." },
+        "types": {
+          "type": "array", "maxItems": 200,
+          "items": { "oneOf": [
+            { "type": "integer", "description": "A type element id. Confirms nothing by itself (its instance count is not known to the server)." },
+            { "type": "object", "required": ["name", "category"], "properties": { "name": { "type": "string", "maxLength": 120 }, "category": { "type": "string", "maxLength": 120 }, "family": { "type": "string", "maxLength": 120 } } }
+          ] },
+          "description": "Extra confirmed types for what ids cannot resolve. A bare name is refused (names repeat across categories): the field is dropped. ids or types must be non-empty."
+        },
+        "params": { "type": "array", "minItems": 1, "maxItems": 20, "items": { "type": "string", "minLength": 1, "maxLength": 120 }, "description": "Parameter names (case-insensitive)." },
+        "instances": { "type": "integer", "minimum": 0, "description": "Total instances the dialog showed for the type writes. Required for a type_param call to be covered: the server asks when it is absent or when the reach this turn shows is above it." }
       }
     },
     "tool_result": {
@@ -176,14 +219,15 @@
       "not": { "required": ["rule_set"] }
     },
     "addin_args_set_parameters": {
-      "description": "set_parameters args as the add-in receives them: from_table (an attachment name) was replaced by table_rows, one object per table row keyed by column name. Every other field is as in tools.json.",
+      "description": "set_parameters args as the add-in receives them: from_table (an attachment name) was replaced by table_rows, one object per table row keyed by column name; a size the cloud converted to a bare number in the parameter's display unit carries shown. Every other field is as in tools.json.",
       "type": "object",
       "properties": {
         "table_rows": {
           "type": "array",
           "minItems": 1,
           "items": { "type": "object", "additionalProperties": { "$ref": "#/$defs/cell" } }
-        }
+        },
+        "shown": { "type": "string", "description": "The value as the model wrote it (\"300 mm\") when value was converted to the bare number in the display unit; for display only, never written." }
       },
       "not": { "required": ["from_table"] }
     },
@@ -247,6 +291,7 @@
         "label": { "type": "string", "minLength": 1 },
         "type": { "enum": ["text", "number", "choice"] },
         "unit": { "type": "string" },
+        "multi": { "type": "boolean", "description": "Several choices may be ticked; the answer value is the ticked ids joined with \" | \"." },
         "choices": {
           "type": "array",
           "minItems": 2,
@@ -292,6 +337,10 @@
         "description": {
           "type": "string",
           "description": "The assistant's own words about the batch; the confirm card shows them on a labelled line."
+        },
+        "force": {
+          "enum": ["connected"],
+          "description": "Write requests only, and only after the drafter clicked Force on the server's card following a diff_drift whose envelope said the drift was limited to elements connected to the targets: the commit may then accept that drift and reports it. Typed text never sets it."
         }
       },
       "allOf": [
@@ -322,7 +371,7 @@
         "seq": { "$ref": "#/$defs/seq" },
         "request_id": { "type": "string", "minLength": 1 },
         "question": { "type": "string", "minLength": 1 },
-        "options": { "type": "array", "minItems": 2, "maxItems": 4, "items": { "$ref": "#/$defs/ask_option" } },
+        "options": { "type": "array", "minItems": 2, "maxItems": 6, "items": { "$ref": "#/$defs/ask_option" } },
         "fields": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/ask_field" } },
         "multi": { "type": "boolean" },
         "purpose": { "enum": ["clarify", "project_note"] },

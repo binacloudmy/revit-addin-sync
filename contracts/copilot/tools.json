@@ -83,6 +83,7 @@
               },
               "parameter": {
                 "type": "object",
+                "description": "Needs a category or a handle. A Mark or Comments value with no category: one query with the value as text and no category (one call over 39 common categories; 0 is none in the scope it reports); if found, filter that handle with this parameter before highlight or write.",
                 "additionalProperties": false,
                 "required": [
                   "name",
@@ -145,7 +146,7 @@
               "items": { "type": "string", "pattern": "^(level|type|category|room|param:.+)$" }
             }
           ],
-          "description": "level, type, category, room or param:<parameter name>; or two of them, e.g. [\"level\", \"type\"]."
+          "description": "level, type, category, room or param:<parameter name>; or two of them, e.g. [\"level\", \"type\"]. A type group of family instances (doors, windows, furniture) is keyed \"Family: Type\", so same-named types of different families stay apart; system types (walls, floors, ceilings) keep the bare type name."
         },
         "sum": {
           "type": "string",
@@ -548,7 +549,7 @@
   {
     "name": "ask_user",
     "kind": "pane",
-    "description": "Ask the drafter one question when something you need is missing or ambiguous: give 2–4 options taken from the model (for example the real level names), or a small form with fields. purpose 'project_note' proposes saving a project fact the drafter stated; it is saved only if they confirm. Never use this to ask permission for a change: changes apply at once and can be undone.",
+    "description": "Ask the drafter one question when something you need is missing or ambiguous: give 2–6 options with real names from tool results (for example the level names), or a small form with fields. Set multi: true when several may apply (tag kinds, levels, fields, categories, types). purpose 'project_note' proposes saving a project fact the drafter stated; it is saved only if they confirm. Never use this to ask permission for a change: changes apply at once and can be undone.",
     "parameters": {
       "type": "object",
       "additionalProperties": false,
@@ -562,7 +563,7 @@
         "options": {
           "type": "array",
           "minItems": 2,
-          "maxItems": 4,
+          "maxItems": 6,
           "items": {
             "type": "object",
             "additionalProperties": false,
