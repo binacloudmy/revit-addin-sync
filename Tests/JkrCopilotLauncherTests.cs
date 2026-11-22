@@ -459,5 +459,16 @@ namespace RevitWebAppSync.Tests
             Assert.False(RevitWebAppSync.Services.ForcedConfirm.IsArmed);   // the launcher no longer arms the dead AI-501 flag
             Assert.False(RevitWebAppSync.Services.ForcedConfirm.IsActive);
         }
+
+        [Fact]
+        public void C422_refused_write_toast_carries_the_real_tool_error()
+        {
+            var plain = JkrCopilotLauncher.Text.NoWrite(1, 1);
+            Assert.Contains("may have asked a question", plain);
+            var real = JkrCopilotLauncher.Text.NoWrite(1, 1, "No parameter named 'Sheet Name' on the 1 matched element(s) or their types; the name is wrong.");
+            Assert.Contains("was refused", real);
+            Assert.Contains("No parameter named 'Sheet Name'", real);
+            Assert.DoesNotContain("may have asked a question", real);
+        }
     }
 }

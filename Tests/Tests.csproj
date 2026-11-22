@@ -447,6 +447,7 @@
     <Compile Include="..\BinaVibe\Copilot\Writes\ValueParser.cs" Link="Copilot\Writes\ValueParser.cs" />
     <Compile Include="..\BinaVibe\Copilot\Writes\TypeNameMatch.cs" Link="Copilot\Writes\TypeNameMatch.cs" />
     <Compile Include="..\BinaVibe\Copilot\Writes\TypeRename.cs" Link="Copilot\Writes\TypeRename.cs" />
+    <Compile Include="..\BinaVibe\Copilot\Writes\SheetParams.cs" Link="Copilot\Writes\SheetParams.cs" />
     <Compile Include="..\BinaVibe\Copilot\Writes\TypeRenameBatch.cs" Link="Copilot\Writes\TypeRenameBatch.cs" />
     <Compile Include="..\BinaVibe\Copilot\Writes\SetParametersArgs.cs" Link="Copilot\Writes\SetParametersArgs.cs" />
     <Compile Include="..\BinaVibe\Copilot\Writes\FieldChangeTyping.cs" Link="Copilot\Writes\FieldChangeTyping.cs" />
