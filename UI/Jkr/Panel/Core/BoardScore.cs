@@ -322,6 +322,21 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
 
         private static bool IsCheck(Row r, string id) => string.Equals((r.CheckId ?? "").Trim(), id, StringComparison.OrdinalIgnoreCase);
 
+        /// <summary>AI-517: the one-problem checks the spec evaluator judged PASS (a Full pass result and no fail result of that
+        /// check). Today only A4.1 is read this way: it outranks the legacy backend "Project Base Point surveyed" row.</summary>
+        public static IReadOnlyCollection<string> PassedByEvaluator(IEnumerable<SpecResult> modelResults)
+        {
+            var list = (modelResults ?? new SpecResult[0]).Where(r => r != null && SpecReport.SourceOf(r.Source) == SpecReport.Model).ToList();
+            var passed = new List<string>();
+            foreach (var id in new[] { "A4.1" })
+            {
+                var mine = list.Where(r => string.Equals(SpecReport.ResolveCheckId(r.CheckId), id, StringComparison.OrdinalIgnoreCase)).ToList();
+                if (mine.Count > 0 && mine.All(r => SpecReport.IsPass(r.Status) && (r.Coverage ?? SpecCoverage.Full) == SpecCoverage.Full && !r.NotApplicable))
+                    passed.Add(id);
+            }
+            return passed;
+        }
+
         public static bool IsOneProblem(string checkId) =>
             !string.IsNullOrEmpty(checkId) && OneProblemChecks.Contains(checkId.Trim(), StringComparer.OrdinalIgnoreCase);
 
@@ -447,7 +462,20 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// <summary>Backend rows, then checker rows, then spec rows; an id already taken is skipped; then one row
         /// per problem (<see cref="SpecDedupe"/>). Each kept row has the tier to show.</summary>
         public static List<SpecDedupe.Row> Merge(IEnumerable<SpecDedupe.Row> backend, IEnumerable<SpecDedupe.Row> audit, IEnumerable<SpecDedupe.Row> model)
+            => Merge(backend, audit, model, null);
+
+        /// <summary>AI-517: <paramref name="specPassed"/> = one-problem checks (<see cref="SpecDedupe.OneProblemChecks"/>) the add-in's
+        /// spec evaluator PASSED (A4.1 at Grid A/1 or surveyed coordinates). The evaluator outranks a legacy backend / checker
+        /// row of that check that still says fail ("Project Base Point surveyed" at E/N/Elev 0): the row is dropped, so no
+        /// failing row stands against a pass. A fixable row is never dropped (AI-479). Mapping: <see cref="SpecReport.MapBackend(string, string, long)"/>
+        /// sends category "Project Base Point" to A4.1.</summary>
+        public static List<SpecDedupe.Row> Merge(IEnumerable<SpecDedupe.Row> backend, IEnumerable<SpecDedupe.Row> audit, IEnumerable<SpecDedupe.Row> model, IReadOnlyCollection<string> specPassed)
         {
+            bool Suppressed(SpecDedupe.Row r) =>
+                specPassed != null && specPassed.Count > 0 && !r.Fixable && SpecDedupe.IsOneProblem(r.CheckId)
+                && specPassed.Contains((r.CheckId ?? "").Trim(), StringComparer.OrdinalIgnoreCase);
+            backend = (backend ?? new SpecDedupe.Row[0]).Where(x => x == null || !Suppressed(x)).ToList();
+            audit = (audit ?? new SpecDedupe.Row[0]).Where(x => x == null || !Suppressed(x)).ToList();
             var merged = new List<SpecDedupe.Row>();
             var skipped = new List<(SpecDedupe.Row row, string why)>();
             var known = new HashSet<string>(StringComparer.Ordinal);

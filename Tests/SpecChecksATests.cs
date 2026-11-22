@@ -1310,7 +1310,8 @@ namespace RevitWebAppSync.Tests
             };
             var r = Assert.Single(Run(m, "A4.1"));
             Assert.Equal("pass", r.Status);
-            Assert.Equal("Project Base Point exactly at the crossing of grids A / 1 (Grid A/1)", r.Note);
+            Assert.StartsWith("Project Base Point exactly at the crossing of grids A / 1 (Grid A/1)", r.Note);
+            Assert.Contains("Piawaian JKR p.72", r.Note);
             Assert.Equal(SpecState.Pass, State(m, "A4.1"));
         }
 

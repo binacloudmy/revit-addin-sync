@@ -675,11 +675,23 @@ namespace RevitWebAppSync.Services.JkrSpec
         /// not read → no result (the backend and the BIM010 checker answer). No A or no 1, or no
         /// crossing to measure → a person.
         /// </summary>
+        private const string Piawaian72 = "Piawaian JKR p.72 (Table 3.2): Grid A/1 at the Project Base Point, or surveyed Shared Coordinates";
+
         private static IEnumerable<SpecResult> A41BasePoint(SpecModel m)
         {
             const string id = "A4.1";
             var bp = m.ProjectBasePoint;
             if (bp == null) return Enumerable.Empty<SpecResult>();
+            // AI-517 (Piawaian p.72, Table 3.2): real survey coordinates (Shared Coordinates acquired)
+            // are the other documented way to place the building. No grid reading is needed.
+            if (m.ProjectBaseSurvey != null)
+            {
+                var sv = m.ProjectBaseSurvey;
+                return new[]
+                {
+                    Pass(id, $"Surveyed coordinates acquired (E {K.Mm1(sv.X)} mm, N {K.Mm1(sv.Y)} mm, Elev {K.Mm1(sv.Z)} mm) — {Piawaian72}"),
+                };
+            }
             var labels = SpecA.ParseGrids(m.Grids.Select(g => g.Name));
             var pairs = SpecA.BaseGridPairs(labels);
             if (pairs.Count == 0)
@@ -691,7 +703,7 @@ namespace RevitWebAppSync.Services.JkrSpec
                     var firstP = prefixed[0];
                     return new[]
                     {
-                        Context(id, $"No grid named A and 1; the model has project-prefixed grids ({shownPairs}). No JKR document names a prefix as Grid A/1 — a person decides whether they are Grid A/1 and checks the Project Base Point position",
+                        Context(id, $"No grid named A and 1; the model has project-prefixed grids ({shownPairs}). No JKR document names a prefix as Grid A/1 — a person decides whether they are Grid A/1 and checks the Project Base Point position ({Piawaian72})",
                                 0, "Grid " + shownPairs, key: "prefixed-a1", elementIds: new[] { m.Grids[firstP.A].Id, m.Grids[firstP.One].Id }),
                     };
                 }
@@ -699,8 +711,8 @@ namespace RevitWebAppSync.Services.JkrSpec
                 return new[]
                 {
                     m.Grids.Count == 0
-                        ? Unjudged(id, "No grids in the model — the Project Base Point position at Grid A/1 cannot be checked", key: "no-a1")
-                        : Unjudged(id, $"The model has {m.Grids.Count} grids ({names}) but no grid A and grid 1 — check by hand", key: "no-a1"),
+                        ? Unjudged(id, $"No grids in the model — the Project Base Point position at Grid A/1 cannot be checked ({Piawaian72})", key: "no-a1")
+                        : Unjudged(id, $"The model has {m.Grids.Count} grids ({names}) but no grid A and grid 1 — check by hand ({Piawaian72})", key: "no-a1"),
                 };
             }
             SpecGrid bestA = null, best1 = null;
@@ -718,7 +730,7 @@ namespace RevitWebAppSync.Services.JkrSpec
                 var first = $"{m.Grids[pairs[0].A].Name.Trim()} / {m.Grids[pairs[0].One].Name.Trim()}";
                 return new[]
                 {
-                    Unjudged(id, $"Grids {first}: not straight lines or parallel — the crossing cannot be computed; check by hand", key: "no-crossing"),
+                    Unjudged(id, $"Grids {first}: not straight lines or parallel — the crossing cannot be computed; check by hand ({Piawaian72})", key: "no-crossing"),
                 };
             }
             var pair = $"{bestA.Name.Trim()} / {best1.Name.Trim()}";
@@ -728,11 +740,11 @@ namespace RevitWebAppSync.Services.JkrSpec
             if (SpecUnits.CleanMm(bestD) == 0)
                 return new[]
                 {
-                    Pass(id, $"Project Base Point exactly at the crossing of grids {pair} (Grid A/1)"),
+                    Pass(id, $"Project Base Point exactly at the crossing of grids {pair} (Grid A/1) — {Piawaian72}"),
                 };
             return new[]
             {
-                Context(id, $"Project Base Point {dist} mm from the crossing of grids {pair} (Grid A/1): X {dx} mm, Y {dy} mm. The Piawaian says the Project Base Point is preferably at Grid A/1; JKR gives no offset limit — a person decides",
+                Context(id, $"Project Base Point {dist} mm from the crossing of grids {pair} (Grid A/1): X {dx} mm, Y {dy} mm. {Piawaian72}, preferably; JKR gives no offset limit — a person decides",
                         0, "Grid " + pair, key: "offset", elementIds: new[] { bestA.Id, best1.Id }),
             };
         }

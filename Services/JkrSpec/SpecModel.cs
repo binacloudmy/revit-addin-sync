@@ -27,6 +27,11 @@ namespace RevitWebAppSync.Services.JkrSpec
         /// <summary>Project Base Point position on plan (internal coordinates, mm, the same
         /// frame as the grid end points); null when not read.</summary>
         public SpecPoint ProjectBasePoint;
+        /// <summary>AI-517: the Project Base Point's shared (surveyed) position, mm: X = East/West,
+        /// Y = North/South, Z = elevation. Set only when the model carries real survey coordinates
+        /// (at least one of them is not 0): Shared Coordinates acquired. Null = no survey coordinates
+        /// (E/N/Elev all 0) or not read.</summary>
+        public SpecPoint3 ProjectBaseSurvey;
         public List<SpecRoom> Rooms = new List<SpecRoom>();
         /// <summary>Placed Area elements with their parameters (C1.6.3, PB p.36 Area columns).</summary>
         public List<SpecArea> Areas = new List<SpecArea>();
@@ -141,6 +146,12 @@ namespace RevitWebAppSync.Services.JkrSpec
     public sealed class SpecPoint
     {
         public double X, Y;
+    }
+
+    /// <summary>AI-517: a point with elevation, mm.</summary>
+    public sealed class SpecPoint3
+    {
+        public double X, Y, Z;
     }
 
     public sealed class SpecRoom

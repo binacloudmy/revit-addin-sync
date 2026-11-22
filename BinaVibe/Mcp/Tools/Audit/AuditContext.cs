@@ -150,6 +150,31 @@ namespace BinaVibe.Mcp.Tools.Audit
             }
         }
 
+        private (double E, double N, double Z)? _survey;
+        private bool _surveyRead;
+        /// <summary>AI-517: the Project Base Point's shared (surveyed) position in mm (E, N, Elev), or null
+        /// when all three are 0 or it cannot be read (no survey coordinates acquired).</summary>
+        public (double E, double N, double Z)? ProjectBaseSurvey
+        {
+            get
+            {
+                if (_surveyRead) return _survey;
+                _surveyRead = true;
+                try
+                {
+                    foreach (BasePoint bp in new FilteredElementCollector(Doc).OfClass(typeof(BasePoint)))
+                    {
+                        if (bp.IsShared) continue;
+                        var s = bp.SharedPosition;
+                        double e = Math.Round(s.X * 304.8, 1), n = Math.Round(s.Y * 304.8, 1), z = Math.Round(s.Z * 304.8, 1);
+                        _survey = e != 0 || n != 0 || z != 0 ? (e, n, z) : null;
+                    }
+                }
+                catch { _survey = null; }
+                return _survey;
+            }
+        }
+
         public GridInfo? GridNamed(string name) =>
             Grids.FirstOrDefault(g => g.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
 
