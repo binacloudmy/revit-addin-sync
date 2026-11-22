@@ -437,6 +437,14 @@ namespace BinaVibe.Copilot.Code
                     "Autodesk.Revit.DB.Document.Regenerate",
                     "Autodesk.Revit.DB.Document.Delete",
                     "Autodesk.Revit.DB.Parameter.Set",
+                    "Autodesk.Revit.DB.BindingMap.Insert",
+                    "Autodesk.Revit.DB.BindingMap.ReInsert",
+                    "Autodesk.Revit.DB.BindingMap.Remove",
+                    "Autodesk.Revit.DB.DefinitionBindingMap.Insert",
+                    "Autodesk.Revit.DB.DefinitionBindingMap.ReInsert",
+                    "Autodesk.Revit.DB.DefinitionBindingMap.Remove",
+                    "Autodesk.Revit.DB.GlobalParameter.LabelDimension",
+                    "Autodesk.Revit.DB.GlobalParameter.UnlabelDimension",
                 },
                 WriteVerbs = new List<string>
                 {
@@ -497,6 +505,7 @@ namespace BinaVibe.Copilot.Code
                     "Rebuild",
                     "Regenerate",
                     "Register",
+                    "ReInsert",
                     "Release",
                     "Remove",
                     "Rename",

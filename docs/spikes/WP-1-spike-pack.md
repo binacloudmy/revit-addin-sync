@@ -321,10 +321,10 @@ Expected: `policy_rejected` (application_access, paths). This confirms that code
 
 ### Step 7. ReInsert on an existing binding, and the add-in binder (Q8)
 
-S8c widens an existing project parameter to Generic Models and puts it back **in the same run**. The offline check classified it as **Read** (the mode rules do not know `ReInsert`), so the host runs it inside the always-rolled-back group: whatever happens, nothing is kept. Both outcomes are results:
-- the result card shows `S8c OK` twice: `ReInsert` runs under the policy; binding changes made in a read run are rolled back;
-- or the run fails with `The code changed the model during a read-only run. The run was rolled back`: the recorder saw the change and refused it.
-Record which one, and the parameter name the snippet touched. **If the card says mode Write instead of Read**, the run is committed (not rolled back): it is net zero only if both `ReInsert` calls reported OK, so check the two `S8c OK` lines and press the Undo chip once either way.
+S8c widens an existing project parameter to Generic Models and puts it back **in the same run**. The mode rules now classify it as **Write** (`ReInsert` is a listed write member; it was a **Read** in the first offline check, which let a binding change run unasked), so it is previewed, the server asks first, and the run is committed. Both outcomes are results:
+- the result card shows `S8c OK` twice: `ReInsert` runs under the policy and a write run can change a binding;
+- or a line shows `S8c FAIL` with Revit's own message: record it exactly.
+Record which one, and the parameter name the snippet touched. The card says mode Write and the run is committed (not rolled back): it is net zero only if both `ReInsert` calls reported OK, so check the two `S8c OK` lines and press the Undo chip once either way.
 
 ```csharp
 // S8c ParameterBindings.ReInsert (widen then restore, same run). Takes the first project parameter that is
@@ -410,14 +410,14 @@ Method: `CodeGate.Analyze` with the add-in's production reference set against th
 | S7d `RevitLinkInstance.Create(doc, ElementId)` | Allowed | Write |
 | S8a `doc.Application.OpenSharedParameterFile()` | PolicyRejected: application_access, paths, save_sync | |
 | S8b `SharedParametersFilename` | PolicyRejected: application_access, paths | |
-| S8c `ParameterBindings.ReInsert(...)` (existing binding, no `Application`) | Allowed | **Read** |
+| S8c `ParameterBindings.ReInsert(...)` (existing binding, no `Application`) | Allowed | **Write** (was Read before the binding-writes fix) |
 | S9 | Allowed | Write |
 
-So, before any live run: Q1 to Q6 and Q7d compile under the policy (runtime unproven), and Q7a-c and Q8a-b are denied by design. Q8c compiles but the mode classifier calls it a read.
+So, before any live run: Q1 to Q6 and Q7d compile under the policy (runtime unproven), and Q7a-c and Q8a-b are denied by design. Q8c compiles and the mode classifier now calls it a write.
 
 ## 8. Risks and limits
 
 - Offline verdicts say nothing about Revit runtime behavior: `CreateIsometric` on a project with no 3D `ViewFamilyType`, template validity per view (`IsValidViewTemplate`), view-name rules, worksharing ownership (a workshared copy may refuse sheet or view creation until the elements are editable), a view template that **locks** `View_jkr_pit` or the browser parameters (S1 prints `View_jkr_pit` after the template is set to show this).
 - Section box (`Q1b`) uses a fixed 200 x 200 ft box around one level: it tests that the call runs, not the design (the per-level section box is still Ashraf's decision).
 - Not tested: playbooks, `confirmed_write`, `load_link`, `bind_parameters`, link behavior with worksharing, the JKR Fix button flow for C1.5.2 / C4.1.3 / E.1.
-- Gate finding: the mode classifier treats `ParameterBindings.ReInsert` and `CategorySet.Erase` as a read, so model code that only edits bindings is classified Read, previewed without a write question, and relies on the host recorder to catch a change. Step 7 shows whether it does. This touches WP-8 (`bind_parameters`) and WP-10 (gate): feed the result to Aiman before either starts. No gate file is changed by this pack.
+- Gate finding (fixed in the binding-writes PRs): the mode classifier treated `ParameterBindings.ReInsert` as a read (`CategorySet.Insert/Erase` stay detached value edits: only the map call changes the document), so model code that edited bindings was previewed without a write question. `ReInsert`, `Insert` and `Remove` on the binding maps are now writes in the add-in, and the server asks before such a run. This touches WP-8 (`bind_parameters`) and WP-10 (gate): feed the result to Aiman before either starts. No gate file is changed by this pack.
