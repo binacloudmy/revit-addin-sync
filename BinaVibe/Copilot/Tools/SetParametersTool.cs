@@ -339,7 +339,7 @@ namespace BinaVibe.Copilot.Tools
             try
             {
                 el.Name = item.Name;
-                st.Commit();
+                TxGuard.CommitOrThrow(st);
             }
             catch
             {
