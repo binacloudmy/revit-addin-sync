@@ -264,24 +264,21 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 var part = parts[i];
                 if (string.IsNullOrWhiteSpace(part)) continue;
                 if (i > 0 && !_session.IsPaneVisible)
-                {
-                    _notify(Text.PaneClosed(bm, i, parts.Count));
-                    return CopilotLaunchOutcome.PaneClosed;
-                }
+                    return await StopAsync(request, committed, Text.PaneClosed(bm, i, parts.Count), CopilotLaunchOutcome.PaneClosed).ConfigureAwait(true);
                 try { ConfirmedWriteSlot.Arm(part, ok ? ConfirmedFor(request, i) : null); _session.Send(part); }
-                catch (Exception ex) { ConfirmedWriteSlot.Clear(); _notify(Text.SendFailed(bm, ex.Message)); return CopilotLaunchOutcome.SendFailed; }
+                catch (Exception ex) { ConfirmedWriteSlot.Clear(); return await StopAsync(request, committed, Text.SendFailed(bm, ex.Message), CopilotLaunchOutcome.SendFailed).ConfigureAwait(true); }
 
                 // AI-495: the last turn is awaited too: the re-check runs once its write is done.
                 var end = await WaitForTurnAsync().ConfigureAwait(true);
-                if (end == null) { _notify(Text.TurnTimeout(bm, i + 1, parts.Count)); return CopilotLaunchOutcome.TurnTimeout; }
-                if (end == CopilotCardState.Declined) { _notify(Text.Declined(bm, i + 1, parts.Count)); return CopilotLaunchOutcome.Declined; }
+                if (end == null) return await StopAsync(request, committed, Text.TurnTimeout(bm, i + 1, parts.Count), CopilotLaunchOutcome.TurnTimeout).ConfigureAwait(true);
+                if (end == CopilotCardState.Declined) return await StopAsync(request, committed, Text.Declined(bm, i + 1, parts.Count), CopilotLaunchOutcome.Declined).ConfigureAwait(true);
                 if (end == CopilotCardState.None && committed)
                 {
                     // A later part found nothing left to write: stop sending, keep the earlier write and re-check it.
                     _notify(Text.PartsNotNeeded(bm, i + 1, parts.Count));
                     break;
                 }
-                if (end != CopilotCardState.Approved) { _notify(Text.NoWrite(bm, i + 1, parts.Count)); return CopilotLaunchOutcome.NoWrite; }
+                if (end != CopilotCardState.Approved) return await StopAsync(request, committed, Text.NoWrite(bm, i + 1, parts.Count), CopilotLaunchOutcome.NoWrite).ConfigureAwait(true);
                 committed = true;
             }
 
@@ -294,6 +291,18 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 catch (Exception ex) { _notify(Text.SendFailed(bm, ex.Message)); }
             }
             return CopilotLaunchOutcome.Sent;
+        }
+
+        /// <summary>A pack stopped early (declined, no write, timeout, pane closed, send failed). When an earlier part already committed a
+        /// write, those elements changed: the re-check still runs (once), so their rows move without a manual Re-scan. A pack with no
+        /// committed part has nothing to check.</summary>
+        private async Task<CopilotLaunchOutcome> StopAsync(CopilotFixRequest request, bool committed, string message, CopilotLaunchOutcome outcome)
+        {
+            if (!committed || _afterWrite == null) { _notify(message); return outcome; }
+            _notify(message + " " + Text.StoppedRecheck(_isBm()));
+            try { await _afterWrite(request).ConfigureAwait(true); }
+            catch (Exception ex) { _notify(Text.SendFailed(_isBm(), ex.Message)); }
+            return outcome;
         }
 
         /// <summary>AI-490: the field for part i, or null (a build failure never stops the fix: the server just asks as before).</summary>
@@ -396,6 +405,9 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             public static string CopilotBusy(bool bm) => bm
                 ? "Selesaikan atau jawab permintaan Copilot semasa dahulu."
                 : "Finish or answer the current Copilot request first.";
+            public static string StoppedRecheck(bool bm) => bm
+                ? "Baris yang sudah dibaiki disemak semula."
+                : "The rows that were fixed are re-checked.";
             internal static string Cap(string x) => char.ToUpperInvariant(x[0]) + x.Substring(1);
             public static string NoPrompt(bool bm) => bm
                 ? "Tiada arahan untuk dihantar kepada Copilot."

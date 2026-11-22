@@ -423,6 +423,111 @@ namespace RevitWebAppSync.Tests
             Assert.Equal((0, 1), (f.ManyCalls, f.SingleCalls));
         }
 
+        // ── a pack that stops early: the parts that did commit are still re-checked ──
+
+        private sealed class Scripted : ICopilotSession
+        {
+            private readonly Func<int, CopilotCardState> _end;   // part index -> card state when its turn ends
+            private int _sends, _n;
+            public bool Visible = true;
+            public int Sent => _sends;
+            public Scripted(Func<int, CopilotCardState> end) { _end = end; }
+            public Task<string> OpenPaneAsync() => Task.FromResult<string>(null);
+            public void NewChat() { }
+            public bool IsIndexing => false;
+            public bool IsSignedIn => true;
+            public bool IsPaneVisible => Visible;
+            public bool IsSending => _sends > 0 && _n++ < 2;
+            public CopilotCardState Cards => _sends > 0 && _n >= 2 ? _end(_sends - 1) : CopilotCardState.None;
+            public void Send(string text) { _sends++; _n = 0; }
+        }
+
+        private static async Task<(CopilotLaunchOutcome o, Fake f, List<string> toasts, Scripted s)> Pack3(Func<int, CopilotCardState> end, Action<Scripted> tweak = null, bool startGraceOnly = false)
+        {
+            // 120 ids in 12 rows of 10: parts of 50 hold rows 1-5, 6-10 (id 51-100) and 11-12
+            var merged = JkrCopilotPrompt.MergeFacts(Enumerable.Range(0, 12).Select(k => RowFacts("Db.2", k * 10 + 1, 10)).ToList());
+            var f = new Fake { Rows = Enumerable.Range(0, 12).Select(k => new Row { Id = "r" + k, RevitElementId = 5001 + k * 10, ElementIds = Enumerable.Range(k * 10 + 1, 10).Select(i => 5000L + i).ToList() }).ToList() };
+            var s = new Scripted(end); tweak?.Invoke(s);
+            var toasts = new List<string>();
+            var re = new JkrCopilotRecheck<Row>(f.Host());
+            var req = CopilotFixRequest.ForCheck("Db.2", f.Rows.Select(r => r.Id), merged.ElementIds, "t");
+            // the rows whose ids lie in parts 2 and 3 were never written: the rule still fails on them
+            foreach (var r in f.Rows.Skip(5)) f.Failing.Add(r.Id);
+            var l = new JkrCopilotFixLauncher(s, _ => JkrCopilotPrompt.Build(merged, false), toasts.Add, () => false, _ => Task.CompletedTask,
+                indexingTimeout: TimeSpan.FromSeconds(1), turnTimeout: TimeSpan.FromSeconds(3), startGrace: TimeSpan.FromMilliseconds(500), settle: TimeSpan.FromMilliseconds(500),
+                afterWrite: re.RunAsync, confirm: _ => true);
+            var o = await l.LaunchAsync(req);
+            return (o, f, toasts, s);
+        }
+
+        [Fact]
+        public async Task Part_two_declined_part_one_was_written_so_the_pack_is_re_checked_once()
+        {
+            var (o, f, toasts, s) = await Pack3(p => p == 0 ? CopilotCardState.Approved : CopilotCardState.Declined);
+            Assert.Equal(CopilotLaunchOutcome.Declined, o);
+            Assert.Equal(2, s.Sent);                                           // part 3 never sent
+            Assert.Equal(1, f.Rechecks);
+            Assert.Equal(5, f.Rows.Count(r => r.Fixed));                       // part 1's rows are Fixed ...
+            Assert.All(f.Rows.Skip(5), r => { Assert.False(r.Fixed); Assert.Contains("still fails", r.Error); });   // ... the others stay Open with a reason
+            Assert.Contains(toasts, t => t.Contains("The rows that were fixed are re-checked."));
+            Assert.Contains(toasts, t => t.Contains("You answered No on part 2"));
+        }
+
+        [Fact]
+        public async Task Part_one_declined_nothing_was_written_so_there_is_no_re_check()
+        {
+            var (o, f, toasts, s) = await Pack3(p => CopilotCardState.Declined);
+            Assert.Equal(CopilotLaunchOutcome.Declined, o);
+            Assert.Equal(1, s.Sent);
+            Assert.Equal(0, f.Rechecks);
+            Assert.All(f.Rows, r => Assert.False(r.Fixed));
+            Assert.DoesNotContain(toasts, t => t.Contains("re-checked"));
+        }
+
+        [Fact]
+        public async Task Part_two_ends_with_no_write_the_earlier_part_is_re_checked()
+        {
+            var (o, f, toasts, _) = await Pack3(p => p == 0 ? CopilotCardState.Approved : CopilotCardState.None);
+            // a part with no card after a committed one means "not needed": it stops, re-checks, and reports Sent
+            Assert.Equal(1, f.Rechecks);
+            Assert.Equal(5, f.Rows.Count(r => r.Fixed));
+        }
+
+        [Fact]
+        public async Task A_turn_timeout_on_part_two_re_checks_part_one()
+        {
+            var (o, f, toasts, _) = await Pack3(p => p == 0 ? CopilotCardState.Approved : CopilotCardState.Open);
+            Assert.Equal(CopilotLaunchOutcome.TurnTimeout, o);
+            Assert.Equal(1, f.Rechecks);
+            Assert.Equal(5, f.Rows.Count(r => r.Fixed));
+            Assert.Contains(toasts, t => t.Contains("re-checked"));
+        }
+
+        [Fact]
+        public async Task The_pane_closed_after_part_one_re_checks_part_one_and_with_no_part_written_it_does_not()
+        {
+            var merged = JkrCopilotPrompt.MergeFacts(Enumerable.Range(0, 12).Select(k => RowFacts("Db.2", k * 10 + 1, 10)).ToList());
+            var closes = await Pack3(p => CopilotCardState.Approved, s => s.Visible = true);
+            Assert.Equal(CopilotLaunchOutcome.Sent, closes.o);   // control: the full pack re-checks once
+            Assert.Equal(1, closes.f.Rechecks);
+
+            var f = new Fake { Rows = Enumerable.Range(0, 12).Select(k => new Row { Id = "r" + k, RevitElementId = 5001 + k * 10, ElementIds = new long[] { 5001 + k * 10 } }).ToList() };
+            var s2 = new Scripted(p => CopilotCardState.Approved);
+            var l = new JkrCopilotFixLauncher(s2, _ => JkrCopilotPrompt.Build(merged, false), _ => { }, () => false, _ => { s2.Visible = false; return Task.CompletedTask; },
+                indexingTimeout: TimeSpan.FromSeconds(1), turnTimeout: TimeSpan.FromSeconds(3), settle: TimeSpan.FromMilliseconds(500),
+                afterWrite: new JkrCopilotRecheck<Row>(f.Host()).RunAsync, confirm: _ => true);
+            var o = await l.LaunchAsync(CopilotFixRequest.ForCheck("Db.2", f.Rows.Select(r => r.Id), merged.ElementIds, "t"));
+            Assert.Equal(CopilotLaunchOutcome.PaneClosed, o);
+            Assert.Equal(1, f.Rechecks);                                      // part 1 committed before the pane closed
+        }
+
+        [Fact]
+        public void The_header_tooltip_warns_that_a_type_rename_changes_all_instances_in_both_languages()
+        {
+            Assert.Contains("Da.1 / Dc.1: a type rename changes all instances", JkrCopilotFix.FixAllTooltip(PanelStrings.En));
+            Assert.Contains("Da.1 / Dc.1: menukar nama type mengubah semua instance", JkrCopilotFix.FixAllTooltip(PanelStrings.Ms));
+        }
+
         // ── Undo: every row of the pack reopens ──
 
         [Fact]

@@ -269,7 +269,7 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public async Task Multi_part_declined_on_part_two_no_recheck()
+        public async Task Multi_part_declined_on_part_two_still_rechecks_part_one_once()
         {
             var f = new Fake { Outcome = Verified };
             var s = new Session();
@@ -278,7 +278,7 @@ namespace RevitWebAppSync.Tests
             var l = new JkrCopilotFixLauncher(new DeclineSecond(s, () => calls++), _ => new[] { "A", "B" }, _ => { }, () => false, _ => Task.CompletedTask,
                 indexingTimeout: TimeSpan.FromSeconds(1), turnTimeout: TimeSpan.FromSeconds(5), settle: TimeSpan.FromMilliseconds(500), afterWrite: new JkrCopilotRecheck<Row>(f.Host()).RunAsync);
             Assert.Equal(CopilotLaunchOutcome.Declined, await l.LaunchAsync(Req));
-            Assert.Equal(0, f.Rechecks);
+            Assert.Equal(1, f.Rechecks);   // part 1 wrote its ids: they are re-checked (AI-509 review)
         }
 
         /// <summary>Part 1 commits a write; from part 2 on the turn ends with no write (a type parameter already changed).</summary>

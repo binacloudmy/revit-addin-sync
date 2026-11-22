@@ -119,8 +119,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             : $"Baiki semua {elements} elemen melalui Copilot";
 
         public static string FixAllTooltip(string lang = null) => IsEn(lang)
-            ? "Asks you to confirm once, then opens one new Copilot chat that applies the change to every element of this check (in parts of 50). The check is re-checked afterwards; you can Undo it from the Copilot chat."
-            : "Meminta pengesahan anda sekali, kemudian membuka satu sembang Copilot baharu yang melaksanakan perubahan pada semua elemen semakan ini (bahagian 50). Semakan diulang selepas itu; anda boleh Undo dalam sembang Copilot.";
+            ? "Asks you to confirm once, then opens one new Copilot chat that applies the change to every element of this check (in parts of 50). The check is re-checked afterwards; you can Undo it from the Copilot chat. Da.1 / Dc.1: a type rename changes all instances of the type."
+            : "Meminta pengesahan anda sekali, kemudian membuka satu sembang Copilot baharu yang melaksanakan perubahan pada semua elemen semakan ini (bahagian 50). Semakan diulang selepas itu; anda boleh Undo dalam sembang Copilot. Da.1 / Dc.1: menukar nama type mengubah semua instance type itu.";
 
         /// <summary>What a click does: a confirm here first (nothing is sent on No), then a new Copilot chat that applies the change.</summary>
         public static string Tooltip(string lang = null) => IsEn(lang)
