@@ -58,6 +58,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             public string Category = "";
             /// <summary>AI-506b. Revit type name of the row's element ("PT1p_850x2100"), "" when unknown (a spec row: the text after "Category · ").</summary>
             public string TypeName = "";
+            /// <summary>AI-516. Revit family of the row's type, "" when unknown. A spec row's label is "Category · Family : Type", and JKR types are
+            /// often all named "Normal": a type-name match counts only when the backend row has a family and it equals the spec row's.</summary>
+            public string Family = "";
             /// <summary>AI-506 (Db.1 only). On a spec row: every parameter it reports and every element it
             /// covers. A spec row covers a type, so one row stands for many per-element backend rows.</summary>
             public IReadOnlyCollection<string> Params = new string[0];
@@ -251,12 +254,13 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             if (r.ElementId > 0 && ids.Contains(r.ElementId)) return true;      // same element
             if (r.ElementId > 0 && specIds.Contains(r.ElementId)) return false;  // a known element of ANOTHER spec row, or one this spec row lists no parameter for
             // The id says nothing. Never on the parameter alone: the category must match, and one of
-            // (a) the row has no element, (b) it is a type id: its type name is the spec row's type, (c) the spec row's id list was cut at the cap.
+            // (a) the row has no element, (b) it is a type id: its family and type name are the spec row's (a row with no family is not enough: types are often all "Normal"), (c) the spec row's id list was cut at the cap.
             var cat = CategoryKey(r.Category);
             if (cat.Length == 0 || cat != CategoryKey(spec.Category)) return false;
             var type = CategoryKey(r.TypeName);
             return r.ElementId <= 0
-                   || (type.Length > 0 && type == CategoryKey(spec.TypeName))
+                   || (type.Length > 0 && type == CategoryKey(spec.TypeName)
+                       && CategoryKey(r.Family).Length > 0 && CategoryKey(r.Family) == CategoryKey(spec.Family))
                    || ids.Count >= InstanceIdCap;
         }
 

@@ -268,15 +268,36 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void A_type_id_row_of_another_type_is_not_merged()
         {
-            var kept = Merge(new List<SpecDedupe.Row> { Legacy("L1", "Missing Type parameter: Sistem_jkr_stt", element: 900, type: "T2") }, new List<SpecDedupe.Row> { Spec("missing: Sistem_jkr_stt") });
+            var spec = Spec("missing: Sistem_jkr_stt"); spec.Family = "FamA";
+            var l = Legacy("L1", "Missing Type parameter: Sistem_jkr_stt", element: 900, type: "T2"); l.Family = "FamA";
+            var kept = Merge(new List<SpecDedupe.Row> { l }, new List<SpecDedupe.Row> { spec });
             Assert.Equal(2, kept.Count);
         }
 
         [Fact]
-        public void A_type_id_row_of_the_same_type_is_held_by_category_and_type_name()
+        public void A_type_id_row_of_the_same_family_and_type_is_held()
         {
-            var kept = Merge(new List<SpecDedupe.Row> { Legacy("L1", "Missing Type parameter: Sistem_jkr_stt", element: 900) }, new List<SpecDedupe.Row> { Spec("missing: Sistem_jkr_stt") });
-            Assert.Equal("L1", Assert.Single(kept).Id);
+            var spec = Spec("missing: Sistem_jkr_stt"); spec.Family = "FamA";
+            var l = Legacy("L1", "Missing Type parameter: Sistem_jkr_stt", element: 900); l.Family = "FamA";
+            Assert.Equal("L1", Assert.Single(Merge(new List<SpecDedupe.Row> { l }, new List<SpecDedupe.Row> { spec })).Id);
+        }
+
+        [Fact]
+        public void Two_families_with_types_both_named_Normal_a_row_of_A_does_not_hide_the_spec_row_of_B()
+        {
+            var specB = Spec("missing: Sistem_jkr_stt", type: "Normal"); specB.Family = "FamB";
+            var legacyA = Legacy("L1", "Missing Type parameter: Sistem_jkr_stt", element: 900, type: "Normal"); legacyA.Family = "FamA";
+            var kept = Merge(new List<SpecDedupe.Row> { legacyA }, new List<SpecDedupe.Row> { specB });
+            Assert.Equal(2, kept.Count);
+            Assert.Empty(kept.Single(r => r.Source == SpecDedupe.FromModel).HeldParams);
+        }
+
+        [Fact]
+        public void A_legacy_row_with_no_family_is_not_enough_for_a_type_name_match()
+        {
+            var spec = Spec("missing: Sistem_jkr_stt", type: "Normal"); spec.Family = "FamB";
+            var kept = Merge(new List<SpecDedupe.Row> { Legacy("L1", "Missing Type parameter: Sistem_jkr_stt", element: 900, type: "Normal") }, new List<SpecDedupe.Row> { spec });
+            Assert.Equal(2, kept.Count);
         }
 
         [Fact]

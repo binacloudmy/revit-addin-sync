@@ -118,8 +118,24 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         {
             var n = (i.Element?.Name ?? "").Trim();
             var dot = n.IndexOf(" · ", StringComparison.Ordinal);
-            if (dot > 0) return n.Substring(dot + 3).Trim();
+            if (dot > 0)
+            {
+                var rest = n.Substring(dot + 3).Trim();   // "Family : Type" or just the type
+                var colon = rest.IndexOf(" : ", StringComparison.Ordinal);
+                return colon > 0 ? rest.Substring(colon + 3).Trim() : rest;
+            }
             return string.Equals(n, i.RevitCategory ?? "", StringComparison.OrdinalIgnoreCase) || string.Equals(n, i.Category ?? "", StringComparison.OrdinalIgnoreCase) ? "" : n;
+        }
+
+        /// <summary>AI-516: the family of a spec row's "Category · Family : Type" label; "" when the label has none (the backend row has no family field).</summary>
+        private static string FamilyOf(IssueVm i)
+        {
+            var n = (i.Element?.Name ?? "").Trim();
+            var dot = n.IndexOf(" · ", StringComparison.Ordinal);
+            if (dot < 0) return "";
+            var rest = n.Substring(dot + 3);
+            var colon = rest.IndexOf(" : ", StringComparison.Ordinal);
+            return colon > 0 ? rest.Substring(0, colon).Trim() : "";
         }
 
         private static SpecDedupe.Row ToRow(IssueVm i) => new SpecDedupe.Row
@@ -138,6 +154,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             ParamKind = SpecDedupe.ParamKindOfRule(i.RawRule),
             Category = i.RevitCategory ?? "",
             TypeName = TypeNameOf(i),
+            Family = FamilyOf(i),
             Params = SpecDedupe.ParamsOfActual(i.Actual),
             ElementIds = i.ElementIds != null && i.ElementIds.Count > 0 ? (IReadOnlyCollection<long>)i.ElementIds : new[] { i.RevitElementId },
             Bucket = BucketOf(i),

@@ -57,7 +57,7 @@ namespace RevitWebAppSync.Tests
                 n++;
                 rows.Add(new SpecDedupe.Row
                 {
-                    Id = c.Id, CheckId = "Db.1", Source = SpecDedupe.FromModel, Tier = 1, Bucket = ScanBoard.Open, Category = category, TypeName = "T" + n,
+                    Id = c.Id, CheckId = "Db.1", Source = SpecDedupe.FromModel, Tier = 1, Bucket = ScanBoard.Open, Category = category, TypeName = "T" + n, Family = "F" + n,
                     Params = SpecDedupe.ParamsOfActual(c.Actual),
                     ElementIds = Enumerable.Range(0, capped ? SpecDedupe.InstanceIdCap : 3).Select(k => 100000L + n * 10000 + k).ToArray(),   // instance ids
                 });
@@ -79,6 +79,7 @@ namespace RevitWebAppSync.Tests
                     ElementId = withElement ? 900000L + n : 0,   // a type id: in no spec row's instance list
                     // (b) the type name of a type a Db.1 row lists this parameter for (the export has no type names: assigned here)
                     TypeName = typeName ? TypeOfFirstSpecRowListing(SpecDedupe.ParamKey(SpecDedupe.ParamOfRule(c.Title, c.Required))) : "",
+                    Family = typeName ? TypeOfFirstSpecRowListing(SpecDedupe.ParamKey(SpecDedupe.ParamOfRule(c.Title, c.Required))).Replace("T", "F") : "",
                     Extra = checkId.Length == 0,
                 });
             }
@@ -131,10 +132,10 @@ namespace RevitWebAppSync.Tests
         public void A_type_id_row_on_another_type_of_the_same_category_stays()
         {
             // Two types of Doors; the spec row flags type A for the parameter; the legacy row is on type B (its id is listed nowhere).
-            var spec = new SpecDedupe.Row { Id = "s", CheckId = "Db.1", Source = SpecDedupe.FromModel, Category = "Doors", TypeName = "A",
+            var spec = new SpecDedupe.Row { Id = "s", CheckId = "Db.1", Source = SpecDedupe.FromModel, Category = "Doors", TypeName = "A", Family = "FA",
                 Params = SpecDedupe.ParamsOfActual("tiada: Sistem_jkr_stt"), ElementIds = new long[] { 1, 2, 3 } };
             SpecDedupe.Row Legacy(string id, string type) => new SpecDedupe.Row { Id = id, CheckId = "Db.1", Source = SpecDedupe.FromBackend, Bucket = ScanBoard.Open,
-                Category = "Doors", TypeName = type, ElementId = 777, ParamRule = true, Param = "Sistem Jkr Stt" };
+                Category = "Doors", TypeName = type, Family = "FA", ElementId = 777, ParamRule = true, Param = "Sistem Jkr Stt" };
             var kept = ScanBoard.Merge(new[] { Legacy("onB", "B"), Legacy("onA", "A") }, new SpecDedupe.Row[0], new[] { spec }).Select(r => r.Id).ToList();
             Assert.Contains("onB", kept);
             Assert.DoesNotContain("onA", kept);   // the same type: restated
