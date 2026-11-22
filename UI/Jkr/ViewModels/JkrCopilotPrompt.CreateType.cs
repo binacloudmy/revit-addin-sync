@@ -84,6 +84,18 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     "which categories have no schedule, and the name and fields of each schedule",
                     "satu schedule baharu bagi setiap kategori yang tiada sahaja",
                     "one new schedule for each category that has none, and nothing else"),
+                // AI-499 (C5.1.1 only; C5.1.2 waits for AI-487 and has no entry). link_file(path) links ONE file, absolute
+                // path, positioning origin; batch_link_models(folder) matches only AR/ST/ACMV name tokens, so ME/EL files
+                // would be missed: this prompt uses link_file per file. Neither tool has a dry_run, so the preview is the
+                // plan in words. Checked against bina-ai ai-423-test tools.py on 2026-11-22.
+                ["C5.1.1"] = new CreateTypeSpec(
+                    new CopilotPromptVariant(
+                        "Buat link model disiplin yang tiada atau belum Loaded (ST, ME, EL), supaya setiap satu terpaut dan Loaded. Baca Sebenar di bawah dan nyatakan disiplin yang tiada atau belum dimuatkan. Tanya saya laluan fail bagi setiap disiplin yang tiada, satu demi satu, supaya saya pilih failnya; jangan teka atau cipta laluan. Selepas saya pilih, guna link_file dengan laluan penuh fail itu, satu fail bagi setiap link. Tiada pratonton dry-run bagi link_file: tunjukkan pelan dalam kata-kata dahulu.",
+                        "Create the discipline model links that are missing or not Loaded (ST, ME, EL), so each one is linked and Loaded. Read Actual below and name the disciplines that are missing or not loaded. Ask me for the file path of each missing discipline, one at a time, so I pick the file; never guess or invent a path. After I pick, use link_file with the full path of that file, one file per link. link_file has no dry-run preview: show the plan in words first."),
+                    "disiplin yang tiada atau belum Loaded dan fail yang saya pilih bagi setiap satu",
+                    "which disciplines are missing or not loaded, and the file I pick for each",
+                    "link baharu bagi disiplin yang tiada atau belum Loaded sahaja; jangan alih, ubah atau padam link yang sedia ada",
+                    "new links for the missing or not loaded disciplines only; do not move, change or delete any existing link"),
                 ["C4.1.3"] = new CreateTypeSpec(
                     new CopilotPromptVariant(
                         "Isi setiap sheet kosong dengan meletakkan sekurang-kurangnya satu view padanya. Guna place_view_on_sheet; buat view baharu hanya jika tiada view sesuai.",

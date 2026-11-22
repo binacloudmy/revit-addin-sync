@@ -82,12 +82,12 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void Generic_variant_for_an_id_with_no_family_yet_still_passes_the_gate()
         {
-            Assert.False(JkrCopilotPrompt.HasVariant("C5.1.1"));   // links: AI-499
+            Assert.False(JkrCopilotPrompt.HasVariant("C5.1.2"));   // links C5.1.2: blocked by AI-487
             foreach (var bm in new[] { true, false })
             {
-                var p = Assert.Single(JkrCopilotPrompt.Build(Facts("C5.1.1", 2), bm));
+                var p = Assert.Single(JkrCopilotPrompt.Build(Facts("C5.1.2", 2), bm));
                 Assert.False(ReadIntent(p));
-                Assert.Matches(MutateHint, JkrCopilotPrompt.VariantFor("C5.1.1").Task(bm));
+                Assert.Matches(MutateHint, JkrCopilotPrompt.VariantFor("C5.1.2").Task(bm));
             }
         }
 
@@ -221,7 +221,7 @@ namespace RevitWebAppSync.Tests
 
         // ── AI-498: create-type families ──
 
-        private static readonly string[] CreateTypes = { "C1.3.1", "C1.4.1", "C1.5.2", "C1.6.1", "C2.1.1", "C3.1.1", "C4.1.3" };
+        private static readonly string[] CreateTypes = { "C1.3.1", "C1.4.1", "C1.5.2", "C1.6.1", "C2.1.1", "C3.1.1", "C4.1.3", "C5.1.1" };
         public static IEnumerable<object[]> CreateTypeIds() => CreateTypes.Select(i => new object[] { i });
 
         private static CopilotPromptFacts NoIds(string check) => new CopilotPromptFacts
@@ -349,15 +349,32 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void Other_families_still_give_no_prompt_without_ids()
         {
-            foreach (var id in new[] { "Da.1", "C5.1.1", "C1.6.3", "C1.1.1", "C1.1.2", "C5.1.2" })
+            foreach (var id in new[] { "Da.1", "C1.6.3", "C1.1.1", "C1.1.2", "C5.1.2" })
                 Assert.Empty(JkrCopilotPrompt.Build(NoIds(id), false));
         }
 
         [Fact]
-        public void Links_are_not_a_create_type_family_here_AI499()
+        public void Only_C511_of_the_links_is_a_create_type_family_AI499()
         {
-            Assert.False(JkrCopilotPrompt.IsCreateType("C5.1.1"));
-            Assert.False(JkrCopilotPrompt.HasVariant("C5.1.1"));
+            Assert.True(JkrCopilotPrompt.IsCreateType("C5.1.1"));
+            Assert.False(JkrCopilotPrompt.IsCreateType("C5.1.2"));   // blocked by AI-487: no variant, never enabled
+            Assert.False(JkrCopilotPrompt.HasVariant("C5.1.2"));
+        }
+
+        [Fact]
+        public void Links_prompt_asks_the_person_for_each_file_path_and_never_guesses_AI499()
+        {
+            var en = Assert.Single(JkrCopilotPrompt.Build(NoIds("C5.1.1"), false));
+            Assert.Contains("Ask me for the file path of each missing discipline", en);
+            Assert.Contains("never guess or invent a path", en);
+            Assert.Contains("link_file", en);
+            Assert.Contains("do not move, change or delete any existing link", en);
+            Assert.Contains("name the disciplines that are missing or not loaded", en);
+            var bm = Assert.Single(JkrCopilotPrompt.Build(NoIds("C5.1.1"), true));
+            Assert.Contains("Tanya saya laluan fail bagi setiap disiplin yang tiada", bm);
+            Assert.Contains("jangan teka atau cipta laluan", bm);
+            Assert.Contains("link_file", bm);
+            Assert.Contains("jangan alih, ubah atau padam link yang sedia ada", bm);
         }
     }
 }
