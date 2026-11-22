@@ -87,10 +87,17 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             }
             if (variant.NamesFromFacts)
             {
-                var src = ids.Select(i => JkrCopilotPrompt.RenameOf(facts, i)).Where(r => r != null).Select(r => JkrCopilotPrompt.CleanLabel(r.Source)).Where(x => x.Length > 0).Distinct().ToList();
-                body.Append("The new names were derived by the JKR pane, not by Copilot");
-                if (src.Count > 0) body.Append(" (evidence: ").Append(string.Join("; ", src)).Append(')');
-                body.Append("; Copilot applies exactly those names and the category is not changed. Old name -> new name is listed below. Applied at once; you can Undo from the Copilot chat. ");
+                var src = ids.Select(i => JkrCopilotPrompt.RenameOf(facts, i)).Where(r => r != null && !r.Ask).Select(r => JkrCopilotPrompt.CleanLabel(r.Source)).Where(x => x.Length > 0).Distinct().ToList();
+                var asks = ids.Select(i => JkrCopilotPrompt.RenameOf(facts, i)).Count(r => r == null || r.Ask);
+                if (asks < ids.Count)
+                {
+                    body.Append("The new names were derived by the JKR pane, not by Copilot");
+                    if (src.Count > 0) body.Append(" (evidence: ").Append(string.Join("; ", src)).Append(')');
+                    body.Append("; Copilot applies exactly those names and the category is not changed. ");
+                }
+                if (asks > 0)
+                    body.Append(asks).Append(asks == 1 ? " type has" : " types have").Append(" no JKR code the pane can derive (ASK): Copilot asks you for the code and never picks one; a type you do not answer for is left as it is. ");
+                body.Append("Old name -> new name is listed below. Applied at once; you can Undo from the Copilot chat. ");
             }
             else if (variant.NoUndo)
                 body.Append("Copilot loads the links at once. Loading a link clears Revit's Undo history, so this cannot be undone and the Undo entries made before it are lost. If a link's file is missing, Revit's file picker opens: choose the file. ");

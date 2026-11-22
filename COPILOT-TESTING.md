@@ -855,3 +855,19 @@ On a model whose ST/ME/EL links are Unloaded (the test model has 6):
 - [ ] JKR pane: C5.1.1 row of an unloaded link shows "Fix via Copilot"; the confirm says loading a link clears Revit's Undo history; after the turn the row re-checks to Pass. A discipline with no link at all has no button.
 - [ ] Not verified yet (record here): a workshared host, a linked file saved in another Revit version, a closed workset, a nested link, Revit Server / cloud paths, the `WorksetConfiguration` argument on a non-workshared link.
 - [ ] Known limit: Revit's `Load`/`LoadFrom` run on Revit's thread with no way to cancel, so a big or slow linked file freezes Revit's UI until the load ends. Watch the time on a large link and note it here.
+
+## bind_parameters (AI-530, WP-8): Revit test-box checklist
+
+`bind_parameters` binds existing JKR shared parameters (definitions in the loaded official JKR shared parameter file) to the categories the JKR spec lists (Buku Parameter AR tables), as instance or type from the name. It runs in the normal write path inside one Transaction, so one Undo restores it. It is estimate-only (no rolled-back preview group). Revit-free logic is covered by `Tests/BindParametersTests.cs`; everything below needs Revit. Use a COPY of the model; the spike model (jkrAR24 ...) has 291 bindings before.
+
+- [ ] No JKR file loaded (Manage > Shared Parameters empty): refused `not_allowed`, nothing changes, bindings still 291.
+- [ ] The stub file `%APPDATA%\RevitWebAppSync\jkr_shared_params.txt` made by the old auto-fix ("Provisioned by BINA JKR auto-fix") loaded: refused as not the official file.
+- [ ] Official JKR file loaded, `dry_run:true` for one unbound `_jkr_stt` name: result is `noop`, the data lists the plan (will bind, categories, type/instance), bindings still 291, Undo list unchanged.
+- [ ] Same call without `dry_run`: parameter bound to the spec categories; the card says Bound 1; `verified: exists`; Manage > Project Parameters shows it with the right categories and Type/Instance; ONE Undo removes the binding (count back to 291) and the pane shows an Undo chip.
+- [ ] A parameter bound to some of its categories: ReInsert extends it; old categories kept; the group (Identity Data etc.) is unchanged. RECORD whether `api_returned` is true. If false on a row, copy that row (api_call, api_returned, after_categories) into the PR: that is the WP-1 'Occupant' question (the spike mutated the iterated binding in place; this tool builds a new binding object).
+- [ ] A name that is not in the JKR file: row "not in the JKR file", never created. A non-JKR name (`Comments`): `invalid_args`.
+- [ ] A parameter already bound as the other kind (type vs instance): row "kind conflict", left alone.
+- [ ] Same name as a legacy project parameter with another GUID: row "name clash", nothing bound.
+- [ ] After Undo, ask again: it binds again (nothing cached). Run it twice in a row: second run is `noop` (already bound).
+- [ ] JKR pane Db.1 row "tiada: X": Fix via Copilot binds X first, then fills values with set_parameters. The row re-checks.
+- [ ] Not verified yet (record here): the engine's change recorder seeing a binding change (a non-noop bind_parameters result forces the group to be kept; if Undo shows no entry, that is the bug), a workshared host, a Revit version other than 2027, bound categories whose element types are locked.

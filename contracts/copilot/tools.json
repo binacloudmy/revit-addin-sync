@@ -540,6 +540,35 @@
     }
   },
   {
+    "name": "bind_parameters",
+    "kind": "write",
+    "description": "Bind existing JKR shared parameters (names from the loaded official JKR file, like Kod_Jenis_jkr_stt) to the categories the JKR spec lists, so set_parameters can then fill them. Never creates a parameter or changes Instance/Type; refuses if the JKR file is not loaded. dry_run true: plan only. Reports each parameter bound, already bound or failed with the reason. One Undo restores it.",
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["parameters"],
+      "properties": {
+        "parameters": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 40,
+          "items": { "type": "string" },
+          "description": "JKR shared parameter names, as the file spells them."
+        },
+        "categories": {
+          "type": "array",
+          "maxItems": 20,
+          "items": { "type": "string" },
+          "description": "Only these Revit categories (Doors, Walls), if the spec lists them. Default: all it lists."
+        },
+        "dry_run": {
+          "type": "boolean",
+          "description": "true: plan only, change nothing."
+        }
+      }
+    }
+  },
+  {
     "name": "lookup",
     "kind": "server",
     "description": "Look things up instead of guessing. knowledge: JKR spec, JKR parameter rules, naming segments, Revit API members and fixes for Revit warnings, with citations. playbook: a step-by-step procedure with known traps for a job in the playbook list. rules: rule set ids for check. Meanings of JKR codes, parameters and naming must come from here, never from memory.",

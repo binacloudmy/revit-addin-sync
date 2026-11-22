@@ -20,7 +20,7 @@ namespace RevitWebAppSync.Tests
             var en = Assert.Single(JkrCopilotPrompt.Build(Row()));
             Assert.Contains("Actual: Door 1", en);
             Assert.Contains("Category: Doors", en);
-            Assert.Contains("- 11 — Doors · Door 1", en);
+            Assert.Contains("- 11 — Doors · \"Door 1\" -> ASK", en);
             Assert.DoesNotContain("- 12 ", en);   // Da.1 is type-level: ids 11 and 12 share one type, so one id is listed
         }
 
@@ -61,7 +61,7 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(new long[] { 11 }, JkrCopilotPrompt.TargetIds(facts));
             var confirm = JkrCopilotConfirm.Build(facts);
             Assert.Equal("Let Copilot change 1 type (2 instances) for check Da.1?", confirm.Heading);
-            Assert.Contains("11 — Doors · Door 1", confirm.Details);
+            Assert.Contains("11 — Doors · \"Door 1\" -> ASK", confirm.Details);
             Assert.DoesNotContain("12 —", confirm.Details);
         }
     }

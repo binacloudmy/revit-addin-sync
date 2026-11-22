@@ -1107,7 +1107,7 @@
   "Floors": [
    {
     "Id": 207000,
-    "TypeName": "jkrAR_LT_RC_150",
+    "TypeName": "jkrAR_LT_RC_(LTk101) 150",
     "LevelName": "Aras Tanah",
     "MinX": 0,
     "MinY": 0,
@@ -1118,7 +1118,7 @@
    },
    {
     "Id": 207001,
-    "TypeName": "jkrAR_LT_RC_150",
+    "TypeName": "jkrAR_LT_RC_(LTk101) 150",
     "LevelName": "Aras 01",
     "MinX": 0,
     "MinY": 0,
@@ -1129,7 +1129,7 @@
    },
    {
     "Id": 207002,
-    "TypeName": "jkrAR_LT_RC_150",
+    "TypeName": "jkrAR_LT_RC_(LTk101) 150",
     "LevelName": "Aras 02",
     "MinX": 0,
     "MinY": 0,
@@ -1140,7 +1140,7 @@
    },
    {
     "Id": 207003,
-    "TypeName": "jkrAR_LT_RC_150",
+    "TypeName": "jkrAR_LT_RC_(LTk101) 150",
     "LevelName": "Aras 03",
     "MinX": 0,
     "MinY": 0,
@@ -1151,7 +1151,7 @@
    },
    {
     "Id": 207004,
-    "TypeName": "jkrAR_LT_RC_150",
+    "TypeName": "jkrAR_LT_RC_(LTk101) 150",
     "LevelName": "Aras 04",
     "MinX": 0,
     "MinY": 0,
@@ -1164,31 +1164,31 @@
   "Ceilings": [
    {
     "Id": 208000,
-    "TypeName": "jkrAR_SL_Gipsum_12",
+    "TypeName": "jkrAR_SL_Gipsum_(SLg101) 12",
     "LevelName": "Aras Tanah",
     "HeightOffset": 3600
    },
    {
     "Id": 208001,
-    "TypeName": "jkrAR_SL_Gipsum_12",
+    "TypeName": "jkrAR_SL_Gipsum_(SLg101) 12",
     "LevelName": "Aras 01",
     "HeightOffset": 3000
    },
    {
     "Id": 208002,
-    "TypeName": "jkrAR_SL_Gipsum_12",
+    "TypeName": "jkrAR_SL_Gipsum_(SLg101) 12",
     "LevelName": "Aras 02",
     "HeightOffset": 3000
    },
    {
     "Id": 208003,
-    "TypeName": "jkrAR_SL_Gipsum_12",
+    "TypeName": "jkrAR_SL_Gipsum_(SLg101) 12",
     "LevelName": "Aras 03",
     "HeightOffset": 3000
    },
    {
     "Id": 208004,
-    "TypeName": "jkrAR_SL_Gipsum_12",
+    "TypeName": "jkrAR_SL_Gipsum_(SLg101) 12",
     "LevelName": "Aras 04",
     "HeightOffset": 3000
    }
@@ -1196,7 +1196,7 @@
   "Roofs": [
    {
     "Id": 209000,
-    "TypeName": "jkrAR_BM_RC_150",
+    "TypeName": "jkrAR_BM_RC_(BGc101) 150",
     "LevelName": "Aras Bumbung",
     "SlopeDegrees": 0,
     "Materials": [
@@ -1210,7 +1210,7 @@
    },
    {
     "Id": 209001,
-    "TypeName": "jkrAR_BM_Metal_Deck",
+    "TypeName": "jkrAR_BM_Metal_Deck_(BGc102)",
     "LevelName": "Aras Bumbung",
     "SlopeDegrees": 7.5,
     "Materials": [
@@ -1226,7 +1226,7 @@
     "TypeId": 5002,
     "Category": "Doors",
     "FamilyName": "jkrAR_PT1p",
-    "TypeName": "jkrAR_PT1p_900x2100",
+    "TypeName": "jkrAR_PT1p_(PTc080a) 900x2100",
     "InstanceCount": 4,
     "InstanceIds": [
      204511,
@@ -1252,7 +1252,7 @@
     "TypeId": 5003,
     "Category": "Doors",
     "FamilyName": "jkrAR_PT2p",
-    "TypeName": "jkrAR_PT2p_1500x2100",
+    "TypeName": "jkrAR_PT2p_(PTc081a) 1500x2100",
     "InstanceCount": 2,
     "InstanceIds": [
      204700,
@@ -1275,7 +1275,7 @@
     "TypeId": 5004,
     "Category": "Doors",
     "FamilyName": "jkrAR_PU2p",
-    "TypeName": "jkrAR_PU2p_1800x2400 (Pintu Utama)",
+    "TypeName": "jkrAR_PU2p_(PTc082a) 1800x2400 (Pintu Utama)",
     "InstanceCount": 1,
     "InstanceIds": [
      204800
@@ -1298,7 +1298,7 @@
     "TypeId": 5102,
     "Category": "Walls",
     "FamilyName": "Basic Wall",
-    "TypeName": "jkrAR_DD_Bata_115",
+    "TypeName": "jkrAR_DD_Bata_(DGb493a) 115",
     "InstanceCount": 4,
     "InstanceIds": [
      205002,
@@ -1321,7 +1321,7 @@
     "TypeId": 5103,
     "Category": "Walls",
     "FamilyName": "Basic Wall",
-    "TypeName": "jkrAR_DD_Bata_150",
+    "TypeName": "jkrAR_DD_Bata_(DGb494a) 150",
     "InstanceCount": 1,
     "InstanceIds": [
      205200
@@ -1341,7 +1341,7 @@
     "TypeId": 5201,
     "Category": "Windows",
     "FamilyName": "jkrAR_TG",
-    "TypeName": "jkrAR_TG_1200x1500",
+    "TypeName": "jkrAR_TG_(TKk360a) 1200x1500",
     "InstanceCount": 3,
     "InstanceIds": [
      206100,
@@ -1361,7 +1361,7 @@
     "TypeId": 5301,
     "Category": "Floors",
     "FamilyName": "Floor",
-    "TypeName": "jkrAR_LT_RC_150",
+    "TypeName": "jkrAR_LT_RC_(LTk101) 150",
     "InstanceCount": 5,
     "InstanceIds": [
      207000,
@@ -1382,7 +1382,7 @@
     "TypeId": 5401,
     "Category": "Railings",
     "FamilyName": "Railing",
-    "TypeName": "jkrAR_PG_Hiasan_2400",
+    "TypeName": "jkrAR_PG_Hiasan_(TGc103) 2400",
     "InstanceCount": 2,
     "InstanceIds": [
      210000,
@@ -1402,7 +1402,7 @@
     "TypeId": 5501,
     "Category": "Ceilings",
     "FamilyName": "Compound Ceiling",
-    "TypeName": "jkrAR_SL_Gipsum_12",
+    "TypeName": "jkrAR_SL_Gipsum_(SLg101) 12",
     "InstanceCount": 5,
     "InstanceIds": [
      208000,
@@ -1421,7 +1421,7 @@
     "TypeId": 5601,
     "Category": "Roofs",
     "FamilyName": "Basic Roof",
-    "TypeName": "jkrAR_BM_RC_150",
+    "TypeName": "jkrAR_BM_RC_(BGc101) 150",
     "InstanceCount": 1,
     "InstanceIds": [
      209000
@@ -1439,7 +1439,7 @@
     "TypeId": 880000,
     "Category": "Railings",
     "FamilyName": "Railing",
-    "TypeName": "jkrAR_TG_Pagar Hiasan 2400",
+    "TypeName": "jkrAR_TG_Pagar Hiasan (TGc101) 2400",
     "InstanceCount": 1,
     "InstanceIds": [
      880001

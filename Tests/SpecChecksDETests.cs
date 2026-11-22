@@ -75,7 +75,7 @@ namespace RevitWebAppSync.Tests
         {
             var door1 = T("Doors", "Door 1");
             var basic = T("Walls", "Basic Wall");
-            var coded = T("Doors", "(PT2p600a) 900 x 2325 a");
+            var coded = T("Doors", "(PTc080a) 900 x 2325 a");
             var prefixed = T("Walls", "jkrAR_wll-b_(bb02)-3");
             var r = Run("Da.1", Model(door1, basic, coded, prefixed));
 
@@ -148,14 +148,14 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void Da1_with_only_coded_names_is_a_full_pass()
         {
-            var s = Report("Da.1", Model(T("Doors", "(PT2p600a) 900 x 2325 a")));
+            var s = Report("Da.1", Model(T("Doors", "(PTc080a) 900 x 2325 a")));
             Assert.Equal(SpecState.Pass, s.State);
         }
 
         [Fact]
         public void Da1_one_generic_name_among_coded_ones_fails_the_check()
         {
-            var s = Report("Da.1", Model(T("Doors", "(PT2p600a) 900 x 2325 a"), T("Doors", "Door 1")));
+            var s = Report("Da.1", Model(T("Doors", "(PTc080a) 900 x 2325 a"), T("Doors", "Door 1")));
             Assert.Equal(SpecState.Fail, s.State);
         }
 
@@ -263,7 +263,7 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void Dc1_door_width_and_height_from_the_name()
         {
-            var got = SpecChecks.NameNumbers("Doors", "(PT2p600a) 900 x 2325 a");
+            var got = SpecChecks.NameNumbers("Doors", "(PTc080a) 900 x 2325 a");
             Assert.Equal(new[] { ("Width", 900.0), ("Height", 2325.0) }, got.Select(x => (x.Param, x.Value)));
             got = SpecChecks.NameNumbers("Windows", "M_Fixed 0915 x 1220mm");
             Assert.Equal(new[] { ("Width", 915.0), ("Height", 1220.0) }, got.Select(x => (x.Param, x.Value)));
@@ -276,7 +276,7 @@ namespace RevitWebAppSync.Tests
             wall.Numbers["Width"] = 150;
             var wallOk = T("Walls", "Wall 200");
             wallOk.Numbers["Width"] = 200;
-            var door = T("Doors", "(PT2p600a) 900 x 2325 a");
+            var door = T("Doors", "(PTc080a) 900 x 2325 a");
             door.Numbers["Width"] = 900; door.Numbers["Height"] = 2100;
             var noHeight = T("Doors", "(PT1p850a) 850 x 2100");
             noHeight.Numbers["Width"] = 850;
@@ -288,7 +288,7 @@ namespace RevitWebAppSync.Tests
             Assert.Contains("Width 150 mm (name: 146 mm)", w.Note);
             Assert.Equal("Width 150 mm", w.Actual);
             Assert.Equal("Width 146 mm", w.Required);
-            var d = fails.Single(f => f.ElementName.StartsWith("Doors · (PT2p600a)"));
+            var d = fails.Single(f => f.ElementName.StartsWith("Doors · (PTc080a)"));
             Assert.Contains("Height 2100 mm (name: 2325 mm)", d.Note);
             Assert.DoesNotContain("Width 900", d.Note);
 
@@ -369,7 +369,7 @@ namespace RevitWebAppSync.Tests
         public void Dc1_left_out_type_does_not_hold_back_the_pass_of_the_others()
         {
             var ceiling = Read(T("Ceilings", "Compound Ceiling 600"), "Comments");
-            var door = Read(T("Doors", "(PT2p600a) 900 x 2100"), "Width", "Height");
+            var door = Read(T("Doors", "(PTc080a) 900 x 2100"), "Width", "Height");
             door.Numbers["Width"] = 900; door.Numbers["Height"] = 2100;
             var res = Report("Dc.1", Model(ceiling, door));
             Assert.Equal(SpecState.Pass, res.State);
@@ -450,7 +450,7 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void Dd1_every_name_judged_is_a_full_pass_and_a_mismatch_fails()
         {
-            var okDoor = T("Doors", "(PT2p600a) 900 x 2325 a");
+            var okDoor = T("Doors", "(PTc080a) 900 x 2325 a");
             var okWall = T("Walls", "Wall 146");
             var r = Run("Dd.1", Model(okDoor, okWall));
             Assert.All(r, x => Assert.Equal(SpecCoverage.Full, x.Coverage));
@@ -464,7 +464,7 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void Dd1_a_type_whose_name_says_nothing_keeps_the_pass_partial()
         {
-            var okDoor = T("Doors", "(PT2p600a) 900 x 2325 a");
+            var okDoor = T("Doors", "(PTc080a) 900 x 2325 a");
             var silent = T("Walls", "jkrAR_xyz_(q1)");   // no code prefix in the table, no keyword
             var m = Model(okDoor, silent);
             Assert.Equal(SpecCoverage.FailOnly, Passes(Run("Dd.1", m)).First().Coverage);
@@ -477,7 +477,7 @@ namespace RevitWebAppSync.Tests
             var tkInDoors = T("Doors", "(TKh281a) 600 x 1800");
             var windowInDoors = T("Doors", "Window 1200");
             var floorAsGeneric = T("Generic Models", "Floor 150");
-            var okDoor = T("Doors", "(PT2p600a) 900 x 2325 a");
+            var okDoor = T("Doors", "(PTc080a) 900 x 2325 a");
             var okWall = T("Walls", "Wall 146");
             var r = Run("Dd.1", Model(tkInDoors, windowInDoors, floorAsGeneric, okDoor, okWall));
 

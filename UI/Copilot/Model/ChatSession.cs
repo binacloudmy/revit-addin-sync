@@ -461,6 +461,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 ToolNames.Look => ms ? "Mengambil imej model" : "Taking a picture of the model",
                 ToolNames.RunRevitCode => ms ? "Menjalankan kod Revit" : "Running Revit code",
                 ToolNames.LoadLink => ms ? "Memuatkan pautan Revit" : "Loading Revit links",
+                ToolNames.BindParameters => ms ? "Mengikat parameter JKR" : "Binding JKR parameters",
                 _ => tool,
             };
         }
