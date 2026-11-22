@@ -135,7 +135,7 @@ namespace BinaVibe.Copilot.Code
         public static CSharpParseOptions ParseOptions(LanguageVersion version) =>
             new CSharpParseOptions(version, DocumentationMode.None, SourceCodeKind.Regular);
 
-        public static WrappedCode Build(string? code, WrapperProfile profile = WrapperProfile.Revit, LanguageVersion? version = null)
+        public static WrappedCode Build(string? code, WrapperProfile profile = WrapperProfile.Revit, LanguageVersion? version = null, bool enforce = true)
         {
             var model = code ?? "";
             var prefix = Prefix(profile);
@@ -144,12 +144,12 @@ namespace BinaVibe.Copilot.Code
                 SourceText.From(text, Encoding.UTF8),
                 ParseOptions(version ?? CodePolicySet.Default.LanguageVersion),
                 TreePath);
-            return Analyze(tree, new TextSpan(prefix.Length, model.Length), profile);
+            return Analyze(tree, new TextSpan(prefix.Length, model.Length), profile, enforce);
         }
 
         /// <summary>Re-reads a tree this class built (or the budget rewriter produced from one):
         /// finds Run's body and the model's text between its braces, and runs the same checks.</summary>
-        public static WrappedCode FromTree(SyntaxTree tree)
+        public static WrappedCode FromTree(SyntaxTree tree, bool enforce = true)
         {
             var root = (CompilationUnitSyntax)tree.GetRoot();
             foreach (var profile in new[] { WrapperProfile.Revit, WrapperProfile.Pure })
@@ -158,12 +158,12 @@ namespace BinaVibe.Copilot.Code
                 if (run?.Body == null) continue;
                 var start = run.Body.OpenBraceToken.Span.End + 1;            // after "{\n"
                 var end = Math.Max(start, run.Body.CloseBraceToken.SpanStart - 1); // before "\n}"
-                return Analyze(tree, TextSpan.FromBounds(start, end), profile);
+                return Analyze(tree, TextSpan.FromBounds(start, end), profile, enforce);
             }
-            return Analyze(tree, new TextSpan(0, 0), WrapperProfile.Revit);
+            return Analyze(tree, new TextSpan(0, 0), WrapperProfile.Revit, enforce);
         }
 
-        private static WrappedCode Analyze(SyntaxTree tree, TextSpan span, WrapperProfile profile)
+        private static WrappedCode Analyze(SyntaxTree tree, TextSpan span, WrapperProfile profile, bool enforce)
         {
             var model = tree.GetText().ToString(span);
             var wrapped = new WrappedCode(model, profile, tree, span)
@@ -204,7 +204,7 @@ namespace BinaVibe.Copilot.Code
                 wrapped.Body = run.Body;
                 var parseErrors = tree.GetDiagnostics().Where(d => d.Severity == DiagnosticSeverity.Error).ToList();
                 if (parseErrors.Count > 0) wrapped.ParseErrors = parseErrors;
-                else violations.AddRange(BannedSyntax(wrapped, run.Body, root));
+                else if (enforce) violations.AddRange(BannedSyntax(wrapped, run.Body, root)); // safety off: banned forms are not policy-rejected
             }
 
             wrapped.Violations = violations;

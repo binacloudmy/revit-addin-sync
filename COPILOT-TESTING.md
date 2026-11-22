@@ -833,3 +833,11 @@ Backend E2E against local `app/main.py` (staging Azure DB, migration `0020_user_
 Pane-side (staging backend, UiHarness `--pane`): Save sheet opens from the reply footer with real tools listed; sheet is the design's tappable sentence (candidates dashed, holes as label chips, Edit wording toggle); input chips render in-composer with placeholders and the required-gate. Full in-Revit smoke (tool-executing turn end-to-end) still pending the next Revit session.
 
 Note: the local backend honours the addin's `X-Tenant-Id` header (dev posture) — the pane's tenant is `vibe.json` TenantId (default `default`). Deployed staging resolves tenant from the bearer instead.
+
+## Copilot safety switch (default OFF)
+
+`BinaVibe/Copilot/Code/CopilotSafety.cs` holds the one flag. Unset = safety OFF: `run_revit_code` rejects nothing on policy grounds
+(code-policy.json symbol/path/namespace rules, banned statement forms, write-only clock/Random/Guid denial).
+Compile errors, runtime errors, the statements-only wrapper, mode classification, preview/undo and logging are unchanged.
+Set `BINA_COPILOT_SAFETY=1` (or `true`/`on`/`yes`) in the environment of the Revit process to restore today's behaviour. Read once at start-up.
+The test assembly runs with the flag on (module initializer in `Tests/CopilotSafetySwitchTests.cs`); that file pins both states per policy via `new CodePolicySet(data, enforce: bool)`.

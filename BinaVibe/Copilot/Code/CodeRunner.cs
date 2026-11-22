@@ -221,7 +221,7 @@ namespace BinaVibe.Copilot.Code
                 if (errors.Count > 0)
                     return Internal(prepared, "the budget rewrite does not compile: " + errors[0].GetMessage());
 
-                var rewritten = StatementWrapper.FromTree(tree);
+                var rewritten = StatementWrapper.FromTree(tree, policy.Enforce);
                 var check = CodePolicy.CheckBoundTree(compilation, rewritten, policy);
                 if (!check.Allowed)
                     return Internal(prepared, "the budget rewrite added a symbol the policy denies: " + check.Violations[0]);

@@ -72,7 +72,7 @@ namespace BinaVibe.Copilot.Code
             WrapperProfile profile = WrapperProfile.Revit, CodePolicySet? policy = null)
         {
             policy ??= CodePolicySet.Default;
-            var wrapped = StatementWrapper.Build(code, profile, policy.LanguageVersion);
+            var wrapped = StatementWrapper.Build(code, profile, policy.LanguageVersion, policy.Enforce);
 
             if (!wrapped.IsStatementsOnly)
                 return new CodeAnalysis(wrapped, CodeStage.Rejected) { Violations = wrapped.Violations };

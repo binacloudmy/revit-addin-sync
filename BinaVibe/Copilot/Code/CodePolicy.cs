@@ -112,7 +112,8 @@ namespace BinaVibe.Copilot.Code
             var uses = SymbolUseCollector.Collect(model, wrapped.Body);
             var evaluator = new Evaluator(compilation, wrapped, policy, model, wrapped.Body);
             foreach (var use in uses) evaluator.Evaluate(use);
-            return new PolicyResult(evaluator.Violations, evaluator.Referenced, evaluator.Shimmed);
+            // Safety off: symbols are still walked (Referenced / Shimmed feed the budget rewrite), but nothing is denied.
+            return new PolicyResult(policy.Enforce ? evaluator.Violations : new List<PolicyViolation>(), evaluator.Referenced, evaluator.Shimmed);
         }
 
         /// <summary>"Ns.Type.Member" against a key, where a trailing * matches any member-name suffix.</summary>
