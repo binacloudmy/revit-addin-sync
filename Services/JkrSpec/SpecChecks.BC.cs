@@ -856,6 +856,31 @@ namespace RevitWebAppSync.Services.JkrSpec
             return false;
         }
 
+        private const string LacksMid = "' lacks the columns mandatory at LOi ";
+        private const string LacksEnd = " (PB p.37): ";
+
+        /// <summary>The C1.6.3 note of a room schedule that lacks PB columns. One builder and <see cref="TryLacksColumns"/> as its reader, so the
+        /// Fix via Copilot prompt (AI-531) takes the column names from the evaluator's own text, never from the model.</summary>
+        internal static string LacksNote(string schedule, int loi, IEnumerable<string> columns) =>
+            "Schedule '" + schedule + LacksMid + loi + LacksEnd + string.Join(", ", columns);
+
+        /// <summary>The missing columns named by a <see cref="LacksNote"/> line inside a row's description; false when no line says so.</summary>
+        internal static bool TryLacksColumns(string description, out List<string> columns)
+        {
+            columns = new List<string>();
+            foreach (var line in (description ?? "").Split('\n'))
+            {
+                var t = line.Trim();
+                if (!t.StartsWith("Schedule '", StringComparison.Ordinal)) continue;
+                var at = t.IndexOf(LacksMid, StringComparison.Ordinal);
+                var end = at < 0 ? -1 : t.IndexOf(LacksEnd, at, StringComparison.Ordinal);
+                if (end < 0) continue;
+                columns = t.Substring(end + LacksEnd.Length).Split(',').Select(c => c.Trim()).Where(c => c.Length > 0).Distinct().ToList();
+                return columns.Count > 0;
+            }
+            return false;
+        }
+
         /// <summary>
         /// C1.6.3 — every room schedule column has a value for every placed room: the schedules'
         /// visible fields, plus the Room columns the Buku Parameter marks at the project LOi
@@ -889,7 +914,7 @@ namespace RevitWebAppSync.Services.JkrSpec
                 var absent = pb.Where(f => !s.Fields.Any(x => SpecPbData.Key(x) == SpecPbData.Key(f))).ToList();
                 if (absent.Count == 0) continue;
                 fails++;
-                yield return SpecChecks.Fail(id, "Schedule '" + s.Name + "' lacks the columns mandatory at LOi " + loi + " (PB p.37): " + string.Join(", ", absent),
+                yield return SpecChecks.Fail(id, LacksNote(s.Name, loi, absent),
                         s.Id, "Schedule · " + s.Name, actual: absent.Count + " columns missing", required: "PB p.37 columns", key: "schedule|" + s.Id + "|" + s.Name,
                         coverage: cov);
             }

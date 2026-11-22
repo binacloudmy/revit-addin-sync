@@ -25,6 +25,28 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
+        public void C163_a_schedule_row_carries_the_columns_from_its_note_and_a_room_row_none_AI531()
+        {
+            var sch = new IssueVm
+            {
+                SpecCheckId = "C1.6.3", RevitCategory = "Schedule", Category = "Borang C",
+                Description = RevitWebAppSync.Services.JkrSpec.SpecBC.LacksNote("Room Finishes", 200, new[] { "Occupancy", "Department" }) + "\nModel: 2 columns missing",
+            };
+            sch.AddElements(new long[] { 900 }, "Schedule · Room Finishes");
+            var room = new IssueVm { SpecCheckId = "C1.6.3", RevitCategory = "Rooms", Category = "Borang C", Description = "Pejabat | Occupancy, Department" };
+            room.AddElements(new long[] { 101 }, "Rooms · Pejabat");
+            var f = JkrCopilotPrompt.FactsOfRows(new[] { sch, room });
+            Assert.Equal(new[] { "Occupancy", "Department" }, JkrCopilotPrompt.ColumnsOf(f, 900));
+            Assert.Empty(JkrCopilotPrompt.ColumnsOf(f, 101));
+            var p = Assert.Single(JkrCopilotPrompt.Build(f));
+            Assert.Contains("- 900 — schedule \"Room Finishes\" — add columns: Occupancy, Department", p);
+            Assert.Contains("- 101 — Rooms · Pejabat", p);
+            var other = new IssueVm { SpecCheckId = "Da.1", Description = "Schedule 'X' lacks the columns mandatory at LOi 200 (PB p.37): A" };
+            other.AddElements(new long[] { 5 }, "Doors · T");
+            Assert.Empty(JkrCopilotPrompt.FactsOf(other).Columns);   // only C1.6.3 reads columns
+        }
+
+        [Fact]
         public void IssueVm_with_no_ids_gives_no_prompt()
         {
             var r = Row(); r.ElementIds.Clear();
