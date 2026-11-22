@@ -40,6 +40,9 @@ namespace RevitWebAppSync.Services.JkrSpec
         public const string ResourceName = "jkr_howto_fix_steps.csv";
         public const string StepSeparator = " | ";
 
+        /// <summary>Added by the card (not in the csv) after the check's steps when the row is eligible for "Fix via Copilot".</summary>
+        public const string CopilotSentence = "Or use Fix via Copilot.";
+
         private static readonly Lazy<IReadOnlyDictionary<string, HowToFixEntry>> _all =
             new Lazy<IReadOnlyDictionary<string, HowToFixEntry>>(LoadEmbedded);
 
