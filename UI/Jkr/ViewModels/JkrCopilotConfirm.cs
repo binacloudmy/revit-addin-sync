@@ -65,6 +65,10 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             {
                 body.Append(variant.Change).Append($" on the TYPE of each element listed below (one id per type). The change applies to ALL {(atLeast ? "at least " : "")}{instances} instance{(instanceNo == 1 && !atLeast ? "" : "s")} of those types, listed or not. Category: {Cat(facts)}. Nothing is deleted. ");
             }
+            else if (variant.Playbook != null)
+            {
+                body.Append(variant.Change).Append(" for the items listed below only. No other element is touched and nothing is deleted. ");
+            }
             else
             {
                 body.Append(variant.Change).Append(" on the elements listed below only. ");
@@ -80,6 +84,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 if (src.Count > 0) body.Append(" (evidence: ").Append(string.Join("; ", src)).Append(')');
                 body.Append("; Copilot applies exactly those names and the category is not changed. Old name -> new name is listed below. Applied at once; you can Undo from the Copilot chat. ");
             }
+            else if (variant.Playbook != null)
+                body.Append("Copilot runs a stored playbook and applies it at once; if it needs a choice from you it asks first. You can Undo from the Copilot chat. ");
             else
             body.Append("Copilot works out the new values from the model and applies them at once; you can Undo from the Copilot chat. ");
             if (parts > 1)
@@ -95,6 +101,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 label = JkrCopilotPrompt.CleanLabel(label);
                 d.Append(id);
                 if (variant.NamesFromFacts) d.Append(" — ").Append(JkrCopilotPrompt.RenameLine(facts, id));
+                else if (variant.SetFromFacts) d.Append(label.Length > 0 ? " — " + label : "").Append(" — ").Append(JkrCopilotPrompt.SetLine(facts, id));
                 else if (label.Length > 0) d.Append(" — ").Append(label);
                 d.AppendLine();
             }

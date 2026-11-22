@@ -20,7 +20,19 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 ElementIds = issue.ElementIds,
                 ElementLabels = issue.ElementLabels,
                 Renames = RenamesOf(issue),
+                Sets = SetsOf(issue),
             };
+        }
+
+        /// <summary>E.1: the set of the failing row's views, read from its "required: template X" (the evaluator's own text).</summary>
+        private static IReadOnlyDictionary<long, string> SetsOf(IssueVm issue)
+        {
+            var map = new Dictionary<long, string>();
+            if ((issue.SpecCheckId ?? "").Trim() != "E.1") return map;
+            var set = RevitWebAppSync.Services.JkrSpec.SpecViewSets.SetFromRequired(issue.Required);
+            if (set.Length == 0) return map;
+            foreach (var id in issue.ElementIds ?? new List<long>()) if (id > 0) map[id] = set;
+            return map;
         }
 
         private static IReadOnlyDictionary<long, CopilotRename> RenamesOf(IssueVm issue)

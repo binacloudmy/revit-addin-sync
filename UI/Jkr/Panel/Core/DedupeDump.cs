@@ -30,7 +30,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             public List<long> FirstElementIds;
             public string ParamOfRule, ParamKey, ParamBaseKey, ParamKind;
             public bool ParamRule, Fixable, Extra, Kept;
-            public string FixAction, FixKey;
+            public string FixAction, FixKey, FixValue;
             public int TierBefore, TierAfter;
             public List<string> SpecParams;      // spec rows: every parameter listed
             public List<string> HeldParams;      // spec rows: those a fixable row reports instead
@@ -70,7 +70,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 Title = r.Title, Rule = r.RuleText, Category = r.Category, RevitCategory = r.Category, TypeName = r.TypeName, Family = r.Family, ElementLabel = r.ElementLabel,
                 ElementId = r.ElementId, ElementIdCount = ids.Count, FirstElementIds = ids.Take(5).ToList(),
                 ParamOfRule = r.Param, ParamKey = pk, ParamBaseKey = SpecDedupe.ParamBaseKey(r.Param), ParamKind = r.ParamKind,
-                ParamRule = r.ParamRule, Fixable = r.Fixable, Extra = r.Extra, FixAction = r.FixAction, FixKey = r.FixKey,
+                ParamRule = r.ParamRule, Fixable = r.Fixable, Extra = r.Extra, FixAction = r.FixAction, FixKey = r.FixKey, FixValue = r.FixValue,
                 TierBefore = r.Tier,
                 SpecParams = r.Source == SpecDedupe.FromModel ? (r.Params ?? new string[0]).ToList() : null,
                 Verdict = string.IsNullOrEmpty(verdict) ? "kept:no-dedupe-rule-applied" : verdict,

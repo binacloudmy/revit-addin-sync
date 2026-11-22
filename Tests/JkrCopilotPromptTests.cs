@@ -25,10 +25,10 @@ namespace RevitWebAppSync.Tests
         };
         private static readonly Regex OldSingular = new Regex(@"\bset_parameter\b");
 
-        private static readonly string[] FixableFamilies = { "Da.1", "Db.2", "Db.1", "Dc.1", "Dd.1", "A5.2", "C1.6.3", "C4.2.2" };
+        private static readonly string[] FixableFamilies = { "Da.1", "Db.2", "Db.1", "Dc.1", "Dd.1", "A5.2", "C1.6.3", "C4.2.2", "C4.1.3", "E.1", "C1.5.2" };
+        // WP-4/5: these two are stored playbook runs (run_revit_code), not set_parameters writes.
+        private static readonly string[] PlaybookFamilies = { "C4.1.3", "E.1", "C1.5.2" };
         public static IEnumerable<object[]> Families() => FixableFamilies.Select(i => new object[] { i });
-        // WP-3: families that run a stored playbook through run_revit_code (no set_parameters, no confirmed_write field).
-        private static readonly string[] PlaybookFamilies = { "C1.5.2" };
 
         private static CopilotPromptFacts Facts(string check, int n, string cat = "Doors")
         {
@@ -37,6 +37,7 @@ namespace RevitWebAppSync.Tests
             {
                 CheckId = check, Category = cat, Required = "JKR code", Actual = "Door 1",
                 ElementIds = ids, ElementLabels = ids.ToDictionary(i => i, i => "Doors · T" + i),
+                Sets = check == "E.1" ? ids.ToDictionary(i => i, i => "BOMBA") : new Dictionary<long, string>(),
                 Renames = check == "Dd.1" ? ids.ToDictionary(i => i, i => new CopilotRename { Old = "Door T" + i, New = "Window T" + i, Source = "the type name's first word" }) : new Dictionary<long, CopilotRename>(),
             };
         }
@@ -44,8 +45,8 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void The_families_with_wording_are_exactly_the_allowed_ones()
         {
-            Assert.Equal(FixableFamilies.Concat(PlaybookFamilies).OrderBy(x => x), JkrCopilotFix.Allowed.OrderBy(x => x));
-            foreach (var id in FixableFamilies.Concat(PlaybookFamilies)) Assert.True(JkrCopilotPrompt.HasVariant(id), id);
+            Assert.Equal(FixableFamilies.OrderBy(x => x), JkrCopilotFix.Allowed.OrderBy(x => x));
+            foreach (var id in FixableFamilies) Assert.True(JkrCopilotPrompt.HasVariant(id), id);
         }
 
         [Theory]
@@ -57,7 +58,8 @@ namespace RevitWebAppSync.Tests
             Assert.StartsWith(v.Task, p);
             Assert.Contains(id, p);
             Assert.Contains(v.How, p);
-            Assert.Contains("set_parameters", v.How);
+            if (PlaybookFamilies.Contains(id)) Assert.NotNull(v.Playbook);
+            else Assert.Contains("set_parameters", v.How);
             Assert.NotEmpty(v.Change);
         }
 
@@ -76,6 +78,98 @@ namespace RevitWebAppSync.Tests
                     foreach (Match m in Regex.Matches(p, @"\b[a-z]+_[a-z_]+\b"))
                         Assert.Contains(m.Value, EngineTools.Concat(new[] { "type_param" }));
                 }
+        }
+
+        private static CopilotPromptFacts PlaybookFacts(string check, string cat, params (long Id, string Label)[] rows) => new CopilotPromptFacts
+        {
+            CheckId = check, Category = cat, Required = "x", Actual = "y",
+            ElementIds = rows.Select(r => r.Id).ToList(), ElementLabels = rows.ToDictionary(r => r.Id, r => r.Label),
+        };
+
+        [Fact]
+        public void C413_places_a_view_by_the_playbook_asks_which_view_and_never_deletes_a_sheet_WP4()
+        {
+            var v = JkrCopilotPrompt.VariantFor("C4.1.3");
+            Assert.Equal("place-view-on-sheet", v.Playbook);
+            Assert.Empty(v.Params);                                   // no confirmed_write field: the playbook run is not a set_parameters write
+            Assert.Contains("playbook \"place-view-on-sheet\"", v.How);
+            Assert.Contains("ask me once with ask_user which view goes on each sheet", v.How);
+            Assert.Contains("Never choose a view yourself and never create a view", v.How);
+            Assert.Contains("Never delete a sheet", v.How);
+            Assert.DoesNotContain("set_parameters", v.How);
+            var p = Assert.Single(JkrCopilotPrompt.Build(PlaybookFacts("C4.1.3", "Sheets", (501, "Sheets · A-101 Plan"), (502, "Sheets · A-102 Section"))));
+            Assert.StartsWith(v.Task, p);
+            Assert.Contains("- 501 — Sheets · A-101 Plan", p);
+            Assert.Contains("only to read names with inspect", p);
+            Assert.DoesNotContain("ids only as the target", p);       // the set_parameters footer is for set_parameters families
+            Assert.DoesNotContain("Baiki", p);                        // English only (AI-513)
+            Assert.Null(JkrCopilotConfirmedWrite.ForPart(PlaybookFacts("C4.1.3", "Sheets", (501, "A")), 0));
+        }
+
+        private static CopilotPromptFacts E1Facts(params (long Id, string Label, string Set)[] rows) => new CopilotPromptFacts
+        {
+            CheckId = "E.1", Category = "Views", Required = "template BOMBA", Actual = "none",
+            ElementIds = rows.Select(r => r.Id).ToList(), ElementLabels = rows.ToDictionary(r => r.Id, r => r.Label),
+            Sets = rows.Where(r => r.Set != null).ToDictionary(r => r.Id, r => r.Set),
+        };
+
+        [Fact]
+        public void E1_lists_the_set_the_evaluator_decided_per_view_and_tells_copilot_to_match_a_template_by_it_WP5_followup()
+        {
+            var v = JkrCopilotPrompt.VariantFor("E.1");
+            Assert.Equal("apply-view-template", v.Playbook);
+            Assert.True(v.SetFromFacts);
+            Assert.Empty(v.Params);
+            Assert.Contains("playbook \"apply-view-template\"", v.How);
+            Assert.Contains("never read the set from the view's name", v.How);
+            Assert.Contains("only when exactly one name does", v.How);
+            Assert.Contains("When none or several do, ask me once with ask_user", v.How);
+            Assert.Contains("templateFor", v.How);
+            Assert.Contains("Never create, duplicate or change a view template", v.How);
+            Assert.Contains("C1.1.1", v.How);
+            Assert.DoesNotContain("set_parameters", v.How);
+            var p = Assert.Single(JkrCopilotPrompt.Build(E1Facts((601, "Views · Aras 01 (BOMBA)", "BOMBA"), (602, "Views · Aras 01 (PBT)", "PBT"), (603, "Views · Mystery", null))));
+            Assert.Contains("- 601 — Views · Aras 01 (BOMBA) — set BOMBA (required: template BOMBA)", p);
+            Assert.Contains("- 602 — Views · Aras 01 (PBT) — set PBT (required: template PBT)", p);
+            Assert.DoesNotContain("603", p);   // no evaluator set: a person decides, nothing is listed or written
+            Assert.Contains("only to read names with inspect", p);
+            Assert.Contains("Do not delete anything", p);
+        }
+
+        [Fact]
+        public void E1_with_no_evaluator_set_on_any_view_gives_no_prompt_and_merge_keeps_each_ids_set()
+        {
+            Assert.Empty(JkrCopilotPrompt.Build(E1Facts((601, "Views · v", null))));
+            var m = JkrCopilotPrompt.MergeFacts(new[] { E1Facts((601, "a", "BOMBA")), E1Facts((602, "b", "Dokumen")) });
+            Assert.Equal("BOMBA", JkrCopilotPrompt.SetOf(m, 601));
+            Assert.Equal("Dokumen", JkrCopilotPrompt.SetOf(m, 602));
+            Assert.Equal(new long[] { 601, 602 }, JkrCopilotPrompt.TargetIds(m));
+        }
+
+        [Fact]
+        public void The_set_comes_from_the_evaluators_required_text_only_WP5_followup()
+        {
+            Assert.Equal("BOMBA", SpecViewSets.SetFromRequired("template BOMBA"));
+            Assert.Equal("PBT", SpecViewSets.SetFromRequired(" Template pbt "));
+            Assert.Equal("Dokumen", SpecViewSets.SetFromRequired("template Dokumen"));
+            Assert.Equal("", SpecViewSets.SetFromRequired("template WIP"));          // no WIP template rule
+            Assert.Equal("", SpecViewSets.SetFromRequired("template BOMBA PBT"));
+            Assert.Equal("", SpecViewSets.SetFromRequired("jkrAR_Bomba"));
+            Assert.Equal("", SpecViewSets.SetFromRequired(null));
+        }
+
+        [Fact]
+        public void The_playbook_families_are_chunked_in_parts_of_fifty_and_confirm_lists_the_set_WP45()
+        {
+            var ids = Enumerable.Range(1, 120).Select(i => (long)(7000 + i)).ToList();
+            var f = new CopilotPromptFacts { CheckId = "E.1", Category = "Views", ElementIds = ids, ElementLabels = ids.ToDictionary(i => i, i => "Views · v" + i), Sets = ids.ToDictionary(i => i, i => "PBT") };
+            Assert.Equal(3, JkrCopilotPrompt.Build(f).Count);
+            var c = JkrCopilotConfirm.Build(f);
+            Assert.Contains("Apply the view template of its set to the views for the items listed below only", c.Body);
+            Assert.Contains("stored playbook", c.Body);
+            Assert.DoesNotContain("works out the new values", c.Body);
+            Assert.Contains("nothing is deleted", c.Body);
+            Assert.Contains("7001 — Views · v7001 — set PBT (required: template PBT)", c.Details);
         }
 
         private static CopilotPromptFacts Dd1Facts(params (long Id, string Label, string Old, string New)[] rows) => new CopilotPromptFacts
@@ -257,7 +351,7 @@ namespace RevitWebAppSync.Tests
             {
                 var p = Assert.Single(JkrCopilotPrompt.Build(Facts(id, 2)));
                 Assert.DoesNotMatch(new Regex(@"\b(Yes/No|Yes or No)\b", RegexOptions.IgnoreCase), p);
-                if (p.Contains("ask_user")) Assert.True(id == "C1.6.3" || id == "C4.2.2", id);
+                if (p.Contains("ask_user")) Assert.True(id == "C1.6.3" || id == "C4.2.2" || PlaybookFamilies.Contains(id), id);
             }
         }
 
