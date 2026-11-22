@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using RevitWebAppSync.UI.Jkr.Panel.Core;
@@ -55,6 +56,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 c.Details = string.Join(Environment.NewLine, ids.Take(MaxListed).Select(i => i + " — " + JkrCopilotPrompt.LevelNameOf(facts, i)).Concat(ids.Count > MaxListed ? new[] { $"... and {ids.Count - MaxListed} more" } : new string[0]));
                 return c;
             }
+            var scheduleIds = variant.ColumnsFromFacts ? ids.Where(i => JkrCopilotPrompt.IsScheduleId(facts, i)).ToList() : new List<long>();
             if (typeLevel)
                 c.Heading = $"Let Copilot change {ids.Count} type{(ids.Count == 1 ? "" : "s")} ({instances} instance{(instanceNo == 1 && !capped ? "" : "s")}) for check {checkId}?";
             else
@@ -64,6 +66,12 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             if (typeLevel)
             {
                 body.Append(variant.Change).Append($" on the TYPE of each element listed below (one id per type). The change applies to ALL {(atLeast ? "at least " : "")}{instances} instance{(instanceNo == 1 && !atLeast ? "" : "s")} of those types, listed or not. Category: {Cat(facts)}. Nothing is deleted. ");
+            }
+            else if (scheduleIds.Count > 0)
+            {
+                body.Append("Add the mandatory columns to the " + scheduleIds.Count + " room schedule" + (scheduleIds.Count == 1 ? "" : "s") + " listed below with the stored playbook edit-schedule")
+                    .Append(scheduleIds.Count < ids.Count ? ", and fill empty values on the " + (ids.Count - scheduleIds.Count) + " room" + (ids.Count - scheduleIds.Count == 1 ? "" : "s") + " listed below" : "")
+                    .Append(". Only the items listed are changed: no schedule is made, filtered or deleted and nothing else is deleted. ");
             }
             else if (variant.Playbook != null || variant.NoUndo)
             {
@@ -86,6 +94,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             }
             else if (variant.NoUndo)
                 body.Append("Copilot loads the links at once. Loading a link clears Revit's Undo history, so this cannot be undone and the Undo entries made before it are lost. If a link's file is missing, Revit's file picker opens: choose the file. ");
+            else if (scheduleIds.Count > 0)
+                body.Append("Copilot adds the columns at once; room values it cannot take from the model it asks you for, and never guesses. If the project has no parameter for a column, the column is skipped and Copilot says so. You can Undo from the Copilot chat. ");
             else if (variant.Playbook != null)
                 body.Append("Copilot runs a stored playbook and applies it at once; if it needs a choice from you it asks first. You can Undo from the Copilot chat. ");
             else
@@ -104,6 +114,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 d.Append(id);
                 if (variant.NamesFromFacts) d.Append(" — ").Append(JkrCopilotPrompt.RenameLine(facts, id));
                 else if (variant.SetFromFacts) d.Append(label.Length > 0 ? " — " + label : "").Append(" — ").Append(JkrCopilotPrompt.SetLine(facts, id));
+                else if (scheduleIds.Contains(id)) d.Append(" — schedule \"").Append(JkrCopilotPrompt.ScheduleNameOf(facts, id)).Append("\" — add columns: ").Append(string.Join(", ", JkrCopilotPrompt.ColumnsOf(facts, id)));
                 else if (label.Length > 0) d.Append(" — ").Append(label);
                 d.AppendLine();
             }
