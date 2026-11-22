@@ -182,6 +182,12 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// Checks that only the backend answers are then "not checked", never passed.</summary>
         public string BackendError = "";
         public bool BackendUnavailable => !string.IsNullOrEmpty(BackendError);
+        /// <summary>AI-506: the sources of the run that gave nothing ("backend", "BIM010", "spec"). A run with any is partial:
+        /// its board is not final, and Fix all is not offered from it.</summary>
+        public List<string> MissingSources = new List<string>();
+        public bool IsPartial => BackendUnavailable || MissingSources.Count > 0;
+        /// <summary>How many sources are missing (the backend counts once, however it is reported).</summary>
+        public int MissingCount => MissingSources.Union(BackendUnavailable ? new[] { "backend" } : new string[0]).Count();
 
         public int PassChecks => Count(SpecState.Pass);
         public int FailChecks => Count(SpecState.Fail);

@@ -1393,6 +1393,7 @@ namespace RevitWebAppSync.UI
             // The add-in's spec evaluators: pure, off Revit's thread, alongside the
             // backend call. A failure gives no model results, never a pass.
             var specModel = snapshot.SpecModel;
+            var specEvaluatorsFailed = false;
             var modelTask = specModel == null
                 ? Task.FromResult(new List<Jkr.Panel.Core.SpecResult>())
                 : Task.Run(() =>
@@ -1401,6 +1402,7 @@ namespace RevitWebAppSync.UI
                     catch (Exception specEx)
                     {
                         System.Diagnostics.Debug.WriteLine($"[BINA SPEC] evaluators failed: {specEx}");
+                        specEvaluatorsFailed = true;
                         return new List<Jkr.Panel.Core.SpecResult>();
                     }
                 });
@@ -1446,26 +1448,27 @@ namespace RevitWebAppSync.UI
             SetAuthRequired(false);
             ElementRulesRan?.Invoke(backendError == null ? response : null);
 
-            var issues = IssueMapper.MapAll(response);
+            var backendIssues = IssueMapper.MapAll(response);
 
             // BIM010 rows from fill_audit join the list (before the audit-store
             // merge, so Ignore / Manual decisions apply to them too), and the
             // section-and-cell summary is built from both sources.
             var auditIssues = IssueMapper.FromAuditRecords(snapshot.AuditRecords);
-            var knownIds = new HashSet<string>(issues.Select(i => i.Id));
-            issues.AddRange(auditIssues.Where(i => knownIds.Add(i.Id)));
             // The spec evaluators' findings join the same way (stable ids, so the
             // audit-store merge below keeps their Ignore / Reviewed decisions).
             var modelResults = await modelTask;
-            issues.AddRange(IssueMapper.FromModelResults(modelResults, Jkr.Panel.Core.PaneLanguage.Current)
-                .Where(i => !string.IsNullOrEmpty(i.Id) && knownIds.Add(i.Id)));
-            // AI-479: A2.1 / A4.1 / B1.1 come from up to three sources: one row per problem, one tier.
-            JkrIssueCounts.DedupeBySpecCheck(issues);
+            var modelIssues = IssueMapper.FromModelResults(modelResults, Jkr.Panel.Core.PaneLanguage.Current);
+            // AI-479 / AI-506: one list from the three sources, one row per problem (A2.1 / A4.1 / B1.1 and
+            // Db.1 against the backend's "Missing ... Parameter" rows), one tier. Same input, same list.
+            var issues = JkrIssueCounts.MergeSources(backendIssues, auditIssues, modelIssues);
             // The same run against the spec's 61 checks (Checklist tab). Built from
             // every result — MapAll above drops passes — plus the BIM010 records and
             // the spec evaluators' results.
             var specResults = IssueMapper.ToSpecResults(response, snapshot.AuditRecords, modelResults);
             _vm.Spec = Jkr.Panel.Core.SpecReport.Build(specResults, backendError);
+            // AI-506: a source that did not answer makes the board partial. Say so, with how many are missing.
+            _vm.Spec.MissingSources = MissingSourcesOf(backendError, snapshot, specEvaluatorsFailed);
+            System.Diagnostics.Debug.WriteLine($"[BINA JKR] scan merged: {issues.Count} rows, missing sources: {(_vm.Spec.MissingSources.Count == 0 ? "none" : string.Join(", ", _vm.Spec.MissingSources))}");
             // The Borang summary (Running screen %, Borang PDF marks and summary box)
             // follows the spec report, so all three screens show the Results numbers.
             // The BIM010-cell summary is only the fallback when there is no spec report.
@@ -1752,6 +1755,17 @@ namespace RevitWebAppSync.UI
             _vm.ApplyAction(issue, IssueStatus.Fixed, advance);
             try { JkrAuditStore.Save(_scannedDocPath, issue); }
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[BINA] audit save failed: {ex.Message}"); }
+        }
+
+        /// <summary>AI-506: the sources of this scan that gave nothing (not an empty answer): the backend check, the BIM010
+        /// checkers, the spec model read. A board built without one of them is partial.</summary>
+        private static List<string> MissingSourcesOf(string backendError, ScanSnapshot snapshot, bool specEvaluatorsFailed)
+        {
+            var missing = new List<string>();
+            if (backendError != null) missing.Add("backend");
+            if (snapshot?.AuditError != null) missing.Add("BIM010");
+            if (snapshot?.SpecModelError != null || specEvaluatorsFailed) missing.Add("spec");
+            return missing;
         }
 
         /// <summary>Toast when the backend check failed and the run shows the add-in's own results only.</summary>

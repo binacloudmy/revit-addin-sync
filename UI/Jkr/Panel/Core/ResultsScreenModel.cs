@@ -333,7 +333,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public int FixableN => _core.FixableChanges();
 
         public string FixAllLabel => string.Format(S(FixableN == 1 ? "fixAllN1" : "fixAllN"), FixableN);
-        public bool CanFixAll => FixableN > 0 && CanAct;
+        public bool CanFixAll => FixableN > 0 && CanAct && !(_spec?.IsPartial ?? false);   // AI-506: never from a partial board
 
         // ── list toolbar ──
         public string Query
@@ -670,7 +670,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public bool ShowLodBanner => LodChanged;
         public string LodBannerStrong => string.Format(S("lodStrong"), _core.RunLod);
         public string LodBannerRest => string.Format(S("lodRest"), _core.Lod);
-        public string BackendBannerStrong => S("beStrong");
+        public string BackendBannerStrong => _spec != null && _spec.MissingCount > 0
+            ? string.Format(S("partialStrong"), _spec.MissingCount, string.Join(", ", _spec.MissingSources))
+            : S("beStrong");
         public string BackendBannerRest => SpecChecklist.BackendNeedsLine(SpecChecklist.BackendNotChecked(_spec), L);
         public bool ShowBanner => ShowLodBanner || ShowBackendBanner;
         public bool ShowBothBanners => ShowLodBanner && ShowBackendBanner;
@@ -724,7 +726,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public bool HasOthersNote => ShowChecklist && !IsStateFiltered && !string.IsNullOrEmpty(OthersNote);
 
         /// <summary>The backend check failed: checks that depend on it are not checked (banner).</summary>
-        public bool ShowBackendBanner => _spec != null && _spec.BackendUnavailable;
+        public bool ShowBackendBanner => _spec != null && _spec.IsPartial;
         public string BackendBannerText => SpecChecklist.BackendBanner(_core.Lang);
         public string BackendErrorText => _spec?.BackendError ?? "";
 

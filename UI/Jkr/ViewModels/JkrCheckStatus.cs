@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using RevitWebAppSync.UI.Jkr.Panel.Core;
 
 namespace RevitWebAppSync.UI.Jkr.ViewModels
 {
@@ -64,15 +65,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public static int DedupeBySpecCheck(List<IssueVm> issues)
         {
             if (issues == null || issues.Count == 0) return 0;
-            var rows = issues.Select(i => new Panel.Core.SpecDedupe.Row
-            {
-                CheckId = i.SpecCheckId ?? "",
-                Source = (i.CheckId ?? "").StartsWith("SPEC-", StringComparison.Ordinal) ? Panel.Core.SpecDedupe.FromModel
-                       : (i.CheckId ?? "").StartsWith("BIM010-", StringComparison.Ordinal) ? Panel.Core.SpecDedupe.FromAudit
-                       : Panel.Core.SpecDedupe.FromBackend,
-                Tier = (int)i.Priority,
-                Fixable = i.AutoFixable || i.IsPick || !string.IsNullOrEmpty(i.FixAction),
-            }).ToList();
+            var rows = issues.Select(ToRow).ToList();
             var o = Panel.Core.SpecDedupe.Resolve(rows);
             var kept = new List<IssueVm>();
             for (var k = 0; k < issues.Count; k++)
@@ -85,6 +78,54 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             if (dropped > 0) { issues.Clear(); issues.AddRange(kept); }
             return dropped;
         }
+
+        /// <summary>
+        /// AI-506: the scan's sources as ONE list, the same on every scan of the same input (the logic is
+        /// <see cref="ScanBoard.Merge"/>). The backend's rows first, then the BIM010 checker's, then the spec
+        /// evaluators' (the first row with an id wins), then one row per problem.
+        /// </summary>
+        public static List<IssueVm> MergeSources(IEnumerable<IssueVm> backend, IEnumerable<IssueVm> audit, IEnumerable<IssueVm> model)
+        {
+            var kept = ScanBoard.Merge(Rows(backend), Rows(audit), Rows(model));
+            var list = new List<IssueVm>();
+            foreach (var r in kept)
+            {
+                var vm = (IssueVm)r.Tag;
+                if ((int)vm.Priority != r.Tier) vm.Priority = (IssuePriority)r.Tier;
+                list.Add(vm);
+            }
+            return list;
+        }
+
+        /// <summary>AI-506: the numbers of the pane and the export, from one list (<see cref="ScanBoard.Tally"/>).</summary>
+        public static ScanBoard.Tally Count(IEnumerable<IssueVm> issues) => ScanBoard.Count(Rows(issues));
+
+        private static IEnumerable<SpecDedupe.Row> Rows(IEnumerable<IssueVm> issues) =>
+            (issues ?? Enumerable.Empty<IssueVm>()).Where(i => i != null).Select(ToRow);
+
+        private static SpecDedupe.Row ToRow(IssueVm i) => new SpecDedupe.Row
+        {
+            Tag = i,
+            Id = i.Id ?? "",
+            CheckId = i.SpecCheckId ?? "",
+            Source = (i.CheckId ?? "").StartsWith("SPEC-", StringComparison.Ordinal) ? SpecDedupe.FromModel
+                   : (i.CheckId ?? "").StartsWith("BIM010-", StringComparison.Ordinal) ? SpecDedupe.FromAudit
+                   : SpecDedupe.FromBackend,
+            Tier = (int)i.Priority,
+            Fixable = i.AutoFixable || i.IsPick || !string.IsNullOrEmpty(i.FixAction),
+            Param = SpecDedupe.ParamOfRule(i.RawRule, i.Required),
+            ElementId = i.RevitElementId,
+            Params = SpecDedupe.ParamsOfActual(i.Actual),
+            ElementIds = i.ElementIds != null && i.ElementIds.Count > 0 ? (IReadOnlyCollection<long>)i.ElementIds : new[] { i.RevitElementId },
+            Bucket = i.InManualTab ? ScanBoard.Manual
+                   : i.Status == IssueStatus.Open ? ScanBoard.Open
+                   : i.Status == IssueStatus.Ignored || i.Status == IssueStatus.Approved ? ScanBoard.Ignored
+                   : ScanBoard.Resolved,
+            Extra = i.IsExtra,
+            // What Fix all counts: an open AI row with a plain fix (a Copilot row never); one change per distinct write.
+            FixKey = i.IsAiOpen && i.AutoFixable && !string.IsNullOrEmpty(i.FixAction) && !i.CopilotFixable
+                ? i.FixAction + "|" + i.RevitElementId + "|" + i.FixParameterName : null,
+        };
 
         /// <summary>AI-verified items: the base of "n of N resolved" and the %.</summary>
         public static int Total(IEnumerable<IssueVm> issues) => issues.Count(i => !i.NeedsPerson);
