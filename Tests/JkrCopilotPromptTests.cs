@@ -144,7 +144,7 @@ namespace RevitWebAppSync.Tests
         {
             foreach (var bm in new[] { true, false })
             {
-                var f = Facts("Da.1", n);
+                var f = Facts("C1.6.3", n);
                 var prompts = JkrCopilotPrompt.Build(f, bm);
                 Assert.Equal(parts, prompts.Count);
                 Assert.All(prompts, p => Assert.True(Regex.Matches(p, @"^- \d+", RegexOptions.Multiline).Count <= 50));
@@ -203,7 +203,7 @@ namespace RevitWebAppSync.Tests
             Assert.Contains("Category: Doors", p);
             Assert.Contains("- 1001 — Doors · T1001", p);
             Assert.Contains("- 1002 — Doors · T1002", p);
-            Assert.Contains("change only the element ids above", p);
+            Assert.Contains("change only the types of the element ids above", p);
             Assert.Contains("Do not delete anything", p);
             Assert.Contains("Do not touch any other element", p);
             Assert.Contains("Do not decide pass or fail", p);
@@ -219,7 +219,7 @@ namespace RevitWebAppSync.Tests
             Assert.Contains("Diperlukan: JKR code", p);
             Assert.Contains("Sebenar: Door 1", p);
             Assert.Contains("Kategori: Doors", p);
-            Assert.Contains("ubah hanya id elemen di atas", p);
+            Assert.Contains("ubah hanya type bagi id elemen di atas", p);
             Assert.Contains("Jangan padam apa-apa", p);
             Assert.Contains("Jangan sentuh elemen lain", p);
             Assert.Contains("Jangan putuskan comply atau tidak comply", p);
@@ -268,33 +268,120 @@ namespace RevitWebAppSync.Tests
         // ── the confirm text ──
 
         [Fact]
-        public void Confirm_lists_the_check_the_count_the_change_the_ids_and_how_to_undo_in_both_languages()
+        public void Instance_level_confirm_is_strict_in_both_languages()
         {
-            var en = JkrCopilotConfirm.Build(Facts("Da.1", 2), false);
-            Assert.Equal("Let Copilot change 2 elements for check Da.1?", en.Heading);
-            Assert.Contains("Rename the type of the elements on the elements listed below only", en.Body);
-            Assert.Contains("nothing is deleted", en.Body);
+            var en = JkrCopilotConfirm.Build(Facts("C1.6.3", 2, "Rooms"), false);
+            Assert.Equal("Let Copilot change 2 elements for check C1.6.3?", en.Heading);
+            Assert.Contains("on the elements listed below only", en.Body);
+            Assert.Contains("No other element is touched and nothing is deleted", en.Body);
             Assert.Contains("Undo", en.Body);
             Assert.Contains("JKR re-check decides", en.Body);
+            Assert.DoesNotContain("TYPE", en.Body);
+            Assert.DoesNotContain("ask once more", en.Body);
             Assert.Equal("1001 — Doors · T1001\n1002 — Doors · T1002".Replace("\n", Environment.NewLine), en.Details);
-
-            var bm = JkrCopilotConfirm.Build(Facts("Da.1", 2), true);
-            Assert.Equal("Benarkan Copilot mengubah 2 elemen untuk semakan Da.1?", bm.Heading);
-            Assert.Contains("Tukar nama type elemen", bm.Body);
-            Assert.Contains("Undo", bm.Body);
+            var bm = JkrCopilotConfirm.Build(Facts("C1.6.3", 2, "Rooms"), true);
+            Assert.Equal("Benarkan Copilot mengubah 2 elemen untuk semakan C1.6.3?", bm.Heading);
+            Assert.Contains("Tiada elemen lain disentuh", bm.Body);
             Assert.Contains("Semakan semula JKR", bm.Body);
+        }
+
+        [Theory]
+        [InlineData("Da.1")]
+        [InlineData("Dc.1")]
+        public void Type_level_confirm_says_the_type_and_every_instance_and_drops_no_other_element_is_touched(string id)
+        {
+            var f = Facts(id, 3);
+            var en = JkrCopilotConfirm.Build(f, false);
+            Assert.Equal($"Let Copilot change 3 types (and all their instances) for check {id}?", en.Heading);
+            Assert.Contains("on the TYPE of each element listed below", en.Body);
+            Assert.Contains("EVERY instance of those types, listed or not", en.Body);
+            Assert.DoesNotContain("No other element is touched", en.Body);
+            Assert.DoesNotContain("listed below only", en.Body);
+            Assert.Contains("Copilot may ask once more before changing a type", en.Body);
+            Assert.Contains("Undo", en.Body);
+            var bm = JkrCopilotConfirm.Build(f, true);
+            Assert.Contains("(dan semua instancenya)", bm.Heading);
+            Assert.Contains("TYPE bagi elemen", bm.Body);
+            Assert.Contains("SEMUA instance type itu", bm.Body);
+            Assert.DoesNotContain("Tiada elemen lain disentuh", bm.Body);
+            Assert.Contains("bertanya sekali lagi sebelum menukar type", bm.Body);
+        }
+
+        [Theory]
+        [InlineData("Db.2")]
+        [InlineData("Db.1")]
+        public void Either_level_confirm_warns_that_a_type_parameter_changes_every_instance(string id)
+        {
+            var en = JkrCopilotConfirm.Build(Facts(id, 2), false);
+            Assert.Contains("on the elements listed below only", en.Body);
+            Assert.Contains("If the parameter is a type parameter, it changes the element's type and so EVERY instance of that type, listed or not", en.Body);
+            Assert.DoesNotContain("No other element is touched", en.Body);
+            Assert.Contains("Copilot may ask once more before changing a type", en.Body);
+            var bm = JkrCopilotConfirm.Build(Facts(id, 2), true);
+            Assert.Contains("SEMUA instancenya", bm.Body);
+            Assert.DoesNotContain("Tiada elemen lain disentuh", bm.Body);
+        }
+
+        [Fact]
+        public void Type_level_120_instances_of_one_type_is_one_prompt_with_one_id()
+        {
+            foreach (var id in new[] { "Da.1", "Dc.1" })
+                foreach (var bm in new[] { true, false })
+                {
+                    var f = Facts(id, 120);
+                    f.ElementLabels = f.ElementIds.ToDictionary(i => i, i => "Doors · D1");
+                    var p = Assert.Single(JkrCopilotPrompt.Build(f, bm));
+                    Assert.Equal(1, Regex.Matches(p, @"^- \d+", RegexOptions.Multiline).Count);
+                    Assert.Contains("- 1001 — Doors · D1", p);
+                    Assert.DoesNotContain("part 1 of", p);
+                    Assert.DoesNotContain("bahagian 1", p);
+                    Assert.Contains(bm ? "satu id bagi setiap type" : "one id per type", p);
+                    var c = JkrCopilotConfirm.Build(f, bm);
+                    Assert.Contains(bm ? "1 type" : "1 type (", c.Heading);
+                    Assert.Equal("1001 — Doors · D1", c.Details);
+                }
+        }
+
+        [Fact]
+        public void Type_level_lists_the_first_id_of_each_type_and_never_chunks_even_past_fifty_types()
+        {
+            var f = Facts("Da.1", 0);
+            f.ElementIds = Enumerable.Range(1, 60).Select(i => (long)i).ToList();
+            f.ElementLabels = f.ElementIds.ToDictionary(i => i, i => "Doors · T" + ((i - 1) % 55));   // 55 types, ids 56..60 repeat T0..T4
+            var p = Assert.Single(JkrCopilotPrompt.Build(f, false));
+            Assert.Equal(55, Regex.Matches(p, @"^- \d+", RegexOptions.Multiline).Count);
+            Assert.DoesNotContain("- 56 ", p);
+        }
+
+        [Fact]
+        public void Instance_level_families_still_list_every_instance_and_chunk()
+        {
+            foreach (var id in new[] { "Db.1", "C1.6.3", "C4.2.2", "A5.2" })
+            {
+                var f = Facts(id, 120);
+                f.ElementLabels = f.ElementIds.ToDictionary(i => i, i => "same label");
+                Assert.Equal(3, JkrCopilotPrompt.Build(f, false).Count);
+            }
+        }
+
+        [Fact]
+        public void Grid_rename_prompt_says_ascending_order_only_and_no_swaps()
+        {
+            var how = JkrCopilotPrompt.VariantFor("A5.2").How(false);
+            Assert.Contains("Never swap names or use a temporary name", how);
+            Assert.Contains("Jangan tukar ganti nama", JkrCopilotPrompt.VariantFor("A5.2").How(true));
         }
 
         [Fact]
         public void Confirm_for_one_element_is_singular_and_many_ids_are_capped_with_a_count_and_one_confirm_for_all_parts()
         {
-            Assert.Equal("Let Copilot change 1 element for check Db.2?", JkrCopilotConfirm.Build(Facts("Db.2", 1), false).Heading);
-            var c = JkrCopilotConfirm.Build(Facts("Da.1", 120), false);
-            Assert.Equal("Let Copilot change 120 elements for check Da.1?", c.Heading);
+            Assert.Equal("Let Copilot change 1 element for check C4.2.2?", JkrCopilotConfirm.Build(Facts("C4.2.2", 1, "Sheets"), false).Heading);
+            var c = JkrCopilotConfirm.Build(Facts("C1.6.3", 120, "Rooms"), false);
+            Assert.Equal("Let Copilot change 120 elements for check C1.6.3?", c.Heading);
             Assert.Equal(JkrCopilotConfirm.MaxListed + 1, c.Details.Split(new[] { Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries).Length);
             Assert.EndsWith("... and 70 more", c.Details);
             Assert.Contains("Sent in 3 parts, with this one confirmation", c.Body);
-            Assert.DoesNotContain("parts", JkrCopilotConfirm.Build(Facts("Da.1", 50), false).Body);
+            Assert.DoesNotContain("parts", JkrCopilotConfirm.Build(Facts("C1.6.3", 50, "Rooms"), false).Body);
         }
 
         [Fact]

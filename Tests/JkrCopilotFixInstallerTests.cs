@@ -107,7 +107,7 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(0, session.Opened + session.Cleared + session.Sent);
             Assert.NotNull(seen);
             Assert.Contains("100", seen.Details);
-            Assert.Contains("101", seen.Details);
+            Assert.DoesNotContain("101", seen.Details);   // Da.1 is type-level: both ids share a label, one id listed
         }
 
         private sealed class CountingSession : ICopilotSession

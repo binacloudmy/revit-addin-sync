@@ -23,13 +23,18 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public IReadOnlyDictionary<long, string> ElementLabels { get; set; } = new Dictionary<long, string>();
     }
 
+    /// <summary>Which element a family's write changes. <see cref="Type"/>: always the TYPE of each listed element (so every instance of
+    /// it, listed or not): the prompt lists one id per type, once, never chunked. <see cref="Either"/>: a type parameter or an instance
+    /// parameter, decided by the parameter at run time: confirm says so, ids are listed per instance. <see cref="Instance"/>: only the listed elements.</summary>
+    public enum CopilotWriteLevel { Instance, Type, Either }
+
     /// <summary>What one check family tells Copilot to do, and how, with the tools of the protocol-3 engine (set_parameters and
     /// the reads). The wording differs per family (a type rename is not a parameter fill). A family is added by adding an
     /// entry to <see cref="JkrCopilotPrompt"/>'s registry and its id to <see cref="JkrCopilotFix.Allowed"/>.</summary>
     public sealed class CopilotPromptVariant
     {
-        public CopilotPromptVariant(string taskMs, string taskEn, string howMs, string howEn, string changeMs, string changeEn)
-        { TaskMs = taskMs; TaskEn = taskEn; HowMs = howMs; HowEn = howEn; ChangeMs = changeMs; ChangeEn = changeEn; }
+        public CopilotPromptVariant(string taskMs, string taskEn, string howMs, string howEn, string changeMs, string changeEn, CopilotWriteLevel level = CopilotWriteLevel.Instance)
+        { Level = level; TaskMs = taskMs; TaskEn = taskEn; HowMs = howMs; HowEn = howEn; ChangeMs = changeMs; ChangeEn = changeEn; }
         /// <summary>The imperative: what to change.</summary>
         public string TaskMs { get; }
         public string TaskEn { get; }
@@ -39,6 +44,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// <summary>One short phrase for the confirm dialog: what Copilot will change ("Rename the type of the elements").</summary>
         public string ChangeMs { get; }
         public string ChangeEn { get; }
+        public CopilotWriteLevel Level { get; }
         public string Task(bool bm) => bm ? TaskMs : TaskEn;
         public string How(bool bm) => bm ? HowMs : HowEn;
         public string Change(bool bm) => bm ? ChangeMs : ChangeEn;
@@ -76,30 +82,30 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     "Rename the type of each element below to follow JKR type-name coding (e.g. `(PT2p600a) 900 x 2325 a`). Change the type name only.",
                     "Guna set_parameters dengan param \"Type Name\", type_param true dan id elemen sebagai sasaran; satu panggilan bagi setiap nama baharu, semua dalam satu mesej. Ambil corak coding daripada lookup. Nama type milik type, jadi semua instance type itu turut bertukar nama: itu dijangka. Jangan ubah Family Name, jangan guna semula nama type yang sudah wujud, dan jangan mereka kod yang tidak boleh diterbitkan daripada model; nyatakan elemen yang dilangkau.",
                     "Use set_parameters with param \"Type Name\", type_param true and the element ids as target; one call per new name, all in one message. Take the coding pattern from lookup. A type name belongs to the type, so every instance of that type takes the new name: that is expected. Never change the Family Name, never reuse a type name that already exists, and never invent a code you cannot derive from the model; say which elements you skipped.",
-                    "Tukar nama type elemen", "Rename the type of the elements"),
+                    "Tukar nama type elemen", "Rename the type of the elements", CopilotWriteLevel.Type),
                 ["Db.2"] = new CopilotPromptVariant(
                     "Tetapkan Material setiap elemen di bawah kepada kod material JKR yang betul. Isi Material yang kosong dan tukar yang tidak ikut coding JKR.",
                     "Set the Material of each element below to the correct JKR material code. Fill empty Materials and change any that do not follow JKR coding.",
                     "Guna set_parameters dengan param \"Material\" pada id di bawah (type_param true jika Material ialah parameter type bagi elemen ini); satu panggilan bagi setiap kod. Ambil kod daripada lookup dan guna Material yang sudah wujud dalam model. Jangan cipta Material baharu: jika tiada Material sepadan dengan kod, biarkan elemen itu dan nyatakannya.",
                     "Use set_parameters with param \"Material\" on the ids below (type_param true if Material is a type parameter of these elements); one call per code. Take the code from lookup and use a Material that already exists in the model. Do not create Materials: if no existing Material matches a code, leave that element and say so.",
-                    "Tetapkan parameter Material", "Set the Material parameter"),
+                    "Tetapkan parameter Material", "Set the Material parameter", CopilotWriteLevel.Either),
                 ["Db.1"] = new CopilotPromptVariant(
                     "Ubah elemen di bawah dengan mengisi parameter wajib yang kosong (Buku Parameter pada LOi projek). Isi hanya parameter yang nilainya boleh diterbitkan daripada model.",
                     "Change the elements below by filling the mandatory parameters that are empty (Buku Parameter at the project LOI). Set only parameters whose value you can derive from the model.",
                     "Cari parameter wajib yang kosong dengan check atau inspect, kemudian guna set_parameters bagi setiap parameter yang nilainya boleh diambil daripada model atau lookup (type_param true bagi parameter type). Biarkan yang lain kosong dan nyatakan parameter mana; jangan meneka nilai.",
                     "Find the empty mandatory parameters with check or inspect, then use set_parameters for each parameter whose value you can take from the model or from lookup (type_param true for type parameters). Leave the others empty and say which; never guess a value.",
-                    "Isi parameter wajib yang kosong", "Fill empty mandatory parameters"),
+                    "Isi parameter wajib yang kosong", "Fill empty mandatory parameters", CopilotWriteLevel.Either),
                 ["Dc.1"] = new CopilotPromptVariant(
                     "Betulkan type name setiap elemen di bawah dengan menukar nombornya supaya sama dengan nilai parameter geometri sebenar (nombor dalam mm, urutan lebar x tinggi). Tukar nama type sahaja; jangan ubah dimensi atau parameter geometri.",
                     "Rename the type of each element below by changing the number in its name so it equals the actual geometry parameter value (number in mm, width x height order). Change the type name only; never edit dimensions or geometry parameters.",
                     "Baca lebar dan tinggi sebenar dengan inspect. Kemudian guna set_parameters dengan param \"Type Name\", type_param true; nama baharu hanya menukar nombor, selebihnya sama. Satu panggilan bagi setiap nama baharu. Jangan tulis Width, Height atau mana-mana dimensi.",
                     "Read the actual width and height with inspect. Then use set_parameters with param \"Type Name\", type_param true; the new name changes only the numbers and keeps the rest. One call per new name. Never write Width, Height or any dimension.",
-                    "Tukar nombor dalam nama type", "Change the number in the type name"),
+                    "Tukar nombor dalam nama type", "Change the number in the type name", CopilotWriteLevel.Type),
                 ["A5.2"] = new CopilotPromptVariant(
                     "Tukar nama grid line di bawah supaya urutan tiada lompatan: nombor 1,2,3,4… dan huruf A,B,C…. Ubah nama grid sahaja.",
                     "Rename the grid lines below so the sequence has no jumps: numbers 1,2,3,4… and letters A,B,C…. Change the grid names only.",
-                    "Guna set_parameters dengan param \"Name\" (parameter instance) pada satu id grid bagi setiap panggilan. Hantar mengikut urutan supaya tiada panggilan menamakan grid dengan nama yang sudah digunakan (nama berganda ditolak); berhenti pada penolakan pertama dan nyatakan grid mana. Jangan alih atau padam grid.",
-                    "Use set_parameters with param \"Name\" (an instance parameter) on one grid id per call. Send them in an order where no call gives a grid a name that is already in use (a duplicate name is refused); stop at the first refusal and say which grid. Never move or delete a grid.",
+                    "Guna set_parameters dengan param \"Name\" (parameter instance) pada satu id grid bagi setiap panggilan. Hantar mengikut urutan supaya tiada panggilan menamakan grid dengan nama yang sudah digunakan (nama berganda ditolak); Jangan tukar ganti nama (swap) atau guna nama sementara: jika urutan memerlukannya, berhenti dan nyatakan. Berhenti pada penolakan pertama dan nyatakan grid mana. Jangan alih atau padam grid.",
+                    "Use set_parameters with param \"Name\" (an instance parameter) on one grid id per call. Send them in an order where no call gives a grid a name that is already in use (a duplicate name is refused); Never swap names or use a temporary name: if the sequence needs that, stop and say so. Stop at the first refusal and say which grid. Never move or delete a grid.",
                     "Tukar nama grid line", "Rename the grid lines"),
                 ["C1.6.3"] = new CopilotPromptVariant(
                     "Ubah bilik di bawah dengan mengisi setiap kolum wajib jadual ruang yang kosong (parameter Room). Isi hanya nilai yang boleh diterbitkan daripada model.",
@@ -130,13 +136,38 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public static IReadOnlyList<string> Build(CopilotPromptFacts facts, bool bm)
         {
             if (facts == null) throw new ArgumentNullException(nameof(facts));
-            var ids = (facts.ElementIds ?? new List<long>()).Where(i => i > 0).Distinct().ToList();
+            var ids = TargetIds(facts);
             var prompts = new List<string>();
             if (ids.Count == 0) return prompts;
+            // A type-level write changes every instance of the type: one prompt, one id per type. Chunked parts would fight each
+            // other (part 1 renames the type, part 2 finds it already changed or refused).
+            if (VariantFor(facts.CheckId).Level == CopilotWriteLevel.Type)
+            {
+                prompts.Add(BuildOne(facts, bm, ids, 1, 1));
+                return prompts;
+            }
             var parts = (ids.Count + MaxIdsPerPrompt - 1) / MaxIdsPerPrompt;
             for (var p = 0; p < parts; p++)
                 prompts.Add(BuildOne(facts, bm, ids.Skip(p * MaxIdsPerPrompt).Take(MaxIdsPerPrompt).ToList(), p + 1, parts));
             return prompts;
+        }
+
+        /// <summary>The ids a prompt and the confirm list: every distinct positive id, except for a type-level family, where only the
+        /// first id of each type (an element label is its type name; an id with no label counts as its own type).</summary>
+        public static List<long> TargetIds(CopilotPromptFacts facts)
+        {
+            var ids = (facts.ElementIds ?? new List<long>()).Where(i => i > 0).Distinct().ToList();
+            if (VariantFor(facts.CheckId).Level != CopilotWriteLevel.Type) return ids;
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var one = new List<long>();
+            foreach (var id in ids)
+            {
+                string label = null;
+                if (facts.ElementLabels != null) facts.ElementLabels.TryGetValue(id, out label);
+                label = CleanLabel(label);
+                if (label.Length == 0 || seen.Add(label)) one.Add(id);
+            }
+            return one;
         }
 
         private static string BuildOne(CopilotPromptFacts f, bool bm, List<long> ids, int part, int parts)
@@ -169,7 +200,10 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             }
             sb.AppendLine();
 
-            sb.AppendLine(bm ? $"Elemen ({ids.Count}, ikut id Revit):" : $"Elements ({ids.Count}, by Revit id):");
+            if (variant.Level == CopilotWriteLevel.Type)
+                sb.AppendLine(bm ? $"Elemen ({ids.Count}, satu id bagi setiap type; setiap type mempunyai banyak instance yang turut berubah):" : $"Elements ({ids.Count}, one id per type; each type has more instances that change with it):");
+            else
+                sb.AppendLine(bm ? $"Elemen ({ids.Count}, ikut id Revit):" : $"Elements ({ids.Count}, by Revit id):");
             foreach (var id in ids)
             {
                 string label = null;
@@ -184,7 +218,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             sb.AppendLine(variant.How(bm));
             if (bm)
             {
-                sb.AppendLine("Skop: ubah hanya id elemen di atas. Jangan padam apa-apa. Jangan sentuh elemen lain, termasuk yang kelihatan serupa. Jangan guna pilihan (selection) atau view yang sedang dibuka untuk mencari elemen.");
+                sb.AppendLine("Skop: ubah hanya " + (variant.Level == CopilotWriteLevel.Type ? "type bagi id elemen di atas (semua instance type itu turut berubah: itu dijangka)" : "id elemen di atas") + ". Jangan padam apa-apa. Jangan sentuh elemen lain, termasuk yang kelihatan serupa. Jangan guna pilihan (selection) atau view yang sedang dibuka untuk mencari elemen.");
                 if (parts > 1)
                     sb.AppendLine($"Ini bahagian {part} daripada {parts}; bahagian lain dihantar berasingan. Urus hanya id dalam bahagian ini.");
                 sb.AppendLine("Saya sudah mengesahkan perubahan ini dalam panel JKR: laksanakan sekarang. Jangan minta kebenaran atau pengesahan daripada saya. Tanya saya hanya jika nilai yang diperlukan tiada dalam model dan lookup.");
@@ -192,7 +226,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             }
             else
             {
-                sb.AppendLine("Scope: change only the element ids above. Do not delete anything. Do not touch any other element, including ones that look similar. Do not use the selection or the active view to find elements.");
+                sb.AppendLine("Scope: change only " + (variant.Level == CopilotWriteLevel.Type ? "the types of the element ids above (all instances of those types change with them: that is expected)" : "the element ids above") + ". Do not delete anything. Do not touch any other element, including ones that look similar. Do not use the selection or the active view to find elements.");
                 if (parts > 1)
                     sb.AppendLine($"This is part {part} of {parts}; the other parts are sent separately. Handle only the ids in this part.");
                 sb.AppendLine("I already confirmed this change in the JKR pane: apply it now. Do not ask me for permission or confirmation. Ask me only if a value you need is not in the model or in lookup.");

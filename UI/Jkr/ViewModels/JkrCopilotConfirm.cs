@@ -30,22 +30,45 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public static CopilotConfirmContent Build(CopilotPromptFacts facts, bool bm)
         {
             if (facts == null) throw new ArgumentNullException(nameof(facts));
-            var ids = (facts.ElementIds ?? new long[0]).Where(i => i > 0).Distinct().ToList();
+            var ids = JkrCopilotPrompt.TargetIds(facts);
             var checkId = (facts.CheckId ?? "").Trim();
             var variant = JkrCopilotPrompt.VariantFor(checkId);
-            var parts = (ids.Count + JkrCopilotPrompt.MaxIdsPerPrompt - 1) / Math.Max(1, JkrCopilotPrompt.MaxIdsPerPrompt);
+            var level = variant.Level;
+            var typeLevel = level == CopilotWriteLevel.Type;
+            var parts = typeLevel ? 1 : (ids.Count + JkrCopilotPrompt.MaxIdsPerPrompt - 1) / Math.Max(1, JkrCopilotPrompt.MaxIdsPerPrompt);
 
             var c = new CopilotConfirmContent();
-            c.Heading = bm
-                ? $"Benarkan Copilot mengubah {ids.Count} elemen untuk semakan {checkId}?"
-                : $"Let Copilot change {ids.Count} element{(ids.Count == 1 ? "" : "s")} for check {checkId}?";
+            if (typeLevel)
+                c.Heading = bm
+                    ? $"Benarkan Copilot mengubah {ids.Count} type (dan semua instancenya) untuk semakan {checkId}?"
+                    : $"Let Copilot change {ids.Count} type{(ids.Count == 1 ? "" : "s")} (and all their instances) for check {checkId}?";
+            else
+                c.Heading = bm
+                    ? $"Benarkan Copilot mengubah {ids.Count} elemen untuk semakan {checkId}?"
+                    : $"Let Copilot change {ids.Count} element{(ids.Count == 1 ? "" : "s")} for check {checkId}?";
 
             var body = new StringBuilder();
-            body.Append(variant.Change(bm)).Append(bm ? " pada elemen yang disenaraikan di bawah sahaja. " : " on the elements listed below only. ");
-            body.Append(bm ? "Tiada elemen lain disentuh dan tiada apa dipadam. " : "No other element is touched and nothing is deleted. ");
+            if (typeLevel)
+            {
+                body.Append(variant.Change(bm)).Append(bm
+                    ? " pada TYPE bagi elemen yang disenaraikan di bawah (satu id bagi setiap type). Perubahan ini terpakai pada SEMUA instance type itu, yang disenaraikan atau tidak. Tiada apa dipadam. "
+                    : " on the TYPE of each element listed below (one id per type). The change applies to EVERY instance of those types, listed or not. Nothing is deleted. ");
+            }
+            else
+            {
+                body.Append(variant.Change(bm)).Append(bm ? " pada elemen yang disenaraikan di bawah sahaja. " : " on the elements listed below only. ");
+                if (level == CopilotWriteLevel.Either)
+                    body.Append(bm
+                        ? "Jika parameter itu ialah parameter type, ia mengubah type elemen itu dan SEMUA instancenya, yang disenaraikan atau tidak. "
+                        : "If the parameter is a type parameter, it changes the element's type and so EVERY instance of that type, listed or not. ");
+                else
+                    body.Append(bm ? "Tiada elemen lain disentuh dan tiada apa dipadam. " : "No other element is touched and nothing is deleted. ");
+            }
             body.Append(bm
                 ? "Copilot menentukan nilai baharu daripada model dan melaksanakannya serta-merta; anda boleh Undo dalam sembang Copilot. "
                 : "Copilot works out the new values from the model and applies them at once; you can Undo from the Copilot chat. ");
+            if (typeLevel || level == CopilotWriteLevel.Either)
+                body.Append(bm ? "Copilot mungkin bertanya sekali lagi sebelum menukar type (kad \"Needs your OK\", dalam bahasa Inggeris). " : "Copilot may ask once more before changing a type (a \"Needs your OK\" card, in English). ");
             if (parts > 1)
                 body.Append(bm ? $"Dihantar dalam {parts} bahagian, dengan satu pengesahan ini. " : $"Sent in {parts} parts, with this one confirmation. ");
             body.Append(bm ? "Semakan semula JKR yang memutuskan sama ada baris ini selesai." : "The JKR re-check decides whether the row is fixed.");
