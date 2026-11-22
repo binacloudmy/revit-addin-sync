@@ -21,7 +21,7 @@
     "id": "A1.4",
     "class": "Ai",
     "comply_text": "Tiada RC flat roof; ATAU ada flat roof DAN elemen waterproofing/double roofing wujud dalam model",
-    "not_comply_text": "Ada RC flat roof tanpa sebarang elemen/material waterproofing"
+    "not_comply_text": "Bumbung RC tanpa lapisan/material waterproofing — DISENARAIKAN untuk manusia (JKR tiada takrif flat roof), bukan ✗ automatik"
   },
   {
     "id": "A1.5",
@@ -86,8 +86,8 @@
   {
     "id": "A4.1",
     "class": "Ai",
-    "comply_text": "Sisihan dari Grid A/1 = 0 mm (dalam toleransi)",
-    "not_comply_text": "Sisihan > toleransi — papar sisihan dalam mm (X/Y/Z)"
+    "comply_text": "Project Base Point tepat pada Grid A/1 (0 mm)",
+    "not_comply_text": "Sisihan bukan 0 mm — papar sisihan dalam mm (X/Y); JKR tiada had sisihan, manusia putuskan"
   },
   {
     "id": "A5.1",
@@ -117,7 +117,7 @@
     "id": "A6.2",
     "class": "Ai",
     "comply_text": "Setiap kawasan berslab mempunyai room yang didefinisikan (termasuk lif, tangga, apron)",
-    "not_comply_text": "Ada slab tanpa room — senaraikan `Aras | Lokasi grid | Jenis (lif/tangga/apron)`. INI ✗ UTAMA A6"
+    "not_comply_text": "Ada slab tanpa room — senaraikan `Aras | Lokasi grid | Jenis (lif/tangga/apron)`. Manusia putuskan sama ada slab itu pengecualian (lif, tangga, apron)"
   },
   {
     "id": "A6.3",

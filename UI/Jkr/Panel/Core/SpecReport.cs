@@ -103,6 +103,11 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public SpecCheck Check;
         public SpecState State;
         public int Passed, Failed, Unjudged, Listed;
+        /// <summary>AI-504: findings with an issue that a person decides, beside an AI-verifiable check
+        /// (Context results: a value that only reads as the minimum when rounded, a slab without a room,
+        /// a prefixed grid …). Never a verdict. A check with nothing else judged counts as passed in the %
+        /// (AI-474: what a person decides counts as pass), see <see cref="SpecChecklist.TallyOf(SpecReport, Func{SpecCheck, bool})"/>.</summary>
+        public int PersonRows;
         /// <summary>Results saying the check does not apply to this model.</summary>
         public int NotApplicableHits;
         /// <summary>Some result passed under fail-only coverage (part of the check).</summary>
@@ -427,6 +432,10 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                     if (na || judged || !verdictRule) modelAnswered.Add(cid);
                     continue;
                 }
+                // A finding a person decides (AI-504): the evaluator answered this check, so the BIM010
+                // checker record and the backend result on it are not counted beside it (the old 10 mm
+                // base point checker would otherwise still fail an offset the spec no longer fails).
+                if (!na && cov == SpecCoverage.Context) modelAnswered.Add(cid);
                 if (na || !judged || !verdictRule) continue;
                 modelJudged.Add(cid);
                 if (cov == SpecCoverage.Full) modelJudgedFull.Add(cid);
@@ -553,6 +562,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                     if (note.Length > 0) otherNotes[id].Add(r.NotApplicable && !string.IsNullOrEmpty(r.RowLabel) ? r.RowLabel + ": " + note : note);
                     // A finding beside a check a person decides: its issue opens from the check.
                     if (cov == SpecCoverage.Context && !string.IsNullOrEmpty(r.IssueId)) res.IssueIds.Add(r.IssueId);
+                    if (cov == SpecCoverage.Context && res.Check.Class == SpecCellClass.Ai && !string.IsNullOrEmpty(r.IssueId)) res.PersonRows++;
                     continue;
                 }
 
@@ -742,6 +752,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             if (r.Unjudged > 0) return SpecState.NeedsPerson;
             if (r.Passed > 0) return SpecState.Pass;
             if (r.PartlyPassed) return SpecState.Partial;
+            if (r.PersonRows > 0) return SpecState.NeedsPerson;   // AI-504: only findings a person decides
             if (r.NotApplicableHits > 0) return SpecState.NotApplicable;
             return SpecState.NotChecked;
         }

@@ -196,6 +196,7 @@
     <Compile Include="..\UI\Jkr\Panel\Core\SpecAspects.cs" Link="Panel\SpecAspects.cs" />
     <Compile Include="..\UI\Jkr\Panel\Core\BoardScore.cs" Link="Panel\BoardScore.cs" />
     <Compile Include="..\UI\Jkr\Panel\Core\SpecBorang.cs" Link="Panel\SpecBorang.cs" />
+    <Compile Include="..\UI\Jkr\Panel\Core\SpecPersonDecides.cs" Link="Panel\SpecPersonDecides.cs" />
     <!-- The add-in's own JKR spec evaluators (pure; the Revit reader is not linked). -->
     <Compile Include="..\Services\JkrSpec\SpecModel.cs" Link="JkrSpec\SpecModel.cs" />
     <Compile Include="..\Services\JkrSpec\SpecEval.cs" Link="JkrSpec\SpecEval.cs" />

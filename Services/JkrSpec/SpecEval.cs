@@ -131,14 +131,16 @@ namespace RevitWebAppSync.Services.JkrSpec
 
         /// <summary>A finding beside a human-decides check (no verdict). <paramref name="elementId"/>
         /// / <paramref name="key"/> give it an issue the person can open.</summary>
-        public static SpecResult Context(string id, string note, long elementId = 0, string elementName = "", string key = null)
+        public static SpecResult Context(string id, string note, long elementId = 0, string elementName = "", string key = null,
+                                         IEnumerable<long> elementIds = null)
         {
             var withIssue = elementId > 0 || key != null;
+            var ids = (elementIds ?? (elementId > 0 ? new[] { elementId } : Array.Empty<long>())).Where(x => x > 0).Distinct().ToList();
             return new SpecResult
             {
                 CheckId = id, Status = withIssue ? "cannot_verify" : "pass", Note = note ?? "", Coverage = SpecCoverage.Context, Rule = id,
-                ElementId = elementId, ElementIds = elementId > 0 ? new List<long> { elementId } : new List<long>(),
-                ElementCount = elementId > 0 ? 1 : 0, ElementName = elementName ?? "",
+                ElementId = elementId > 0 ? elementId : ids.FirstOrDefault(), ElementIds = ids,
+                ElementCount = ids.Count, ElementName = elementName ?? "",
                 IssueId = withIssue ? StableId(id, key ?? elementId.ToString()) : "",
             };
         }

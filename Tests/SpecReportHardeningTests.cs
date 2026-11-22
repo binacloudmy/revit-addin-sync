@@ -386,7 +386,10 @@ namespace RevitWebAppSync.Tests
                 Model(new SpecResult { CheckId = "A1.1", Status = "fail", Coverage = SpecCoverage.Context, IssueId = "SPEC-A1.1-c" }),
             });
             Assert.Equal(SpecState.NotChecked, r.For("A5.2").State);
-            Assert.Equal(SpecState.NotChecked, r.For("A1.1").State);
+            // AI-504: a context finding with an issue on an AI check is a row a person decides: no
+            // verdict, never a fail, and nothing else judged → the check needs a person and counts as passed.
+            Assert.Equal(SpecState.NeedsPerson, r.For("A1.1").State);
+            Assert.Equal(1, r.For("A1.1").PersonRows);
             Assert.Equal(new[] { "SPEC-A1.1-c" }, r.For("A1.1").IssueIds);
             Assert.Equal(0, r.FailChecks);
         }

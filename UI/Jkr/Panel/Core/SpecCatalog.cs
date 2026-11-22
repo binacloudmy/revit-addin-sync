@@ -119,7 +119,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                            "Every level: floor-to-ceiling >= 3000 mm; basement >= 2500 mm"),
                 NotComply = T("Mana-mana aras < 3000 mm (atau basement < 2500 mm) — senaraikan aras + nilai sebenar",
                               "Any level < 3000 mm (or basement < 2500 mm) — list the level + the actual value"),
-                Manual = Dash,
+                Manual = T("Nilai yang hanya mencapai minimum selepas pembundaran disenaraikan untuk manusia — JKR tiada peraturan pembundaran", "A value that only reaches the minimum when rounded is listed for a person — JKR gives no rounding rule"),
             },
             new SpecCheck("A1.2", "A1", T("Saiz pintu (NS §5.8.5)",
                           "Door size (NS §5.8.5)"), Ai, "NS §5.8.5")
@@ -128,7 +128,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                            "Single-leaf door >= 900 mm; double >= 1500 mm; clear height >= 2100 mm"),
                 NotComply = T("Mana-mana type pintu bawah nilai minimum — senaraikan `Type | lebar | tinggi`",
                               "Any door type below the minimum — list `Type | width | height`"),
-                Manual = Dash,
+                Manual = T("Bukaan bersih dan pintu dua daun: JKR tiada kaedah menukar saiz nominal kepada bukaan bersih, atau mengenal dua daun dari nama — disenaraikan, manusia putuskan. Nilai yang hanya mencapai minimum selepas pembundaran disenaraikan untuk manusia — JKR tiada peraturan pembundaran",
+                           "Clear opening and double leaf: JKR gives no method to turn the nominal size into a clear opening, or to tell a double leaf from its name — listed, a person decides. A value that only reaches the minimum when rounded is listed for a person — JKR gives no rounding rule"),
             },
             new SpecCheck("A1.3", "A1", T("Pintu utama solid core (NS §5.8.1/5.8.3)",
                           "Main door solid core (NS §5.8.1/5.8.3)"), Ai, "NS §5.8.1, §5.8.3")
@@ -137,18 +138,18 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                            "Main door: solid core and thickness >= 40 mm (thickness parameter filled)"),
                 NotComply = T("Ketebalan < 40 mm, atau parameter tidak wujud pada pintu utama",
                               "Thickness < 40 mm, or the parameter does not exist on the main door"),
-                Manual = T("Pintu utama tidak dapat dikenal pasti dari model — senaraikan calon, manusia sahkan",
-                           "The main door cannot be identified from the model — list the candidates, a person confirms"),
+                Manual = T("Pintu utama tidak dapat dikenal pasti dari model — senaraikan calon, manusia sahkan. Nilai yang hanya mencapai minimum selepas pembundaran disenaraikan untuk manusia — JKR tiada peraturan pembundaran",
+                           "The main door cannot be identified from the model — list the candidates, a person confirms. A value that only reaches the minimum when rounded is listed for a person — JKR gives no rounding rule"),
             },
             new SpecCheck("A1.4", "A1", T("Flat roof / waterproofing (NS §5.2.3 + §5.14)",
                           "Flat roof / waterproofing (NS §5.2.3 + §5.14)"), Ai, "NS §5.2.3, §5.14")
             {
                 Comply = T("Tiada RC flat roof; ATAU ada flat roof DAN elemen waterproofing/double roofing wujud dalam model",
                            "No RC flat roof; OR a flat roof AND a waterproofing / double-roofing element exists in the model"),
-                NotComply = T("Ada RC flat roof tanpa sebarang elemen/material waterproofing",
-                              "An RC flat roof without any waterproofing element or material"),
-                Manual = T("Kewajaran penggunaan flat roof (justifikasi reka bentuk) — manusia",
-                           "Whether a flat roof is justified (design justification) — a person"),
+                NotComply = T("Bumbung RC tanpa lapisan/material waterproofing — DISENARAIKAN untuk manusia (JKR tiada takrif flat roof), bukan ✗ automatik",
+                              "An RC roof without a waterproofing layer or material — LISTED for a person (JKR gives no flat-roof definition), not an automatic ✗"),
+                Manual = T("Apa yang dikira flat roof, dan kewajaran penggunaannya (justifikasi reka bentuk) — manusia",
+                           "What counts as a flat roof, and whether it is justified (design justification) — a person"),
             },
             new SpecCheck("A1.5", "A1", T("Pagar hiasan (NS §4.8.3)",
                           "Decorative fence (NS §4.8.3)"), Ai, "NS §4.8.3")
@@ -157,8 +158,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                            "Decorative fence height >= 2400 mm"),
                 NotComply = T("Tinggi < 2400 mm",
                               "Height < 2400 mm"),
-                Manual = T("Tiada elemen pagar dalam model — sahkan skop projek",
-                           "No fence element in the model — confirm the project scope"),
+                Manual = T("Tiada elemen pagar dalam model — sahkan skop projek. Nilai yang hanya mencapai minimum selepas pembundaran disenaraikan untuk manusia — JKR tiada peraturan pembundaran",
+                           "No fence element in the model — confirm the project scope. A value that only reaches the minimum when rounded is listed for a person — JKR gives no rounding rule"),
             },
             new SpecCheck("A1.6", "A1", T("Klausa NS lain (sustainability, IBS, landskap)",
                           "Other NS clauses (sustainability, IBS, landscape)"), List, "NS (lain-lain)")
@@ -200,8 +201,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 Comply = T("Kod = W00 → TERUS COMPLY (model satu seketul, cth dewan)",
                            "Code = W00 → COMPLIES DIRECTLY (a one-piece model, e.g. a hall)"),
                 NotComply = Dash,
-                Manual = T("Jika model sepatutnya tunggal tetapi ada banyak link, nyatakan sebagai REMARK sahaja (bukan ✗) — menunggu pengesahan JKR",
-                           "If the model should be single but has many links, state it as a REMARK only (not ✗) — awaiting JKR's confirmation"),
+                Manual = Dash,
             },
             new SpecCheck("A3.2", "A3", T("Model pecah (kod WXnn) — link wujud",
                           "Split model (code WXnn) — links exist"), Ai, "T 21:19–21:21")
@@ -241,11 +241,12 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             new SpecCheck("A4.1", "A4", T("Kedudukan model pada Project Base Point (Grid A/1)",
                           "Model position at the Project Base Point (Grid A/1)"), Ai, "F A.4")
             {
-                Comply = T("Sisihan dari Grid A/1 = 0 mm (dalam toleransi)",
-                           "Offset from Grid A/1 = 0 mm (within tolerance)"),
-                NotComply = T("Sisihan > toleransi — papar sisihan dalam mm (X/Y/Z)",
-                              "Offset > tolerance — show the offset in mm (X/Y/Z)"),
-                Manual = Dash,
+                Comply = T("Project Base Point tepat pada Grid A/1 (0 mm)",
+                           "Project Base Point exactly at Grid A/1 (0 mm)"),
+                NotComply = T("Sisihan bukan 0 mm — papar sisihan dalam mm (X/Y); JKR tiada had sisihan, manusia putuskan",
+                              "Offset is not 0 mm — show the offset in mm (X/Y); JKR gives no offset limit, a person decides"),
+                Manual = T("Grid berawalan projek (cth PT-A / PT1) tidak dibaca sebagai Grid A/1 — disenaraikan, manusia putuskan",
+                           "Project-prefixed grids (e.g. PT-A / PT1) are not read as Grid A/1 — listed, a person decides"),
             },
             new SpecCheck("A5.1", "A5", T("Bilangan grid dan aras",
                           "Number of grids and levels"), List, "F A.5")
@@ -286,8 +287,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             {
                 Comply = T("Setiap kawasan berslab mempunyai room yang didefinisikan (termasuk lif, tangga, apron)",
                            "Every slab area has a defined room (lifts, stairs and aprons included)"),
-                NotComply = T("Ada slab tanpa room — senaraikan `Aras | Lokasi grid | Jenis (lif/tangga/apron)`. INI ✗ UTAMA A6",
-                              "A slab without a room — list `Level | Grid location | Type (lift/stair/apron)`. THIS IS THE MAIN ✗ OF A6"),
+                NotComply = T("Ada slab tanpa room — senaraikan `Aras | Lokasi grid | Jenis (lif/tangga/apron)`. Manusia putuskan sama ada slab itu pengecualian (lif, tangga, apron)",
+                              "A slab without a room — list `Level | Grid location | Type (lift/stair/apron)`. A person decides whether it is an exception (lift, stair, apron)"),
                 Manual = Dash,
             },
             new SpecCheck("A6.3", "A6", T("Parameter Department",
@@ -502,7 +503,8 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                            "All present across the sheet set: floor plan, ceiling plan, elevation, section, door detail, window detail"),
                 NotComply = T("Mana-mana jenis tiada langsung dalam semua sheet",
                               "Any type missing from every sheet"),
-                Manual = Dash,
+                Manual = T("Sheet bernama butiran pintu / tingkap tanpa view Detail: JKR tidak menyatakan ia dikira — disenaraikan, manusia putuskan",
+                           "A sheet named for door / window details with no Detail view: no JKR document says it counts — listed, a person decides"),
             },
             new SpecCheck("C4.1.3", "C4.1", T("Sheet kosong",
                           "Empty sheets"), Ai, "F C.4.1")

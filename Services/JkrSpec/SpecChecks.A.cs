@@ -63,7 +63,7 @@ namespace RevitWebAppSync.Services.JkrSpec
         ///   least <see cref="A11MinFloorShare"/> of the points that found a floor (a sliver
         ///   under a wall does not decide it). Small pads (&lt; 1 m²) are not floors. The
         ///   ceiling then counts for the floor's storey (a non-story floor level → the story
-        ///   level nearest the floor top within <see cref="LevelSlackMm"/>), and names the room
+        ///   level nearest the floor top within <see cref="A11StorySlackMm"/>), and names the room
         ///   holding most of those points (real Dewan model, 17 Nov 2026: 16 ceilings 3450 mm
         ///   above Aras 01 hang over changing rooms and toilets whose floors are 800–1200 mm
         ///   higher, so the clear height is 2250–2650 mm).
@@ -98,7 +98,7 @@ namespace RevitWebAppSync.Services.JkrSpec
                 var below = stories.LastOrDefault(l => l.Elevation <= top - 1);
                 return below == null ? (c.LevelName.Trim(), c.HeightOffset) : (below.Name.Trim(), top - below.Elevation);
             }
-            var floors = m.Floors.Where(f => f.TopElevation != null && f.Loops.Count > 0 && !A62IsPad(f))
+            var floors = m.Floors.Where(f => f.TopElevation != null && f.Loops.Count > 0 && !A11IsPad(f))
                               .Select(f => new SpecPlan.Shape<SpecFloor>(f, f.Loops)).ToList();
             var rooms = m.Rooms.Where(r => r.Area > 0 && r.Loops.Count > 0)
                              .Select(r => new SpecPlan.Shape<SpecRoom>(r, r.Loops)).ToList();
@@ -107,7 +107,7 @@ namespace RevitWebAppSync.Services.JkrSpec
                 var own = K.LevelOf(levels, f.LevelName);
                 if (own != null && own.IsStory) return own.Name.Trim();
                 var top = f.TopElevation ?? double.NaN;
-                var near = stories.Where(l => Math.Abs(l.Elevation - top) <= LevelSlackMm)
+                var near = stories.Where(l => Math.Abs(l.Elevation - top) <= A11StorySlackMm)
                                   .OrderBy(l => Math.Abs(l.Elevation - top)).FirstOrDefault();
                 return near != null ? near.Name.Trim() : f.LevelName.Trim();
             }
@@ -146,13 +146,13 @@ namespace RevitWebAppSync.Services.JkrSpec
                 var over = hits.Where(h => h.F == floor).Select(h => h.P).ToList();
                 var ft = floor.TopElevation.Value;
                 // The room over that floor: its volume starts below the ceiling and near the floor.
-                var room = rooms.Where(r => { var rb = RoomBase(r.Item); return rb == null || (rb.Value < b - 1 && rb.Value >= ft - LevelSlackMm); })
+                var room = rooms.Where(r => { var rb = RoomBase(r.Item); return rb == null || (rb.Value < b - 1 && rb.Value >= ft - A11StorySlackMm); })
                                 .Select(r => (R: r.Item, N: over.Count(p => r.Contains(p.X, p.Y))))
                                 .Where(x => x.N > 0).OrderByDescending(x => x.N).Select(x => x.R).FirstOrDefault();
                 var level = StoryOf(floor);
                 return new A11Measure
                 {
-                    Ceiling = c, Level = level.Length > 0 ? level : lv.Level, Height = Math.Round(b - ft, 1),
+                    Ceiling = c, Level = level.Length > 0 ? level : lv.Level, Height = SpecUnits.CleanMm(b - ft),
                     FromFloor = true, FloorId = floor.Id, Room = room,
                 };
             }
@@ -178,14 +178,27 @@ namespace RevitWebAppSync.Services.JkrSpec
                     continue;
                 }
                 // Lowest first, so the element shown and located is the one with the reported height.
-                var low = valid.Where(x => x.Height < req - 0.5).OrderBy(x => x.Height).ToList();
-                if (low.Count == 0) { passed++; continue; }
-                var min = low[0].Height;
-                var (spaces, spacesEn) = A11Spaces(low);
-                list.Add(Fail(id, $"{Aras(name)}{tag}: siling {K.Mm(min)} mm < {K.Mm(req)} mm{spaces}", elementName: Aras(name),
-                              actual: K.Mm(min) + " mm", required: "≥ " + K.Mm(req) + " mm", key: "level:" + g.Key,
-                              elementIds: low.Select(x => x.Ceiling.Id))
-                    .En($"Level {name}{tag}: ceiling {K.Mm(min)} mm < {K.Mm(req)} mm{spacesEn}"));
+                // The documented minimum, compared exactly. A value that only reads as the minimum
+                // when rounded is listed for a person, never failed (no JKR rounding rule, Q1).
+                var low = valid.Where(x => K.FitMin(x.Height, req) == MinFit.Below).OrderBy(x => x.Height).ToList();
+                var edge = valid.Where(x => K.FitMin(x.Height, req) == MinFit.PrintsAsMin).OrderBy(x => x.Height).ToList();
+                if (low.Count == 0 && edge.Count == 0) { passed++; continue; }
+                if (low.Count > 0)
+                {
+                    var min = low[0].Height;
+                    var (spaces, spacesEn) = A11Spaces(low);
+                    list.Add(Fail(id, $"{Aras(name)}{tag}: siling {K.Mm(min)} mm < {K.Mm(req)} mm{spaces}", elementName: Aras(name),
+                                  actual: K.Mm(min) + " mm", required: "≥ " + K.Mm(req) + " mm", key: "level:" + g.Key,
+                                  elementIds: low.Select(x => x.Ceiling.Id))
+                        .En($"Level {name}{tag}: ceiling {K.Mm(min)} mm < {K.Mm(req)} mm{spacesEn}"));
+                }
+                if (edge.Count > 0)
+                {
+                    var low1 = edge[0].Height.ToString("0.###", K.Inv);
+                    list.Add(Context(id, $"{Aras(name)}{tag}: siling {low1} mm — di bawah {K.Mm(req)} mm tetapi dipaparkan sebagai {K.Mm(req)} mm selepas pembundaran; JKR tiada peraturan pembundaran — manusia putuskan",
+                                     edge[0].Ceiling.Id, Aras(name), key: "edge:" + g.Key, elementIds: edge.Select(x => x.Ceiling.Id))
+                        .En($"Level {name}{tag}: ceiling {low1} mm — below {K.Mm(req)} mm but reads as {K.Mm(req)} mm when rounded; JKR gives no rounding rule — a person decides"));
+                }
             }
             foreach (var lv in m.Rooms.Where(r => r.Area > 0).Select(r => r.LevelName.Trim()).Where(n => n.Length > 0)
                                        .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(n => K.LevelElevation(levels, n)))
@@ -205,6 +218,21 @@ namespace RevitWebAppSync.Services.JkrSpec
         /// <summary>A1.1: share of a ceiling's points over floors that a floor needs to decide
         /// its clear height (a strip under a wall or a kerb at the edge does not).</summary>
         internal const double A11MinFloorShare = 0.10;
+        /// <summary>A1.1 geometry reading, NOT a JKR number: a floor under this area (m²) is a pad
+        /// (a plinth, a column base), not the floor a ceiling hangs over.</summary>
+        internal const double A11PadM2 = 1.0;
+        /// <summary>A1.1 geometry reading, NOT a JKR number: how far (mm) a floor top may stand from a
+        /// story level and still count for that storey (a beam level beside the story level).</summary>
+        internal const double A11StorySlackMm = 1500;
+        /// <summary>A1.1: a floor under <see cref="A11PadM2"/> (its computed area, else the area of its
+        /// loops, else of its plan box); a floor with no size read is not a pad.</summary>
+        internal static bool A11IsPad(SpecFloor f)
+        {
+            double a = f.Area;
+            if (!(a > 0) && f.Loops.Count > 0) a = SpecPlan.Area(f.Loops) / 1e6;
+            if (!(a > 0) && f.MaxX > f.MinX && f.MaxY > f.MinY) a = (f.MaxX - f.MinX) * (f.MaxY - f.MinY) / 1e6;
+            return a > 0 && a < A11PadM2;
+        }
         /// <summary>A1.1: most rooms / ceilings listed in one level's fail.</summary>
         private const int A11MaxSpacesListed = 8;
 
@@ -243,12 +271,16 @@ namespace RevitWebAppSync.Services.JkrSpec
         }
 
         /// <summary>
-        /// A1.2 (NS §5.8.5): single-leaf doors ≥ 900 mm wide, double-leaf ≥ 1500 mm,
-        /// height ≥ 2100 mm. Per placed door type, from its Width / Height. Double leaf
-        /// is read from the name (<see cref="SpecA.IsDoubleLeaf"/>); anything else is
-        /// single. FailOnly: the NS minimum is the clear opening, the snapshot has the
-        /// nominal size — a nominal size below the minimum proves the clear opening is,
-        /// a nominal size above it does not prove the clear opening is not.
+        /// A1.2 (NS §5.8.5): clear opening ≥ 900 mm wide (single leaf), ≥ 1500 mm (double
+        /// leaf), ≥ 2100 mm high. Per placed door type, from its Width / Height. FailOnly: the
+        /// NS minimum is the clear opening, the snapshot has the nominal size — a nominal
+        /// size below the minimum proves the clear opening is, a nominal size above it does
+        /// not prove the clear opening is not. AI-504: no JKR document says how to turn a
+        /// nominal size into a clear opening, or how to tell a double leaf (the name is not a
+        /// source). So the automatic part is the minimum every door shares: width &lt; 900 or
+        /// height &lt; 2100 fails, compared exactly. A door whose name reads as double leaf and
+        /// is 900–1499 mm wide is listed for a person (1500 mm applies if it is two leaves);
+        /// a value that only reads as the minimum when rounded is listed too, never failed.
         /// </summary>
         private static IEnumerable<SpecResult> A12DoorSize(SpecModel m)
         {
@@ -265,9 +297,6 @@ namespace RevitWebAppSync.Services.JkrSpec
             foreach (var t in doors)
             {
                 var label = K.TypeLabel(t);
-                var dbl = SpecA.IsDoubleLeaf(t.FamilyName, t.TypeName);
-                double reqW = dbl ? 1500 : 900;
-                var leaf = dbl ? "double" : "single";
                 var hasW = K.TryNum(t, "Width", out var w) && w > 0;
                 var hasH = K.TryNum(t, "Height", out var h) && h > 0;
                 if (!hasW || !hasH)
@@ -279,13 +308,34 @@ namespace RevitWebAppSync.Services.JkrSpec
                 }
                 var ms = new List<string>();
                 var en = new List<string>();
-                if (w < reqW - 0.5) { ms.Add($"lebar < {K.Mm(reqW)} mm ({leaf})"); en.Add($"width < {K.Mm(reqW)} mm ({leaf})"); }
-                if (h < 2100 - 0.5) { ms.Add("tinggi < 2100 mm"); en.Add("height < 2100 mm"); }
-                if (ms.Count == 0) { passed++; continue; }
-                list.Add(Fail(id, $"{label} | {K.Mm(w)} | {K.Mm(h)} mm: {string.Join(", ", ms)}", elementName: K.ElementLabel(t),
-                              actual: $"{K.Mm(w)} × {K.Mm(h)} mm", required: $"≥ {K.Mm(reqW)} × 2100 mm", key: K.TypeKey(t),
-                              coverage: SpecCoverage.FailOnly, elementIds: t.InstanceIds)
-                    .En($"{label} | {K.Mm(w)} | {K.Mm(h)} mm: {string.Join(", ", en)}"));
+                var wFit = K.FitMin(w, 900);
+                var hFit = K.FitMin(h, 2100);
+                if (wFit == MinFit.Below) { ms.Add("lebar < 900 mm"); en.Add("width < 900 mm"); }
+                if (hFit == MinFit.Below) { ms.Add("tinggi < 2100 mm"); en.Add("height < 2100 mm"); }
+                if (ms.Count > 0)
+                {
+                    list.Add(Fail(id, $"{label} | {K.Mm(w)} | {K.Mm(h)} mm: {string.Join(", ", ms)}", elementName: K.ElementLabel(t),
+                                  actual: $"{K.Mm(w)} × {K.Mm(h)} mm", required: "≥ 900 × 2100 mm", key: K.TypeKey(t),
+                                  coverage: SpecCoverage.FailOnly, elementIds: t.InstanceIds)
+                        .En($"{label} | {K.Mm(w)} | {K.Mm(h)} mm: {string.Join(", ", en)}"));
+                    continue;
+                }
+                var person = new List<string>();
+                var personEn = new List<string>();
+                if (wFit == MinFit.PrintsAsMin || hFit == MinFit.PrintsAsMin)
+                {
+                    person.Add("saiz hanya mencapai minimum selepas pembundaran (JKR tiada peraturan pembundaran)");
+                    personEn.Add("the size only reaches the minimum when rounded (JKR gives no rounding rule)");
+                }
+                if (SpecA.IsDoubleLeaf(t.FamilyName, t.TypeName) && w < 1500)
+                {
+                    person.Add("nama menunjukkan pintu dua daun — jika dua daun, minimum 1500 mm terpakai; sahkan bilangan daun dan bukaan bersih");
+                    personEn.Add("the name reads as a double-leaf door — if it is two leaves the 1500 mm minimum applies; confirm the leaves and the clear opening");
+                }
+                if (person.Count == 0) { passed++; continue; }
+                list.Add(Context(id, $"{label} | {K.Mm(w)} | {K.Mm(h)} mm: {string.Join("; ", person)} — manusia putuskan",
+                                 K.FirstId(t), K.ElementLabel(t), key: "person:" + K.TypeKey(t), elementIds: t.InstanceIds)
+                    .En($"{label} | {K.Mm(w)} | {K.Mm(h)} mm: {string.Join("; ", personEn)} — a person decides"));
             }
             if (passed > 0)
                 list.Add(Pass(id, $"{passed} jenis pintu ≥ minimum (saiz nominal; bukaan bersih tidak dibaca)", passed, SpecCoverage.FailOnly)
@@ -340,7 +390,15 @@ namespace RevitWebAppSync.Services.JkrSpec
                         .En($"Main door {label}: Thickness parameter missing / empty"));
                     continue;
                 }
-                if (thk < 40 - 0.05)
+                var thkFit = K.FitMin(thk, 40, 1);
+                if (thkFit == MinFit.PrintsAsMin)
+                {
+                    list.Add(Context(id, $"Pintu utama {label}: tebal {thk.ToString("0.###", K.Inv)} mm — di bawah 40 mm tetapi dipaparkan sebagai 40 mm selepas pembundaran; JKR tiada peraturan pembundaran — manusia putuskan",
+                                     K.FirstId(t), K.ElementLabel(t), key: "edge:" + K.TypeKey(t), elementIds: t.InstanceIds)
+                        .En($"Main door {label}: thickness {thk.ToString("0.###", K.Inv)} mm — below 40 mm but reads as 40 mm when rounded; JKR gives no rounding rule — a person decides"));
+                    continue;
+                }
+                if (thkFit == MinFit.Below)
                 {
                     list.Add(Fail(id, $"Pintu utama {label}: tebal {K.Mm1(thk)} mm < 40 mm", elementName: K.ElementLabel(t),
                                   actual: K.Mm1(thk) + " mm", required: "≥ 40 mm", key: K.TypeKey(t), elementIds: t.InstanceIds)
@@ -367,58 +425,49 @@ namespace RevitWebAppSync.Services.JkrSpec
 
         /// <summary>
         /// A1.4 (NS §5.2.3, §5.14.1): an RC flat roof must carry waterproofing (or double
-        /// roofing). Flat = largest slope &lt; 2°. RC = a concrete material or name
-        /// (concrete / konkrit / tetulang / RC / JKR code "(kt…)"). Waterproofing = a
-        /// Membrane layer, or a layer material named waterproof / membrane / kalis air /
-        /// bitumen. An RC flat roof without it fails — unless the model has a waterproofing
-        /// element elsewhere or a pitched roof (possible double roofing), which a person
-        /// then confirms. No RC flat roof complies (the spec says so). Whether a flat roof
-        /// was justified is the person's call: a Context note when one exists.
+        /// roofing). AI-504: no JKR document says what a flat roof is (no angle, no name), so the
+        /// code no longer decides it. The automatic part is what the NS states: an RC roof
+        /// (a concrete material or name: concrete / konkrit / tetulang / RC / JKR code "(kt…)")
+        /// that carries waterproofing (a Membrane layer, or a layer material named waterproof /
+        /// membrane / kalis air / bitumen) complies whatever its slope. An RC roof without a
+        /// waterproofing layer is listed for a person, who decides whether it is a flat roof and
+        /// whether double roofing or a separate waterproofing element covers it: never a fail.
+        /// A roof whose materials were not read is listed too. No RC roof at all complies.
         /// </summary>
         private static IEnumerable<SpecResult> A14FlatRoof(SpecModel m)
         {
             const string id = "A1.4";
             var list = new List<SpecResult>();
-            var flat = m.Roofs.Where(SpecA.IsFlatRoof).ToList();
-            var pitched = m.Roofs.Count(r => !SpecA.IsFlatRoof(r));
             var elsewhere = K.ModelHasWaterproofing(m);
-            int rcFlat = 0, rcOk = 0, unknown = 0;
-            foreach (var r in flat)
+            int rc = 0, rcOk = 0, unknown = 0;
+            foreach (var r in m.Roofs)
             {
                 var label = r.TypeName.Length > 0 ? r.TypeName : "Roof " + r.Id;
-                var rc = SpecA.IsConcrete(r.TypeName) || r.Materials.Any(SpecA.IsConcrete);
-                if (!rc && r.Materials.Count == 0)
+                var isRc = SpecA.IsConcrete(r.TypeName) || r.Materials.Any(SpecA.IsConcrete);
+                if (!isRc && r.Materials.Count == 0)
                 {
                     unknown++;
-                    list.Add(Unjudged(id, $"Flat roof {label}: bahan tidak dibaca — RC atau tidak, sahkan", r.Id, "Roofs · " + label)
-                        .En($"Flat roof {label}: materials not read — RC or not, confirm"));
+                    list.Add(Context(id, $"Bumbung {label}: bahan tidak dibaca — RC atau tidak, dan sama ada ia flat roof, sahkan (JKR tiada takrif flat roof)",
+                                     r.Id, "Roofs · " + label, key: "nomat:" + r.Id)
+                        .En($"Roof {label}: materials not read — RC or not, and whether it is a flat roof, a person confirms (JKR gives no flat-roof definition)"));
                     continue;
                 }
-                if (!rc) continue;
-                rcFlat++;
+                if (!isRc) continue;
+                rc++;
                 var wp = r.LayerFunctions.Any(f => (f ?? "").IndexOf("membrane", StringComparison.OrdinalIgnoreCase) >= 0)
                          || r.Materials.Any(SpecA.IsWaterproofing) || SpecA.IsWaterproofing(r.TypeName);
                 if (wp) { rcOk++; continue; }
-                if (elsewhere || pitched > 0)
-                {
-                    var why = elsewhere ? "ada elemen waterproofing lain dalam model" : "ada bumbung condong (mungkin double roofing)";
-                    var whyEn = elsewhere ? "the model has a separate waterproofing element" : "the model has a pitched roof (possible double roofing)";
-                    list.Add(Unjudged(id, $"RC flat roof {label} tiada lapisan waterproofing; {why} — sahkan ia menutup bumbung ini", r.Id, "Roofs · " + label)
-                        .En($"RC flat roof {label} has no waterproofing layer; {whyEn} — confirm it covers this roof"));
-                    continue;
-                }
-                list.Add(Fail(id, $"RC flat roof {label} (cerun {K.Deg(r.SlopeDegrees)}°) tanpa waterproofing / double roofing", r.Id, "Roofs · " + label,
-                              actual: "tiada waterproofing", required: "waterproofing / double roofing")
-                    .En($"RC flat roof {label} (slope {K.Deg(r.SlopeDegrees)}°) with no waterproofing / double roofing"));
+                var why = elsewhere ? "; ada elemen waterproofing lain dalam model" : "";
+                var whyEn = elsewhere ? "; the model has a separate waterproofing element" : "";
+                list.Add(Context(id, $"Bumbung RC {label} tiada lapisan waterproofing{why} — NS §5.2.3: flat roof RC perlu waterproofing atau double roofing; manusia putuskan sama ada ia flat roof dan sama ada ia dilindungi (JKR tiada takrif flat roof)",
+                                 r.Id, "Roofs · " + label, key: "rc-nowp:" + r.Id)
+                    .En($"RC roof {label} has no waterproofing layer{whyEn} — NS §5.2.3: an RC flat roof needs waterproofing or double roofing; a person decides whether it is a flat roof and whether it is covered (JKR gives no flat-roof definition)"));
             }
             if (rcOk > 0)
-                list.Add(Pass(id, $"{rcOk} RC flat roof ada waterproofing", rcOk).En($"{rcOk} RC flat roof{(rcOk == 1 ? " has" : "s have")} waterproofing"));
-            else if (rcFlat == 0 && unknown == 0)
-                list.Add(Pass(id, $"Tiada RC flat roof dalam model ({m.Roofs.Count} bumbung)", Math.Max(1, m.Roofs.Count))
-                    .En($"No RC flat roof in the model ({m.Roofs.Count} roofs)"));
-            if (flat.Count > 0)
-                list.Add(Context(id, $"{flat.Count} flat roof dalam model — kewajaran reka bentuk (NS §5.2.3) disahkan manusia")
-                    .En($"{flat.Count} flat roof{(flat.Count == 1 ? "" : "s")} in the model — design justification (NS §5.2.3) is for a person"));
+                list.Add(Pass(id, $"{rcOk} bumbung RC ada waterproofing", rcOk).En($"{rcOk} RC roof{(rcOk == 1 ? " has" : "s have")} waterproofing"));
+            else if (rc == 0 && unknown == 0)
+                list.Add(Pass(id, $"Tiada bumbung RC dalam model ({m.Roofs.Count} bumbung)", Math.Max(1, m.Roofs.Count))
+                    .En($"No RC roof in the model ({m.Roofs.Count} roofs)"));
             return list;
         }
 
@@ -452,7 +501,15 @@ namespace RevitWebAppSync.Services.JkrSpec
                         .En($"Fence {label}: height not read"));
                     continue;
                 }
-                if (h >= 2400 - 0.5) { passed++; continue; }
+                var hFit = K.FitMin(h, 2400);
+                if (hFit == MinFit.Meets) { passed++; continue; }
+                if (hFit == MinFit.PrintsAsMin)
+                {
+                    list.Add(Context(id, $"Pagar {label}: tinggi {h.ToString("0.###", K.Inv)} mm — di bawah 2400 mm tetapi dipaparkan sebagai 2400 mm selepas pembundaran; JKR tiada peraturan pembundaran — manusia putuskan",
+                                     K.FirstId(t), K.ElementLabel(t), key: "edge:" + K.TypeKey(t), elementIds: t.InstanceIds)
+                        .En($"Fence {label}: height {h.ToString("0.###", K.Inv)} mm — below 2400 mm but reads as 2400 mm when rounded; JKR gives no rounding rule — a person decides"));
+                    continue;
+                }
                 list.Add(Fail(id, $"Pagar {label}: tinggi {K.Mm(h)} mm < 2400 mm", elementName: K.ElementLabel(t),
                               actual: K.Mm(h) + " mm", required: "≥ 2400 mm", key: K.TypeKey(t), elementIds: t.InstanceIds)
                     .En($"Fence {label}: height {K.Mm(h)} mm < 2400 mm"));
@@ -560,47 +617,11 @@ namespace RevitWebAppSync.Services.JkrSpec
                 return new[] { Unjudged(id, "Kod model tidak dapat dibaca (lihat A2.2) — tunggal atau pecah tidak diketahui", key: "no-code").En("Model code not readable (see A2.2) — single or split unknown") };
             if (code.IsSingle)
             {
-                var list = new List<SpecResult> { Pass(id, "Model tunggal (W00) — patuh").En("Single model (W00) — complies") };
-                var remark = A31LinkRemark(m);
-                if (remark != null) list.Add(remark);
-                return list;
+                // AI-504 (Q16): no JKR document gives a link-count rule, so there is no remark on how
+                // many links a W00 model has. The verdict is the code alone.
+                return new[] { Pass(id, "Model tunggal (W00) — patuh").En("Single model (W00) — complies") };
             }
             return new[] { NotApplicable(id, $"Model pecah ({code.Canonical}) — A3.1 tidak berkenaan").En($"Split model ({code.Canonical}) — A3.1 does not apply") };
-        }
-
-        /// <summary>A3.1 remark: more than this many links (ST / ME / EL ones not counted)
-        /// on a single W00 model is "unusually many".</summary>
-        internal const int A31ManyLinks = 3;
-
-        /// <summary>
-        /// A3.1 remark (T 21:23; spec rule "REMARK sahaja (bukan ✗) — menunggu pengesahan
-        /// JKR", question H2). The rule chosen: on a W00 model, leave out the links to the
-        /// other disciplines C5.1.1 requires (ST / ME / EL other than the model's own, read
-        /// as C5.1.1 reads them: "jkrST…" or a segment "ST" + digits). Of the rest, remark
-        /// when any link carries a split code (WXnn / W01 … — it looks like a part of a split
-        /// model), or when more than <see cref="A31ManyLinks"/> remain. A Context result
-        /// without an issue: it never changes the A3.1 verdict. Null = no remark.
-        /// </summary>
-        private static SpecResult A31LinkRemark(SpecModel m)
-        {
-            const string id = "A3.1";
-            var required = new[] { "ST", "ME", "EL" }.Where(d => d != m.Discipline).ToArray();
-            var rest = m.Links.Where(l => !required.Any(d => K.LinkOfDiscipline(l, d))).ToList();
-            var parts = rest.Where(l =>
-            {
-                var c = SpecA.ParseModelCode(SpecA.StripExtension(l.Name));
-                return c != null && !c.IsSingle;
-            }).Select(l => l.Name).ToList();
-            if (parts.Count > 0)
-            {
-                var shown = string.Join(", ", parts.Take(5)) + (parts.Count > 5 ? ", …" : "");
-                return Context(id, $"REMARK: model tunggal (W00) tetapi ada link yang kelihatan seperti pecahan model ({shown}) — sahkan; menunggu pengesahan JKR")
-                    .En($"REMARK: single model (W00) but some links look like parts of a split model ({shown}) — confirm; awaiting JKR's confirmation");
-            }
-            if (rest.Count > A31ManyLinks)
-                return Context(id, $"REMARK: model tunggal (W00) tetapi ada {rest.Count} link selain ST / ME / EL — sahkan model sepatutnya tunggal; menunggu pengesahan JKR")
-                    .En($"REMARK: single model (W00) but it has {rest.Count} links besides ST / ME / EL — confirm the model is meant to be single; awaiting JKR's confirmation");
-            return null;
         }
 
         /// <summary>
@@ -686,16 +707,17 @@ namespace RevitWebAppSync.Services.JkrSpec
         // A4 — base point (F A.4).
         // ════════════════════════════════════════════════════════════════════
 
-        /// <summary>A4.1: how far (mm) the Project Base Point may stand from the Grid A/1 crossing.</summary>
-        internal const double BasePointToleranceMm = 10.0;
-
         /// <summary>
-        /// A4.1 (F A.4): the Project Base Point stands on the Grid A/1 crossing, ≤ 10 mm (the
-        /// BIM010 base_point tolerance). "A" / "1" are read through the grid parser, so a
-        /// project prefix counts: PT-A × PT1 is Grid A/1 (<see cref="SpecA.BaseGridPairs"/>);
-        /// where several pairs qualify, the nearest one is judged, and named. Base point
-        /// not read → no result (the backend and the BIM010 checker answer). No A or no 1,
-        /// or no crossing to measure → a person.
+        /// A4.1 (F A.4; Piawaian p.71-73, Form 0010 item 4, Desc 0012a (b)): the Project Base Point
+        /// stands exactly on the Grid A/1 crossing. AI-504: JKR gives no tolerance (the old 10 mm came
+        /// from this tool's own earlier output) and its wording is "preferably", so the documented
+        /// position is compared exactly (<see cref="SpecUnits.CleanMm"/> only removes feet → mm float
+        /// noise) and any other offset is listed for a person, never failed. "A" / "1" are read through
+        /// the grid parser, but only a grid named plain A with a grid named plain 1 is Grid A/1: a
+        /// project-prefixed pair (PT-A × PT1) is not in any JKR document, so it is listed for a person
+        /// (spec #12). Where several plain pairs qualify, the nearest is judged, and named. Base point
+        /// not read → no result (the backend and the BIM010 checker answer). No A or no 1, or no
+        /// crossing to measure → a person.
         /// </summary>
         private static IEnumerable<SpecResult> A41BasePoint(SpecModel m)
         {
@@ -706,14 +728,26 @@ namespace RevitWebAppSync.Services.JkrSpec
             var pairs = SpecA.BaseGridPairs(labels);
             if (pairs.Count == 0)
             {
+                var prefixed = SpecA.PrefixedBaseGridPairs(labels);
+                if (prefixed.Count > 0)
+                {
+                    var shownPairs = string.Join(", ", prefixed.Take(3).Select(p => $"{m.Grids[p.A].Name.Trim()} / {m.Grids[p.One].Name.Trim()}")) + (prefixed.Count > 3 ? ", …" : "");
+                    var firstP = prefixed[0];
+                    return new[]
+                    {
+                        Context(id, $"Tiada grid bernama A dan 1; ada grid berawalan projek ({shownPairs}). JKR tidak menyatakan awalan sebagai Grid A/1 — manusia putuskan sama ada ia Grid A/1 dan semak kedudukan Project Base Point",
+                                0, "Grid " + shownPairs, key: "prefixed-a1", elementIds: new[] { m.Grids[firstP.A].Id, m.Grids[firstP.One].Id })
+                            .En($"No grid named A and 1; the model has project-prefixed grids ({shownPairs}). No JKR document names a prefix as Grid A/1 — a person decides whether they are Grid A/1 and checks the Project Base Point position"),
+                    };
+                }
                 var names = string.Join(", ", m.Grids.Select(g => g.Name.Trim()).Take(6)) + (m.Grids.Count > 6 ? ", …" : "");
                 return new[]
                 {
                     m.Grids.Count == 0
                         ? Unjudged(id, "Tiada grid dalam model — kedudukan Project Base Point pada Grid A/1 tidak dapat disemak", key: "no-a1")
                             .En("No grids in the model — the Project Base Point position at Grid A/1 cannot be checked")
-                        : Unjudged(id, $"Model ada {m.Grids.Count} grid ({names}) tetapi tiada grid A dan grid 1 (atau berawalan projek, cth PT-A / PT1) — semak manual", key: "no-a1")
-                            .En($"The model has {m.Grids.Count} grids ({names}) but no grid A and grid 1 (or with a project prefix, e.g. PT-A / PT1) — check by hand"),
+                        : Unjudged(id, $"Model ada {m.Grids.Count} grid ({names}) tetapi tiada grid A dan grid 1 — semak manual", key: "no-a1")
+                            .En($"The model has {m.Grids.Count} grids ({names}) but no grid A and grid 1 — check by hand"),
                 };
             }
             SpecGrid bestA = null, best1 = null;
@@ -739,18 +773,17 @@ namespace RevitWebAppSync.Services.JkrSpec
             var dx = K.Mm1(bp.X - at.X);
             var dy = K.Mm1(bp.Y - at.Y);
             var dist = K.Mm1(bestD);
-            if (bestD <= BasePointToleranceMm)
+            if (SpecUnits.CleanMm(bestD) == 0)
                 return new[]
                 {
-                    Pass(id, $"Project Base Point pada persilangan grid {pair} (Grid A/1): sisihan {dist} mm (≤ {K.Mm(BasePointToleranceMm)} mm)")
-                        .En($"Project Base Point at the crossing of grids {pair} (Grid A/1): offset {dist} mm (≤ {K.Mm(BasePointToleranceMm)} mm)"),
+                    Pass(id, $"Project Base Point tepat pada persilangan grid {pair} (Grid A/1)")
+                        .En($"Project Base Point exactly at the crossing of grids {pair} (Grid A/1)"),
                 };
             return new[]
             {
-                Fail(id, $"Project Base Point {dist} mm dari persilangan grid {pair} (Grid A/1): X {dx} mm, Y {dy} mm — had ≤ {K.Mm(BasePointToleranceMm)} mm",
-                     elementIds: new[] { bestA.Id, best1.Id }, elementName: "Grid " + pair,
-                     actual: dist + " mm", required: "≤ " + K.Mm(BasePointToleranceMm) + " mm", key: "offset")
-                    .En($"Project Base Point {dist} mm from the crossing of grids {pair} (Grid A/1): X {dx} mm, Y {dy} mm — limit ≤ {K.Mm(BasePointToleranceMm)} mm"),
+                Context(id, $"Project Base Point {dist} mm dari persilangan grid {pair} (Grid A/1): X {dx} mm, Y {dy} mm. Piawaian: Project Base Point \"sebaiknya\" di Grid A/1; JKR tiada had sisihan — manusia putuskan",
+                        0, "Grid " + pair, key: "offset", elementIds: new[] { bestA.Id, best1.Id })
+                    .En($"Project Base Point {dist} mm from the crossing of grids {pair} (Grid A/1): X {dx} mm, Y {dy} mm. The Piawaian says the Project Base Point is preferably at Grid A/1; JKR gives no offset limit — a person decides"),
             };
         }
 
@@ -980,40 +1013,22 @@ namespace RevitWebAppSync.Services.JkrSpec
             return list;
         }
 
-        /// <summary>A6.2: how far apart (mm) a floor and the room standing on it may be and still be
-        /// the same storey (a beam / structural level beside the story level, a raised floor in a
-        /// room). Between levels when the snapshot has no elevations; between the floor top and
-        /// the room's base (level + base offset) when it has.</summary>
-        internal const double LevelSlackMm = 1500;
-        /// <summary>A6.2 / A1.1: a floor smaller than this (m²) is a pad (a plinth, a column base),
-        /// not a slab: never failed, listed once as context.</summary>
-        internal const double A62PadM2 = 1.0;
-        /// <summary>A6.2: the share of a slab's footprint a room (or rooms) must cover.</summary>
-        internal const double A62CoveredShare = 0.5;
-        /// <summary>A6.2: sample points per slab footprint.</summary>
-        // 400 (≈ a 20 × 20 grid): at 64 a slab near the 50% line came out 48–49% where a
-        // 20 × 20 measurement in Revit gave 51–62% (Dewan 828071, PTBR 894645; 17 Nov).
+        /// <summary>A6.2: sample points per slab footprint (a way of reading the geometry, not a JKR number).</summary>
         internal const int A62SamplesPerFloor = 400;
 
         /// <summary>
-        /// A6.2 (T 21:28–21:33): every slab has a room — lift, stair and apron included;
-        /// not complying = "a slab without a room — list the level". A slab is covered when
-        /// at least <see cref="A62CoveredShare"/> of points sampled inside its top-face loops
-        /// lie inside the boundary of a placed room standing on it: a room whose base (level
-        /// + base offset) is within <see cref="LevelSlackMm"/> of the slab top, on any level
-        /// (a floor on a beam level, or a raised floor in a room on the story level, keeps
-        /// its room), and whose volume the slab top is not above. Sampling, not polygon
-        /// clipping: rooms and slabs are any shape with holes, and 64 points tell a covered
-        /// slab from an uncovered one to a few percent.
-        /// A slab below the share fails (floor id, level, grid nearest an uncovered point,
-        /// lif/tangga/apron from its type name, the share covered when it is partial). Pads
-        /// under <see cref="A62PadM2"/> are not slabs: one context line lists them. Real Dewan
-        /// model, 17 Nov 2026: the bounding-box rule failed 31 floor finishes inside toilets
-        /// and changing rooms and 22 concrete pads, and missed a 50.7 × 25.2 m apron whose
-        /// box held room points.
-        /// Old snapshots (no loops): the floor's plan box stands in for its footprint, and a
-        /// room with no boundary counts when its location point is on the slab — a pass then
-        /// proves only part of the check (FailOnly). No floors → cannot be judged.
+        /// A6.2 (T 21:28–21:33): where there is a slab there must be a room — lift, stair and apron
+        /// included. AI-504: the meeting gives the principle and no number, so the invented 50 %
+        /// coverage, the 1 m² pad rule and the 1500 mm level slack are gone. The automatic part is the
+        /// principle: a slab with a placed room on it (at least one point sampled inside its top-face
+        /// loops lies inside the boundary of a placed room that stands on it) complies. A slab with no
+        /// room on it is listed for a person (the lift, stair and apron exceptions are theirs to
+        /// judge), never failed, however small. A room stands on a slab when it is on the slab's
+        /// level, or it is a stair or lift room whose own height holds the slab top (it rises through
+        /// storeys and covers each landing inside it); compared exactly.
+        /// Old snapshots (no loops): the floor's plan box stands in for its footprint, and a room with
+        /// no boundary counts when its location point is on the slab — a pass then proves only part
+        /// of the check (FailOnly). No floors → cannot be judged.
         /// </summary>
         private static IEnumerable<SpecResult> A62SlabHasRoom(SpecModel m)
         {
@@ -1029,14 +1044,11 @@ namespace RevitWebAppSync.Services.JkrSpec
             var rooms = m.Rooms.Where(r => r.Area > 0).ToList();
             var shapes = rooms.Where(r => r.Loops.Count > 0).ToDictionary(r => r, r => new SpecPlan.Shape<SpecRoom>(r, r.Loops));
             var roomsHaveLoops = shapes.Count > 0;
-            var levelMap = K.LevelMap(m);
             int passedFull = 0, passedPartly = 0;
-            var pads = new List<SpecFloor>();
             foreach (var f in m.Floors)
             {
                 var label = f.TypeName.Length > 0 ? f.TypeName : "Floor";
                 var lv = f.LevelName.Trim();
-                if (A62IsPad(f)) { pads.Add(f); continue; }
                 var hasBox = f.MaxX > f.MinX && f.MaxY > f.MinY;
                 var footprint = f.Loops.Count > 0 ? f.Loops : hasBox ? SpecPlan.Rect(f.MinX, f.MinY, f.MaxX, f.MaxY) : null;
                 if (footprint == null || (lv.Length == 0 && f.TopElevation == null))
@@ -1045,97 +1057,50 @@ namespace RevitWebAppSync.Services.JkrSpec
                         .En($"Floor {f.Id} ({label}): level or position not read"));
                     continue;
                 }
-                const double tol = 1.0;
-                var floorElev = K.LevelElevation(levelMap, lv);
                 bool SameStorey(SpecRoom r)
                 {
-                    if (f.TopElevation != null && r.BaseElevation != null)
-                    {
-                        var top = f.TopElevation.Value;
-                        var rb = r.BaseElevation.Value;
-                        // A stair or lift room rising through storeys covers every landing slab
-                        // inside its height (the spec names "ruang lif … tangga"; PTBR 2137251 on
-                        // Aras 02 lies inside TANGGA 2, which starts a storey below; 17 Nov).
-                        if (SpecA.IsVerticalCirculation(r.Name) && r.Height > 0
-                            && top >= rb - LevelSlackMm && top < rb + r.Height.Value - 1)
-                            return true;
-                        if (Math.Abs(top - rb) > LevelSlackMm) return false;
-                        // The slab over the room (the next storey's floor) is not under it.
-                        return !(r.Height > 0 && top >= rb + r.Height.Value - 1);
-                    }
-                    // A floor hosted on a structural / beam level ("PTBR_Beam Aras 01") carries
-                    // the rooms of the story level next to it ("PTBR_Aras 01") (real model, 16 Nov 2026).
                     if (string.Equals(r.LevelName.Trim(), lv, StringComparison.OrdinalIgnoreCase)) return true;
-                    var roomElev = K.LevelElevation(levelMap, r.LevelName);
-                    return floorElev != double.MaxValue && roomElev != double.MaxValue
-                           && Math.Abs(roomElev - floorElev) <= LevelSlackMm;
+                    if (f.TopElevation == null || r.BaseElevation == null || !(r.Height > 0) || !SpecA.IsVerticalCirculation(r.Name)) return false;
+                    // A stair or lift room rising through storeys covers each landing whose top is inside
+                    // its own height (the spec names "ruang lif … tangga"); any other room is on its level.
+                    var top = SpecUnits.CleanMm(f.TopElevation.Value);
+                    var rb = SpecUnits.CleanMm(r.BaseElevation.Value);
+                    return top >= rb && top < SpecUnits.CleanMm(rb + r.Height.Value);
                 }
                 bool OnSlab(double x, double y) => f.Loops.Count > 0
                     ? SpecPlan.Inside(f.Loops, x, y)
-                    : x >= f.MinX - tol && x <= f.MaxX + tol && y >= f.MinY - tol && y <= f.MaxY + tol;
+                    : x >= f.MinX && x <= f.MaxX && y >= f.MinY && y <= f.MaxY;
                 var cand = rooms.Where(SameStorey).ToList();
                 var byPoint = cand.Any(r => r.Loops.Count == 0 && OnSlab(r.X, r.Y));
                 var fb = new SpecPlan.Shape<SpecFloor>(f, footprint);
                 var inside = cand.Where(r => r.Loops.Count > 0).Select(r => shapes[r]).Where(s => s.Overlaps(fb)).ToList();
                 var samples = SpecPlan.Samples(footprint, A62SamplesPerFloor);
                 var open = samples.Where(p => !inside.Any(s => s.Contains(p.X, p.Y))).ToList();
-                var share = samples.Count == 0 ? 0 : (samples.Count - open.Count) / (double)samples.Count;
+                var hasRoom = byPoint || open.Count < samples.Count;
                 var geo = f.Loops.Count > 0 && roomsHaveLoops;
-                if (share >= A62CoveredShare - 1e-9 || byPoint)
+                if (hasRoom)
                 {
-                    if (geo && share >= A62CoveredShare - 1e-9) passedFull++; else passedPartly++;
+                    if (geo) passedFull++; else passedPartly++;
                     continue;
                 }
-                // Locate it where the room is missing: the uncovered point nearest the slab's middle.
+                // Locate it at the slab's middle.
                 double cx = (f.MinX + f.MaxX) / 2, cy = (f.MinY + f.MaxY) / 2;
-                if (samples.Count > 0)
-                {
-                    var mx = samples.Average(p => p.X);
-                    var my = samples.Average(p => p.Y);
-                    var at0 = (open.Count > 0 ? open : samples).OrderBy(p => (p.X - mx) * (p.X - mx) + (p.Y - my) * (p.Y - my)).First();
-                    cx = at0.X; cy = at0.Y;
-                }
+                if (samples.Count > 0) { cx = samples.Average(p => p.X); cy = samples.Average(p => p.Y); }
                 var near = K.NearestGrids(m, cx, cy);
                 var kind = SpecA.SpaceKind(f.TypeName);
                 var at = near.Length > 0 ? $" | grid {near}" : "";
                 var k = kind.Length > 0 ? $" | {kind}" : "";
                 var lvName = K.LevelLabel(lv);
-                var pct = (int)Math.Round(share * 100);
-                var partial = share > 0 && pct > 0;
-                list.Add(Fail(id, $"{Aras(lvName)}{at}{k}: lantai {f.Id} ({label}) " + (partial ? $"hanya {pct}% di bawah room" : "tiada room"),
-                              f.Id, "Floors · " + label,
-                              actual: partial ? $"{pct}% di bawah room" : "tiada room", required: "room ditempatkan",
-                              coverage: geo ? SpecCoverage.Full : SpecCoverage.FailOnly)
-                    .En($"Level {lvName}{at}{k}: floor {f.Id} ({label}) " + (partial ? $"only {pct}% under a room" : "has no room")));
+                list.Add(Context(id, $"{Aras(lvName)}{at}{k}: lantai {f.Id} ({label}) tiada room — manusia putuskan sama ada slab ini dikecualikan (lif, tangga, apron)",
+                                 f.Id, "Floors · " + label, key: "noroom:" + f.Id)
+                    .En($"Level {lvName}{at}{k}: floor {f.Id} ({label}) has no room — a person decides whether this slab is an exception (lift, stair, apron)"));
             }
             if (passedFull > 0)
-                list.Add(Pass(id, $"{passedFull} lantai: ≥ {Pct(A62CoveredShare)}% luas di bawah room", passedFull)
-                    .En($"{passedFull} floors: ≥ {Pct(A62CoveredShare)}% of the area under a room"));
+                list.Add(Pass(id, $"{passedFull} lantai ada room di atasnya", passedFull)
+                    .En($"{passedFull} floors have a room on them"));
             if (passedPartly > 0)
                 list.Add(Pass(id, $"{passedPartly} lantai ada room di atasnya", passedPartly, SpecCoverage.FailOnly).En($"{passedPartly} floors have a room on them"));
-            if (pads.Count > 0)
-            {
-                var byLv = pads.GroupBy(p => K.LevelLabel(p.LevelName), StringComparer.OrdinalIgnoreCase)
-                               .OrderBy(g => K.LevelElevation(levelMap, g.Key)).ToList();
-                var ids = string.Join(", ", pads.Take(6).Select(p => p.Id.ToString(CultureInfo.InvariantCulture))) + (pads.Count > 6 ? ", …" : "");
-                list.Add(Context(id, $"{pads.Count} pad kecil (< {A62PadM2.ToString("0.#", CultureInfo.InvariantCulture)} m²) bukan slab — tidak disemak: "
-                                     + string.Join(", ", byLv.Select(g => $"{Aras(g.Key)} {g.Count()}")) + $" ({ids})")
-                    .En($"{pads.Count} small pads (< {A62PadM2.ToString("0.#", CultureInfo.InvariantCulture)} m²) are not slabs — not checked: "
-                        + string.Join(", ", byLv.Select(g => $"Level {g.Key} {g.Count()}")) + $" ({ids})"));
-            }
             return list;
-        }
-
-        private static string Pct(double share) => Math.Round(share * 100).ToString("0", CultureInfo.InvariantCulture);
-
-        /// <summary>A6.2 / A1.1: a floor under <see cref="A62PadM2"/> — its computed area, else the
-        /// area of its loops, else of its plan box. A floor with no size read is not a pad.</summary>
-        internal static bool A62IsPad(SpecFloor f)
-        {
-            double a = f.Area;
-            if (!(a > 0) && f.Loops.Count > 0) a = SpecPlan.Area(f.Loops) / 1e6;
-            if (!(a > 0) && f.MaxX > f.MinX && f.MaxY > f.MinY) a = (f.MaxX - f.MinX) * (f.MaxY - f.MinY) / 1e6;
-            return a > 0 && a < A62PadM2;
         }
 
         /// <summary>A6.3 (human-decides, T 21:26, 21:34): rooms with an empty Department, as
@@ -1287,6 +1252,22 @@ namespace RevitWebAppSync.Services.JkrSpec
         }
     }
 
+    /// <summary>How a value stands against a documented minimum, see <see cref="SpecAKit.FitMin"/>.</summary>
+    internal enum MinFit { Meets, PrintsAsMin, Below }
+
+    /// <summary>Unit conversion fixes for the spec evaluators. Revit stores lengths in feet; the
+    /// snapshot holds millimetres converted from them, so 900 mm typed in Revit can come back as
+    /// 899.9999999999999. <see cref="CleanMm"/> removes that float noise (it rounds at 1e-6 mm, a
+    /// nanometre) and nothing else: it is a conversion fix, not a tolerance. Two lengths are the
+    /// same only when they are equal after it (AI-504: Dc.1 compares exactly).</summary>
+    public static class SpecUnits
+    {
+        /// <summary>Decimals kept after a feet → mm conversion.</summary>
+        public const int MmDecimals = 6;
+        public static double CleanMm(double mm) => double.IsNaN(mm) || double.IsInfinity(mm) ? mm : Math.Round(mm, MmDecimals);
+        public static bool SameMm(double a, double b) => CleanMm(a) == CleanMm(b);
+    }
+
     /// <summary>Formatting and lookup helpers for the section A evaluators, kept out of
     /// the shared SpecChecks partial class so other sections' helpers cannot clash.</summary>
     internal static class SpecAKit
@@ -1295,6 +1276,19 @@ namespace RevitWebAppSync.Services.JkrSpec
         internal static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
         internal static string Mm(double v) => Math.Round(v).ToString("0", Inv);
         internal static string Mm1(double v) => Math.Round(v, 1).ToString("0.#", Inv);
+
+        /// <summary>How a measured value stands against a documented minimum (AI-504): no
+        /// tolerance. <see cref="MinFit.Meets"/> = at or above the minimum, compared exactly (after
+        /// <see cref="SpecUnits.CleanMm"/>, which only removes feet → mm float noise).
+        /// <see cref="MinFit.PrintsAsMin"/> = below it, but the value shown at <paramref name="decimals"/>
+        /// decimals reads as the minimum (2999.6 mm shows as 3000): JKR gives no rounding rule (Q1),
+        /// so a person decides and the check never fails it. <see cref="MinFit.Below"/> = a real miss.</summary>
+        internal static MinFit FitMin(double value, double min, int decimals = 0)
+        {
+            var v = SpecUnits.CleanMm(value);
+            if (v >= min) return MinFit.Meets;
+            return Math.Round(v, decimals, MidpointRounding.AwayFromZero) >= min ? MinFit.PrintsAsMin : MinFit.Below;
+        }
         internal static string M2(double v) => v.ToString("0.0", Inv);
         internal static string Deg(double v) => v.ToString("0.#", Inv);
         internal static string Or(string s) => string.IsNullOrWhiteSpace(s) ? "—" : s.Trim();
@@ -1517,18 +1511,6 @@ namespace RevitWebAppSync.Services.JkrSpec
     /// </summary>
     public static class SpecA
     {
-        /// <summary>A1.4: a roof below this slope is flat.</summary>
-        public const double FlatRoofDegrees = 2.0;
-
-        private static readonly Regex FlatRoofName = new Regex(@"\b(rata|flat)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-
-        /// <summary>A1.4: flat = slope below <see cref="FlatRoofDegrees"/>, or a type named flat
-        /// ("rata" / "flat") whose slope is a fall rather than a pitch (under 10°). Real Dewan
-        /// model, 16 Nov: "Sistem Bumbung rata konkrit tetulang" at 5.2° passed as "no RC flat
-        /// roof".</summary>
-        public static bool IsFlatRoof(SpecRoof r) =>
-            r != null && (r.SlopeDegrees < FlatRoofDegrees || (r.SlopeDegrees < 10.0 && FlatRoofName.IsMatch(r.TypeName ?? "")));
-
         /// <summary>A1.6: the NS clauses the spec's "Klausa NS" sheet marks "Tidak — semak manual".</summary>
         public static readonly IReadOnlyList<(string Clause, string Rule, string RuleEn)> ManualNsClauses = new[]
         {
@@ -1806,26 +1788,37 @@ namespace RevitWebAppSync.Services.JkrSpec
 
         /// <summary>
         /// A4.1: the grid pairs that stand for "Grid A/1", as (index of A, index of 1) into
-        /// <paramref name="labels"/> (from <see cref="ParseGrids"/>): letter A and number 1
-        /// of the same series — no prefix first ("A" × "1"), then the project prefix
-        /// ("PT-A" × "PT1"). Only when no series has both, every A × every 1 across series.
-        /// Empty when the model has no A or no 1.
+        /// <paramref name="labels"/> (from <see cref="ParseGrids"/>): a grid named plain A with a grid
+        /// named plain 1, no project prefix. AI-504 (spec #12): a prefixed grid (PT-A, PT1) is not
+        /// "Grid A/1" in any JKR document, so it is never a pair here; see
+        /// <see cref="PrefixedBaseGridPairs"/>. Empty when the model has no plain A or no plain 1.
         /// </summary>
         public static List<(int A, int One)> BaseGridPairs(IList<SpecGridLabel> labels)
         {
             var pairs = new List<(int, int)>();
             if (labels == null) return pairs;
-            var a = Enumerable.Range(0, labels.Count).Where(i => labels[i].Kind == SpecGridKind.Letter && labels[i].Main == 1)
-                              .OrderBy(i => labels[i].Prefix.Length > 0 ? 1 : 0).ToList();
-            var one = Enumerable.Range(0, labels.Count).Where(i => labels[i].Kind == SpecGridKind.Number && labels[i].Main == 1).ToList();
-            foreach (var i in a)
-                foreach (var j in one)
-                    if (labels[i].Prefix == labels[j].Prefix) pairs.Add((i, j));
-            if (pairs.Count > 0) return pairs;
-            foreach (var i in a)
-                foreach (var j in one)
-                    pairs.Add((i, j));
+            for (var i = 0; i < labels.Count; i++)
+            {
+                if (labels[i].Kind != SpecGridKind.Letter || labels[i].Main != 1 || labels[i].Prefix.Length > 0) continue;
+                for (var j = 0; j < labels.Count; j++)
+                    if (labels[j].Kind == SpecGridKind.Number && labels[j].Main == 1 && labels[j].Prefix.Length == 0) pairs.Add((i, j));
+            }
             return pairs;
+        }
+
+        /// <summary>A4.1: the A × 1 pairs that exist only with a project prefix (PT-A × PT1, A × PT1 …):
+        /// listed for a person, never measured. Empty when a plain pair exists or there is no A or 1.</summary>
+        public static List<(int A, int One)> PrefixedBaseGridPairs(IList<SpecGridLabel> labels)
+        {
+            var pairs = new List<(int, int)>();
+            if (labels == null || BaseGridPairs(labels).Count > 0) return pairs;
+            for (var i = 0; i < labels.Count; i++)
+            {
+                if (labels[i].Kind != SpecGridKind.Letter || labels[i].Main != 1) continue;
+                for (var j = 0; j < labels.Count; j++)
+                    if (labels[j].Kind == SpecGridKind.Number && labels[j].Main == 1) pairs.Add((i, j));
+            }
+            return pairs.OrderBy(p => labels[p.Item1].Prefix == labels[p.Item2].Prefix ? 0 : 1).ToList();
         }
 
         /// <summary>A4.1: where two straight grids cross on plan (lines extended), or null

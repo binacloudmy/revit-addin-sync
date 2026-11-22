@@ -7,11 +7,11 @@ using Xunit;
 namespace RevitWebAppSync.Tests
 {
     /// <summary>
-    /// AI-469: just-under / on / just-over for every numeric threshold of the spec
-    /// ("Peraturan comply"), pinned where the code and the spec row meet. The
-    /// evaluators judge in whole millimetres (the notes print whole mm, so 2999.6 shows as
-    /// "3000 mm" and cannot be a "3000 mm &lt; 3000 mm" fail): a value fails when it is more
-    /// than half a millimetre under its minimum (A1.3: a twentieth, it prints one decimal).
+    /// AI-469, reworked by AI-504: just-under / on / just-over for every numeric threshold of the
+    /// spec ("Peraturan comply"), pinned where the code and the spec row meet. The minimum is the
+    /// documented one, compared exactly: JKR gives no rounding rule (Q1). A value that is under the
+    /// minimum but prints as it (2999.6 shows as "3000 mm"; A1.3 prints one decimal) is listed for a
+    /// person and never fails. A4.1 and Dc.1 have no tolerance at all (Q2, Q11).
     /// Table of spec row → code → verdict: Tests/data/spec_drift_audit.md.
     /// </summary>
     public class SpecThresholdBoundaryTests
@@ -65,9 +65,11 @@ namespace RevitWebAppSync.Tests
         [InlineData("Single", 899.4, 2100, true)]
         [InlineData("Single", 899.5, 2100, false)]
         [InlineData("Single", 900.0, 2100, false)]
-        [InlineData("Double Flush", 1499.0, 2100, true)]
-        [InlineData("Double Flush", 1499.4, 2100, true)]
+        // AI-504 (Q8): the double-leaf 1500 mm is read from the name, not from a JKR source: listed, not failed.
+        [InlineData("Double Flush", 1499.0, 2100, false)]
+        [InlineData("Double Flush", 1499.4, 2100, false)]
         [InlineData("Double Flush", 1500.0, 2100, false)]
+        [InlineData("Double Flush", 899.0, 2100, true)]
         [InlineData("Single", 900.0, 2099.0, true)]
         [InlineData("Single", 900.0, 2099.4, true)]
         [InlineData("Single", 900.0, 2100.0, false)]
@@ -106,7 +108,7 @@ namespace RevitWebAppSync.Tests
         public void A2_1_three_segments_pass_two_fail(string file, bool fails) =>
             Assert.Equal(fails, Failed(new SpecModel { FileName = file }, "A2.1"));
 
-        // ── A4.1 base point: spec says "0 mm (dalam toleransi)"; the code's tolerance is 10 mm ──
+        // ── A4.1 base point: the documented position is exact; any other offset is listed, never failed (AI-504) ──
 
         private static SpecModel BasePointAt(double offsetMm)
         {
@@ -120,9 +122,9 @@ namespace RevitWebAppSync.Tests
         [InlineData(0.0, false)]
         [InlineData(9.9, false)]
         [InlineData(10.0, false)]
-        [InlineData(10.1, true)]
-        [InlineData(25.0, true)]
-        public void A4_1_tolerance_is_10_mm_inclusive(double offset, bool fails) =>
+        [InlineData(10.1, false)]     // AI-504 (Q2): no tolerance, no fail: listed for a person
+        [InlineData(25.0, false)]
+        public void A4_1_never_fails_an_offset_a_person_decides_it(double offset, bool fails) =>
             Assert.Equal(fails, Failed(BasePointAt(offset), "A4.1"));
 
         // ── B1 / C1.6.3 / Db.1: the LOD → LOi column ──
@@ -177,12 +179,14 @@ namespace RevitWebAppSync.Tests
 
         [Theory]
         [InlineData(146.0, false)]
-        [InlineData(147.0, false)]
-        [InlineData(145.0, false)]
+        [InlineData(147.0, true)]     // AI-504 (Q11): no ±1 mm, the name number equals the parameter
+        [InlineData(145.0, true)]
+        [InlineData(146.0000001, false)]  // a nanometre of feet → mm float noise is a conversion fix, not a tolerance
+        [InlineData(146.001, true)]
         [InlineData(147.1, true)]
         [InlineData(144.9, true)]
         [InlineData(150.0, true)]
-        public void Dc_1_name_number_matches_the_width_within_1_mm(double width, bool fails) =>
+        public void Dc_1_name_number_equals_the_width_exactly(double width, bool fails) =>
             Assert.Equal(fails, Failed(new SpecModel { Types = { T("Walls", "Basic Wall", "Wall 146", width: width) } }, "Dc.1"));
     }
 }

@@ -76,6 +76,8 @@ namespace RevitWebAppSync.Services.JkrSpec
             counts[category] = (counts.TryGetValue(category, out var n) ? n : 0) + 1;
 
         private static string Mm(double v) => v.ToString("0.#", CultureInfo.InvariantCulture) + " mm";
+        /// <summary>A length in mm with every digit that differs (Dc.1 compares exactly, so 900.04 must not print as 900).</summary>
+        private static string MmExact(double v) => SpecUnits.CleanMm(v).ToString("0.######", CultureInfo.InvariantCulture) + " mm";
 
         /// <summary>One failure for a placed type: located at its instances, keyed by the
         /// type id so Ignore / Reviewed survive a re-scan.</summary>
@@ -412,12 +414,15 @@ namespace RevitWebAppSync.Services.JkrSpec
         /// <summary>
         /// Dc.1 (T 22:33–22:34): a number in the type name (read as mm) must equal the
         /// geometry parameter it names — "Wall 146" → Width 146; door "900 x 2325" → Width 900,
-        /// Height 2325 (see <see cref="NameNumbers"/>). Mismatches only (±1 mm): one fail per
+        /// Height 2325 (see <see cref="NameNumbers"/>). Mismatches only: one fail per
         /// type, "Type name | value in name | parameter | actual". A name number whose parameter
         /// the snapshot lacks is unjudged. Full (AI-475) when every number in a judged category's
         /// names was read; FailOnly when some name has numbers that cannot be read
-        /// unambiguously (those types are not checked). The ±1 mm tolerance is ASSUMED: the
-        /// spec gives none (question Q-Dc.1 of D4), and every Dc.1 remark says so.
+        /// unambiguously (those types are not checked). AI-504: no JKR document gives a tolerance
+        /// (the old ±1 mm was invented), so the name number and the parameter must be equal. The
+        /// feet → mm conversion float noise is removed by <see cref="SpecUnits.CleanMm"/> on both
+        /// sides before the comparison: that is a unit-conversion fix, not a tolerance, so a correct
+        /// name is never failed by 899.9999999999999 vs 900.
         /// </summary>
         private static IEnumerable<SpecResult> DcNameNumbers(SpecModel m)
         {
@@ -435,17 +440,17 @@ namespace RevitWebAppSync.Services.JkrSpec
                 foreach (var (param, value) in stated)
                 {
                     if (!t.Numbers.TryGetValue(param, out var actual) || double.IsNaN(actual)) { missing.Add(param); continue; }
-                    if (Math.Abs(actual - value) > 1.0)
+                    if (!SpecUnits.SameMm(actual, value))
                     {
-                        bad.Add($"{param} {Mm(actual)} (nama: {Mm(value)})");
-                        badEn.Add($"{param} {Mm(actual)} (name: {Mm(value)})");
+                        bad.Add($"{param} {MmExact(actual)} (nama: {MmExact(value)})");
+                        badEn.Add($"{param} {MmExact(actual)} (name: {MmExact(value)})");
                     }
                 }
                 if (bad.Count > 0)
                 {
                     results.Add(FailType(id, t,
-                        $"{t.Category}: type '{t.TypeName}' — nilai dalam nama tidak padan: {string.Join("; ", bad)} (toleransi ±1 mm: andaian, belum ditetapkan spesifikasi)",
-                        $"{t.Category}: type '{t.TypeName}' — number in the name does not match: {string.Join("; ", badEn)} (±1 mm tolerance: assumed, not set by the spec)",
+                        $"{t.Category}: type '{t.TypeName}' — nilai dalam nama tidak padan: {string.Join("; ", bad)}",
+                        $"{t.Category}: type '{t.TypeName}' — number in the name does not match: {string.Join("; ", badEn)}",
                         SpecCoverage.Full,
                         actual: string.Join("; ", stated.Where(x => t.Numbers.ContainsKey(x.Param)).Select(x => x.Param + " " + Mm(t.Numbers[x.Param]))),
                         required: string.Join("; ", stated.Select(x => x.Param + " " + Mm(x.Value)))));
@@ -461,8 +466,8 @@ namespace RevitWebAppSync.Services.JkrSpec
             foreach (var r in results) yield return r;
             var cov = unread > 0 ? SpecCoverage.FailOnly : SpecCoverage.Full;
             foreach (var kv in ok)
-                yield return Pass(id, $"{kv.Key}: {kv.Value} type: nilai dalam nama padan dengan parameter geometri (toleransi ±1 mm: andaian)", kv.Value, cov)
-                    .En($"{kv.Key}: {kv.Value} types: numbers in the name match the geometry (±1 mm tolerance: assumed)").InCat(kv.Key);
+                yield return Pass(id, $"{kv.Key}: {kv.Value} type: nilai dalam nama padan dengan parameter geometri", kv.Value, cov)
+                    .En($"{kv.Key}: {kv.Value} types: numbers in the name match the geometry").InCat(kv.Key);
         }
 
         /// <summary>The type's name has a number in a category Dc.1 judges, but

@@ -295,10 +295,14 @@ namespace RevitWebAppSync.Tests
             };
             var rs = Run(m, "A1.2");
             var fails = Fails(rs);
-            Assert.Equal(3, fails.Count);
-            Assert.Contains(fails, f => f.Note == "Pintu : (PT1p600a) 850 | 850 | 2100 mm: lebar < 900 mm (single)");
-            Assert.Contains(fails, f => f.Note == "Double Flush : 1400 | 1400 | 2100 mm: lebar < 1500 mm (double)");
+            // AI-504: 900 / 2100 are the minimum every door shares; the double-leaf 1500 mm is read from
+            // the name, which is not a source, so the 1400 mm "double" is listed for a person, not failed.
+            Assert.Equal(2, fails.Count);
+            Assert.Contains(fails, f => f.Note == "Pintu : (PT1p600a) 850 | 850 | 2100 mm: lebar < 900 mm");
             Assert.Contains(fails, f => f.Note.Contains("tinggi < 2100 mm") && f.ElementId == 40);
+            var person = Assert.Single(rs, r => r.Coverage == SpecCoverage.Context);
+            Assert.Equal(30, person.ElementId);
+            Assert.Contains("dua daun", person.Note);
             var pass = Assert.Single(rs, r => r.Status == "pass");
             Assert.Equal(2, pass.ElementCount);
             Assert.Equal(SpecCoverage.FailOnly, pass.Coverage);
@@ -374,30 +378,35 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void A1_4_RC_flat_roof_without_waterproofing_fails_and_a_flat_roof_gets_a_context_note()
+        public void A1_4_RC_roof_without_waterproofing_is_listed_for_a_person_never_failed()
         {
+            // AI-504 (Q4): no JKR document says what a flat roof is, so the code does not decide it.
             var m = new SpecModel { Roofs = { new SpecRoof { Id = 7, TypeName = "Roof 150", SlopeDegrees = 0.5, Materials = { "jkrAR_(kt)- Konkrit tetulang" }, LayerFunctions = { "Structure" } } } };
             var rs = Run(m, "A1.4");
-            var f = Assert.Single(Fails(rs));
-            Assert.Equal(7, f.ElementId);
-            Assert.Contains(rs, r => r.Coverage == SpecCoverage.Context && r.Note.Contains("kewajaran"));
+            Assert.Empty(Fails(rs));
+            var c = Assert.Single(rs);
+            Assert.Equal(SpecCoverage.Context, c.Coverage);
+            Assert.Equal(7, c.ElementId);
+            Assert.NotEqual("", c.IssueId);
+            Assert.Contains("JKR tiada takrif flat roof", c.Note);
+            Assert.DoesNotContain("°", c.Note);
         }
 
         [Fact]
-        public void A1_4_a_roof_named_flat_with_a_fall_is_flat()
+        public void A1_4_the_slope_and_the_name_no_longer_decide_anything()
         {
-            // Real Dewan model, 16 Nov: "Sistem Bumbung rata konkrit tetulang" at 5.2°, cement
-            // render only, passed as "no RC flat roof".
-            var rata = new SpecRoof { Id = 1653186, TypeName = "jkrAR_rof_BGk_gk01_50_(BGk100a)-3 @B1 Sistem Bumbung rata konkrit tetulang",
-                SlopeDegrees = 5.19, Materials = { "jkrAR_rof-f_(BGfl01)-3 Lepaan Simen" }, LayerFunctions = { "Structure" } };
-            Assert.True(SpecA.IsFlatRoof(rata));
-            var f = Assert.Single(Fails(Run(new SpecModel { Roofs = { rata } }, "A1.4")));
-            Assert.Equal(1653186, f.ElementId);
-            // With a pitched roof beside it (possible double roofing) a person confirms it.
-            var pitched = new SpecRoof { Id = 2, TypeName = "Metal Deck", SlopeDegrees = 26.7, Materials = { "Metal Decking" } };
-            Assert.Equal(SpecState.NeedsPerson, State(new SpecModel { Roofs = { rata, pitched } }, "A1.4"));
-            // A pitched roof is never flat by name alone.
-            Assert.False(SpecA.IsFlatRoof(new SpecRoof { TypeName = "Bumbung rata", SlopeDegrees = 25 }));
+            // Real Dewan model, 16 Nov: "Sistem Bumbung rata konkrit tetulang" at 5.2°. It has no
+            // waterproofing, so a person is asked; the same roof at 30° is asked too (no flat definition).
+            foreach (var slope in new[] { 0.0, 1.9, 2.0, 5.19, 9.9, 10.0, 30.0 })
+            {
+                var rata = new SpecRoof { Id = 1653186, TypeName = "jkrAR_rof_BGk_gk01_50_(BGk100a)-3 @B1 Sistem Bumbung rata konkrit tetulang",
+                    SlopeDegrees = slope, Materials = { "jkrAR_rof-f_(BGfl01)-3 Lepaan Simen" }, LayerFunctions = { "Structure" } };
+                var rs = Run(new SpecModel { Roofs = { rata } }, "A1.4");
+                Assert.Empty(Fails(rs));
+                Assert.Equal(1653186, Assert.Single(rs).ElementId);
+            }
+            var pitched = new SpecModel { Roofs = { new SpecRoof { Id = 2, TypeName = "Metal Deck", SlopeDegrees = 26.7, Materials = { "Metal Decking" } } } };
+            Assert.Equal(SpecState.Pass, State(pitched, "A1.4"));
         }
 
         [Fact]
@@ -410,7 +419,7 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void A1_4_unknown_material_or_possible_double_roofing_goes_to_a_person()
+        public void A1_4_unknown_material_or_an_RC_roof_without_waterproofing_goes_to_a_person()
         {
             var noMat = new SpecModel { Roofs = { new SpecRoof { Id = 1, TypeName = "Roof", SlopeDegrees = 0 } } };
             Assert.Equal(SpecState.NeedsPerson, State(noMat, "A1.4"));
@@ -423,6 +432,7 @@ namespace RevitWebAppSync.Tests
                 },
             };
             Assert.Equal(SpecState.NeedsPerson, State(dbl, "A1.4"));
+            Assert.Empty(Fails(Run(dbl, "A1.4")));
         }
 
         // ════ A1.5 fence ════
@@ -588,7 +598,7 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void A3_1_single_W00_with_a_part_like_link_gets_a_remark_that_never_changes_the_pass()
+        public void A3_1_single_W00_with_a_part_like_link_has_no_remark()
         {
             var m = new SpecModel
             {
@@ -599,33 +609,23 @@ namespace RevitWebAppSync.Tests
                     new SpecLink { Name = "jkrAR24_5a_A1_WX02_DS.rvt", Status = "Loaded" },
                 },
             };
-            var rs = Run(m, "A3.1");
-            Assert.Equal(2, rs.Count);
-            Assert.Equal("pass", rs[0].Status);
-            var remark = rs[1];
-            Assert.Equal(SpecCoverage.Context, remark.Coverage);
-            Assert.Equal("", remark.IssueId);
-            Assert.StartsWith("REMARK: model tunggal (W00)", remark.Note);
-            Assert.Contains("jkrAR24_5a_A1_WX02_DS.rvt", remark.Note);
-            Assert.StartsWith("REMARK: single model (W00)", remark.NoteEn);
+            var r = Assert.Single(Run(m, "A3.1"));      // AI-504 (Q16): the W00 -> comply logic only
+            Assert.Equal("pass", r.Status);
+            Assert.DoesNotContain("REMARK", r.Note);
+            Assert.DoesNotContain("REMARK", r.NoteEn);
             var c = SpecReport.Build(SpecChecks.Run(m)).For("A3.1");
             Assert.Equal(SpecState.Pass, c.State);
             Assert.Equal(1, c.Passed);
-            Assert.Contains(remark.Note, c.Notes);
         }
 
         [Fact]
-        public void A3_1_single_W00_with_many_other_links_gets_a_remark()
+        public void A3_1_single_W00_with_many_other_links_has_no_remark()
         {
+            // AI-504 (Q16): no JKR document gives a link-count rule, so no remark however many links.
             var m = new SpecModel { FileName = File00 };
-            for (var i = 1; i <= SpecChecks.A31ManyLinks; i++)
+            for (var i = 1; i <= 12; i++)
                 m.Links.Add(new SpecLink { Name = $"Site_{i}.rvt", Status = "Loaded" });
-            m.Links.Add(new SpecLink { Name = "jkrST24_x_W00.rvt", Status = "Loaded" });
-            Assert.Single(Run(m, "A3.1"));                       // exactly the threshold: no remark
-            m.Links.Add(new SpecLink { Name = "Landskap.rvt", Status = "Loaded" });
-            var rs = Run(m, "A3.1");
-            Assert.Equal(2, rs.Count);
-            Assert.Contains($"{SpecChecks.A31ManyLinks + 1} link selain ST / ME / EL", rs[1].Note);
+            Assert.Single(Run(m, "A3.1"));
             Assert.Equal(SpecState.Pass, State(m, "A3.1"));
         }
 
@@ -855,7 +855,7 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void A6_2_a_slab_with_no_room_point_on_its_level_fails_with_floor_level_and_grid()
+        public void A6_2_a_slab_with_no_room_is_listed_with_floor_level_and_grid_never_failed()
         {
             var m = new SpecModel
             {
@@ -873,16 +873,19 @@ namespace RevitWebAppSync.Tests
                 },
             };
             var rs = Run(m, "A6.2");
-            var fails = Fails(rs);
-            Assert.Equal(2, fails.Count);
-            Assert.Contains(fails, f => f.ElementId == 12 && f.Note == "Aras 01 | grid 2/B | lif: lantai 12 (Lantai Lif) tiada room");
-            Assert.Contains(fails, f => f.ElementId == 13 && f.Note.StartsWith("Aras 02"));
+            Assert.Empty(Fails(rs));
+            var listed = rs.Where(r => r.Coverage == SpecCoverage.Context).ToList();
+            Assert.Equal(2, listed.Count);
+            Assert.Contains(listed, f => f.ElementId == 12 && f.Note.StartsWith("Aras 01 | grid 2/B | lif: lantai 12 (Lantai Lif) tiada room"));
+            Assert.Contains(listed, f => f.ElementId == 13 && f.Note.StartsWith("Aras 02"));
+            Assert.All(listed, f => Assert.NotEqual("", f.IssueId));
             Assert.Equal(SpecCoverage.FailOnly, Assert.Single(rs, r => r.Status == "pass").Coverage);
         }
 
         [Fact]
-        public void A6_2_a_slab_partly_under_a_room_fails_with_the_share_and_one_mostly_under_passes()
+        public void A6_2_a_slab_with_a_room_on_part_of_it_complies_whatever_the_share()
         {
+            // AI-504 (Q5): the invented 50 % is gone. Principle only: a room is on the slab.
             var m = new SpecModel
             {
                 Levels = { new SpecLevel { Name = "01", Elevation = 0 } },
@@ -898,12 +901,11 @@ namespace RevitWebAppSync.Tests
                 },
             };
             var rs = Run(m, "A6.2");
-            var f = Assert.Single(Fails(rs));
-            Assert.Equal(11, f.ElementId);
-            Assert.Equal("Aras 01: lantai 11 (Slab) hanya 25% di bawah room", f.Note);
-            Assert.Equal("Level 01: floor 11 (Slab) only 25% under a room", f.NoteEn);
-            Assert.Equal("25% di bawah room", f.Actual);
-            Assert.Equal(SpecCoverage.Full, Assert.Single(rs, r => r.Status == "pass").Coverage);
+            Assert.Empty(Fails(rs));
+            Assert.DoesNotContain(rs, r => r.Coverage == SpecCoverage.Context);
+            var pass = Assert.Single(rs, r => r.Status == "pass");
+            Assert.Equal(2, pass.ElementCount);
+            Assert.Equal(SpecCoverage.Full, pass.Coverage);
         }
 
         [Fact]
@@ -920,8 +922,8 @@ namespace RevitWebAppSync.Tests
                 },
                 Rooms = { RoomAt(1, "001", "Bilik", "01", 0, 0, 0, 5000, 5000, height: 1400) },
             };
-            var fails = Fails(Run(m, "A6.2"));
-            Assert.Equal(new long[] { 12 }, fails.Select(x => x.ElementId));
+            var listed = Run(m, "A6.2").Where(r => r.Coverage == SpecCoverage.Context).ToList();
+            Assert.Equal(new long[] { 12 }, listed.Select(x => x.ElementId));
         }
 
         [Fact]
@@ -939,21 +941,22 @@ namespace RevitWebAppSync.Tests
                 },
             };
             // The stair covers its landing; a tall store room does not reach the next storey's slab.
-            Assert.Equal(new long[] { 22 }, Fails(Run(m, "A6.2")).Select(x => x.ElementId));
+            var listed = Run(m, "A6.2").Where(r => r.Coverage == SpecCoverage.Context).ToList();
+            Assert.Equal(new long[] { 22 }, listed.Select(x => x.ElementId));
         }
 
         [Fact]
-        public void A6_2_small_pads_are_listed_once_as_context_never_failed()
+        public void A6_2_a_small_slab_is_judged_like_any_other_no_pad_rule()
         {
+            // AI-504: the 1 m² pad rule is gone: a small slab with no room is listed, never skipped or failed.
             var m = new SpecModel
             {
                 Floors = { FloorAt(31, "Tanah", 2652, 0, 0, 670, 670), FloorAt(32, "Tanah", 2652, 1000, 0, 1670, 670) },
             };
             var rs = Run(m, "A6.2");
             Assert.Empty(Fails(rs));
-            var c = Assert.Single(rs);
-            Assert.Equal(SpecCoverage.Context, c.Coverage);
-            Assert.Equal("2 pad kecil (< 1 m²) bukan slab — tidak disemak: Aras Tanah 2 (31, 32)", c.Note);
+            var listed = rs.Where(r => r.Coverage == SpecCoverage.Context).ToList();
+            Assert.Equal(new long[] { 31, 32 }, listed.Select(r => r.ElementId).OrderBy(x => x));
         }
 
         [Theory]
@@ -1281,29 +1284,53 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void A4_1_real_model_base_point_on_PT_A_x_PT1_passes_and_names_the_grids()
+        public void A4_1_real_model_PT_A_x_PT1_is_not_read_as_Grid_A_1_and_is_listed_for_a_person()
         {
+            // AI-504 (spec #12): no JKR document reads a prefixed pair as Grid A/1.
             var rs = Run(RealGridModel(), "A4.1");
             var r = Assert.Single(rs);
-            Assert.Equal("pass", r.Status);
-            Assert.Equal("Project Base Point pada persilangan grid PT-A / PT1 (Grid A/1): sisihan 0 mm (≤ 10 mm)", r.Note);
-            Assert.Equal("Project Base Point at the crossing of grids PT-A / PT1 (Grid A/1): offset 0 mm (≤ 10 mm)", r.NoteEn);
-            Assert.Equal(SpecState.Pass, State(RealGridModel(), "A4.1"));
+            Assert.Equal(SpecCoverage.Context, r.Coverage);
+            Assert.Equal("cannot_verify", r.Status);
+            Assert.Contains("PT-A / PT1", r.Note);
+            Assert.Contains("manusia putuskan", r.Note);
+            Assert.NotEqual("", r.IssueId);
+            Assert.Equal(2, r.ElementIds.Count);
+            Assert.Equal(SpecState.NeedsPerson, State(RealGridModel(), "A4.1"));
         }
 
         [Fact]
-        public void A4_1_offset_beyond_10_mm_fails_with_the_offset()
+        public void A4_1_plain_A_and_1_with_the_base_point_exactly_on_the_crossing_passes()
         {
-            var m = RealGridModel();
-            m.ProjectBasePoint = new SpecPoint { X = RealBasePoint.X + 15, Y = RealBasePoint.Y - 20 };
-            var f = Assert.Single(Fails(Run(m, "A4.1")));
-            Assert.Equal("Project Base Point 25 mm dari persilangan grid PT-A / PT1 (Grid A/1): X 15 mm, Y -20 mm — had ≤ 10 mm", f.Note);
-            Assert.Equal("25 mm", f.Actual);
-            Assert.Equal(2, f.ElementIds.Count);
+            var m = new SpecModel
+            {
+                ProjectBasePoint = new SpecPoint { X = 0, Y = 0 },
+                Grids = { LineGrid("A", 0, true, 1), LineGrid("1", 0, false, 2) },
+            };
+            var r = Assert.Single(Run(m, "A4.1"));
+            Assert.Equal("pass", r.Status);
+            Assert.Equal("Project Base Point tepat pada persilangan grid A / 1 (Grid A/1)", r.Note);
+            Assert.Equal(SpecState.Pass, State(m, "A4.1"));
         }
 
         [Fact]
-        public void A4_1_prefers_plain_A_1_then_the_prefixed_pair_and_judges_the_nearest()
+        public void A4_1_any_offset_is_listed_with_the_offset_never_failed()
+        {
+            var m = new SpecModel
+            {
+                ProjectBasePoint = new SpecPoint { X = 15, Y = -20 },
+                Grids = { LineGrid("A", 0, true, 1), LineGrid("1", 0, false, 2) },
+            };
+            var rs = Run(m, "A4.1");
+            Assert.Empty(Fails(rs));
+            var c = Assert.Single(rs);
+            Assert.Equal(SpecCoverage.Context, c.Coverage);
+            Assert.StartsWith("Project Base Point 25 mm dari persilangan grid A / 1 (Grid A/1): X 15 mm, Y -20 mm", c.Note);
+            Assert.DoesNotContain("had ≤", c.Note);
+            Assert.Equal(2, c.ElementIds.Count);
+        }
+
+        [Fact]
+        public void A4_1_plain_pair_wins_over_a_prefixed_one()
         {
             var m = new SpecModel
             {
@@ -1311,10 +1338,9 @@ namespace RevitWebAppSync.Tests
                 Grids = { LineGrid("A", 0, true, 1), LineGrid("1", 0, false, 2), LineGrid("PT-A", 5000, true, 3), LineGrid("PT1", 7000, false, 4), LineGrid("PT2", 9000, false, 5) },
             };
             var labels = SpecA.ParseGrids(m.Grids.Select(g => g.Name));
-            Assert.Equal(new[] { (0, 1), (2, 3) }, SpecA.BaseGridPairs(labels));
-            Assert.Contains("PT-A / PT1", Assert.Single(Run(m, "A4.1")).Note);
-            m.ProjectBasePoint = new SpecPoint { X = 2, Y = -3 };
-            Assert.Contains("grid A / 1 (Grid A/1): sisihan 3.6 mm", Assert.Single(Run(m, "A4.1")).Note);
+            Assert.Equal(new[] { (0, 1) }, SpecA.BaseGridPairs(labels));
+            Assert.Empty(SpecA.PrefixedBaseGridPairs(labels));
+            Assert.Contains("grid A / 1 (Grid A/1): X 5000 mm, Y 7000 mm", Assert.Single(Run(m, "A4.1")).Note);
         }
 
         [Fact]
