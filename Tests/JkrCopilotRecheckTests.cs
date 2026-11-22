@@ -104,45 +104,49 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public async Task C511_with_no_element_id_goes_Fixed_through_the_full_scan_AI499()
+        public async Task A_turn_that_ends_with_no_write_is_no_change_and_no_recheck()
         {
-            var f = new Fake { ScanResult = () => true }; f.Issue.RevitElementId = 0;
-            var req = new CopilotFixRequest("r1", "C5.1.1", new long[0], "Links");
-            Assert.Equal(CopilotRecheckResult.Fixed, await new JkrCopilotRecheck<Row>(f.Host()).RunAsync(req));
-            Assert.Equal(1, f.Scans);
-            Assert.Equal(0, f.Rechecks);
-            Assert.Equal("Copilot", f.Issue.FixedVia);
-        }
-
-        [Fact]
-        public async Task C511_turn_that_ends_with_no_card_is_waiting_for_the_person_not_no_change_AI499()
-        {
-            var f = new Fake { ScanResult = () => true }; f.Issue.RevitElementId = 0;
+            var f = new Fake { ScanResult = () => true };
             var s = new Session { End = CopilotCardState.None };
             var toasts = new List<string>();
             var l = new JkrCopilotFixLauncher(s, _ => new[] { "A" }, toasts.Add, () => false, _ => Task.CompletedTask,
                 indexingTimeout: TimeSpan.FromSeconds(1), turnTimeout: TimeSpan.FromSeconds(5), settle: TimeSpan.FromMilliseconds(500),
                 afterWrite: new JkrCopilotRecheck<Row>(f.Host()).RunAsync);
-            var req = new CopilotFixRequest("r1", "C5.1.1", new long[0], "Links");
-            Assert.Equal(CopilotLaunchOutcome.WaitingForAnswer, await l.LaunchAsync(req));
-            Assert.Equal(new[] { "Copilot is waiting for your answer in the chat." }, toasts);
-            Assert.Equal(0, f.Scans);
-            Assert.False(f.Issue.Fixed);
-            // another check with no card is still "no change"
-            toasts.Clear();
             Assert.Equal(CopilotLaunchOutcome.NoWrite, await l.LaunchAsync(Req));
             Assert.Contains("ended without a change", toasts[0]);
+            Assert.Contains("Check the Copilot chat", toasts[0]);
+            Assert.Equal(0, f.Scans);
+            Assert.Equal(0, f.Rechecks);
+            Assert.False(f.Issue.Fixed);
         }
 
         [Fact]
-        public async Task C511_with_a_question_card_then_Ya_rechecks_by_scan_AI499()
+        public async Task Part_1_committed_part_2_no_write_stops_but_still_rechecks_and_says_not_needed()
         {
             var f = new Fake { ScanResult = () => true }; f.Issue.RevitElementId = 0;
-            var s = new Session();   // the turn held a card and ended Approved
-            var req = new CopilotFixRequest("r1", "C5.1.1", new long[0], "Links");
-            Assert.Equal(CopilotLaunchOutcome.Sent, await Launcher(s, f, new[] { "A" }).LaunchAsync(req));
-            Assert.Equal(1, f.Scans);
-            Assert.True(f.Issue.Fixed);
+            var s = new Session();
+            var toasts = new List<string>();
+            var l = new JkrCopilotFixLauncher(new NoWriteAfterFirst(s), _ => new[] { "A", "B", "C" }, toasts.Add, () => false, _ => Task.CompletedTask,
+                indexingTimeout: TimeSpan.FromSeconds(1), turnTimeout: TimeSpan.FromSeconds(5), settle: TimeSpan.FromMilliseconds(500),
+                afterWrite: new JkrCopilotRecheck<Row>(f.Host()).RunAsync);
+            Assert.Equal(CopilotLaunchOutcome.Sent, await l.LaunchAsync(Req));
+            Assert.Equal(1, f.Scans + f.Rechecks);          // re-check ran once
+            Assert.Contains(toasts, t => t.Contains("Parts 2-3 not needed"));
+            Assert.DoesNotContain(toasts, t => t.Contains("ended without a change"));
+        }
+
+        [Fact]
+        public async Task No_part_committed_is_NoWrite_with_no_recheck()
+        {
+            var f = new Fake { ScanResult = () => true };
+            var s = new Session { End = CopilotCardState.None };
+            var toasts = new List<string>();
+            var l = new JkrCopilotFixLauncher(s, _ => new[] { "A", "B" }, toasts.Add, () => false, _ => Task.CompletedTask,
+                indexingTimeout: TimeSpan.FromSeconds(1), turnTimeout: TimeSpan.FromSeconds(5), settle: TimeSpan.FromMilliseconds(500),
+                afterWrite: new JkrCopilotRecheck<Row>(f.Host()).RunAsync);
+            Assert.Equal(CopilotLaunchOutcome.NoWrite, await l.LaunchAsync(Req));
+            Assert.Equal(0, f.Scans + f.Rechecks);
+            Assert.Contains("ended without a change", toasts[0]);
         }
 
         [Fact]
@@ -275,6 +279,21 @@ namespace RevitWebAppSync.Tests
                 indexingTimeout: TimeSpan.FromSeconds(1), turnTimeout: TimeSpan.FromSeconds(5), settle: TimeSpan.FromMilliseconds(500), afterWrite: new JkrCopilotRecheck<Row>(f.Host()).RunAsync);
             Assert.Equal(CopilotLaunchOutcome.Declined, await l.LaunchAsync(Req));
             Assert.Equal(0, f.Rechecks);
+        }
+
+        /// <summary>Part 1 commits a write; from part 2 on the turn ends with no write (a type parameter already changed).</summary>
+        private sealed class NoWriteAfterFirst : ICopilotSession
+        {
+            private readonly Session _s;
+            public NoWriteAfterFirst(Session s) { _s = s; }
+            public Task<string> OpenPaneAsync() => _s.OpenPaneAsync();
+            public void NewChat() => _s.NewChat();
+            public bool IsIndexing => false;
+            public bool IsSignedIn => true;
+            public bool IsPaneVisible => true;
+            public bool IsSending => _s.IsSending;
+            public CopilotCardState Cards { get { var c = _s.Cards; return _s.Sends >= 2 ? CopilotCardState.None : c; } }
+            public void Send(string text) => _s.Send(text);
         }
 
         private sealed class DeclineSecond : ICopilotSession

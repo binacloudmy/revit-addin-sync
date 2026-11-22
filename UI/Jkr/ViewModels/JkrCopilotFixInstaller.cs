@@ -7,24 +7,24 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
     /// <summary>
     /// AI-494: puts the launcher on the AI-492 seam (<see cref="JkrCopilotFix.Launcher"/>). The button shows only while a
     /// launcher is set (<see cref="JkrCopilotFix.LauncherReady"/>, which <c>IssueVm.CopilotFixable</c> requires), and a
-    /// launcher is set only while there is a prompt builder, so no builder means no button.
+    /// launcher is set only while there is a prompt builder AND a confirm, so neither means no button.
     /// </summary>
     public static class JkrCopilotFixInstaller
     {
-        /// <summary>AI-493's prompt builder. NOT the default (see <see cref="PromptBuilder"/>); the rework below sets it.</summary>
+        /// <summary>The prompt builder of the protocol-3 rework (set_parameters wording; see JkrCopilotPrompt).</summary>
         public static Func<IssueVm, bool, IReadOnlyList<string>> DefaultPromptBuilder { get; } = (issue, bm) => JkrCopilotPrompt.Build(issue, bm);
 
-        /// <summary>AI-493: the prompt parts for a row, in the pane language (<c>bm</c>), none over the element-id cap.
-        /// DEFAULT NULL: Fix via Copilot is disabled (button hidden) until the protocol-3 rework (AI-490 follow-up). On the
-        /// merged feat/bina-ai-copilot engine writes apply with no Ya/Tidak card, the prompts name tools that no longer
-        /// exist (see JkrCopilotPrompt.CreateType.cs) and say "propose and wait", which his engine rule contradicts. The
-        /// launcher, session, prompts and tests stay wired; the rework sets this to <see cref="DefaultPromptBuilder"/> (or its replacement).</summary>
-        public static Func<IssueVm, bool, IReadOnlyList<string>> PromptBuilder { get; set; } = null;
+        /// <summary>The prompt parts for a row, in the pane language (<c>bm</c>), none over the element-id cap. Default: the
+        /// protocol-3 builder. Null hides the button for every row.</summary>
+        public static Func<IssueVm, bool, IReadOnlyList<string>> PromptBuilder { get; set; } = DefaultPromptBuilder;
 
-        /// <summary>Sets the launcher, or clears it when there is no prompt builder.</summary>
-        public static void Install(ICopilotSession session, Func<string, IssueVm> issueById, Action<string> notify, JkrCopilotRecheckHost<IssueVm> recheck = null)
+        /// <summary>Sets the launcher, or clears it (button hidden) when there is no prompt builder, no session or no confirm.
+        /// The confirm is required: on the merged engine nothing else asks the person before a write.</summary>
+        /// <param name="confirm">Shows the confirm dialog for the content and returns true on Yes.</param>
+        public static void Install(ICopilotSession session, Func<string, IssueVm> issueById, Action<string> notify,
+            JkrCopilotRecheckHost<IssueVm> recheck = null, Func<CopilotConfirmContent, bool> confirm = null)
         {
-            if (PromptBuilder == null || session == null) { JkrCopilotFix.Launcher = null; return; }
+            if (PromptBuilder == null || session == null || confirm == null) { JkrCopilotFix.Launcher = null; return; }
             JkrCopilotFix.Launcher = new JkrCopilotFixLauncher(
                 session,
                 req =>
@@ -35,7 +35,13 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 },
                 notify,
                 () => !PaneLanguage.IsEn,
-                afterWrite: recheck == null ? (Func<CopilotFixRequest, System.Threading.Tasks.Task>)null : new JkrCopilotRecheck<IssueVm>(recheck).RunAsync);
+                afterWrite: recheck == null ? (Func<CopilotFixRequest, System.Threading.Tasks.Task>)null : new JkrCopilotRecheck<IssueVm>(recheck).RunAsync,
+                confirm: req =>
+                {
+                    var issue = issueById(req.IssueId) ?? throw new InvalidOperationException("the row is no longer in the list");
+                    var bm = !PaneLanguage.IsEn;
+                    return confirm(JkrCopilotConfirm.Build(JkrCopilotPrompt.FactsOf(issue, bm), bm));
+                });
         }
     }
 }

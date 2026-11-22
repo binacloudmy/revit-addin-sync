@@ -56,21 +56,15 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void A_create_type_row_with_no_element_id_shows_the_button_AI498()
+        public void Rows_of_the_hidden_families_never_show_the_button_even_with_ids()
         {
-            foreach (var id in new[] { "C1.3.1", "C1.4.1", "C1.5.2", "C1.6.1", "C3.1.1", "C4.1.3", "C5.1.1" })
-                Assert.True(Row(id, "Views", ids: 0).CopilotFixable, id);
-            Assert.False(Row("C2.1.1", "Views", ids: 0).CopilotFixable);
-            Assert.False(Row("C5.1.2", "Views", ids: 0).CopilotFixable);
-            Assert.False(Row("C1.6.2", "Views", ids: 0).CopilotFixable);
-            Assert.False(Row("C5.1.1", "Views", ids: 0, human: true).CopilotFixable);
-            Assert.False(Row("C5.1.1", "Views", ids: 0, fix: true).CopilotFixable);
-            Assert.False(Row("C5.1.1", "Views", ids: 0, pick: true).CopilotFixable);
-            Assert.False(Row("C1.1.1", "Views", ids: 0).CopilotFixable);   // AI-500: no tool creates a view template
-            Assert.False(Row("C1.1.2", "Views", ids: 0).CopilotFixable);   // AI-500: no tool renames one (warning class too)
-            Assert.False(Row("C1.3.1", "Views", ids: 0, human: true).CopilotFixable);
+            foreach (var id in new[] { "Dd.1", "A2.2", "A3.1", "C1.3.1", "C1.4.1", "C1.5.2", "C1.6.1", "C2.1.1", "C3.1.1", "C4.1.3", "C5.1.1", "C5.1.2", "C1.1.1", "C1.1.2" })
+            {
+                Assert.False(Row(id, "Views", ids: 0).CopilotFixable, id);
+                Assert.False(Row(id, "Views", ids: 3).CopilotFixable, id);
+            }
             JkrCopilotFix.Launcher = null;
-            Assert.False(Row("C1.3.1", "Views", ids: 0).CopilotFixable);
+            Assert.False(Row("Da.1").CopilotFixable);
         }
 
         [Fact]
@@ -120,17 +114,13 @@ namespace RevitWebAppSync.Tests
             d.FixViaCopilot();
             Assert.Equal(shown.Id, got);
             Assert.Equal("Fix via Copilot", d.CopilotFixLabel);
+            Assert.Contains("confirm", d.CopilotFixTooltip);
             Assert.Contains("new Copilot chat", d.CopilotFixTooltip);
         }
 
         [Fact]
-        public void C511_keeps_Mark_manual_while_the_Copilot_button_shows_AI499()
+        public void A_High_row_whose_only_control_is_the_Copilot_button_cannot_be_deferred()
         {
-            var r = Row("C5.1.1", "Views", ids: 0);
-            r.Priority = IssuePriority.High;
-            Assert.True(r.CopilotFixable);
-            Assert.True(r.CanMarkManual);
-            // another High row whose only control is the Copilot button still has to be fixed, not deferred
             var d = Row("Da.1"); d.Priority = IssuePriority.High;
             Assert.True(d.CopilotFixable);
             Assert.False(d.CanMarkManual);

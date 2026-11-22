@@ -29,7 +29,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// <summary>A turn is streaming (or a resolved card's write is running).</summary>
         bool IsSending { get; }
 
-        /// <summary>The Ya/Tidak cards of the turns sent by <see cref="Send"/> since the last NewChat (the newest decides).</summary>
+        /// <summary>The cards (ask / wide-write gate / committed write) of the turns sent by <see cref="Send"/> since the last NewChat (the newest decides).</summary>
         CopilotCardState Cards { get; }
 
         /// <summary>The Copilot pane is on screen. False once the person closes it mid-sequence.</summary>
@@ -39,7 +39,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         void Send(string text);
     }
 
-    /// <summary>Where the Ya/Tidak card of the turn stands.</summary>
+    /// <summary>Where the turn stands: an open question or "Needs your OK" gate, a committed write, a declined gate.</summary>
     public enum CopilotCardState
     {
         /// <summary>No card (Copilot answered without proposing a write).</summary>
@@ -52,7 +52,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         Declined,
     }
 
-    /// <summary>One card message on the Copilot thread (Ya/Tidak, question or code card).</summary>
+    /// <summary>One card message on the Copilot thread (an ask card, the wide-write gate, or a committed write).</summary>
     public readonly struct CopilotCardInfo
     {
         public CopilotCardInfo(bool resolved, bool? approved) { Resolved = resolved; Approved = approved; }
@@ -100,9 +100,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         Declined,
         /// <summary>The turn ended with no write (no card); later parts were not sent.</summary>
         NoWrite,
-        /// <summary>AI-499: the turn ended with no card but Copilot is asking the person a question in plain text (a check that
-        /// needs a file path). No re-check runs: the answer turn is not tracked by the launcher.</summary>
-        WaitingForAnswer,
+        /// <summary>The person answered No in the confirm dialog: nothing was opened, cleared or sent.</summary>
+        NotConfirmed,
         /// <summary>The pane was closed mid-sequence; later parts were not sent.</summary>
         PaneClosed,
     }
@@ -129,21 +128,27 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         private readonly Action<string> _notify;
         private readonly Func<bool> _isBm;
         private readonly Func<CopilotFixRequest, Task> _afterWrite;
+        private readonly Func<CopilotFixRequest, bool> _confirm;
         private readonly Func<TimeSpan, Task> _delay;
         private readonly TimeSpan _poll, _indexingTimeout, _turnTimeout, _startGrace, _settle;
         private int _running;
 
         /// <param name="session">The Copilot / Revit calls.</param>
         /// <param name="prompt">AI-493: the prompt parts for a request, in order (never one part over the element-id cap).</param>
+        /// <param name="confirm">The one confirm per check (ids, change, undo): asked on the UI thread before the pane is opened or the chat
+        /// cleared. False = the person said No; nothing is sent. The app always passes one (<see cref="JkrCopilotFixInstaller.Install"/> refuses to
+        /// build a launcher without it, a source-guard test pins that); null (no confirm step) is for unit tests of the sequence only.</param>
         /// <param name="notify">Shows a message to the person (the JKR toast).</param>
         /// <param name="isBm">The pane language is Bahasa Melayu (default text language of the pane).</param>
         /// <param name="delay">Wait between polls; tests pass an instant one. Default <see cref="Task.Delay(TimeSpan)"/>.</param>
         public JkrCopilotFixLauncher(ICopilotSession session, Func<CopilotFixRequest, IReadOnlyList<string>> prompt,
             Action<string> notify, Func<bool> isBm = null, Func<TimeSpan, Task> delay = null,
             TimeSpan? indexingTimeout = null, TimeSpan? turnTimeout = null, TimeSpan? poll = null,
-            TimeSpan? startGrace = null, TimeSpan? settle = null, Func<CopilotFixRequest, Task> afterWrite = null)
+            TimeSpan? startGrace = null, TimeSpan? settle = null, Func<CopilotFixRequest, Task> afterWrite = null,
+            Func<CopilotFixRequest, bool> confirm = null)
         {
             _afterWrite = afterWrite;
+            _confirm = confirm;
             _session = session ?? throw new ArgumentNullException(nameof(session));
             _prompt = prompt ?? throw new ArgumentNullException(nameof(prompt));
             _notify = notify ?? (_ => { });
@@ -199,6 +204,13 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 return CopilotLaunchOutcome.NoPrompt;
             }
 
+            // 0. the confirm, before anything is opened, cleared or sent (a No leaves the person's chat as it was). Runs
+            //    before the first await, so it is still inside the button click.
+            bool ok = true;
+            try { if (_confirm != null) ok = _confirm(request); }
+            catch (Exception ex) { _notify(Text.SendFailed(bm, ex.Message)); return CopilotLaunchOutcome.SendFailed; }
+            if (!ok) return CopilotLaunchOutcome.NotConfirmed;
+
             // 1. open the pane
             string openError;
             try { openError = await _session.OpenPaneAsync().ConfigureAwait(true); }
@@ -209,7 +221,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 return CopilotLaunchOutcome.PaneUnavailable;
             }
 
-            // 2. never wipe a request in progress: a second click while Copilot runs, or a Ya/Tidak card is open
+            // 2. never wipe a request in progress: a second click while Copilot runs, or a question / "Needs your OK" card is open
             if (_session.IsSending || _session.Cards == CopilotCardState.Open)
             {
                 _notify(Text.CopilotBusy(bm));
@@ -237,7 +249,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 return CopilotLaunchOutcome.SignInNeeded;
             }
 
-            // 5. send each part; the next goes only after this one's turn finished WITH a write (Ya, and the write ran)
+            // 5. send each part; the next goes only after this one's turn finished WITH a committed write (a gate, if the engine asked, was answered write_all)
+            var committed = false;   // an earlier part committed a write (e.g. a type parameter changed for all instances)
             for (var i = 0; i < parts.Count; i++)
             {
                 var part = parts[i];
@@ -247,25 +260,24 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     _notify(Text.PaneClosed(bm, i, parts.Count));
                     return CopilotLaunchOutcome.PaneClosed;
                 }
-                // AI-501: this part's turn always shows the Ya/Tidak card, even with Auto on (consumed by ChatSend).
-                RevitWebAppSync.Services.ForcedConfirm.ArmForNextTurn();
                 try { _session.Send(part); }
-                catch (Exception ex) { RevitWebAppSync.Services.ForcedConfirm.EndTurn(); _notify(Text.SendFailed(bm, ex.Message)); return CopilotLaunchOutcome.SendFailed; }
+                catch (Exception ex) { _notify(Text.SendFailed(bm, ex.Message)); return CopilotLaunchOutcome.SendFailed; }
 
                 // AI-495: the last turn is awaited too: the re-check runs once its write is done.
                 var end = await WaitForTurnAsync().ConfigureAwait(true);
                 if (end == null) { _notify(Text.TurnTimeout(bm, i + 1, parts.Count)); return CopilotLaunchOutcome.TurnTimeout; }
-                if (end == CopilotCardState.Declined) { RevitWebAppSync.Services.ForcedConfirm.EndTurn(); _notify(Text.Declined(bm, i + 1, parts.Count)); return CopilotLaunchOutcome.Declined; }
-                if (end == CopilotCardState.None && JkrCopilotPrompt.AsksPerson(request.CheckId))
+                if (end == CopilotCardState.Declined) { _notify(Text.Declined(bm, i + 1, parts.Count)); return CopilotLaunchOutcome.Declined; }
+                if (end == CopilotCardState.None && committed)
                 {
-                    RevitWebAppSync.Services.ForcedConfirm.EndTurn();
-                    _notify(Text.WaitingForAnswer(bm));
-                    return CopilotLaunchOutcome.WaitingForAnswer;
+                    // A later part found nothing left to write: stop sending, keep the earlier write and re-check it.
+                    _notify(Text.PartsNotNeeded(bm, i + 1, parts.Count));
+                    break;
                 }
-                if (end != CopilotCardState.Approved) { RevitWebAppSync.Services.ForcedConfirm.EndTurn(); _notify(Text.NoWrite(bm, i + 1, parts.Count)); return CopilotLaunchOutcome.NoWrite; }
+                if (end != CopilotCardState.Approved) { _notify(Text.NoWrite(bm, i + 1, parts.Count)); return CopilotLaunchOutcome.NoWrite; }
+                committed = true;
             }
 
-            // 6. every part wrote (Ya, write ran): re-check ONCE, after the last part. The parts are one row's element ids
+            // 6. every part wrote: re-check ONCE, after the last part. The parts are one row's element ids
             //    split by the id cap, so a check per part would flicker the same row and could report "still failing"
             //    while later parts are still to come.
             if (_afterWrite != null)
@@ -356,11 +368,12 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 ? $"Anda memilih Tidak pada bahagian {sent}.{NotSent(bm, sent, total)}"
                 : $"You answered No on part {sent}.{NotSent(bm, sent, total)}";
             public static string NoWrite(bool bm, int sent, int total) => bm
-                ? $"Bahagian {sent} selesai tanpa perubahan.{NotSent(bm, sent, total)}"
-                : $"Part {sent} ended without a change.{NotSent(bm, sent, total)}";
-            public static string WaitingForAnswer(bool bm) => bm
-                ? "Copilot menunggu jawapan anda dalam sembang."
-                : "Copilot is waiting for your answer in the chat.";
+                ? $"Bahagian {sent} selesai tanpa perubahan. Semak sembang Copilot: ia mungkin bertanya sesuatu.{NotSent(bm, sent, total)}"
+                : $"Part {sent} ended without a change. Check the Copilot chat: it may have asked a question.{NotSent(bm, sent, total)}";
+            /// <param name="first">The part that ended with no write (1-based); it and the later ones were not needed.</param>
+            public static string PartsNotNeeded(bool bm, int first, int total) => bm
+                ? $"{Cap(Parts(bm, first, total))} tidak diperlukan: bahagian sebelumnya sudah mengubah elemen. Semakan semula dijalankan."
+                : $"{Cap(Parts(bm, first, total))} not needed: an earlier part already changed the elements. Re-checking.";
             public static string PaneClosed(bool bm, int sent, int total) => bm
                 ? $"Panel Copilot ditutup.{NotSent(bm, sent, total)}"
                 : $"The Copilot pane was closed.{NotSent(bm, sent, total)}";

@@ -7,7 +7,10 @@
 // server's "Needs your OK" ask card. The lifecycle below is still driven (ChatSend, CancelSend, Clear chat, sign-in
 // re-send) but nothing in the pane reads IsActive / ShouldAutoApprove / ShouldShowCodeCard any more, so a forced
 // card cannot be enforced from the client. ForcedConfirm.ShouldAutoApprove / ShouldShowCodeCard have NO caller on this
-// engine: dead gate code. Decision pending: a server-side gate or an ask_user confirm (AI-490 follow-up). It is kept so the launcher and tests stay wired for when a gate returns.
+// engine: dead gate code.
+// AI-490 rework: DECIDED. The confirm is the add-in's own dialog before ChatSend (JkrCopilotConfirm), so the launcher no longer arms
+// this flag and nothing arms it today. The arm points in CopilotViewModel (Aiman's file) are left untouched to keep the merge small;
+// removing them and this class is a safe follow-up once the team agrees AI-501 is dropped.
 //
 // Where the gate lived: the backend tags each pending call with `mutate` and
 // `requires_confirmation`; the pane decides whether to skip the card

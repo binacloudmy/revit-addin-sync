@@ -33,23 +33,24 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
 
     /// <summary>
     /// AI-492: which JKR rows may offer "Fix via Copilot". One code-side list keyed by spec check id
-    /// (<see cref="Allowed"/>); add an id there and the button follows, no UI change. Revit- and WPF-free.
+    /// (<see cref="Allowed"/>); add an id there (and its wording in JkrCopilotPrompt) and the button follows, no UI change.
     /// A row shows the button only when ALL hold (<see cref="Eligible"/>): the check is in the list and not
-    /// in <see cref="Denied"/>, the catalog class is AI (never Human / List), no ready-made Fix, no picker,
-    /// and at least one element id (except the model-level create-type checks in <see cref="ModelLevel"/>, which
-    /// have no element to point at).
+    /// in <see cref="Denied"/>, the catalog class is AI (never Human / List), no ready-made Fix, no picker, and at least
+    /// one element id. Revit- and WPF-free.
     /// </summary>
     public static class JkrCopilotFix
     {
-        /// <summary>The v1 list (umbrella AI-490): derivable values, then create-type rows.</summary>
+        /// <summary>The families the protocol-3 engine can do with <c>set_parameters</c> (one parameter, a value per call, on
+        /// element ids): type renames through the "Type Name" parameter (Da.1, Dc.1), the Material parameter (Db.2), mandatory
+        /// parameters with a derivable value (Db.1), grid names (A5.2), room parameters (C1.6.3) and sheet parameters (C4.2.2).
+        /// NOT here, and hidden: Dd.1 (changing an element's category needs run_revit_code or a person), A2.2 and A3.1 (the
+        /// model code lives in the FILE name: a Save As), the create-type families C1.3.1 C1.4.1 C1.5.2 C1.6.1 C2.1.1 C3.1.1
+        /// C4.1.3 C5.1.1 (create views, schedules, legends, sheets, links: run_revit_code) and the template views C1.1.1 / C1.1.2,
+        /// C1.6.2, C5.1.2. The gaps are listed in the AI-490 rework PR.</summary>
         public static IReadOnlyCollection<string> Allowed => AllowedSet;
         private static readonly HashSet<string> AllowedSet = new HashSet<string>(StringComparer.Ordinal)
         {
-            // naming / code-in-name, material code, missing params, name vs geometry, model code, grids, title block
-            "Da.1", "Dd.1", "Db.2", "Db.1", "Dc.1", "A2.2", "A3.1", "A5.2", "C1.6.3", "C4.2.2",
-            // create-type rows: views, schedules, legends, sheets, links. C1.1.1 / C1.1.2 (template views) are off until
-            // bina-ai has a create / rename tool for view templates (AI-500); re-add them then.
-            "C1.3.1", "C1.4.1", "C1.5.2", "C1.6.1", "C2.1.1", "C3.1.1", "C4.1.3", "C5.1.1", "C5.1.2",
+            "Da.1", "Db.2", "Db.1", "Dc.1", "A5.2", "C1.6.3", "C4.2.2",
         };
 
         /// <summary>Never offered, whatever <see cref="Allowed"/> says: a person decides. Project Information (B1.1),
@@ -84,32 +85,18 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public static bool IsWallMaterial(string specCheckId, string revitCategory) =>
             (specCheckId ?? "").Trim() == "Db.2" && string.Equals((revitCategory ?? "").Trim(), "Walls", StringComparison.OrdinalIgnoreCase);
 
-        /// <summary>AI-498: create-type checks whose row says "something is missing" and so usually has no element id
-        /// (no PBT view, no 3D view for a level, no room schedule, no category schedule, no sheet with a view).
-        /// Only these may show the button with zero ids; every other id still needs at least one. C2.1.1 (legend: no create tool exists, so a button could only end "cannot")
-        /// and C1.1.1 / C1.1.2 / C1.6.2 / C5.1.2 (blocked by AI-487) are deliberately not here. AI-499 adds C5.1.1 (links: the
-        /// person picks each file). The button still needs the row to have no Fix/pick control (AI-480).</summary>
-        public static IReadOnlyCollection<string> ModelLevel => ModelLevelSet;
-        private static readonly HashSet<string> ModelLevelSet = new HashSet<string>(StringComparer.Ordinal)
-        {
-            "C1.3.1", "C1.4.1", "C1.5.2", "C1.6.1", "C3.1.1", "C4.1.3", "C5.1.1",
-        };
-
-        /// <summary>The check may offer the button with no element id (a model-level create-type check).</summary>
-        public static bool AllowsNoElementIds(string specCheckId) => ModelLevelSet.Contains((specCheckId ?? "").Trim());
-
         /// <summary>The whole rule, on plain values (the table test drives this).</summary>
         public static bool Eligible(string specCheckId, string revitCategory, bool needsPerson, bool hasFix, bool isPick, int elementIdCount) =>
-            !needsPerson && !hasFix && !isPick && (elementIdCount >= 1 || AllowsNoElementIds(specCheckId))
+            !needsPerson && !hasFix && !isPick && elementIdCount >= 1
             && IsListed(specCheckId) && IsAiClass(specCheckId) && !IsWallMaterial(specCheckId, revitCategory);
 
         public static string Label(string lang = null) =>
             IsEn(lang) ? "Fix via Copilot" : "Baiki melalui Copilot";
 
-        /// <summary>What a click does: a new Copilot chat, and nothing is changed until the person confirms.</summary>
+        /// <summary>What a click does: a confirm here first (nothing is sent on No), then a new Copilot chat that applies the change.</summary>
         public static string Tooltip(string lang = null) => IsEn(lang)
-            ? "Opens a new Copilot chat for this item. Copilot proposes the change and asks you to confirm before it writes anything."
-            : "Buka sembang Copilot baharu untuk item ini. Copilot mencadangkan perubahan dan meminta anda sahkan sebelum menulis apa-apa.";
+            ? "Asks you to confirm, then opens a new Copilot chat that applies the change to this item's elements. You can Undo it from the Copilot chat."
+            : "Meminta pengesahan anda, kemudian membuka sembang Copilot baharu yang melaksanakan perubahan pada elemen item ini. Anda boleh Undo dalam sembang Copilot.";
 
         private static bool IsEn(string lang) =>
             string.Equals(lang ?? PaneLanguage.Current, PanelStrings.En, StringComparison.OrdinalIgnoreCase);
