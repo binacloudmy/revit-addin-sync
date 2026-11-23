@@ -29,8 +29,16 @@ namespace BinaVibe.Copilot.Writes
         private static readonly System.Text.RegularExpressions.Regex Segments = new(@"[^\s""'<>|]*[\\/][^\s""'<>|]*", Opt);
         private static readonly System.Text.RegularExpressions.Regex PathSegment = new(@"^([A-Za-z]:|~|.*\..*)$", Opt);
         // Worksharing: Revit names the user who owns, borrows or edits an element ("owned by aminah", "until 'aminah' saves ...", "user 'aminah'").
-        private static readonly System.Text.RegularExpressions.Regex ByUser = new(@"\b(owned|borrowed|used|edited|requested|held|checked out|reserved|locked) by\s+(?:'[^']{1,64}'|""[^""]{1,64}""|‘[^’]{1,64}’|[^\s'""‘’,;:()]+?)(?=[\s,;:()]|\.(?:\s|$)|$)", Opt);
+        // r25: "by user aminah.b" too, and a full name ("owned by Aminah Binti Ali"): the capitalised words after the first, up to punctuation.
+        private const string NameEnd = @"(?=[\s,;:()]|\.(?:\s|$)|$)";
+        private static readonly System.Text.RegularExpressions.Regex ByUser = new(@"\b(owned|borrowed|used|edited|requested|held|checked out|reserved|locked) by\s+(?:user\s+)?(?:'[^']{1,64}'|""[^""]{1,64}""|‘[^’]{1,64}’|[^\s'""‘’,;:()]+?" + NameEnd
+            + @"(?:\s+(?-i:(?!(?:The|This|That|It|You)\b)\p{Lu}[\p{L}\-]*)" + NameEnd + @"){0,4})", Opt);
         private static readonly System.Text.RegularExpressions.Regex QuotedUser = new(@"\b(until|user|by user)\s+(?:'[^']{1,64}'|""[^""]{1,64}""|‘[^’]{1,64}’)", Opt);
+        // r25: Revit's own "until aminah.b resaves ...": one unquoted token, not an ordinary word ("until you Reload Latest").
+        private static readonly System.Text.RegularExpressions.Regex UntilUser = new(@"\buntil\s+(?!(?:the|you|it|a|an|this|that|all|they|we|he|she|its|your|their|now|then|next|after|before)\b)[^\s'""‘’,;:()<>]+?" + NameEnd, Opt);
+        // r25: a cloud model path ("BIM 360://Project/Model.rvt", or the cloud docs scheme) holds the project name: everything after
+        // "://" up to a quote or the end of the line. Runs after Segments, which already took a web address with a dotted host.
+        private static readonly System.Text.RegularExpressions.Regex SchemeRest = new(@"://[^""'‘’\r\n]*", Opt);
 
         private static bool IsPath(string token)
         {
@@ -40,7 +48,10 @@ namespace BinaVibe.Copilot.Writes
             foreach (var p in parts) if (p.Length > 0 && PathSegment.IsMatch(p.TrimEnd('.', ',', ';', ')'))) return true;
             return false;
         }
-        private static readonly System.Text.RegularExpressions.Regex File = new(@"[^\s""'<>|\\/]+\.(rvt|rfa|rte|rft|txt|xlsx|csv|ifc|dwg)\b", Opt);
+        private const string FileExtensions = "rvt|rfa|rte|rft|txt|xlsx|csv|ifc|dwg|nwc|nwd|rcp|rcs|dxf|dgn|sat|skp|pdf|png|jpg|jpeg";
+        private static readonly System.Text.RegularExpressions.Regex File = new(@"[^\s""'<>|\\/]+\.(" + FileExtensions + @")\b", Opt);
+        // r25: a quoted file name may hold spaces ('ACME Hospital Structure.nwc'): the whole name inside the quotes.
+        private static readonly System.Text.RegularExpressions.Regex QuotedFile = new(@"(['""‘])[^'""‘’\r\n<>|\\/]{1,128}?\.(" + FileExtensions + @")(['""’])", Opt);
 
         public static string Redact(string? text) => Redact(text, SafeUser(), SafeProfile());
 
@@ -64,11 +75,14 @@ namespace BinaVibe.Copilot.Writes
                 t = Email.Replace(t, "<user>");
                 t = ByUser.Replace(t, m => m.Groups[1].Value + " by <user>");
                 t = QuotedUser.Replace(t, m => m.Groups[1].Value + " '<user>'");
+                t = UntilUser.Replace(t, "until <user>");
                 if (!string.IsNullOrWhiteSpace(profile) && profile!.Length >= 3)
                     t = System.Text.RegularExpressions.Regex.Replace(t, System.Text.RegularExpressions.Regex.Escape(profile.TrimEnd('\\', '/')), "<user>", Opt);
                 t = Unc.Replace(t, "<path>");
                 t = Drive.Replace(t, "<path>");
                 t = Segments.Replace(t, m => IsPath(m.Value) ? "<path>" : m.Value);
+                t = SchemeRest.Replace(t, "://<path>");
+                t = QuotedFile.Replace(t, m => m.Groups[1].Value + "<file>" + m.Groups[3].Value);
                 t = File.Replace(t, "<file>");
                 if (!string.IsNullOrWhiteSpace(userName) && userName!.Trim().Length >= 2)
                     t = System.Text.RegularExpressions.Regex.Replace(t, @"(?<![A-Za-z0-9])" + System.Text.RegularExpressions.Regex.Escape(userName.Trim()) + @"(?![A-Za-z0-9])", "<user>", Opt);
