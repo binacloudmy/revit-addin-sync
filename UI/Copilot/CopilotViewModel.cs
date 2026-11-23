@@ -503,6 +503,7 @@ namespace RevitWebAppSync.UI.Copilot
         // The prompt kept while signed out — sent automatically after sign-in.
         private PromptPayload _pendingAfterSignIn;
         private SlashTool _pendingSlashAfterSignIn;
+        private Dictionary<string, object> _pendingArgsAfterSignIn;
         // r25: what the last turn really sent, for "Send again" / "Try again" on its failure card.
         private PromptPayload _lastSent;
         private SlashTool _lastSentSlash;
@@ -519,7 +520,7 @@ namespace RevitWebAppSync.UI.Copilot
                     // Signed out: composer stays usable. The next send produces
                     // the Sign-in card (and locks, with that prompt kept).
                     IsSignedOut = false;
-                    _pendingAfterSignIn = null; _pendingSlashAfterSignIn = null;
+                    _pendingAfterSignIn = null; _pendingSlashAfterSignIn = null; _pendingArgsAfterSignIn = null;
                     return;
                 }
                 IsSignedOut = false;
@@ -530,7 +531,8 @@ namespace RevitWebAppSync.UI.Copilot
                     if (Thread[i].Kind == CpMsgKind.SignIn) Thread.RemoveAt(i);
                 var pending = _pendingAfterSignIn; _pendingAfterSignIn = null;
                 var slash = _pendingSlashAfterSignIn; _pendingSlashAfterSignIn = null;
-                if (pending != null) ChatSend(pending.Text, pending.ImagesBase64, pending.Files, slash, displayText: pending.DisplayText, mentions: pending.Mentions);
+                var args = _pendingArgsAfterSignIn; _pendingArgsAfterSignIn = null;
+                Resend(pending, slash, args);
             }));
         }
 
@@ -554,7 +556,7 @@ namespace RevitWebAppSync.UI.Copilot
             SecondaryLabel = "Not now",
             SecondaryAction = () =>
             {
-                _pendingAfterSignIn = null; _pendingSlashAfterSignIn = null;
+                _pendingAfterSignIn = null; _pendingSlashAfterSignIn = null; _pendingArgsAfterSignIn = null;
                 IsSignedOut = false;   // unlock; the drafter can keep typing
                 for (int i = Thread.Count - 1; i >= 0; i--)
                     if (Thread[i].Kind == CpMsgKind.SignIn) Thread.RemoveAt(i);
@@ -575,7 +577,8 @@ namespace RevitWebAppSync.UI.Copilot
             card.PrimaryAction = primary ?? (() =>
             {
                 var pending = _pendingAfterSignIn; _pendingAfterSignIn = null;
-                if (pending != null) ChatSend(pending.Text, pending.ImagesBase64, pending.Files, _pendingSlashAfterSignIn, displayText: pending.DisplayText, mentions: pending.Mentions);
+                var slash = _pendingSlashAfterSignIn; var args = _pendingArgsAfterSignIn;
+                Resend(pending, slash, args);
             });
             return card;
         }
@@ -589,7 +592,7 @@ namespace RevitWebAppSync.UI.Copilot
             switch (rr?.FailureKind ?? RouteFailure.None)
             {
                 case RouteFailure.SignIn:
-                    _pendingAfterSignIn = retry;
+                    _pendingAfterSignIn = retry; _pendingSlashAfterSignIn = slash; _pendingArgsAfterSignIn = args;
                     return SignInCard(tokenExpired: true);
                 case RouteFailure.UpdateRequired:
                     return AttentionCard("Update BINA Sync to keep using the Copilot",
@@ -597,13 +600,13 @@ namespace RevitWebAppSync.UI.Copilot
                         "copilot · HTTP 426 update_required", primaryLabel: "Check for update",
                         primary: () => { try { RevitWebAppSync.Services.UpdateService.EnsureUpToDate(); } catch { } });
                 case RouteFailure.TurnActive:
-                    return AttentionCard("Another request is still running",
+                    return AttentionCard(FailureCards.TurnActiveTitle(rr.Language == ReceiptLanguage.Ms),
                         FailureCards.TurnActiveBody(rr.PaneNote, rr.Language == ReceiptLanguage.Ms),
                         "copilot · HTTP 409 turn active", primaryLabel: "Send again",
                         primary: () => Resend(retry, slash, args));
                 case RouteFailure.Unreachable:
                 case RouteFailure.HostBlocked:
-                    _pendingAfterSignIn = retry;
+                    _pendingAfterSignIn = retry; _pendingSlashAfterSignIn = slash; _pendingArgsAfterSignIn = args;
                     var banner = FailureCards.For(rr.FailureKind, rr.PaneNote);
                     return AttentionCard(banner.Title, banner.Body, banner.Origin);
                 default:
@@ -832,7 +835,7 @@ namespace RevitWebAppSync.UI.Copilot
                 // named "BINA Cloud → Login" - the CDE sign-in, which never mints
                 // the engine token - and had nothing to click.
                 _pendingAfterSignIn = new PromptPayload { Text = text, ImagesBase64 = images, Files = files, DisplayText = displayText, Mentions = mentions };
-                _pendingSlashAfterSignIn = slashChip;
+                _pendingSlashAfterSignIn = slashChip; _pendingArgsAfterSignIn = commandArgs;
                 Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = shown, SlashCommand = slashChip });
                 Thread.Add(SignInCard());   // locks the composer; "Not now" or sign-in unlocks
                 return;

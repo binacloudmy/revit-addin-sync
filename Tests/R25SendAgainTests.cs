@@ -32,5 +32,18 @@ namespace RevitAddinSync.Tests
             Assert.Equal(2, Regex.Matches(vm, @"=> Resend\(retry, slash, args\)").Count);   // the 409 card and the credit card
             Assert.Contains("ChatSend(p.Text, p.ImagesBase64, p.Files, slash, args, displayText: p.DisplayText, mentions: p.Mentions);", vm);
         }
+
+        // r25 verifier: the expired sign-in card and the Unreachable/HostBlocked "Try again" kept the prompt but not the slash command
+        // or its inputs, so the retry sent plain text. They now keep what Resend uses, and both retries go through Resend.
+        [Fact]
+        public void SignInAndTryAgain_KeepTheSlashCommandAndItsInputs()
+        {
+            var vm = Vm();
+            Assert.Equal(2, Regex.Matches(vm, @"_pendingAfterSignIn = retry; _pendingSlashAfterSignIn = slash; _pendingArgsAfterSignIn = args;").Count);
+            Assert.Contains("_pendingSlashAfterSignIn = slashChip; _pendingArgsAfterSignIn = commandArgs;", vm);
+            Assert.Equal(2, Regex.Matches(vm, @"Resend\(pending, slash, args\);").Count);   // after sign-in, and the Attention card's Try again
+            Assert.DoesNotContain("ChatSend(pending.Text", vm);
+            Assert.Equal(2, Regex.Matches(vm, @"_pendingAfterSignIn = null; _pendingSlashAfterSignIn = null; _pendingArgsAfterSignIn = null;").Count);
+        }
     }
 }

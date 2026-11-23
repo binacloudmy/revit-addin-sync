@@ -111,6 +111,14 @@ namespace RevitAddinSync.Tests
         {
             var vm = File.ReadAllText(RevitWebAppSync.Tests.CodeTestSupport.RepoFile("UI/Copilot/CopilotViewModel.cs"));
             Assert.Contains("FailureCards.TurnActiveBody(rr.PaneNote, rr.Language == ReceiptLanguage.Ms)", vm);
+            Assert.Contains("AttentionCard(FailureCards.TurnActiveTitle(rr.Language == ReceiptLanguage.Ms),", vm);
+        }
+
+        [Fact]
+        public void TheCardsTitleIsInTheChatsLanguageToo()
+        {
+            Assert.Equal("Another request is still running", FailureCards.TurnActiveTitle(malay: false));
+            Assert.Equal("Satu permintaan lain masih berjalan", FailureCards.TurnActiveTitle(malay: true));
         }
     }
 }

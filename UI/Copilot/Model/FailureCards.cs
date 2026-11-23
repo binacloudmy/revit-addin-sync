@@ -45,6 +45,9 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 ? (malay ? RevitWebAppSync.Services.CopilotTurnClient.AnotherChatWriteMessageMs : RevitWebAppSync.Services.CopilotTurnClient.AnotherChatWriteMessage)
                 : "Wait for it to finish or press Stop, then send again. Nothing was changed in the model.";
 
+        /// <summary>r25: the 409 card's title, in the chat's language.</summary>
+        public static string TurnActiveTitle(bool malay) => malay ? "Satu permintaan lain masih berjalan" : "Another request is still running";
+
         private static string Origin(string? note, string fallback) => string.IsNullOrWhiteSpace(note) ? fallback : note!.Trim();
 
         private static string Sentence(string? note, string fallback)
