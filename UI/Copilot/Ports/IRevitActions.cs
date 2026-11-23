@@ -22,9 +22,9 @@ namespace RevitWebAppSync.UI.Copilot.Ports
         bool CanUndoLastBatch(string turnId);
         bool CanRedoTurn(string turnId);
 
-        /// <summary>Undo the turn (or its last batch); returns the envelope summary, or null.</summary>
-        Task<string> UndoTurnAsync(string turnId, bool lastBatchOnly);
-        Task<string> RedoTurnAsync(string turnId);
+        /// <summary>Undo the turn (or its last batch); returns the undo job's envelope (its summary is the pane's line), or null.</summary>
+        Task<BinaVibe.Copilot.Contracts.Envelope> UndoTurnAsync(string turnId, bool lastBatchOnly);
+        Task<BinaVibe.Copilot.Contracts.Envelope> RedoTurnAsync(string turnId);
 
         /// <summary>Draw a result's marks and key in the model (nothing when the pane has no overlay). The key offers
         /// <paramref name="undo"/> while <paramref name="canUndo"/> says it can run.</summary>

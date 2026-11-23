@@ -18,6 +18,11 @@ namespace BinaVibe.Copilot.Undo
         public const int MaxNameLength = 80;
         public const string Unnamed = "a Copilot change";
 
+        /// <summary>r25: the card follows an undo or redo only when it went through (ok), or stopped part way after undoing at least
+        /// one entry (UndoService marks that partial). A refused or failed one leaves the card as it is.</summary>
+        public static bool CardFollows(BinaVibe.Copilot.Contracts.Envelope? result) =>
+            result != null && (result.Ok || result.Status == BinaVibe.Copilot.Contracts.EnvelopeStatus.Partial);
+
         /// <summary>The entry's name as the drafter reads it: no "BINA: " prefix, not overlong.</summary>
         public static string Name(string? raw)
         {

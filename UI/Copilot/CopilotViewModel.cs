@@ -1829,11 +1829,11 @@ namespace RevitWebAppSync.UI.Copilot
             var clearedMs = clock.ElapsedMilliseconds;
             try
             {
-                var summary = redo
+                var result = redo
                     ? await Revit.RedoTurnAsync(m.TurnId)
                     : await Revit.UndoTurnAsync(m.TurnId, lastBatchOnly);
-                text = BinaVibe.Copilot.Undo.UndoWords.ForPane(summary ?? BinaVibe.Copilot.Undo.UndoWords.Line(redo, null, ms), ms);   // r18: one undo wording; r22: Malay in a Malay chat
-                moved = true;
+                text = BinaVibe.Copilot.Undo.UndoWords.ForPane(result?.Summary ?? BinaVibe.Copilot.Undo.UndoWords.Line(redo, null, ms), ms);   // r18: one undo wording; r22: Malay in a Malay chat
+                moved = BinaVibe.Copilot.Undo.UndoWords.CardFollows(result);   // r25: a refused or failed undo leaves the card as it is
             }
             catch (Exception ex)
             {

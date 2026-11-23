@@ -28,11 +28,11 @@ namespace RevitWebAppSync.UI.Copilot.Ports
         public bool CanUndoLastBatch(string turnId) => UndoService.CanUndoLastBatch(turnId);
         public bool CanRedoTurn(string turnId) => UndoService.CanRedoTurn(turnId);
 
-        public async Task<string> UndoTurnAsync(string turnId, bool lastBatchOnly)
-            => (await UndoService.UndoTurnAsync(turnId, CancellationToken.None, lastBatchOnly))?.Summary;
+        public Task<BinaVibe.Copilot.Contracts.Envelope> UndoTurnAsync(string turnId, bool lastBatchOnly)
+            => UndoService.UndoTurnAsync(turnId, CancellationToken.None, lastBatchOnly);
 
-        public async Task<string> RedoTurnAsync(string turnId)
-            => (await UndoService.RedoTurnAsync(turnId, CancellationToken.None))?.Summary;
+        public Task<BinaVibe.Copilot.Contracts.Envelope> RedoTurnAsync(string turnId)
+            => UndoService.RedoTurnAsync(turnId, CancellationToken.None);
 
         public void ShowMarks(HighlightSet set, Action undo, Func<bool> canUndo) => _inModel()?.Show(set, undo, canUndo);
         public void ClearMarks() => _inModel()?.Clear();
