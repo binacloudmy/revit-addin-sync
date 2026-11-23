@@ -39,7 +39,7 @@ namespace BinaVibe.Copilot.Tools
             }
             catch (Exception ex)
             {
-                return EnvelopeBuilder.Fail(ErrorCodes.RuntimeError, $"check {set.Id} could not run: {ex.GetType().Name}: {ex.Message}");
+                return EnvelopeBuilder.Fail(ErrorCodes.RuntimeError, $"check {set.Id} could not run: {ex.GetType().Name}: {BinaVibe.Copilot.Writes.DialogRedaction.RedactPaths(ex.Message)}");
             }
 
             if (runs.Count == 0 && parsed.Scope.Category != null)

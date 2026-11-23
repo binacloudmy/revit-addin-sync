@@ -55,7 +55,7 @@ namespace BinaVibe.Copilot.Read
             catch (Exception ex)
             {
                 computed = new OverviewSection { Name = section };
-                computed.Extra["error"] = "Could not read " + section + ": " + ex.Message;
+                computed.Extra["error"] = "Could not read " + section + ": " + BinaVibe.Copilot.Writes.DialogRedaction.RedactPaths(ex.Message);
                 return computed;   // never cache a failure
             }
             if (key.HasValue) Cache.Put(key.Value, slot, computed);

@@ -69,7 +69,7 @@ namespace BinaVibe.Copilot.Check
                 }
                 catch (Exception ex)
                 {
-                    why = $"link {clean} could not be opened: {ex.Message}";
+                    why = $"link {clean} could not be opened: {BinaVibe.Copilot.Writes.DialogRedaction.RedactPaths(ex.Message)}";
                 }
                 var transform = Transform.Identity;
                 try
@@ -128,7 +128,7 @@ namespace BinaVibe.Copilot.Check
             }
             catch (Exception ex)
             {
-                gaps.Add($"worksets{where} could not be listed: {ex.Message}");
+                gaps.Add($"worksets{where} could not be listed: {BinaVibe.Copilot.Writes.DialogRedaction.RedactPaths(ex.Message)}");
             }
             return gaps;
         }

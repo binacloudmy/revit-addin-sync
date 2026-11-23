@@ -63,7 +63,7 @@ namespace BinaVibe.Copilot.Check
             }
             catch (Exception ex)
             {
-                v.UnavailableReason = $"element {e.Id.Value} could not be read: {ex.GetType().Name}: {ex.Message}";
+                v.UnavailableReason = $"element {e.Id.Value} could not be read: {ex.GetType().Name}: {BinaVibe.Copilot.Writes.DialogRedaction.RedactPaths(ex.Message)}";
             }
             return v;
         }
@@ -119,7 +119,7 @@ namespace BinaVibe.Copilot.Check
             }
             catch (Exception ex)
             {
-                return ValueReading.Unreadable($"{ex.GetType().Name}: {ex.Message}");
+                return ValueReading.Unreadable($"{ex.GetType().Name}: {BinaVibe.Copilot.Writes.DialogRedaction.RedactPaths(ex.Message)}");
             }
         }
 
@@ -208,7 +208,7 @@ namespace BinaVibe.Copilot.Check
             }
             catch (Exception ex)
             {
-                return ValueReading.Unreadable($"{ex.GetType().Name}: {ex.Message}");
+                return ValueReading.Unreadable($"{ex.GetType().Name}: {BinaVibe.Copilot.Writes.DialogRedaction.RedactPaths(ex.Message)}");
             }
         }
 

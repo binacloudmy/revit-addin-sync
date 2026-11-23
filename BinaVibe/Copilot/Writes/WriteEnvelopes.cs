@@ -114,10 +114,10 @@ namespace BinaVibe.Copilot.Writes
         /// <summary>The runner itself failed unexpectedly. <paramref name="mayHaveApplied"/> is
         /// true once a commit was attempted.</summary>
         public static Envelope Unexpected(Exception ex, bool mayHaveApplied) => mayHaveApplied
-            ? MayHaveApplied("The write failed in the add-in during the commit (" + ex.GetType().Name + ": " + ex.Message +
+            ? MayHaveApplied("The write failed in the add-in during the commit (" + ex.GetType().Name + ": " + BinaVibe.Copilot.Writes.DialogRedaction.RedactPaths(ex.Message) +
                 "). Changes may or may not have been applied; inspect the model before retrying.")
             : Failure(ErrorCodes.RuntimeError,
-                "The write failed in the add-in before anything was committed (" + ex.GetType().Name + ": " + ex.Message +
+                "The write failed in the add-in before anything was committed (" + ex.GetType().Name + ": " + BinaVibe.Copilot.Writes.DialogRedaction.RedactPaths(ex.Message) +
                 "). Nothing was changed.",
                 EnvelopePhase.Preview);
 

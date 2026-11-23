@@ -845,7 +845,7 @@ namespace BinaVibe.Copilot.Writes
                     {
                         run.Failure = WriteEnvelopes.Failure(ErrorCodes.RevitBusy,
                             "Revit cannot start a change now: it is in an edit mode (group, sketch or in-place family) or another change is open. " +
-                            "Ask the drafter to finish or cancel it, then try again. (" + ex.Message + ")",
+                            "Ask the drafter to finish or cancel it, then try again. (" + BinaVibe.Copilot.Writes.DialogRedaction.RedactPaths(ex.Message) + ")",
                             phaseName);
                     }
 
@@ -1281,7 +1281,7 @@ namespace BinaVibe.Copilot.Writes
             {
                 return WriteEnvelopes.Failure(ErrorCodes.RevitBusy,
                     "Revit cannot start a change now: it is in an edit mode (group, sketch or in-place family) or another change is open. " +
-                    "Ask the drafter to finish or cancel it, then try again. (" + ex.Message + ")",
+                    "Ask the drafter to finish or cancel it, then try again. (" + BinaVibe.Copilot.Writes.DialogRedaction.RedactPaths(ex.Message) + ")",
                     phase);
             }
         }
@@ -1324,11 +1324,11 @@ namespace BinaVibe.Copilot.Writes
                 case JsonException:
                 case FormatException:
                 case Autodesk.Revit.Exceptions.ArgumentException:
-                    return WriteEnvelopes.Failure(ErrorCodes.InvalidArgs, ex.Message, phase);
+                    return WriteEnvelopes.Failure(ErrorCodes.InvalidArgs, BinaVibe.Copilot.Writes.DialogRedaction.RedactPaths(ex.Message), phase);
                 case RevitRolledBackException io:
                     return WriteEnvelopes.Failure(ErrorCodes.RolledBack, io.Message + " Revit rolled the change back; nothing was changed.", phase);
                 default:
-                    return WriteEnvelopes.Failure(ErrorCodes.RuntimeError, ex.GetType().Name + ": " + ex.Message, phase);
+                    return WriteEnvelopes.Failure(ErrorCodes.RuntimeError, ex.GetType().Name + ": " + BinaVibe.Copilot.Writes.DialogRedaction.RedactPaths(ex.Message), phase);
             }
         }
 

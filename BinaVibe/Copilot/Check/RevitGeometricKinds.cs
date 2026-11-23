@@ -58,7 +58,7 @@ namespace BinaVibe.Copilot.Check
                 }
                 catch (Exception ex)
                 {
-                    outcome = Outcome.NotVerified($"could not be checked: {ex.GetType().Name}: {ex.Message}", null, OutcomeCodes.EngineError);
+                    outcome = Outcome.NotVerified($"could not be checked: {ex.GetType().Name}: {BinaVibe.Copilot.Writes.DialogRedaction.RedactPaths(ex.Message)}", null, OutcomeCodes.EngineError);
                 }
                 run.Add(s.Values.Ref, outcome);
             }
@@ -147,7 +147,7 @@ namespace BinaVibe.Copilot.Check
             }
             catch (Exception ex)
             {
-                why = $"the fixtures near the room could not be collected: {ex.Message}";
+                why = $"the fixtures near the room could not be collected: {BinaVibe.Copilot.Writes.DialogRedaction.RedactPaths(ex.Message)}";
                 return false;
             }
             foreach (var e in fixtures)
@@ -159,7 +159,7 @@ namespace BinaVibe.Copilot.Check
                 }
                 catch (Exception ex)
                 {
-                    why = $"fixture {e.Id.Value} could not be read: {ex.Message}";
+                    why = $"fixture {e.Id.Value} could not be read: {BinaVibe.Copilot.Writes.DialogRedaction.RedactPaths(ex.Message)}";
                     return false;
                 }
                 if (eb == null)
@@ -182,7 +182,7 @@ namespace BinaVibe.Copilot.Check
             }
             catch (Exception ex)
             {
-                why = $"the doors near the room could not be collected: {ex.Message}";
+                why = $"the doors near the room could not be collected: {BinaVibe.Copilot.Writes.DialogRedaction.RedactPaths(ex.Message)}";
                 return false;
             }
             var probeZ = (bb.Min.Z + bb.Max.Z) / 2;
@@ -243,7 +243,7 @@ namespace BinaVibe.Copilot.Check
             }
             catch (Exception ex)
             {
-                why = $"{label} geometry could not be read: {ex.Message}";
+                why = $"{label} geometry could not be read: {BinaVibe.Copilot.Writes.DialogRedaction.RedactPaths(ex.Message)}";
                 return false;
             }
         }

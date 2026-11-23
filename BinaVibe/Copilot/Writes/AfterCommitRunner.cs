@@ -44,7 +44,7 @@ namespace BinaVibe.Copilot.Writes
                 {
                     if (action == null) continue;
                     try { action(); }
-                    catch (Exception ex) { failures.Add(new Failure(i, ex.GetType().Name + ": " + ex.Message)); }
+                    catch (Exception ex) { failures.Add(new Failure(i, ex.GetType().Name + ": " + BinaVibe.Copilot.Writes.DialogRedaction.RedactPaths(ex.Message))); }
                 }
             }
             return failures;
