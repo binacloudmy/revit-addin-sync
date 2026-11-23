@@ -41,6 +41,17 @@ namespace RevitWebAppSync.Services
 
         private readonly string _baseUrl;
 
+        // r25: in a release (and Staging) build the Bearer token goes only to BINA's own hosts, the rule CopilotTurnClient uses.
+#if DEBUG
+        private const bool ReleaseBuild = false;
+#else
+        private const bool ReleaseBuild = true;
+#endif
+        public static bool MaySend(string url) => CopilotHostPolicy.IsAllowed(url, ReleaseBuild);
+
+        private static HttpRequestException Refused() =>
+            new HttpRequestException("This add-in build only talks to BINA's own servers; the configured address is not one of them.");
+
         // AI Agent backend (ngrok tunnel to Mac running bina-ai FastAPI).
         // Override via BinaConfig.AIBaseUrl so the addin doesn't need a rebuild
         // when ngrok tunnels rotate.
@@ -69,6 +80,7 @@ namespace RevitWebAppSync.Services
                 // engine, which mounts no /credits route — this 404'd and the
                 // catch below silently blanked the quota display.
                 var creditsBase = BinaConfig.Load().ResolvedCloudBaseUrl;
+                if (!MaySend(creditsBase)) return null;
                 using var req = new HttpRequestMessage(HttpMethod.Get, $"{creditsBase}/credits/balance");
                 if (!string.IsNullOrEmpty(accessToken))
                     req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
@@ -106,6 +118,7 @@ namespace RevitWebAppSync.Services
                 UI.Copilot.Model.LibraryLoad attempt;
                 try
                 {
+                    if (!MaySend(root)) throw Refused();   // the library's Unreachable load, nothing sent
                     using var req = new HttpRequestMessage(HttpMethod.Get, $"{root}/agents/revit-ai/library");
                     if (!string.IsNullOrEmpty(accessToken))
                         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
@@ -160,6 +173,7 @@ namespace RevitWebAppSync.Services
         {
             try
             {
+                if (!MaySend(_baseUrl)) return null;
                 using var req = new HttpRequestMessage(HttpMethod.Get, CommandsUrl(_baseUrl));
                 if (!string.IsNullOrEmpty(accessToken))
                     req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
@@ -181,6 +195,7 @@ namespace RevitWebAppSync.Services
         private async Task<SaveCommandResponseDto> SendCommandAsync(HttpMethod method, string url,
             SaveCommandRequestDto body, string accessToken, CancellationToken ct)
         {
+            if (!MaySend(url)) throw Refused();
             using var req = new HttpRequestMessage(method, url);
             req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
             req.Content = new StringContent(JsonConvert.SerializeObject(body), Encoding.UTF8, "application/json");
@@ -207,6 +222,7 @@ namespace RevitWebAppSync.Services
         /// <summary>False on 404 (already gone).</summary>
         public async Task<bool> DeleteCommandAsync(string commandId, string accessToken, CancellationToken ct)
         {
+            if (!MaySend(_baseUrl)) throw Refused();
             using var req = new HttpRequestMessage(HttpMethod.Delete, $"{CommandsUrl(_baseUrl)}/{Uri.EscapeDataString(commandId)}");
             req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
             using var res = await _httpClient.SendAsync(req, ct).ConfigureAwait(false);
