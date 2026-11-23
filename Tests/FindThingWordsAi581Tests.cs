@@ -79,6 +79,31 @@ namespace RevitAddinSync.Tests
             Assert.Equal(new[] { "OST_LightingFixtures" }, Q("{\"text\":\"lampu\"}").CategoryOsts);
         }
 
+        // Owner decision: a thing word replaces only the model's category; categories the text itself
+        // names are searched too, and their elements need only the thing word ("fire alarm switches").
+        [Theory]
+        [InlineData("{\"text\":\"fire alarm switches\"}")]
+        [InlineData("{\"category\":\"Electrical Fixtures\",\"text\":\"fire alarm switch\"}")]
+        [InlineData("{\"text\":\"suis penggera kebakaran\"}")]
+        public void CategoriesTheTextNamesAreKeptBesideAThingWord(string query)
+        {
+            var q = Q(query);
+            Assert.Equal(new[] { LD, EF, "OST_FireAlarmDevices" }, q.CategoryOsts);
+            Assert.True(Hit(q, "OST_FireAlarmDevices", "jkrEL_fir-al_break glass switch_surface_24V"));   // constructed
+            Assert.False(Hit(q, "OST_FireAlarmDevices", "jkrEL_fir-al_smoke detector_2 wire_24V"));
+            Assert.True(Hit(q, LD, "jkrEL_lit-dv_1G1W_wall_6t_N"));
+            Assert.False(Hit(q, EF, "SSO_13A Switched Socket Outlet"));
+        }
+
+        [Fact]
+        public void ValveBesideAPipeFittingWordStaysTheValveSearch()
+        {
+            var q = Q("{\"text\":\"kelengkapan paip injap\"}");
+            Assert.Equal(new[] { PA, PF }, q.CategoryOsts);
+            Assert.True(Hit(q, PF, "jkrME_pip-ft_stopvalve"));
+            Assert.False(Hit(q, PF, "jkrME_pip-ft_elbow"));
+        }
+
         [Fact]
         public void OtherQueriesKeepTheirCategory()
         {

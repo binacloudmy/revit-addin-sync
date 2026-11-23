@@ -327,15 +327,24 @@ namespace BinaVibe.Copilot.Read
 
             // AI-581: a word for a thing found in several categories ("injap": a pipe accessory or a
             // pipe fitting named valve; "suis": a lighting device, or an electrical fixture named
-            // switch) decides the categories, whatever category the query gives: the model's own
-            // pick (Plumbing Fixtures, Electrical Fixtures) found bidets and sockets, not the thing.
+            // switch) replaces the category the model gives: its own pick (Plumbing Fixtures,
+            // Electrical Fixtures) found bidets and sockets, not the thing. A category the text itself
+            // names stays searched ("fire alarm switches": Fire Alarm Devices named switch too).
             var things = new HashSet<int>(Enumerable.Range(0, segments.Count)
                 .Where(k => segments[k].Entry is { } e && e.NamedIn.Count > 0 && !AfterCode(k)));
+            var named = new HashSet<int>();
             if (things.Count > 0)
             {
                 query.CategoryOsts.Clear();
-                foreach (var k in things.OrderBy(k => k))
-                    foreach (var c in segments[k].Entry!.Searched)
+                for (var k = 0; k < segments.Count; k++)
+                {
+                    if (segments[k].Entry is not { } e) continue;
+                    if (things.Contains(k)) { foreach (var c in e.Searched) if (!query.CategoryOsts.Contains(c)) query.CategoryOsts.Add(c); continue; }
+                    if (e.Categories.Count == 0 || IsLevels(e) || AfterCode(k)) continue;
+                    named.Add(k);
+                }
+                foreach (var k in named)
+                    foreach (var c in segments[k].Entry!.Categories)
                         if (!query.CategoryOsts.Contains(c)) query.CategoryOsts.Add(c);
             }
 
@@ -393,6 +402,7 @@ namespace BinaVibe.Copilot.Read
                     query.Terms.Add(Thing(text, entry));
                     continue;
                 }
+                if (named.Contains(k)) continue;   // its category is searched; the thing word is the condition
                 if (inferred.Contains(k))
                 {
                     // Narrow words (sinki, curtain wall) keep their text, OR-ed in one group.
