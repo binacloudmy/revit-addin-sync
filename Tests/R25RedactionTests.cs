@@ -35,5 +35,27 @@ namespace RevitAddinSync.Tests
         [InlineData("Wait until the sync ends", "Wait until the sync ends")]
         public void WorksharingNamesInRevitsOwnWordsAreRedacted(string raw, string expected) =>
             Assert.Equal(expected, DialogRedaction.RedactPaths(raw, "nobody-here", null));
+
+        // r25 verifier: the user rules took any capitalised word after "until" and after "used by" as a user. Only Revit's
+        // worksharing wording names one: "owned/edited/borrowed/reserved/checked out by", "locked by user", "until <name> resaves".
+        [Theory]
+        [InlineData("Save until Friday.")]
+        [InlineData("Wait until Revit finishes loading.")]
+        [InlineData("This view is locked until Level 2 is visible.")]
+        [InlineData("Wait until Level 3 is cut, then try again.")]
+        [InlineData("Element is used by Group Type 'Typical Toilet'.")]
+        [InlineData("Wall type 'Generic - 200mm' is used by Revit Family Door")]
+        [InlineData("Element is owned by you. Relinquish it when done.")]
+        [InlineData("Constraints are not satisfied. The dimension is locked by Constraint.")]
+        public void OrdinaryRevitTextIsNotTakenForAUser(string raw) =>
+            Assert.Equal(raw, DialogRedaction.RedactPaths(raw, "nobody-here", null));
+
+        [Theory]
+        [InlineData("The workset is locked by user aminah.b", "The workset is locked by <user>")]
+        [InlineData("Can't edit until Aminah releases the element", "Can't edit until <user> releases the element")]
+        [InlineData("Wait until aminah.b syncs with central", "Wait until <user> syncs with central")]
+        [InlineData("Can't edit until Aminah relinquishes it", "Can't edit until <user> relinquishes it")]
+        public void TheWorksharingFormsStillTakeTheUser(string raw, string expected) =>
+            Assert.Equal(expected, DialogRedaction.RedactPaths(raw, "nobody-here", null));
     }
 }
