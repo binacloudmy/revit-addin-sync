@@ -48,10 +48,15 @@ namespace RevitAddinSync.Tests
         }
 
         [Theory]
-        [InlineData("doc.Delete(old.Id);\nvar c = FamilyInstance.Create(...);")]
+        [InlineData("c.ChangeTypeId(t);\ndoc.Delete(old.Id);\nvar c = FamilyInstance.Create(...);")]
         [InlineData("Doc.Delete(ids);")]
         [InlineData("foreach (var id in ids) document.Delete(id);")]
-        public void CodeThatDeletes_StillReportsTheDeletions(string code)
+        [InlineData("foreach (var c in cols) c.ChangeTypeId(t);\nids.Select(document.Delete).ToList();")]
+        [InlineData("foreach (var c in cols) c.ChangeTypeId(t); // then DeleteElements below\ndoc.DeleteElements(ids);")]
+        [InlineData("var members = g.UngroupMembers();\ndoc.Create.NewGroup(members);")]
+        [InlineData("asm.Disassemble();\nAssemblyInstance.Create(doc, ids, catId);")]
+        [InlineData("foreach (var c in cols) c.Location.Move(v);")]
+        public void CodeThatDeletesOrDoesNotChangeTypes_StillReportsTheDeletions(string code)
         {
             var deleted = new Dictionary<long, string> { [1] = "Structural Columns", [2] = "Structural Columns" };
             var added = new Dictionary<long, string> { [10] = "Structural Columns", [11] = "Structural Columns" };

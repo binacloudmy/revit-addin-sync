@@ -146,12 +146,12 @@ namespace BinaVibe.Copilot.Guard
 
         /// <summary>AI-553 (AI-557 live afcbdb00: a type change by code reported 2 Structural Columns and 4 Structural Framing deleted, the
         /// model still at 144 and 2598). Code counts every change as touched, so <see cref="Rebuilt"/> never sees these. When
-        /// <paramref name="code"/> calls no deletion, a touched deletion pairs with a touched addition of the same category, one for one,
+        /// <paramref name="code"/> changes types (ChangeTypeId) and names no deletion, a touched deletion pairs with a touched addition of the same category, one for one,
         /// lowest ids first: Revit rebuilt the element. Code that deletes, an unknown category or an unpaired id pairs nothing.</summary>
         public static List<(long Deleted, long Added)> Retyped(IReadOnlyDictionary<long, string>? deleted, IReadOnlyDictionary<long, string>? added, string? code)
         {
             var pairs = new List<(long, long)>();
-            if (deleted == null || added == null || code == null || Deletes(code)) return pairs;
+            if (deleted == null || added == null || code == null || !RetypesOnly(code)) return pairs;
             foreach (var g in deleted.Where(kv => !string.IsNullOrWhiteSpace(kv.Value) && kv.Value != UnknownCategory).GroupBy(kv => kv.Value, StringComparer.Ordinal))
             {
                 var back = added.Where(kv => string.Equals(kv.Value, g.Key, StringComparison.Ordinal)).Select(kv => kv.Key).OrderBy(i => i).ToList();
@@ -219,12 +219,12 @@ namespace BinaVibe.Copilot.Guard
             }
         }
 
-        // Any deletion call: Delete(, doc.Delete, Document.Delete ... (spacing and case ignored; fail safe: a false hit pairs nothing).
-        private static bool Deletes(string code)
-        {
-            var flat = new string(code.Where(ch => !char.IsWhiteSpace(ch)).ToArray());
-            return flat.IndexOf("Delete(", StringComparison.OrdinalIgnoreCase) >= 0 || flat.IndexOf("doc.Delete", StringComparison.OrdinalIgnoreCase) >= 0;
-        }
+        // AI-553 r5: pairs only for the live case, a type change (ChangeTypeId), and only when no word starting "Delete" appears anywhere
+        // (doc.Delete, a method group ids.Select(document.Delete), DeleteElements, comments too: a false hit pairs nothing). Ungroup and
+        // NewGroup, Disassemble and AssemblyInstance.Create, or any other rebuild by code name no ChangeTypeId, so their deletions show.
+        private static bool RetypesOnly(string code) =>
+            code.IndexOf("ChangeTypeId", StringComparison.Ordinal) >= 0
+            && !System.Text.RegularExpressions.Regex.IsMatch(code, @"\bdelete", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
         private static void Drop(Dictionary<string, int> counts, string category)
         {
