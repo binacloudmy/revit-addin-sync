@@ -26,6 +26,9 @@ namespace BinaVibe.Copilot.Read
         public List<string> Categories = new();
         /// <summary>The category is a name the synonyms do not know; the executor resolves it.</summary>
         public bool ResolveCategoryText;
+        /// <summary>AI-581: the resolved name only adds to Categories (the model's category beside a thing
+        /// word's): a name Revit cannot resolve ("HVAC") is left out, never not_found.</summary>
+        public bool CategoryTextOptional => ResolveCategoryText && Categories.Count > 0;
         /// <summary>The default common-categories set was chosen (free text, no category).</summary>
         public bool DefaultSet;
         /// <summary>No category filter: a handle bounds the search.</summary>
