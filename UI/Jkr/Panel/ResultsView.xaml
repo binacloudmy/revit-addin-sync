@@ -380,6 +380,39 @@
 
         <!-- Headline card (AI-444): verdict + "x% compliant · n fail", pinned above the scroll so it never moves between tabs or after a fix / rescan / undo; opens the full result -->
         <Grid Grid.Row="2" Visibility="{Binding ShowHeadlineCard, Converter={StaticResource B2V}}">
+        <StackPanel>
+        <!-- Big score (demo): the same % as the line below, 56 px bold, coloured by band (fail < 50, partial 50-79, pass >= 80),
+             a 12 px bar with the same %, and the counts. The Viewbox only ever shrinks it, so nothing clips at 320 px. -->
+        <StackPanel Margin="16,14,16,12" AutomationProperties.Name="{Binding HeadPctLabel}">
+            <Viewbox Stretch="Uniform" StretchDirection="DownOnly" HorizontalAlignment="Left">
+                <TextBlock Text="{Binding HeadPctLabel, Mode=OneWay}" FontSize="56" FontWeight="Bold" LineHeight="64" LineStackingStrategy="BlockLineHeight">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Foreground" Value="{StaticResource Bz.Low}"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding BigScoreBand}" Value="fail"><Setter Property="Foreground" Value="{StaticResource Bz.Tone.Fail}"/></DataTrigger>
+                                <DataTrigger Binding="{Binding BigScoreBand}" Value="partial"><Setter Property="Foreground" Value="{StaticResource Bz.Tone.Partial}"/></DataTrigger>
+                                <DataTrigger Binding="{Binding BigScoreBand}" Value="pass"><Setter Property="Foreground" Value="{StaticResource Bz.Tone.PassMark}"/></DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+            </Viewbox>
+            <ProgressBar Minimum="0" Maximum="100" Value="{Binding BigScoreValue, Mode=OneWay}" Height="12" Margin="0,6,0,0"
+                         Background="{StaticResource Bz.Track}" BorderThickness="0">
+                <ProgressBar.Style>
+                    <Style TargetType="ProgressBar">
+                        <Setter Property="Foreground" Value="{StaticResource Bz.Low}"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding BigScoreBand}" Value="fail"><Setter Property="Foreground" Value="{StaticResource Bz.Tone.Fail}"/></DataTrigger>
+                            <DataTrigger Binding="{Binding BigScoreBand}" Value="partial"><Setter Property="Foreground" Value="{StaticResource Bz.Tone.Partial}"/></DataTrigger>
+                            <DataTrigger Binding="{Binding BigScoreBand}" Value="pass"><Setter Property="Foreground" Value="{StaticResource Bz.Tone.Pass}"/></DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </ProgressBar.Style>
+            </ProgressBar>
+            <TextBlock Text="{Binding BigScoreCounts, Mode=OneWay}" FontSize="13" LineHeight="18" Foreground="{StaticResource Bz.TextBody}" TextWrapping="Wrap" Margin="0,8,0,0"/>
+        </StackPanel>
         <Button Style="{StaticResource RowBtn}" Click="Checklist_Click" Padding="16,0,16,0" MinHeight="44"
                 BorderBrush="{StaticResource Bz.Line}" AutomationProperties.Name="{Binding VerdictHead}">
             <Grid VerticalAlignment="Center">
@@ -396,6 +429,7 @@
                            TextAlignment="Right" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="10,0,0,0"/>
             </Grid>
         </Button>
+        </StackPanel>
         <Border Height="1" VerticalAlignment="Bottom" Background="{StaticResource Bz.Line}"/>
         </Grid>
 

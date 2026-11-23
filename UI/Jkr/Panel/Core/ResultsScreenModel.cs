@@ -519,6 +519,22 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         public string VerdictShortLine =>
             _spec == null ? HeadPctLabel + " " + CompliantLabel : string.Format(S("vShort"), HeadPctLabel, _spec.FailChecks);
 
+        // ── big score (demo header): the same % as HeadPctLabel / the old head, so it moves with every Fix / Undo / re-check ──
+        /// <summary>Colour band of the big %: fail | partial | pass | none.</summary>
+        public string BigScoreBand => ScoreBand.Of(HeadPct);
+        /// <summary>The % for the bar, 0-100.</summary>
+        public double BigScoreValue => HeadPct ?? 0;
+        /// <summary>"39 of 59 checks pass · 16 fail · 4 could not be checked".</summary>
+        public string BigScoreCounts
+        {
+            get
+            {
+                // No report: only pass / total are known, so no fail count is invented.
+                if (_spec == null) return ScoreBand.CountsLine(AiPass, AiTotal, null, 0);
+                return ScoreBand.CountsLine(_spec);
+            }
+        }
+
         // ── tabs: Checklist n / Issues n ──
         public int ChecklistTabN => _spec?.Checks.Count ?? 0;
         /// <summary>"Issues", or "Issues · Section D" while a section filters them (the count is that section's).</summary>

@@ -186,6 +186,7 @@
     <Compile Include="..\UI\Jkr\Panel\Core\SpecCatalog.cs" Link="Panel\SpecCatalog.cs" />
     <Compile Include="..\UI\Jkr\Panel\Core\SpecReport.cs" Link="Panel\SpecReport.cs" />
     <Compile Include="..\UI\Jkr\Panel\Core\SpecChecklist.cs" Link="Panel\SpecChecklist.cs" />
+    <Compile Include="..\UI\Jkr\Panel\Core\ScoreBand.cs" Link="Panel\ScoreBand.cs" />
     <Compile Include="..\UI\Jkr\Panel\Core\SpecAspects.cs" Link="Panel\SpecAspects.cs" />
     <Compile Include="..\UI\Jkr\Panel\Core\BoardScore.cs" Link="Panel\BoardScore.cs" />
     <Compile Include="..\UI\Jkr\Panel\Core\DedupeDump.cs" Link="Panel\DedupeDump.cs" />
