@@ -55,6 +55,9 @@ namespace RevitAddinSync.Tests
         [InlineData("Can't edit until Aminah releases the element", "Can't edit until <user> releases the element")]
         [InlineData("Wait until aminah.b syncs with central", "Wait until <user> syncs with central")]
         [InlineData("Can't edit until Aminah relinquishes it", "Can't edit until <user> relinquishes it")]
+        [InlineData("Element is owned by a.rahman", "Element is owned by <user>")]
+        [InlineData("Element is borrowed by an.nur, request it first", "Element is borrowed by <user>, request it first")]
+        [InlineData("Can't edit until a.rahman resaves the element", "Can't edit until <user> resaves the element")]
         public void TheWorksharingFormsStillTakeTheUser(string raw, string expected) =>
             Assert.Equal(expected, DialogRedaction.RedactPaths(raw, "nobody-here", null));
     }
