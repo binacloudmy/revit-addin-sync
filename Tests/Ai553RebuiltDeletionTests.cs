@@ -2,7 +2,8 @@
 // said "2 windows were also deleted" while the model still held 79 windows; a type change said 2 Structural Columns and
 // 4 Structural Framing were deleted while the model still held 144 columns and 2598 framing. Revit rebuilt those elements
 // (old id reported deleted, a new one added in the same category) or reported an id deleted that still resolves. A real
-// deletion (nothing came back) is still reported.
+// deletion (nothing came back) is still reported. Pairing applies to side effects only: a run_revit_code call (the AI-557
+// type change) counts every change as touched, so there only KeepExisting can apply.
 
 using System;
 using System.Collections.Generic;
@@ -26,7 +27,7 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void ColumnsAndFramingRebuilt_AfterATypeChange_AreNotDeleted()
+        public void ColumnsAndFramingRebuilt_AsSideEffects_PairOut()
         {
             var deleted = new Dictionary<long, string>
             {
