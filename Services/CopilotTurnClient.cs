@@ -281,7 +281,9 @@ namespace RevitWebAppSync.Services
         private sealed class CancelPost
         {
             public bool Started;
-            /// <summary>request_id → the late results post (R74) still owed for this turn, sent again when a later cancel lands.</summary>
+            /// <summary>The cancel POST was answered 2xx: a later Cancel sends no cancel, only the late posts still owed.</summary>
+            public bool Landed;
+            /// <summary>request_id → the late results post (R74) still owed for this turn, sent again when a cancel lands or on a later Cancel once it landed.</summary>
             public readonly Dictionary<string, Action> Late = new Dictionary<string, Action>(StringComparer.Ordinal);
             public readonly TaskCompletionSource<bool> Done = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         }
@@ -415,6 +417,7 @@ namespace RevitWebAppSync.Services
         {
             CancelPost entry;
             var landed = false;
+            Action[]? already = null;
             lock (_sync)
             {
                 if (_active != null && _active.TurnId == turnId) _active = null;
@@ -422,8 +425,14 @@ namespace RevitWebAppSync.Services
                 if (!_cancels.TryGetValue(turnId, out var found)) _cancels[turnId] = found = new CancelPost();
                 entry = found;
                 if (_sessionOf.TryGetValue(turnId, out var session)) _givenUp[session] = turnId;
-                if (entry.Started) return;
-                entry.Started = true;
+                // Sent or in flight: no new cancel. Once it landed, a late post that failed after that is still owed and goes now.
+                if (entry.Started) already = entry.Landed ? entry.Late.Values.ToArray() : Array.Empty<Action>();
+                else entry.Started = true;
+            }
+            if (already != null)
+            {
+                foreach (var post in already) post();
+                return;
             }
             try
             {
@@ -432,6 +441,7 @@ namespace RevitWebAppSync.Services
                 // r25: a gateway answering for a restarting backend did not deliver it either.
                 if (IsRetryableStatus((int)resp.StatusCode)) lock (_sync) entry.Started = false;
                 landed = resp.IsSuccessStatusCode;
+                if (landed) lock (_sync) entry.Landed = true;
             }
             catch (Exception ex) when (!(ex is OperationCanceledException) || !ct.IsCancellationRequested)
             {
@@ -734,7 +744,7 @@ namespace RevitWebAppSync.Services
             envelopes.Any(e => e != null && e.Phase == EnvelopePhase.Commit && (e.Ok || e.Status == EnvelopeStatus.Partial));
 
         /// <summary>R74: the results of a committed batch of a cancelled or superseded
-        /// turn, posted once (until the cloud answers 2xx), in the background, after the turn's cancel POST (M1),
+        /// turn, posted once (until the cloud answers with anything but 429 or 5xx), in the background, after the turn's cancel POST (M1),
         /// with the body (request_id, call ids, envelopes) the live post used. Nothing of the reply is read, so nothing of
         /// it reaches the pane. protocol3.schema.json closes results_request
         /// (additionalProperties: false), so the post carries no "late" flag.</summary>
@@ -743,8 +753,8 @@ namespace RevitWebAppSync.Services
             if (!CopilotHostPolicy.IsAllowed(_opt.BaseUrl, _opt.ReleaseBuild)) return;
             lock (st.Sent)
             {
-                // shortcut: a cancel that lands while an attempt is in flight does not resend if that attempt then fails; the next
-                // cancel of the turn does. Upgrade to a resend-after flag if that race is seen.
+                // A cancel that lands while an attempt is in flight does not resend if that attempt then fails; the post stays owed
+                // and the next Stop or "+" of the turn sends it with no new cancel; the 409 re-cancel sends a fresh cancel first, then it.
                 if (!st.Committed.Contains(requestId) || st.PostedLate.Contains(requestId) || !st.LateInFlight.Add(requestId)) return;
             }
             // M1: the cloud sees the turn's cancel before its late results. The cancel
@@ -761,11 +771,12 @@ namespace RevitWebAppSync.Services
                     await Task.WhenAny(cancelDone, Task.Delay(_opt.LatePostTimeout)).ConfigureAwait(false);
                     using var cts = new CancellationTokenSource(_opt.LatePostTimeout);
                     using var resp = await SendAsync(HttpMethod.Post, Protocol.ResultsPath(st.TurnId), body, stream: false, cts.Token).ConfigureAwait(false);
-                    delivered = resp.IsSuccessStatusCode;
+                    // Delivered or final: only 429 and 5xx are retried. 404 (the turn is closed) and 409 (the request is unknown) are for good.
+                    delivered = !IsRetryableStatus((int)resp.StatusCode);
                 }
                 catch
                 {
-                    // Best effort: still owed, so the next landed cancel of this turn sends it again.
+                    // Best effort: a transport error leaves it owed, so a later cancel of this turn sends it again.
                 }
                 lock (st.Sent)
                 {

@@ -309,5 +309,74 @@ namespace RevitAddinSync.Tests
             Assert.True(await Eventually(() => server.Seen.Count(r => r.Path.EndsWith("/results")) == 6), string.Join(" | ", server.Seen.Select(r => r.Path)));
             AssertTheLateResultsFollowTheLandedCancel(server);
         }
+
+        // r25 final pass: the cancel lands while the late post is in flight, and that post then fails. A later Stop sends the owed
+        // post once, with no new cancel (the turn's cancel already landed).
+        private static FakeServer CancelLandsThenTheLatePost(Func<HttpResponseMessage> latePost) => new FakeServer()
+            .On("POST /copilot/turns", Sse(Frame("tool_request", WriteRequest(1))))
+            .On("POST /copilot/turns/" + TurnA + "/results", Drop())
+            .On("POST /copilot/turns/" + TurnA + "/results", Drop())
+            .On("POST /copilot/turns/" + TurnA + "/results", Drop())
+            .On("POST /copilot/turns/" + TurnA + "/results", Drop())
+            .On("POST /copilot/turns/" + TurnA + "/cancel", Status(HttpStatusCode.OK, "{}"))
+            .On("POST /copilot/turns/" + TurnA + "/results", latePost);
+
+        [Fact]
+        public async Task ALatePostThatFailedAfterTheCancelLanded_GoesOnTheNextStop_Once()
+        {
+            var server = CancelLandsThenTheLatePost(Drop());
+            var client = ClientOn(server);
+
+            Assert.True((await client.StartTurnAsync(Turn(TurnA), new Handler(), CancellationToken.None)).ResultsUndelivered);
+            Assert.True(await Eventually(() => server.Seen.Count(r => r.Path.EndsWith("/results")) == 5), string.Join(" | ", server.Seen.Select(r => r.Path)));
+            await Task.Delay(100);   // the failed late post has settled
+
+            server.On("POST /copilot/turns/" + TurnA + "/results", Status(HttpStatusCode.OK, "{}"));
+            await client.CancelAsync(TurnA, CancellationToken.None);   // Stop
+
+            Assert.True(await Eventually(() => server.Seen.Count(r => r.Path.EndsWith("/results")) == 6), string.Join(" | ", server.Seen.Select(r => r.Path)));
+            Assert.Equal(server.Seen.First(r => r.Path.EndsWith("/results")).Body, server.Seen.Last(r => r.Path.EndsWith("/results")).Body);
+            await client.CancelAsync(TurnA, CancellationToken.None);   // delivered: never again
+            await Task.Delay(100);
+            Assert.Equal(6, server.Seen.Count(r => r.Path.EndsWith("/results")));
+            Assert.Single(server.Seen, r => r.Path.EndsWith("/cancel"));
+        }
+
+        // 404 (the turn is closed) and 409 (the request is unknown) are final: the late post is not sent again.
+        [Theory]
+        [InlineData(HttpStatusCode.NotFound)]
+        [InlineData(HttpStatusCode.Conflict)]
+        public async Task ALatePostAnswered404Or409_IsNotSentAgain(HttpStatusCode final)
+        {
+            var server = CancelLandsThenTheLatePost(Status(final, "{}"));
+            var client = ClientOn(server);
+
+            await client.StartTurnAsync(Turn(TurnA), new Handler(), CancellationToken.None);
+            Assert.True(await Eventually(() => server.Seen.Count(r => r.Path.EndsWith("/results")) == 5), string.Join(" | ", server.Seen.Select(r => r.Path)));
+            await Task.Delay(100);
+
+            server.On("POST /copilot/turns/" + TurnA + "/results", Status(HttpStatusCode.OK, "{}"));
+            await client.CancelAsync(TurnA, CancellationToken.None);
+            await Task.Delay(100);
+            Assert.Equal(5, server.Seen.Count(r => r.Path.EndsWith("/results")));
+        }
+
+        // Only a transport error, 429 or 5xx leaves the late post owed.
+        [Theory]
+        [InlineData((HttpStatusCode)429)]
+        [InlineData(HttpStatusCode.ServiceUnavailable)]
+        public async Task ALatePostAnswered429Or5xx_GoesOnTheNextStop(HttpStatusCode retryable)
+        {
+            var server = CancelLandsThenTheLatePost(Status(retryable, "{}"));
+            var client = ClientOn(server);
+
+            await client.StartTurnAsync(Turn(TurnA), new Handler(), CancellationToken.None);
+            Assert.True(await Eventually(() => server.Seen.Count(r => r.Path.EndsWith("/results")) == 5), string.Join(" | ", server.Seen.Select(r => r.Path)));
+            await Task.Delay(100);
+
+            server.On("POST /copilot/turns/" + TurnA + "/results", Status(HttpStatusCode.OK, "{}"));
+            await client.CancelAsync(TurnA, CancellationToken.None);
+            Assert.True(await Eventually(() => server.Seen.Count(r => r.Path.EndsWith("/results")) == 6), string.Join(" | ", server.Seen.Select(r => r.Path)));
+        }
     }
 }
