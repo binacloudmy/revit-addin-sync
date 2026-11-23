@@ -178,6 +178,9 @@ namespace RevitWebAppSync.Tests
             ("diagnostics_leak", "try { int.Parse(\"x\"); } catch (Exception ex) { Print(ex.ToString()); }"),
             ("diagnostics_leak", "try { int.Parse(\"x\"); } catch (Exception ex) { Print(ex.StackTrace); }"),
             ("diagnostics_leak", "try { } catch (Autodesk.Revit.Exceptions.InvalidOperationException ex) { Print(ex.ToString()); }"),
+            // r25 audit: a generic local function turned the exception into text out of sight (T is Exception)
+            ("diagnostics_leak", "string S<T>(T x) => x.ToString();\ntry { int.Parse(\"x\"); } catch (Exception ex) { Print(S(ex)); }"),
+            ("diagnostics_leak", "string S<T>(T x) => $\"{x}\";\ntry { int.Parse(\"x\"); } catch (Exception ex) { Print(S(ex)); }"),
             // Fix round 1, C3: link reload and link-file writes
             ("link_load", "RevitLinkType t = null;\nt.RevertLocalUnloadStatus();"),
             ("link_load", "RevitLinkType t = null;\nt.UnloadLocally(null);"),

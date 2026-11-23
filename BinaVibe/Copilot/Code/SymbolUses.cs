@@ -147,6 +147,14 @@ namespace BinaVibe.Copilot.Code
                    && m.ReturnType is INamedTypeSymbol r && r.OriginalDefinition.SpecialType == SpecialType.System_Collections_Generic_IEnumerable_T;
         }
 
+        /// <summary>r25: S&lt;T&gt;(ex) with T an exception: inside S the exception is a plain T, and T.ToString() or $"{x}" makes
+        /// it text out of sight. Held like a container of exceptions (List&lt;Exception&gt;).</summary>
+        private static void ExceptionTypeArgument(List<SymbolUse> uses, IMethodSymbol method, Location at, SyntaxNode syntax)
+        {
+            var arg = method.TypeArguments.FirstOrDefault(t => CodePolicy.IsException(t as INamedTypeSymbol));
+            if (arg != null) uses.Add(new SymbolUse(SymbolUseKind.Structural, arg, MemberUsage.Invoke, at, "exception_container", Short(syntax)));
+        }
+
         private static void VisitOperation(IOperation op, List<SymbolUse> uses)
         {
             var at = op.Syntax.GetLocation();
@@ -193,6 +201,7 @@ namespace BinaVibe.Copilot.Code
 
                 case IInvocationOperation inv:
                     AddMember(uses, inv.TargetMethod, MemberUsage.Invoke, at);
+                    ExceptionTypeArgument(uses, inv.TargetMethod, at, op.Syntax);
                     // a?.Concat(b): the counting wrapper cannot go around a ?. binding without changing its meaning.
                     if (IsCountedLinq(inv.TargetMethod) && inv.Syntax is InvocationExpressionSyntax call && call.Expression is MemberBindingExpressionSyntax)
                         uses.Add(new SymbolUse(SymbolUseKind.Structural, inv.TargetMethod, MemberUsage.Invoke, at, "conditional_linq", Short(op.Syntax)));
@@ -215,6 +224,7 @@ namespace BinaVibe.Copilot.Code
 
                 case IMethodReferenceOperation mr:
                     AddMember(uses, mr.Method, MemberUsage.Invoke, at);
+                    ExceptionTypeArgument(uses, mr.Method, at, op.Syntax);
                     // A method group run as a delegate (Select(Math.Abs)) enters no counted lambda; only the
                     // snippet's own local functions (counted on entry) and Print (counted) may be passed.
                     if (!(mr.Method.MethodKind == MethodKind.LocalFunction
