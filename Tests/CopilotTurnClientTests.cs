@@ -65,7 +65,7 @@ namespace RevitAddinSync.Tests
                     Authorization = request.Headers.Authorization?.ToString(),
                     Accept = request.Headers.Accept.ToString(),
                 };
-                Requests.Add(rec);
+                lock (Requests) Requests.Add(rec);   // r25: a late results post arrives from a background task
                 var key = _script.Keys.Where(k => rec.PathAndQuery.StartsWith(k, StringComparison.Ordinal))
                     .OrderByDescending(k => k.Length).FirstOrDefault();
                 if (key == null || _script[key].Count == 0)
@@ -231,11 +231,18 @@ namespace RevitAddinSync.Tests
             Assert.Equal(TurnOutcomeKind.Failed, outcome.Kind);
             Assert.True(outcome.ResultsUndelivered);
             Assert.Equal(1, handler.Executions);
-            Assert.Equal(4, server.Requests.Count(r => r.PathAndQuery.EndsWith("/results")));   // 1 + 3 retries
             // Review M6: the pane let go of the turn, here and in the cloud.
             Assert.Null(client.ActiveTurnId);
-            await Task.Delay(50);
-            Assert.Single(server.Requests, r => r.Method == HttpMethod.Post && r.PathAndQuery == "/copilot/turns/" + TurnA + "/cancel");
+            // r25: the committed batch then goes once more, late, after the cancel (R74). Wait for it, then read one snapshot.
+            List<Recorded> Snapshot() { lock (server.Requests) return server.Requests.ToList(); }
+            for (var i = 0; i < 100 && Snapshot().Count(r => r.PathAndQuery.EndsWith("/results")) < 5; i++) await Task.Delay(20);
+            await Task.Delay(50);   // and never a sixth
+            var reqs = Snapshot();
+            Assert.Single(reqs, r => r.Method == HttpMethod.Post && r.PathAndQuery == "/copilot/turns/" + TurnA + "/cancel");
+            var cancelAt = reqs.FindIndex(r => r.PathAndQuery.EndsWith("/cancel"));
+            Assert.Equal(4, reqs.Take(cancelAt).Count(r => r.PathAndQuery.EndsWith("/results")));   // 1 + 3 retries
+            var late = Assert.Single(reqs.Skip(cancelAt + 1), r => r.PathAndQuery.EndsWith("/results"));
+            Assert.Equal(reqs.First(r => r.PathAndQuery.EndsWith("/results")).Body, late.Body);
         }
 
         [Fact]

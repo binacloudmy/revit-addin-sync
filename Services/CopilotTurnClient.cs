@@ -266,6 +266,10 @@ namespace RevitWebAppSync.Services
         /// <summary>turn_id → its cancel POST: started once, and done once the cloud
         /// answered or the POST failed. A late results post (R74) waits for it (M1).</summary>
         private readonly Dictionary<string, CancelPost> _cancels = new Dictionary<string, CancelPost>(StringComparer.Ordinal);
+        /// <summary>turn_id → its session_id ("" for a new session), from StartTurnAsync.</summary>
+        private readonly Dictionary<string, string> _sessionOf = new Dictionary<string, string>(StringComparer.Ordinal);
+        /// <summary>session_id → the last turn the pane cancelled in it: re-cancelled once when a start meets 409.</summary>
+        private readonly Dictionary<string, string> _givenUp = new Dictionary<string, string>(StringComparer.Ordinal);
 
         private sealed class CancelPost
         {
@@ -334,10 +338,38 @@ namespace RevitWebAppSync.Services
         public Task<TurnOutcome> StartTurnAsync(TurnRequestDto request, ICopilotTurnHandler handler, CancellationToken ct)
         {
             if (request == null) throw new ArgumentNullException(nameof(request));
-            var st = new TurnState(request.TurnId, _opt.Budget());
-            lock (_sync) _active = st;
             request.Protocol = Protocol.Version;
             var body = CopilotJson.Serialize(request);
+            var session = request.SessionId ?? "";
+            lock (_sync) _sessionOf[request.TurnId] = session;
+            return StartWithRetryAsync(request.TurnId, session, body, handler, ct);
+        }
+
+        /// <summary>r25: a backend restart can leave the session's last given-up turn open in the cloud (its cancel never
+        /// landed), so every start meets 409. Cancel that turn again, then retry the start once.</summary>
+        private async Task<TurnOutcome> StartWithRetryAsync(string turnId, string session, string body, ICopilotTurnHandler handler, CancellationToken ct)
+        {
+            var outcome = await StartOnceAsync(turnId, body, handler, ct).ConfigureAwait(false);
+            string? stale;
+            lock (_sync)
+            {
+                if (outcome.Kind != TurnOutcomeKind.TurnActive || _active != null
+                    || !_givenUp.TryGetValue(session, out stale) || stale == turnId) return outcome;
+                if (_cancels.TryGetValue(stale, out var entry)) entry.Started = false;   // sent again even if it landed
+            }
+            await CancelAsync(stale, ct).ConfigureAwait(false);
+            lock (_sync)
+            {
+                if (_givenUp.TryGetValue(session, out var t) && t == stale) _givenUp.Remove(session);   // re-cancelled once only
+                if (_active != null) return outcome;   // the pane started another turn meanwhile
+            }
+            return await StartOnceAsync(turnId, body, handler, ct).ConfigureAwait(false);
+        }
+
+        private Task<TurnOutcome> StartOnceAsync(string turnId, string body, ICopilotTurnHandler handler, CancellationToken ct)
+        {
+            var st = new TurnState(turnId, _opt.Budget());
+            lock (_sync) _active = st;
             return DriveAsync(st, c => SendAsync(HttpMethod.Post, Protocol.TurnsPath, body, stream: true, c), handler, ct);
         }
 
@@ -377,6 +409,7 @@ namespace RevitWebAppSync.Services
                 if (string.IsNullOrEmpty(turnId)) return;
                 if (!_cancels.TryGetValue(turnId, out var found)) _cancels[turnId] = found = new CancelPost();
                 entry = found;
+                if (_sessionOf.TryGetValue(turnId, out var session)) _givenUp[session] = turnId;
                 if (entry.Started) return;
                 entry.Started = true;
             }
@@ -384,10 +417,14 @@ namespace RevitWebAppSync.Services
             {
                 if (!CopilotHostPolicy.IsAllowed(_opt.BaseUrl, _opt.ReleaseBuild)) return;
                 using var resp = await SendAsync(HttpMethod.Post, Protocol.CancelPath(turnId), "{}", stream: false, ct).ConfigureAwait(false);
+                // r25: a gateway answering for a restarting backend did not deliver it either.
+                if (IsRetryableStatus((int)resp.StatusCode)) lock (_sync) entry.Started = false;
             }
             catch (Exception ex) when (!(ex is OperationCanceledException) || !ct.IsCancellationRequested)
             {
                 // The cloud also ends idle turns; the add-in has already stopped executing it.
+                // r25: a cancel that never reached the cloud (a backend restart) goes again on the next Cancel or a 409.
+                if (IsTransport(ex, ct)) lock (_sync) entry.Started = false;
             }
             finally
             {
@@ -656,6 +693,8 @@ namespace RevitWebAppSync.Services
             }
             catch (ResultsUndeliveredException)
             {
+                // r25: a committed batch is still reported, once and late, after the turn's cancel (R74, M1).
+                PostLateIfCommitted(st, req.RequestId, body);
                 return new StreamResult
                 {
                     Outcome = new TurnOutcome
