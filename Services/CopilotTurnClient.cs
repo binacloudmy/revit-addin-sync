@@ -281,6 +281,8 @@ namespace RevitWebAppSync.Services
         private sealed class CancelPost
         {
             public bool Started;
+            /// <summary>request_id → the late results post (R74) still owed for this turn, sent again when a later cancel lands.</summary>
+            public readonly Dictionary<string, Action> Late = new Dictionary<string, Action>(StringComparer.Ordinal);
             public readonly TaskCompletionSource<bool> Done = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         }
 
@@ -316,8 +318,10 @@ namespace RevitWebAppSync.Services
             public readonly Dictionary<string, string> Sent = new Dictionary<string, string>();
             /// <summary>request_ids whose batch committed something (R74); guarded by Sent.</summary>
             public readonly HashSet<string> Committed = new HashSet<string>();
-            /// <summary>request_ids already posted late, after a cancel; guarded by Sent.</summary>
+            /// <summary>request_ids whose late post the cloud answered with 2xx; guarded by Sent.</summary>
             public readonly HashSet<string> PostedLate = new HashSet<string>();
+            /// <summary>request_ids whose late post is on its way; guarded by Sent.</summary>
+            public readonly HashSet<string> LateInFlight = new HashSet<string>();
             public StreamErrorDto? LastError;
         }
 
@@ -410,6 +414,7 @@ namespace RevitWebAppSync.Services
         public async Task CancelAsync(string turnId, CancellationToken ct)
         {
             CancelPost entry;
+            var landed = false;
             lock (_sync)
             {
                 if (_active != null && _active.TurnId == turnId) _active = null;
@@ -426,6 +431,7 @@ namespace RevitWebAppSync.Services
                 using var resp = await SendAsync(HttpMethod.Post, Protocol.CancelPath(turnId), "{}", stream: false, ct).ConfigureAwait(false);
                 // r25: a gateway answering for a restarting backend did not deliver it either.
                 if (IsRetryableStatus((int)resp.StatusCode)) lock (_sync) entry.Started = false;
+                landed = resp.IsSuccessStatusCode;
             }
             catch (Exception ex) when (!(ex is OperationCanceledException) || !ct.IsCancellationRequested)
             {
@@ -437,6 +443,11 @@ namespace RevitWebAppSync.Services
             {
                 entry.Done.TrySetResult(true);   // answered or failed: a late post may go now
             }
+            if (!landed) return;
+            // r25: a late post that failed while the backend was down goes again now that the turn's cancel landed (M1 order kept).
+            Action[] owed;
+            lock (_sync) owed = entry.Late.Values.ToArray();
+            foreach (var post in owed) post();
         }
 
         // ------------------------------------------------------------------
@@ -723,33 +734,45 @@ namespace RevitWebAppSync.Services
             envelopes.Any(e => e != null && e.Phase == EnvelopePhase.Commit && (e.Ok || e.Status == EnvelopeStatus.Partial));
 
         /// <summary>R74: the results of a committed batch of a cancelled or superseded
-        /// turn, posted once, in the background, after the turn's cancel POST (M1),
+        /// turn, posted once (until the cloud answers 2xx), in the background, after the turn's cancel POST (M1),
         /// with the body (request_id, call ids, envelopes) the live post used. Nothing of the reply is read, so nothing of
         /// it reaches the pane. protocol3.schema.json closes results_request
         /// (additionalProperties: false), so the post carries no "late" flag.</summary>
         private void PostLateIfCommitted(TurnState st, string requestId, string body)
         {
+            if (!CopilotHostPolicy.IsAllowed(_opt.BaseUrl, _opt.ReleaseBuild)) return;
             lock (st.Sent)
             {
-                if (!st.Committed.Contains(requestId) || !st.PostedLate.Add(requestId)) return;
+                // shortcut: a cancel that lands while an attempt is in flight does not resend if that attempt then fails; the next
+                // cancel of the turn does. Upgrade to a resend-after flag if that race is seen.
+                if (!st.Committed.Contains(requestId) || st.PostedLate.Contains(requestId) || !st.LateInFlight.Add(requestId)) return;
             }
-            if (!CopilotHostPolicy.IsAllowed(_opt.BaseUrl, _opt.ReleaseBuild)) return;
             // M1: the cloud sees the turn's cancel before its late results. The cancel
             // POST is in flight or about to start (Stop, "+" and continuing a chat all
             // post it); wait for it to be answered or to fail, bounded.
-            var cancelDone = CancelOf(st.TurnId).Done.Task;
+            var entry = CancelOf(st.TurnId);
+            lock (_sync) entry.Late[requestId] = () => PostLateIfCommitted(st, requestId, body);
+            var cancelDone = entry.Done.Task;
             _ = Task.Run(async () =>
             {
+                var delivered = false;
                 try
                 {
                     await Task.WhenAny(cancelDone, Task.Delay(_opt.LatePostTimeout)).ConfigureAwait(false);
                     using var cts = new CancellationTokenSource(_opt.LatePostTimeout);
                     using var resp = await SendAsync(HttpMethod.Post, Protocol.ResultsPath(st.TurnId), body, stream: false, cts.Token).ConfigureAwait(false);
+                    delivered = resp.IsSuccessStatusCode;
                 }
                 catch
                 {
-                    // Best effort: the next turn's snapshot (change_seq) still shows the change.
+                    // Best effort: still owed, so the next landed cancel of this turn sends it again.
                 }
+                lock (st.Sent)
+                {
+                    st.LateInFlight.Remove(requestId);
+                    if (delivered) st.PostedLate.Add(requestId);
+                }
+                if (delivered) lock (_sync) entry.Late.Remove(requestId);
             });
         }
 

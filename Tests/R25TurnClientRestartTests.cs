@@ -231,5 +231,83 @@ namespace RevitAddinSync.Tests
             await Task.Delay(50);
             Assert.Equal(5, server.Seen.Count(r => r.Path.EndsWith("/results")));             // once, never more
         }
+
+        [Fact]
+        public async Task ACancelRefusedWith503_IsSentAgain()
+        {
+            var server = new FakeServer()
+                .On("POST /copilot/turns/" + TurnA + "/cancel", Status(HttpStatusCode.ServiceUnavailable, "{}"))
+                .On("POST /copilot/turns/" + TurnA + "/cancel", Status(HttpStatusCode.OK, "{}"))
+                .On("POST /copilot/turns/" + TurnA + "/cancel", Status(HttpStatusCode.OK, "{}"));
+            var client = ClientOn(server);
+
+            await client.CancelAsync(TurnA, CancellationToken.None);   // a gateway answering for a restarting backend
+            await client.CancelAsync(TurnA, CancellationToken.None);   // sent again, and it lands
+            await client.CancelAsync(TurnA, CancellationToken.None);   // once it landed, never again
+
+            Assert.Equal(2, server.Seen.Count(r => r.Path.EndsWith("/cancel")));
+        }
+
+        // r25 verifier: the backend restarts during a write, the cancel fails and the late results post fails too. The committed
+        // batch stays owed: it goes again, after the cancel, once a later cancel of that turn lands (Stop, or the 409 re-cancel).
+        private static FakeServer RestartWhereTheCancelAndTheLatePostFail() => new FakeServer()
+            .On("POST /copilot/turns", Sse(Frame("tool_request", WriteRequest(1))))
+            .On("POST /copilot/turns/" + TurnA + "/results", Drop())
+            .On("POST /copilot/turns/" + TurnA + "/results", Drop())
+            .On("POST /copilot/turns/" + TurnA + "/results", Drop())
+            .On("POST /copilot/turns/" + TurnA + "/results", Drop())
+            .On("POST /copilot/turns/" + TurnA + "/cancel", Drop())
+            .On("POST /copilot/turns/" + TurnA + "/results", Drop());
+
+        private static void AssertTheLateResultsFollowTheLandedCancel(FakeServer server)
+        {
+            var seen = server.Seen;
+            var cancelAt = seen.FindLastIndex(r => r.Path.EndsWith("/cancel"));
+            var late = seen.FindLastIndex(r => r.Path.EndsWith("/results"));
+            Assert.True(cancelAt >= 0 && cancelAt < late, "the cancel goes before the late results (M1): " + string.Join(" | ", seen.Select(r => r.Path)));
+            Assert.Equal(seen.First(r => r.Path.EndsWith("/results")).Body, seen[late].Body);
+        }
+
+        [Fact]
+        public async Task ALateResultsPostThatFailed_GoesAgainWhenALaterCancelLands()
+        {
+            var server = RestartWhereTheCancelAndTheLatePostFail();
+            var client = ClientOn(server);
+
+            var outcome = await client.StartTurnAsync(Turn(TurnA), new Handler(), CancellationToken.None);
+            Assert.True(outcome.ResultsUndelivered);
+            Assert.True(await Eventually(() => server.Seen.Count(r => r.Path.EndsWith("/results")) == 5), string.Join(" | ", server.Seen.Select(r => r.Path)));
+
+            server.On("POST /copilot/turns/" + TurnA + "/cancel", Status(HttpStatusCode.OK, "{}"))     // the backend is back
+                  .On("POST /copilot/turns/" + TurnA + "/results", Status(HttpStatusCode.OK, "{}"))
+                  .On("POST /copilot/turns/" + TurnA + "/results", Status(HttpStatusCode.OK, "{}"));
+            await client.CancelAsync(TurnA, CancellationToken.None);
+
+            Assert.True(await Eventually(() => server.Seen.Count(r => r.Path.EndsWith("/results")) == 6), string.Join(" | ", server.Seen.Select(r => r.Path)));
+            AssertTheLateResultsFollowTheLandedCancel(server);
+            await client.CancelAsync(TurnA, CancellationToken.None);   // delivered: never again
+            await Task.Delay(50);
+            Assert.Equal(6, server.Seen.Count(r => r.Path.EndsWith("/results")));
+        }
+
+        [Fact]
+        public async Task ALateResultsPostThatFailed_GoesAgainAfterThe409ReCancel()
+        {
+            var server = RestartWhereTheCancelAndTheLatePostFail();
+            var client = ClientOn(server);
+
+            await client.StartTurnAsync(Turn(TurnA, "ses_A"), new Handler(), CancellationToken.None);
+            Assert.True(await Eventually(() => server.Seen.Count(r => r.Path.EndsWith("/results")) == 5), string.Join(" | ", server.Seen.Select(r => r.Path)));
+
+            server.On("POST /copilot/turns", Busy409())                                              // the backend is back, still holding A
+                  .On("POST /copilot/turns/" + TurnA + "/cancel", Status(HttpStatusCode.OK, "{}"))
+                  .On("POST /copilot/turns/" + TurnA + "/results", Status(HttpStatusCode.OK, "{}"))
+                  .On("POST /copilot/turns", Sse(Frame("turn_end", TurnEnd(1))));
+            var outcome = await client.StartTurnAsync(Turn(TurnB, "ses_A"), new Handler(), CancellationToken.None);
+
+            Assert.Equal(TurnOutcomeKind.Ended, outcome.Kind);
+            Assert.True(await Eventually(() => server.Seen.Count(r => r.Path.EndsWith("/results")) == 6), string.Join(" | ", server.Seen.Select(r => r.Path)));
+            AssertTheLateResultsFollowTheLandedCancel(server);
+        }
     }
 }
