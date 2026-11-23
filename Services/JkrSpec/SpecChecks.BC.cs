@@ -1362,7 +1362,7 @@ namespace RevitWebAppSync.Services.JkrSpec
         internal static IEnumerable<SpecResult> C5_1_2(SpecModel m)
         {
             var names = m.Links.Select(l => l.Name).Where(n => !string.IsNullOrWhiteSpace(n)).ToList();
-            yield return SpecChecks.Unjudged("C5.1.2", "No BPEP available → cannot be checked (links: " + (names.Count == 0 ? "none" : string.Join(", ", names)) + ")");
+            yield return SpecChecks.NotApplicable("C5.1.2", "No BPEP available → not checked (links: " + (names.Count == 0 ? "none" : string.Join(", ", names)) + ")");
         }
 
         /// <summary>C5.1.3 — human decides, always: the add-in has no CDE / sync access to know the latest version.</summary>

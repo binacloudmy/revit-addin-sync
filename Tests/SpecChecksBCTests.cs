@@ -930,11 +930,11 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void C5_1_2_is_unjudged_without_a_BPEP()
+        public void C5_1_2_is_not_applicable_without_a_BPEP()
         {
             var r = Assert.Single(Run("C5.1.2", Compliant()));
-            Assert.Equal("cannot_verify", r.Status);
-            Assert.StartsWith("No BPEP available → cannot be checked", r.Note);
+            Assert.True(r.NotApplicable);
+            Assert.StartsWith("No BPEP available → not checked", r.Note);
         }
 
         [Fact]
