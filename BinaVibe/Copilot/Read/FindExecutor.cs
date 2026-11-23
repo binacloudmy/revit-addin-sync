@@ -482,12 +482,14 @@ namespace BinaVibe.Copilot.Read
                     typeName ??= RevitValues.TypeName(t.Doc, el);
                     family ??= RevitValues.FamilyName(t.Doc, el);
                     var fields = TextFields(t.Doc, el, typeName, family);
-                    if (!TextMatch.Matches(q.Terms, fields))
+                    // AI-581: the element's category, for a thing word's AnyIn (every lighting device is a switch).
+                    var ost = el.Category == null ? null : ((BuiltInCategory)(int)el.Category.Id.Value).ToString();
+                    if (!TextMatch.Matches(q.Terms, fields, null, ost))
                     {
                         // The room fallback only when the query has a category or a room (review C1).
                         if (!decision.RoomFallback) continue;
                         room ??= RoomLabel(t.Doc, el);
-                        if (room == null || !TextMatch.Matches(q.Terms, fields, room)) continue;
+                        if (room == null || !TextMatch.Matches(q.Terms, fields, room, ost)) continue;
                     }
                 }
 

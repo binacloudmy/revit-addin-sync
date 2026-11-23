@@ -20,16 +20,19 @@ namespace BinaVibe.Copilot.Read
 
         /// <summary>As above, where groups that are not OwnNameOnly may also match the room
         /// label the element stands in ("pintu tandas"); OwnNameOnly groups ("tandas") must
-        /// match the element's own fields.</summary>
-        public static bool Matches(IReadOnlyList<TermGroup> terms, IEnumerable<string?> fields, string? room)
+        /// match the element's own fields. <paramref name="category"/> is the element's OST_ name:
+        /// a group's AnyIn categories need no word (AI-581), and its Not words undo a match.</summary>
+        public static bool Matches(IReadOnlyList<TermGroup> terms, IEnumerable<string?> fields, string? room, string? category = null)
         {
             if (terms == null || terms.Count == 0) return true;
             var own = Haystack(fields);
             var withRoom = room == null ? own : Haystack(fields.Append(room));
             foreach (var g in terms)
             {
+                if (category != null && g.AnyIn.Contains(category)) continue;
                 var (words, compact) = g.OwnNameOnly ? own : withRoom;
                 if (!g.Variants.Any(v => VariantMatches(v, words, compact))) return false;
+                if (g.Not.Any(v => VariantMatches(v, own.Words, own.Compact))) return false;
             }
             return true;
         }

@@ -265,7 +265,11 @@ namespace RevitAddinSync.Tests
                     ? a.EnumerateArray().Select(x => Lit(x.GetString()!)).ToList()
                     : new List<string>();
                 var alsoText = also.Count == 0 ? "new string[0]" : "new[] { " + string.Join(", ", also) + " }";
-                sb.Append("            new SynonymEntry(" + Lit(ms) + ", " + Lit(en) + ", " + cat + ", " + alsoText + (keep ? ", keepText: true" : "") + "),\n");
+                string Named(string key, string arg) => p.TryGetProperty(key, out var l) && l.ValueKind == JsonValueKind.Array
+                    ? ", " + arg + ": new[] { " + string.Join(", ", l.EnumerateArray().Select(x => Lit(x.GetString()!))) + " }"
+                    : "";
+                sb.Append("            new SynonymEntry(" + Lit(ms) + ", " + Lit(en) + ", " + cat + ", " + alsoText + (keep ? ", keepText: true" : "")
+                    + Named("named_in", "namedIn") + Named("not", "not") + "),\n");
             }
             sb.Append("        };\n    }\n}\n");
             return sb.ToString();

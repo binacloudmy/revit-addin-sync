@@ -19,14 +19,28 @@ namespace BinaVibe.Copilot.Read
 {
     public sealed class SynonymEntry
     {
-        public SynonymEntry(string ms, string en, string[]? categories, string[] also, bool keepText = false)
+        public SynonymEntry(string ms, string en, string[]? categories, string[] also, bool keepText = false, string[]? namedIn = null, string[]? not = null)
         {
             Ms = ms;
             En = en;
             Categories = categories ?? Array.Empty<string>();
             Also = also ?? Array.Empty<string>();
             KeepText = keepText;
+            NamedIn = namedIn ?? Array.Empty<string>();
+            Not = not ?? Array.Empty<string>();
         }
+
+        /// <summary>AI-581: more categories where only elements whose own name says the word count
+        /// (a valve is a pipe accessory or a pipe fitting named valve). A query with such a word
+        /// searches Categories and NamedIn, whatever category the query gives.</summary>
+        public IReadOnlyList<string> NamedIn { get; }
+
+        /// <summary>AI-581: words that, in the element's own name, mean it is not the thing
+        /// ("switched socket outlet" is a socket, not a switch).</summary>
+        public IReadOnlyList<string> Not { get; }
+
+        /// <summary>Every category a query with this word searches.</summary>
+        public IEnumerable<string> Searched => Categories.Concat(NamedIn).Distinct(StringComparer.Ordinal);
 
         public string Ms { get; }
         public string En { get; }
