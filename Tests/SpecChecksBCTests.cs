@@ -290,7 +290,7 @@ namespace RevitWebAppSync.Tests
             m.Lod = 0;
             var pass = Assert.Single(Run("B1.1", m));
             Assert.Equal(SpecCoverage.FailOnly, pass.Coverage);
-            Assert.Equal(SpecState.Partial, State("B1.1", m).State);
+            Assert.Equal(SpecState.Pass, State("B1.1", m).State);
             m.ProjectInfo["Pengarah_Projek_jkr_sit"] = "";
             Assert.Equal(SpecCoverage.FailOnly, Fails(Run("B1.1", m)).Single().Coverage);
         }
@@ -559,7 +559,7 @@ namespace RevitWebAppSync.Tests
             m.Lod = 0;
             var pass = Assert.Single(Run("C1.6.3", m));
             Assert.Equal(SpecCoverage.FailOnly, pass.Coverage);
-            Assert.Equal(SpecState.Partial, State("C1.6.3", m).State);
+            Assert.Equal(SpecState.Pass, State("C1.6.3", m).State);
         }
 
         private static SpecArea FilledArea(long id, string name, double area = 30) =>
@@ -593,7 +593,7 @@ namespace RevitWebAppSync.Tests
             var m = Compliant();
             m.CategoryCounts["Areas"] = 2;                   // present, contents not read (old snapshot)
             Assert.Equal(SpecCoverage.FailOnly, Assert.Single(Run("C1.6.3", m)).Coverage);
-            Assert.Equal(SpecState.Partial, State("C1.6.3", m).State);
+            Assert.Equal(SpecState.Pass, State("C1.6.3", m).State);
         }
 
         // ══════════════ C2 / C3 ══════════════

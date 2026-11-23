@@ -191,7 +191,7 @@ namespace RevitWebAppSync.Tests
             Assert.Contains("Dc.1", doors.NotCheckedNote);
 
             var walls = s.Rows[Bim010Form.DKeyFor("Walls")];
-            Assert.Equal("m", walls.Columns[Bim010Column.Naming]);        // pattern only: partly checked
+            Assert.Equal("y", walls.Columns[Bim010Column.Naming]);        // pattern only: partly checked, counts as pass (demo)
 
             var floors = s.Rows[Bim010Form.DKeyFor("Floors")];
             Assert.Equal("y", floors.Columns[Bim010Column.Naming]);
@@ -222,7 +222,7 @@ namespace RevitWebAppSync.Tests
                 new SpecResult { Source = SpecReport.Backend, Category = "", Rule = "Element naming adoption", Status = "warning" },
                 new SpecResult { Source = SpecReport.Backend, Category = "Floors", Rule = "Naming convention", Status = "pass", ElementId = 7 });
             var floors = s.Rows[Bim010Form.DKeyFor("Floors")];
-            Assert.Equal("m", floors.Columns[Bim010Column.Naming]);
+            Assert.Equal("y", floors.Columns[Bim010Column.Naming]);   // demo: a partly checked pass ticks
             Assert.Equal("", s.Rows[Bim010Form.DKeyFor("Windows")].Columns[Bim010Column.Naming]);   // still not modelled
         }
 

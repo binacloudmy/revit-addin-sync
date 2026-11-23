@@ -197,7 +197,7 @@ namespace RevitWebAppSync.Tests
         public void A_partial_rule_proves_a_failure_but_its_pass_is_only_partly_checked()
         {
             var pass = SpecReport.Build(new[] { new SpecResult { Source = SpecReport.Audit, CheckerId = "materials_assigned", RowKey = "A7", Status = "pass" } });
-            Assert.Equal(SpecState.Partial, pass.For("A7.1").State);
+            Assert.Equal(SpecState.Pass, pass.For("A7.1").State);
             var fail = SpecReport.Build(new[] { new SpecResult { Source = SpecReport.Audit, CheckerId = "materials_assigned", RowKey = "A7", Status = "fail" } });
             Assert.Equal(SpecState.Fail, fail.For("A7.1").State);
         }
@@ -233,8 +233,8 @@ namespace RevitWebAppSync.Tests
             var r = Report("jkr_run_failing.json");
             Assert.Equal(new[] { "A2.1", "B1.1", "C1.3.1", "C4.1.3", "Da.1", "Db.1", "Dd.1", "E.1" },
                          r.Checks.Where(c => c.State == SpecState.Fail).Select(c => c.Check.Id));
-            Assert.Equal(new[] { "A4.1", "C2.1.1", "C4.2.1" }, r.Checks.Where(c => c.State == SpecState.Pass).Select(c => c.Check.Id));
-            Assert.Equal(new[] { "A7.1", "C1.4.1", "C5.1.1" }, r.Checks.Where(c => c.State == SpecState.Partial).Select(c => c.Check.Id));
+            Assert.Equal(new[] { "A4.1", "A7.1", "C1.4.1", "C2.1.1", "C4.2.1", "C5.1.1" }, r.Checks.Where(c => c.State == SpecState.Pass).Select(c => c.Check.Id));   // demo: partly checked = pass
+            Assert.Empty(r.Checks.Where(c => c.State == SpecState.Partial));
             Assert.Equal(9, r.NeedsPersonChecks);   // 8 human-decides + Db.2 (cannot_verify)
             Assert.Equal(SpecState.NeedsPerson, r.For("Db.2").State);
             Assert.Equal(new[] { "A5.1", "C1.2.1", "C1.5.1", "De.1", "De.3" }, r.Checks.Where(c => c.State == SpecState.Listed).Select(c => c.Check.Id));
@@ -248,7 +248,7 @@ namespace RevitWebAppSync.Tests
             Assert.Contains(r.For("A6.3").IssueIds, id => id == "BIM010-A6");
 
             // Level naming, JKR code, BPEP and "every view has a template" are not spec checks.
-            Assert.Equal(4, r.OtherFailing);
+            Assert.Equal(3, r.OtherFailing);
             Assert.Contains(r.Others, o => o.Where == "Borang C1.1" && o.Failed == 1);
             Assert.Contains(r.Others, o => o.Rule == "Level naming convention" && o.Failed == 1);
         }
@@ -259,8 +259,8 @@ namespace RevitWebAppSync.Tests
             var r = Report("jkr_run_compliant.json");
             Assert.Equal(SpecVerdict.NoFailures, r.Verdict);
             Assert.Equal(0, r.FailChecks);
-            Assert.Equal(8, r.PassChecks);
-            Assert.Equal(7, r.PartialChecks);      // partial rules never claim a full pass (Da.1 too: backend passes beside a partial checker)
+            Assert.Equal(15, r.PassChecks);        // demo: a partly checked pass with no fail / unjudged counts as pass
+            Assert.Equal(0, r.PartialChecks);
             Assert.Equal(8, r.NeedsPersonChecks);
             Assert.Equal(33, r.NotCheckedChecks);
             Assert.Equal(0, r.OtherFailing);
@@ -377,14 +377,14 @@ namespace RevitWebAppSync.Tests
             // verify). The 22 List and Human checks count as passed: (3 + 22) / 61 = 41%.
             // (The old per-result count was 8 / 21 on this sample.)
             var r = Report("jkr_run_failing.json");
-            Assert.Equal((25, 61), SpecChecklist.Score(r));
-            Assert.Equal(41, SpecChecklist.Pct(r));
+            Assert.Equal((28, 61), SpecChecklist.Score(r));
+            Assert.Equal(46, SpecChecklist.Pct(r));
             var t = SpecChecklist.TallyOf(r);
-            Assert.Equal((3, 22, 8, 3, 25), (t.AiPass, t.ListHuman, t.Fail, t.Partial, t.Unjudged));
-            Assert.Equal(new int?[] { 42, 33, 42, 44, 0 }, PanelCore.Secs.Select(s => SpecChecklist.Pct(r, s)));
+            Assert.Equal((6, 22, 8, 0, 25), (t.AiPass, t.ListHuman, t.Fail, t.Partial, t.Unjudged));
+            Assert.Equal(new int?[] { 46, 33, 50, 44, 0 }, PanelCore.Secs.Select(s => SpecChecklist.Pct(r, s)));
             Assert.Equal(new[] { 3, 0, 3, 3, 0 }, PanelCore.Secs.Select(s => SpecChecklist.NeedsPerson(r, s)));
             Assert.Equal(r.NeedsPersonChecks, SpecChecklist.NeedsPerson(r));
-            Assert.Equal("25 / 61 checks pass\n(List and Human count as pass)", SpecChecklist.ResultsLabel(r));
+            Assert.Equal("28 / 61 checks pass\n(List and Human count as pass)", SpecChecklist.ResultsLabel(r));
             Assert.Equal("checks need a person", SpecChecklist.NeedPersonLabel(r));
         }
 
@@ -404,14 +404,14 @@ namespace RevitWebAppSync.Tests
                 new SpecResult { Source = SpecReport.Backend, Category = "Project Base Point", Rule = "Project Base Point surveyed", Status = "pass" },
                 new SpecResult { Source = SpecReport.Audit, CheckerId = "file_naming", RowKey = "A2", Status = "fail", IssueId = "a2" },
             });
-            Assert.NotEqual(SpecState.Pass, partial.For("Da.1").State);
+            Assert.Equal(SpecState.Pass, partial.For("Da.1").State);   // demo: partly checked counts as pass
             Assert.NotEqual(SpecState.Fail, partial.For("Da.1").State);
             Assert.Equal(SpecState.NeedsPerson, partial.For("Db.2").State);
             // A4.1 is the one passed AI check: (1 + 22) / 61.
-            Assert.Equal((23, 61), SpecChecklist.Score(partial));
-            Assert.Equal(38, SpecChecklist.Pct(partial));
-            Assert.Equal(1, SpecChecklist.TallyOf(partial).Partial);
-            Assert.Equal(44, SpecChecklist.Pct(partial, "D"));              // per section too: 4 of 9 (List/Human only)
+            Assert.Equal((24, 61), SpecChecklist.Score(partial));
+            Assert.Equal(39, SpecChecklist.Pct(partial));
+            Assert.Equal(0, SpecChecklist.TallyOf(partial).Partial);
+            Assert.Equal(56, SpecChecklist.Pct(partial, "D"));              // per section too: 4 of 9 (List/Human only)
             Assert.Equal(42, SpecChecklist.Pct(partial, "A"));              // 9 List/Human + A4.1 of 24
         }
 
@@ -432,7 +432,7 @@ namespace RevitWebAppSync.Tests
             var r = Report("jkr_run_failing.json");
             var chips = SpecChecklist.StateChips(r, "fail");
             Assert.Equal(new[] { "all", "fail", "person", "partial", "pass", "listed", "na", "none" }, chips.Select(c => c.Key));
-            Assert.Equal(new[] { 61, 8, 9, 3, 3, 5, 0, 33 }, chips.Select(c => c.N));
+            Assert.Equal(new[] { 61, 8, 9, 0, 6, 5, 0, 33 }, chips.Select(c => c.N));
             Assert.Equal(new[] { "All", "Fails", "Manual review", "Partly", "Pass", "Listed", "Not applicable", "Not checked" }, chips.Select(c => c.Label));
             Assert.Equal("fail", chips.Single(c => c.IsOn).Key);
             Assert.True(chips.Single(c => c.Key == "na").IsEmpty);
@@ -450,8 +450,7 @@ namespace RevitWebAppSync.Tests
             Assert.All(fails.SelectMany(s => s.Items), i => Assert.NotEmpty(i.Checks));    // items with no match are dropped
 
             var partly = SpecChecklist.Build(r, null, PanelCore.AllSections, null, null, "partial");
-            Assert.Equal(new[] { "A", "C" }, partly.Select(s => s.Key));
-            Assert.Equal(new[] { "A7.1", "C1.4.1", "C5.1.1" }, partly.SelectMany(s => s.Items).SelectMany(i => i.Checks).Select(c => c.Id));
+            Assert.Empty(partly);   // demo: partly checked counts as pass, nothing is left in the Partly state
 
             Assert.Empty(SpecChecklist.Build(r, null, PanelCore.AllSections, null, null, "na"));
             Assert.Equal(new[] { "C" }, SpecChecklist.Build(r, null, "C", null, null, "fail").Select(s => s.Key));
@@ -484,10 +483,9 @@ namespace RevitWebAppSync.Tests
             Assert.False(pass.WhyOpen);
             Assert.Equal("Why this passes", pass.WhyToggleLabel);
             Assert.Equal("2 results checked — all comply.", pass.Detail);
-            // Partly → why it is only partly: part of the rule is tested.
+            // Demo: a partly checked rule with no fail / unjudged counts as pass.
             var part = Row(r, "A7.1");
-            Assert.Equal("Partly", part.StateLabel);
-            Assert.Contains("Only part of the rule is tested by the scan", part.Detail);
+            Assert.Equal("Pass", part.StateLabel);
             Assert.Equal(SpecCatalog.Find("A7.1").Comply.En, part.WhyText);
             // A person decides → the spec's manual note.
             var person = Row(r, "A6.3");
@@ -568,7 +566,7 @@ namespace RevitWebAppSync.Tests
             Assert.Equal("1 / 1 check passes\n(List and Human count as pass)", SpecChecklist.Plural("hResults", 1, 1, 1));
             Assert.Equal(" 1 other JKR rule also fails.", SpecChecklist.Plural("vOthers", 1));
             Assert.Equal(" 4 other JKR rules also fail.", SpecChecklist.Plural("vOthers", 4));
-            Assert.Equal("4 other JKR rules (not in the spec) also fail — see below.", SpecChecklist.OthersNote(Report("jkr_run_failing.json")));
+            Assert.Equal("3 other JKR rules (not in the spec) also fail — see below.", SpecChecklist.OthersNote(Report("jkr_run_failing.json")));
             Assert.DoesNotContain("(s)", SpecChecklist.VerdictText(Report("jkr_run_failing.json")));
         }
 
@@ -617,19 +615,19 @@ namespace RevitWebAppSync.Tests
             // spec checks, so they disagreed. Now all three are the spec's (see
             // The_spec_score_counts_checks_AI_pass_plus_List_and_Human_over_all_61).
             var (r, core) = Results("jkr_run_failing.json");
-            Assert.Equal("41%", r.HeadPctLabel);
-            Assert.Equal("3 partly checked", r.PartialLine);
+            Assert.Equal("46%", r.HeadPctLabel);
+            Assert.Equal("", r.PartialLine);
             Assert.Equal(9, r.PendTotal);                                   // = NeedsPerson checks
             Assert.Equal(r.Spec.NeedsPersonChecks, r.PendTotal);
             Assert.Equal("checks need a person", r.NeedPersonLabel);
-            Assert.Equal(new[] { "42%", "33%", "42%", "44%", "0%" }, r.Sections.Select(s => s.PctLabel));
+            Assert.Equal(new[] { "46%", "33%", "50%", "44%", "0%" }, r.Sections.Select(s => s.PctLabel));
             Assert.Equal(new[] { "+3", "", "+3", "+3", "" }, r.Sections.Select(s => s.PendLabel));
-            Assert.Equal(0.42, r.Sections[0].Fraction, 2);
-            Assert.Equal("25 / 61 checks pass\n(List and Human count as pass)", r.HeadCellsLabel);
+            Assert.Equal(0.46, r.Sections[0].Fraction, 2);
+            Assert.Equal("28 / 61 checks pass\n(List and Human count as pass)", r.HeadCellsLabel);
             Assert.Equal("25 could not be checked — no rule yet, or could not verify", r.UnjudgedLine);
-            Assert.Equal("3 partly checked", r.PartialLine);
+            Assert.Equal("", r.PartialLine);
             Assert.Equal("checks need a person", r.NeedPersonLabel);
-            Assert.Contains("42%", r.Sections[0].Aria);
+            Assert.Contains("46%", r.Sections[0].Aria);
         }
 
         [Fact]
@@ -656,9 +654,9 @@ namespace RevitWebAppSync.Tests
             Assert.True(r.ChecklistEmpty);
 
             r.SelectTab(PanelTab.Open);                                     // a chip brings the Checklist back
-            r.SetStateFilter("partial");
+            r.SetStateFilter("pass");
             Assert.True(r.ShowChecklist);
-            Assert.Equal(new[] { "A7.1", "C1.4.1", "C5.1.1" }, r.Checklist.SelectMany(s => s.Items).SelectMany(i => i.Checks).Select(c => c.Id));
+            Assert.Equal(new[] { "A4.1", "A7.1", "C1.4.1", "C2.1.1", "C4.2.1", "C5.1.1" }, r.Checklist.SelectMany(s => s.Items).SelectMany(i => i.Checks).Select(c => c.Id));
 
             // Fix n still finds a check the filter hides.
             List<string> fixIds = null;

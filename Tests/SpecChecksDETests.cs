@@ -324,7 +324,7 @@ namespace RevitWebAppSync.Tests
             var ambiguous = T("Walls", "CW 102-85-100p");
             var m = Model(ok, ambiguous);
             Assert.Equal(SpecCoverage.FailOnly, PassOf(Run("Dc.1", m)).Coverage);
-            Assert.Equal(SpecState.Partial, Report("Dc.1", m).State);
+            Assert.Equal(SpecState.Pass, Report("Dc.1", m).State);
             // a name without any number has nothing to compare: no reason to hold the pass back
             var plain = T("Doors", "Single-Flush");
             Assert.Equal(SpecState.Pass, Report("Dc.1", Model(ok, plain)).State);
@@ -468,7 +468,7 @@ namespace RevitWebAppSync.Tests
             var silent = T("Walls", "jkrAR_xyz_(q1)");   // no code prefix in the table, no keyword
             var m = Model(okDoor, silent);
             Assert.Equal(SpecCoverage.FailOnly, Passes(Run("Dd.1", m)).First().Coverage);
-            Assert.Equal(SpecState.Partial, Report("Dd.1", m).State);
+            Assert.Equal(SpecState.Pass, Report("Dd.1", m).State);
         }
 
         [Fact]

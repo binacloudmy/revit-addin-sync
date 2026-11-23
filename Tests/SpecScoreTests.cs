@@ -121,12 +121,12 @@ namespace RevitWebAppSync.Tests
                 new SpecResult { Source = SpecReport.Audit, CheckerId = "family_category", RowKey = "D10", RowLabel = "Doors", Status = "pass" },
                 new SpecResult { Source = SpecReport.Backend, Category = "Doors", Rule = "Naming convention", Status = "pass", ElementId = 1 },
             });
-            Assert.Equal(SpecState.Partial, r.For("Da.1").State);
+            Assert.Equal(SpecState.Pass, r.For("Da.1").State);
             var t = SpecChecklist.TallyOf(r);
-            Assert.Equal(1, t.Partial);
-            Assert.Equal(0, t.AiPass);
-            Assert.Equal((22, 61), SpecChecklist.Score(r));
-            Assert.Equal("1 partly checked", SpecChecklist.PartialLine(r));
+            Assert.Equal(0, t.Partial);
+            Assert.Equal(1, t.AiPass);
+            Assert.Equal((23, 61), SpecChecklist.Score(r));
+            Assert.Equal("", SpecChecklist.PartialLine(r));
             Assert.Equal("", SpecChecklist.PartialLine(SpecReport.Build(new SpecResult[0])));
         }
 

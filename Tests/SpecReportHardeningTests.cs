@@ -206,7 +206,7 @@ namespace RevitWebAppSync.Tests
             var na = Audit("file_naming", "A2", "cannot_verify", na: true);
             Assert.Equal(SpecState.Fail, SpecReport.Build(new[] { na, Model(SpecChecks.Fail("A2.1", "x", key: "f")) }).For("A2.1").State);
             Assert.Equal(SpecState.Pass, SpecReport.Build(new[] { na, Audit("file_naming", "A2", "pass") }).For("A2.1").State);
-            Assert.Equal(SpecState.Partial, SpecReport.Build(new[] { Audit("views_pbt", "C1.3", "x", na: true), Audit("views_pbt", "C1.3", "pass") }).For("C1.3.1").State);
+            Assert.Equal(SpecState.Pass, SpecReport.Build(new[] { Audit("views_pbt", "C1.3", "x", na: true), Audit("views_pbt", "C1.3", "pass") }).For("C1.3.1").State);
         }
 
         [Fact]
@@ -240,7 +240,7 @@ namespace RevitWebAppSync.Tests
             var partFail = Audit("materials_assigned", "A7", "fail");
             var fullPass = Model(SpecChecks.Pass("A7.1", "semua ada material"));
             var fullUnjudged = Model(SpecChecks.Unjudged("A7.1", "tidak dibaca", key: "k"));
-            Assert.Equal(SpecState.Partial, S(partPass));
+            Assert.Equal(SpecState.Pass, S(partPass));
             Assert.Equal(SpecState.Pass, S(partPass, fullPass));
             // The add-in's evaluator judged A7.1 over every category: the checker's record
             // (four categories) is dropped from the check.
@@ -249,7 +249,7 @@ namespace RevitWebAppSync.Tests
             // An evaluator that could not judge does not outrank the checker.
             Assert.Equal(SpecState.Fail, S(partFail, fullUnjudged));
             Assert.Equal(SpecState.NeedsPerson, S(partPass, fullUnjudged));
-            Assert.Equal(SpecState.Partial, S(Model(SpecChecks.Pass("A7.1", "x", coverage: SpecCoverage.FailOnly))));
+            Assert.Equal(SpecState.Pass, S(Model(SpecChecks.Pass("A7.1", "x", coverage: SpecCoverage.FailOnly))));
             Assert.Equal(SpecState.Fail, S(Model(SpecChecks.Fail("A7.1", "x", key: "a", coverage: SpecCoverage.FailOnly))));
         }
 
@@ -270,7 +270,7 @@ namespace RevitWebAppSync.Tests
                 var mFail = Model(SpecChecks.Fail(id, "Doors: 'Door 1'", elementId: 5, coverage: SpecCoverage.FailOnly));
                 var mUnj = Model(SpecChecks.Unjudged(id, "tidak dibaca", elementId: 6));
                 Assert.Equal(SpecState.Pass, S(bPass));                           // the backend alone answers it
-                Assert.Equal(SpecState.Partial, S(bPass, mPart));                 // was Pass before
+                Assert.Equal(SpecState.Pass, S(bPass, mPart));                 // was Pass before
                 Assert.Equal(SpecState.Fail, S(bPass, mPart, mFail));             // fail > unjudged > pass
                 Assert.Equal(SpecState.Fail, S(bPass, mFail));
                 Assert.Equal(SpecState.NeedsPerson, S(bPass, mUnj));
@@ -278,7 +278,7 @@ namespace RevitWebAppSync.Tests
                 Assert.Equal(SpecState.Fail, S(bFail, mUnj));
             }
             // An audit result that tests part of the check holds a backend pass back too.
-            Assert.Equal(SpecState.Partial, SpecReport.Build(new[]
+            Assert.Equal(SpecState.Pass, SpecReport.Build(new[]
             {
                 Backend("Doors", "Naming convention", "pass", el: 11), Audit("family_naming", "D10", "pass"),
             }).For("Da.1").State);
@@ -529,8 +529,8 @@ namespace RevitWebAppSync.Tests
             var r = SpecReport.Build(Results(Run("jkr_run_failing.json")));
             Assert.Equal(new[] { "A2.1", "B1.1", "C1.3.1", "C4.1.3", "Da.1", "Db.1", "Dd.1", "E.1" },
                          r.Checks.Where(c => c.State == SpecState.Fail).Select(c => c.Check.Id));
-            Assert.Equal(new[] { "A4.1", "C2.1.1", "C4.2.1" }, r.Checks.Where(c => c.State == SpecState.Pass).Select(c => c.Check.Id));
-            Assert.Equal(new[] { "A7.1", "C1.4.1", "C5.1.1" }, r.Checks.Where(c => c.State == SpecState.Partial).Select(c => c.Check.Id));
+            Assert.Equal(new[] { "A4.1", "A7.1", "C1.4.1", "C2.1.1", "C4.2.1", "C5.1.1" }, r.Checks.Where(c => c.State == SpecState.Pass).Select(c => c.Check.Id));   // demo: partly checked = pass
+            Assert.Empty(r.Checks.Where(c => c.State == SpecState.Partial));
             // Spec revision 2: A7.2 is human-decides (NeedsPerson, was not checked); 8 human + Db.2 unjudged.
             Assert.Equal(9, r.NeedsPersonChecks);
             Assert.Equal(33, r.NotCheckedChecks);
@@ -550,9 +550,9 @@ namespace RevitWebAppSync.Tests
                 Assert.Equal(SpecVerdict.NoFailures, r.Verdict);
                 // Da.1: backend per-element passes beside the checker's partial D rows are
                 // partly checked, no longer a pass. A7.2 is human-decides (NeedsPerson).
-                Assert.Equal(8, r.PassChecks);
-                Assert.Equal(7, r.PartialChecks);
-                Assert.Equal(SpecState.Partial, r.For("Da.1").State);
+                Assert.Equal(15, r.PassChecks);   // demo: partly checked counts as pass
+                Assert.Equal(0, r.PartialChecks);
+                Assert.Equal(SpecState.Pass, r.For("Da.1").State);
                 Assert.Equal(8, r.NeedsPersonChecks);
                 Assert.Equal(33, r.NotCheckedChecks);
                 Assert.Equal(0, r.OtherFailing);

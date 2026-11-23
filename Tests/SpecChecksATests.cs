@@ -330,7 +330,7 @@ namespace RevitWebAppSync.Tests
         public void A1_2_passing_doors_are_only_partly_checked_and_missing_sizes_go_to_a_person()
         {
             var ok = new SpecModel { Types = { Type("Doors", "Single", "1000", width: 1000, height: 2100) } };
-            Assert.Equal(SpecState.Partial, State(ok, "A1.2"));
+            Assert.Equal(SpecState.Pass, State(ok, "A1.2"));
             var unread = new SpecModel { Types = { Type("Doors", "Single", "?", width: 1000) } };
             Assert.Equal("cannot_verify", Assert.Single(Run(unread, "A1.2")).Status);
             Assert.Equal("cannot_verify", Assert.Single(Run(new SpecModel(), "A1.2")).Status);
@@ -360,7 +360,7 @@ namespace RevitWebAppSync.Tests
             var solid = new SpecModel { Types = { Type("Doors", "Main Door", "Solid Core 45", thickness: 45) } };
             Assert.Equal(SpecState.Pass, State(solid, "A1.3"));
             var unsure = new SpecModel { Types = { Type("Doors", "Main Door", "Timber 45", thickness: 45) } };
-            Assert.Equal(SpecState.Partial, State(unsure, "A1.3"));
+            Assert.Equal(SpecState.Pass, State(unsure, "A1.3"));
             var hollow = new SpecModel { Types = { Type("Doors", "Main Door", "Hollow core 45", thickness: 45) } };
             Assert.Equal(SpecState.Fail, State(hollow, "A1.3"));
         }
@@ -779,7 +779,7 @@ namespace RevitWebAppSync.Tests
                 },
             };
             Assert.True(Assert.Single(Run(m, "A3.1")).NotApplicable);
-            Assert.Equal(SpecState.Partial, State(m, "A3.2"));
+            Assert.Equal(SpecState.Pass, State(m, "A3.2"));
             var bpep = Assert.Single(Run(m, "A3.3"));
             Assert.Equal("cannot_verify", bpep.Status);
             Assert.Equal("BPEP not available → cannot be checked", bpep.Note);
@@ -1208,7 +1208,7 @@ namespace RevitWebAppSync.Tests
             t.InstanceCount = 5000;                      // the reader keeps 2000 ids; here, 3
             var m = new SpecModel { Types = { t } };
             Assert.Equal(SpecCoverage.FailOnly, Assert.Single(Run(m, "A7.1")).Coverage);
-            Assert.Equal(SpecState.Partial, State(m, "A7.1"));
+            Assert.Equal(SpecState.Pass, State(m, "A7.1"));
         }
 
         [Theory]

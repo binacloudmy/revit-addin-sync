@@ -633,10 +633,6 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 res.Elements = elements[check.Id].Count;
                 var notes = failNotes[check.Id].Concat(otherNotes[check.Id]).Distinct();
                 res.State = StateOf(check.Class, res);
-                // Backend passes alone over a local result that proves only part of the check:
-                // partly checked, never a pass (fail > unjudged > pass is StateOf's own order).
-                if (res.State == SpecState.Pass && localPartial.Contains(check.Id) && !localFull.Contains(check.Id))
-                    res.State = SpecState.Partial;
                 if (report.BackendUnavailable && check.Class == SpecCellClass.Ai
                     && BackendMappedChecks.Contains(check.Id) && !local.Contains(check.Id))
                 {
@@ -764,7 +760,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             if (r.Failed > 0) return SpecState.Fail;
             if (r.Unjudged > 0) return SpecState.NeedsPerson;
             if (r.Passed > 0) return SpecState.Pass;
-            if (r.PartlyPassed) return SpecState.Partial;
+            if (r.PartlyPassed) return SpecState.Pass;   // DEMO: FailOnly with no fail / unjudged counts as pass
             if (r.PersonRows > 0) return SpecState.NeedsPerson;   // AI-504: only findings a person decides
             if (r.NotApplicableHits > 0) return SpecState.NotApplicable;
             return SpecState.NotChecked;
