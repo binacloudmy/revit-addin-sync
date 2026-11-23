@@ -188,6 +188,37 @@ namespace BinaVibe.Copilot.Guard
             return gone;
         }
 
+        /// <summary>The counts a code envelope states in words and numbers (CodeEnvelopes.HostedWrite): data.changes added/deleted, the
+        /// summary's "(added A, deleted D;" / "(adds A, deletes D;" and the expected-count warnings, each less <paramref name="pairs"/>
+        /// rebuilt elements. A warning whose count now matches what the assistant expected goes.</summary>
+        public static void UncountRetyped(Envelope? env, int pairs)
+        {
+            if (env == null || pairs <= 0) return;
+            if (env.Data is System.Text.Json.JsonElement d && d.ValueKind == System.Text.Json.JsonValueKind.Object
+                && System.Text.Json.Nodes.JsonNode.Parse(d.GetRawText()) is System.Text.Json.Nodes.JsonObject data
+                && data["changes"] is System.Text.Json.Nodes.JsonObject changes
+                && changes["added"]?.GetValueKind() == System.Text.Json.JsonValueKind.Number && changes["deleted"]?.GetValueKind() == System.Text.Json.JsonValueKind.Number)
+            {
+                int a = changes["added"]!.GetValue<int>(), del = changes["deleted"]!.GetValue<int>();
+                int a2 = Math.Max(0, a - pairs), d2 = Math.Max(0, del - pairs);
+                changes["added"] = a2;
+                changes["deleted"] = d2;
+                env.Data = System.Text.Json.JsonSerializer.SerializeToElement(data);
+                env.Summary = (env.Summary ?? "")
+                    .Replace("(added " + a + ", deleted " + del + ";", "(added " + a2 + ", deleted " + d2 + ";")
+                    .Replace("(adds " + a + ", deletes " + del + ";", "(adds " + a2 + ", deletes " + d2 + ";");
+                if (env.Warnings != null)
+                    foreach (var (word, was, now) in new[] { ("additions", a, a2), ("deletions", del, d2) })
+                    {
+                        var head = "The code made " + was + " " + word + "; the assistant expected ";
+                        var w = env.Warnings.FirstOrDefault(x => x.Text != null && x.Text.StartsWith(head, StringComparison.Ordinal));
+                        if (w == null || !int.TryParse(w.Text.Substring(head.Length).TrimEnd('.'), out var want)) continue;
+                        if (want == now) env.Warnings.Remove(w);
+                        else w.Text = "The code made " + now + " " + word + "; the assistant expected " + want + ".";
+                    }
+            }
+        }
+
         // Any deletion call: Delete(, doc.Delete, Document.Delete ... (spacing and case ignored; fail safe: a false hit pairs nothing).
         private static bool Deletes(string code)
         {

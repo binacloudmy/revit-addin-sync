@@ -82,5 +82,38 @@ namespace RevitAddinSync.Tests
             Assert.Empty(ChangeSetMath.Retyped(deleted, added, ChangeType));
             Assert.Empty(ChangeSetMath.Retyped(deleted, added, null));
         }
+    
+        private static Envelope CodeEnvelope(int added, int deleted, params string[] warnings) => new Envelope
+        {
+            Summary = "Ran: Change the column types (added " + added + ", deleted " + deleted + "; edits to existing elements are listed under changes).",
+            Data = System.Text.Json.JsonSerializer.SerializeToElement(new { output = "6", changes = new { added, deleted } }),
+            Warnings = warnings.Select(t => new WarningDto { Text = t, Severity = WarningSeverity.Warning }).ToList(),
+        };
+
+        [Fact]
+        public void TheCodeEnvelopesOwnCounts_DropThePairs_AndAWarningThatNowMatchesGoes()
+        {
+            var env = CodeEnvelope(6, 6, "The code made 6 additions; the assistant expected 0.", "The code made 6 deletions; the assistant expected 0.");
+
+            ChangeSetMath.UncountRetyped(env, 6);
+
+            Assert.Contains("(added 0, deleted 0;", env.Summary);
+            var changes = env.Data!.Value.GetProperty("changes");
+            Assert.Equal(0, changes.GetProperty("added").GetInt32());
+            Assert.Equal(0, changes.GetProperty("deleted").GetInt32());
+            Assert.Equal("6", env.Data.Value.GetProperty("output").GetString());
+            Assert.Empty(env.Warnings!);
+        }
+
+        [Fact]
+        public void AnUnpairedDeletion_KeepsItsCountAndWarning()
+        {
+            var env = CodeEnvelope(2, 3, "The code made 3 deletions; the assistant expected 0.");
+
+            ChangeSetMath.UncountRetyped(env, 2);
+
+            Assert.Contains("(added 0, deleted 1;", env.Summary);
+            Assert.Equal("The code made 1 deletions; the assistant expected 0.", Assert.Single(env.Warnings!).Text);
+        }
     }
 }

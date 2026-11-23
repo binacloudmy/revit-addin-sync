@@ -835,6 +835,7 @@ namespace BinaVibe.Copilot.Writes
         {
             var pairs = ChangeSetMath.Retyped(run.DeletedTouched, run.AddedTouched, run.Code);
             var gone = ChangeSetMath.ApplyRetyped(env?.Changes, run.DeletedTouched, run.AddedTouched, pairs);
+            ChangeSetMath.UncountRetyped(env, pairs.Count);   // the summary, data.changes and the expected-count warnings say the same
             if (gone.Count == 0 || env == null || run.Created == null) return;
             run.Created = run.Created.Where(c => !gone.Contains(c.Id)).ToList();
             if (run.Created.Count > 0) EnvelopeChanges.SetCreated(env, run.Created);
