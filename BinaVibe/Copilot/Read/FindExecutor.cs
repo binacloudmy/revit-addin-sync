@@ -247,7 +247,7 @@ namespace BinaVibe.Copilot.Read
                     throw new FindFailure(ReadEnvelope.Fail(ErrorCodes.NotFound,
                         "No category '" + q.CategoryText + "' in this model.", candidates));
                 list.Add(bic.Value);
-                return (list, RevitValues.CategoryLabel(doc, bic.Value));
+                if (d.Categories.Count == 0) return (list, RevitValues.CategoryLabel(doc, bic.Value));
             }
             foreach (var ost in d.Categories)
                 if (RevitValues.TryParseBic(ost, out var b) && !list.Contains(b)) list.Add(b);
