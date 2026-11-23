@@ -76,7 +76,7 @@ namespace RevitAddinSync.Tests
             added[500001] = "Door Tags"; added[500002] = "Door Tags";
             var set = Run(added, Listed);
             var made = set.Kinds.Where(k => k.Outcome == MarkOutcome.Made).SelectMany(k => k.Ids).OrderBy(i => i).ToList();
-            Assert.Equal(new long[] { View, 500001, 500002 }, made);
+            Assert.Equal(new long[] { 500001, 500002, View }, made);   // sorted ascending: View (3431003) is the largest id
         }
 
         [Fact]

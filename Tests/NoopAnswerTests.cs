@@ -359,9 +359,11 @@ namespace RevitAddinSync.Tests
         public void TheWiring_ViewModelNotesTheResult_AndTheDiscsFollowTheFlag()
         {
             Assert.Contains("rr.Evidence?.NoteServerResult(rr.ServerResult);", Src("UI/Copilot/CopilotViewModel.cs"));
-            Assert.Contains("|| card.ClaimMismatch;", Src("UI/Copilot/Controls/ResultCardView.cs"));
-            Assert.Contains("warn: warn)", Src("UI/Copilot/Controls/ProseAnswer.cs"));
-            Assert.Contains("warn: m.ResultCard != null && m.ResultCard.ClaimMismatch", Src("UI/Copilot/Screens/ChatView.xaml.cs"));
+            // The card's disc reads HeadlineWarns, which includes ClaimMismatch.
+            Assert.Contains("var warn = card.HeadlineWarns;", Src("UI/Copilot/Controls/ResultCardView.cs"));
+            Assert.Contains("|| ClaimMismatch ||", Src("UI/Copilot/Model/ResultCardModel.cs"));
+            Assert.Contains("warn: warn,", Src("UI/Copilot/Controls/ProseAnswer.cs"));
+            Assert.Contains("(m.ResultCard != null && m.ResultCard.ClaimMismatch)", Src("UI/Copilot/Screens/ChatView.xaml.cs"));
         }
     }
 }

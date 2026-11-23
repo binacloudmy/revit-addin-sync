@@ -35,8 +35,8 @@ namespace RevitAddinSync.Tests
         public void The_live_row_is_swapped_by_removing_then_inserting_never_by_the_indexer()
         {
             var body = LiveTail();
-            Assert.Contains("Children.RemoveAt(i)", body);
-            Assert.Contains("Children.Insert(i,", body);
+            Assert.Contains("Children.RemoveAt(_tailRow)", body);
+            Assert.Contains("Children.Insert(_tailRow,", body);
             Assert.DoesNotContain("Children[i] =", body);
         }
 
