@@ -122,7 +122,7 @@ namespace BinaVibe.Copilot.Writes
                 RevitThread.Wake();   // an Idling call soon, also with no mouse moving
                 return "view activated (answer " + answer + "), the view keeps the keyboard until Revit is idle, keys dropped meanwhile";
             }
-            catch (Exception ex) { Back("failed: " + ex.Message); return "view activation failed: " + ex.Message; }
+            catch (Exception ex) { Back("failed: " + DialogRedaction.RedactPaths(ex.Message)); return "view activation failed: " + DialogRedaction.RedactPaths(ex.Message); }
         }
 
         private static double Elapsed => (Stopwatch.GetTimestamp() - _at) / (double)Stopwatch.Frequency;

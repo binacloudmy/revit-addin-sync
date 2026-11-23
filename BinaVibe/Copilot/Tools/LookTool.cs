@@ -72,15 +72,15 @@ namespace BinaVibe.Copilot.Tools
             }
             catch (NoImageException ex)
             {
-                return ReadEnvelope.Fail(ErrorCodes.NoGpu, ex.Message + " The machine may have no usable GPU (for example over remote desktop).");
+                return ReadEnvelope.Fail(ErrorCodes.NoGpu, BinaVibe.Copilot.Writes.DialogRedaction.RedactPaths(ex.Message) + " The machine may have no usable GPU (for example over remote desktop).");
             }
             catch (ArgumentException ex)
             {
-                return ReadEnvelope.Fail(ErrorCodes.NotFound, ex.Message, Array.Empty<string>());
+                return ReadEnvelope.Fail(ErrorCodes.NotFound, BinaVibe.Copilot.Writes.DialogRedaction.RedactPaths(ex.Message), Array.Empty<string>());
             }
             catch (InvalidOperationException ex)
             {
-                return ReadEnvelope.Fail(ErrorCodes.NotAllowed, ex.Message);
+                return ReadEnvelope.Fail(ErrorCodes.NotAllowed, BinaVibe.Copilot.Writes.DialogRedaction.RedactPaths(ex.Message));
             }
         }
 

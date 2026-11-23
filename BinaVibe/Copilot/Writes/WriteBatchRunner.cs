@@ -90,7 +90,7 @@ namespace BinaVibe.Copilot.Writes
                 catch (RevitBusyException ex)
                 {
                     foreach (var i in pending.Where(i => results[i] == null))
-                        results[i] = BusyDialogs.With(WriteEnvelopes.Failure(ErrorCodes.RevitBusy, ex.Message,
+                        results[i] = BusyDialogs.With(WriteEnvelopes.Failure(ErrorCodes.RevitBusy, DialogRedaction.RedactPaths(ex.Message),
                             state.CommitAttempted ? EnvelopePhase.Commit : EnvelopePhase.Preview), ex);
                 }
                 catch (Exception ex)

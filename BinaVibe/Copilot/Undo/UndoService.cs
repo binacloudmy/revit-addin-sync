@@ -271,7 +271,7 @@ namespace BinaVibe.Copilot.Undo
             catch (Exception ex)
             {
                 Model.ClearExpectation(job.DocKey);
-                Finish(job, Failure(job, ErrorCodes.RuntimeError, "Undo failed in the add-in (" + ex.GetType().Name + ": " + ex.Message + ")."));
+                Finish(job, Failure(job, ErrorCodes.RuntimeError, "Undo failed in the add-in (" + ex.GetType().Name + ": " + DialogRedaction.RedactPaths(ex.Message) + ")."));
             }
         }
 

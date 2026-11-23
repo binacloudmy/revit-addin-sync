@@ -1326,7 +1326,7 @@ namespace BinaVibe.Copilot.Writes
                 case Autodesk.Revit.Exceptions.ArgumentException:
                     return WriteEnvelopes.Failure(ErrorCodes.InvalidArgs, BinaVibe.Copilot.Writes.DialogRedaction.RedactPaths(ex.Message), phase);
                 case RevitRolledBackException io:
-                    return WriteEnvelopes.Failure(ErrorCodes.RolledBack, io.Message + " Revit rolled the change back; nothing was changed.", phase);
+                    return WriteEnvelopes.Failure(ErrorCodes.RolledBack, BinaVibe.Copilot.Writes.DialogRedaction.RedactPaths(io.Message) + " Revit rolled the change back; nothing was changed.", phase);
                 default:
                     return WriteEnvelopes.Failure(ErrorCodes.RuntimeError, ex.GetType().Name + ": " + BinaVibe.Copilot.Writes.DialogRedaction.RedactPaths(ex.Message), phase);
             }

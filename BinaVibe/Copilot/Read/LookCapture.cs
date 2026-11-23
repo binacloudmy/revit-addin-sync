@@ -263,7 +263,7 @@ namespace BinaVibe.Copilot.Read
             }
             catch (Exception ex)
             {
-                notes.Add("No plan panel: " + ex.Message);
+                notes.Add("No plan panel: " + BinaVibe.Copilot.Writes.DialogRedaction.RedactPaths(ex.Message));
                 return null;
             }
         }
@@ -294,7 +294,7 @@ namespace BinaVibe.Copilot.Read
             }
             catch (Exception ex)
             {
-                notes.Add("No elevation panel: " + ex.Message);
+                notes.Add("No elevation panel: " + BinaVibe.Copilot.Writes.DialogRedaction.RedactPaths(ex.Message));
                 return null;
             }
         }

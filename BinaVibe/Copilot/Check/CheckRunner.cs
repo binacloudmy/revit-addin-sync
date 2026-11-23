@@ -78,7 +78,7 @@ namespace BinaVibe.Copilot.Check
                 }
                 catch (Exception ex)
                 {
-                    run.AddDocument(Outcome.NotVerified($"the rule could not run: {ex.GetType().Name}: {ex.Message}", null, OutcomeCodes.EngineError));
+                    run.AddDocument(Outcome.NotVerified($"the rule could not run: {ex.GetType().Name}: {BinaVibe.Copilot.Writes.DialogRedaction.RedactPaths(ex.Message)}", null, OutcomeCodes.EngineError));
                 }
                 if (run.SkippedBecause != null && run.Results.Count == 0) Skipped.Add(new SkippedRule(rule.Id, run.SkippedBecause));
                 else runs.Add(run);

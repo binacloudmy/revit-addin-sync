@@ -60,14 +60,24 @@ namespace RevitAddinSync.Tests
             Assert.Equal(5, Count("BinaVibe/Copilot/Check/RevitGeometricKinds.cs"));
             Assert.Equal(3, Count("BinaVibe/Copilot/Check/RevitCheckReader.cs"));
             Assert.Equal(1, Count("BinaVibe/Copilot/Read/OverviewService.cs"));
+            // r25 verifier: the sites the first pass missed.
+            Assert.Equal(1, Count("BinaVibe/Copilot/Check/CheckRunner.cs"));
+            Assert.Equal(3, Count("BinaVibe/Copilot/Tools/LookTool.cs"));
+            Assert.Equal(3, Count("BinaVibe/Copilot/Read/LookCapture.cs"));
+            Assert.Equal(1, Count("BinaVibe/Copilot/Writes/WriteBatchRunner.cs"));
+            Assert.Equal(1, Count("BinaVibe/Copilot/Undo/UndoService.cs"));
+            Assert.Equal(2, Count("BinaVibe/Copilot/Writes/ViewActivation.cs"));   // its two Debug.WriteLine logs stay on this machine
+            Assert.Contains("DialogRedaction.RedactPaths(io.Message) + \" Revit rolled the change back", Src("BinaVibe/Copilot/Writes/RevitWriteEngine.cs"));
             foreach (var rel in new[]
             {
                 "BinaVibe/Copilot/Writes/RevitWriteEngine.cs", "BinaVibe/Copilot/Writes/WriteEnvelopes.cs", "BinaVibe/Copilot/Writes/AfterCommitRunner.cs",
                 "BinaVibe/Copilot/Tools/CheckTool.cs", "BinaVibe/Copilot/Check/RevitCheckSources.cs", "BinaVibe/Copilot/Check/RevitGeometricKinds.cs",
                 "BinaVibe/Copilot/Check/RevitCheckReader.cs", "BinaVibe/Copilot/Read/OverviewService.cs",
+                "BinaVibe/Copilot/Check/CheckRunner.cs", "BinaVibe/Copilot/Tools/LookTool.cs", "BinaVibe/Copilot/Read/LookCapture.cs",
+                "BinaVibe/Copilot/Writes/WriteBatchRunner.cs", "BinaVibe/Copilot/Undo/UndoService.cs",
             })
             {
-                var raw = System.Text.RegularExpressions.Regex.Matches(Src(rel), @"[^.(]\bex\.Message\b").Count;
+                var raw = System.Text.RegularExpressions.Regex.Matches(Src(rel), @"[^.(]\b(ex|io)\.Message\b").Count;
                 Assert.True(raw == 0, rel + " still puts a raw ex.Message into its text");
             }
         }
