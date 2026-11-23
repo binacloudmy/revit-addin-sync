@@ -144,6 +144,63 @@ namespace BinaVibe.Copilot.Guard
             return drop;
         }
 
+        /// <summary>AI-553 (AI-557 live afcbdb00: a type change by code reported 2 Structural Columns and 4 Structural Framing deleted, the
+        /// model still at 144 and 2598). Code counts every change as touched, so <see cref="Rebuilt"/> never sees these. When
+        /// <paramref name="code"/> calls no deletion, a touched deletion pairs with a touched addition of the same category, one for one,
+        /// lowest ids first: Revit rebuilt the element. Code that deletes, an unknown category or an unpaired id pairs nothing.</summary>
+        public static List<(long Deleted, long Added)> Retyped(IReadOnlyDictionary<long, string>? deleted, IReadOnlyDictionary<long, string>? added, string? code)
+        {
+            var pairs = new List<(long, long)>();
+            if (deleted == null || added == null || code == null || Deletes(code)) return pairs;
+            foreach (var g in deleted.Where(kv => !string.IsNullOrWhiteSpace(kv.Value) && kv.Value != UnknownCategory).GroupBy(kv => kv.Value, StringComparer.Ordinal))
+            {
+                var back = added.Where(kv => string.Equals(kv.Value, g.Key, StringComparison.Ordinal)).Select(kv => kv.Key).OrderBy(i => i).ToList();
+                pairs.AddRange(g.Select(kv => kv.Key).OrderBy(i => i).Zip(back, (d, a) => (d, a)));
+            }
+            return pairs.OrderBy(p => p.Item1).ToList();
+        }
+
+        /// <summary>Applies <see cref="Retyped"/> pairs to a code call's change report: each pair leaves touched.deleted and touched.added (and the
+        /// two id maps) and counts as one modification of its category. Returns the added ids taken out (so the created list can drop them).</summary>
+        public static HashSet<long> ApplyRetyped(ChangeReportDto? changes, IDictionary<long, string> deleted, IDictionary<long, string> added,
+                                                 IReadOnlyList<(long Deleted, long Added)> pairs)
+        {
+            var gone = new HashSet<long>();
+            if (pairs == null || pairs.Count == 0) return gone;
+            var deletedIds = new HashSet<long>(pairs.Select(p => p.Deleted));
+            gone.UnionWith(pairs.Select(p => p.Added));
+            var by = changes?.TouchedByCategory;
+            foreach (var (d, a) in pairs)
+            {
+                var category = deleted.TryGetValue(d, out var c) ? c : UnknownCategory;
+                deleted.Remove(d);
+                added.Remove(a);
+                if (by == null) continue;
+                Drop(by.DeletedByCategory, category);
+                Drop(by.AddedByCategory, category);
+                Bump(by.ModifiedByCategory, category);
+            }
+            if (changes?.Touched != null)
+            {
+                changes.Touched.Deleted.RemoveAll(r => deletedIds.Contains(r.Id));
+                changes.Touched.Added.RemoveAll(r => gone.Contains(r.Id));
+            }
+            return gone;
+        }
+
+        // Any deletion call: Delete(, doc.Delete, Document.Delete ... (spacing and case ignored; fail safe: a false hit pairs nothing).
+        private static bool Deletes(string code)
+        {
+            var flat = new string(code.Where(ch => !char.IsWhiteSpace(ch)).ToArray());
+            return flat.IndexOf("Delete(", StringComparison.OrdinalIgnoreCase) >= 0 || flat.IndexOf("doc.Delete", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static void Drop(Dictionary<string, int> counts, string category)
+        {
+            if (!counts.TryGetValue(category, out var n)) return;
+            if (n <= 1) counts.Remove(category); else counts[category] = n - 1;
+        }
+
         /// <summary>True when nothing was added, modified or deleted (the call is a noop).</summary>
         public static bool IsEmpty(ChangeSet set) =>
             set == null || (set.Added.Count == 0 && set.Modified.Count == 0 && set.Deleted.Count == 0);

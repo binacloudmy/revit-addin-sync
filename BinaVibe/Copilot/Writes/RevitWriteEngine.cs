@@ -352,10 +352,11 @@ namespace BinaVibe.Copilot.Writes
                     {
                         EnvelopeChanges.ApplyDeletedCategories(outcome.Envelopes[kv.Key], kv.Value.DeletedTouched, kv.Value.DeletedSide, lookedUp);
                         foreach (var id in kv.Value.DeletedSide.Keys.Where(lookedUp.ContainsKey).ToList()) kv.Value.DeletedSide[id] = lookedUp[id];
+                        foreach (var id in kv.Value.DeletedTouched.Keys.Where(lookedUp.ContainsKey).ToList()) kv.Value.DeletedTouched[id] = lookedUp[id];
                     }
                     foreach (var kv in lookedUp) outcome.Shape.CategoryOf[kv.Key] = kv.Value;
                 }
-                foreach (var kv in runs) FoldRebuilt(outcome.Envelopes[kv.Key], kv.Value);   // AI-553
+                foreach (var kv in runs) { FoldRebuilt(outcome.Envelopes[kv.Key], kv.Value); FoldRetyped(outcome.Envelopes[kv.Key], kv.Value); }   // AI-553
             }
 
             // Code plans name no targets, so their ownership check runs on what the preview
@@ -548,7 +549,7 @@ namespace BinaVibe.Copilot.Writes
                         }
                         st.Mark("born ids (" + born.Count + ")");
                     }
-                    for (var i = 0; i < n; i++) if (commitRuns[i] != null) FoldRebuilt(envelopes[i], commitRuns[i]!);   // AI-553
+                    for (var i = 0; i < n; i++) if (commitRuns[i] != null) { FoldRebuilt(envelopes[i], commitRuns[i]!); FoldRetyped(envelopes[i], commitRuns[i]!); }   // AI-553
                     RevitValueFingerprints.Fill(doc!, shape, builder.AddedIds);   // R75, compared with the preview's
                     st.Mark("value fingerprints");
                     var verdict = ShapeComparer.Compare(fresh, preview.Shape, shape);
@@ -786,6 +787,10 @@ namespace BinaVibe.Copilot.Writes
             public Dictionary<long, string> DeletedSide = new();
             /// <summary>r19: added ids the envelope counts as side effects, with their category (an addition a later call deleted is taken back out).</summary>
             public Dictionary<long, string> AddedSide = new();
+            /// <summary>AI-553: a code call's text and its touched additions with their category, and what it listed as created (ChangeSetMath.Retyped).</summary>
+            public string? Code;
+            public Dictionary<long, string> AddedTouched = new();
+            public List<CreatedItem>? Created;
             /// <summary>r21: modified ids the envelope counts as side effects, with their category, and the ids the call wrote (touched).</summary>
             public Dictionary<long, string> ModifiedSide = new();
             public HashSet<long> Touched = new();
@@ -821,6 +826,20 @@ namespace BinaVibe.Copilot.Writes
             var rebuilt = ChangeSetMath.Rebuilt(run.DeletedSide, run.AddedSide);
             BornIds.DropFromEnvelope(env, null, run.DeletedSide, rebuilt);
             BornIds.DropAddedFromEnvelope(env, run.AddedSide, rebuilt);
+        }
+
+        /// <summary>AI-553 (AI-557 afcbdb00): a code call that deletes nothing, whose touched deletions pair with touched additions of the same
+        /// category (Revit rebuilt them on a type change), reports each pair as one modification (ChangeSetMath.Retyped); the created list drops
+        /// the paired additions. Envelope only: the batch shape that drift and force judge is not touched.</summary>
+        private static void FoldRetyped(Envelope? env, CallRun run)
+        {
+            var pairs = ChangeSetMath.Retyped(run.DeletedTouched, run.AddedTouched, run.Code);
+            var gone = ChangeSetMath.ApplyRetyped(env?.Changes, run.DeletedTouched, run.AddedTouched, pairs);
+            if (gone.Count == 0 || env == null || run.Created == null) return;
+            run.Created = run.Created.Where(c => !gone.Contains(c.Id)).ToList();
+            if (run.Created.Count > 0) EnvelopeChanges.SetCreated(env, run.Created);
+            else EnvelopeChanges.SetDataFields(env, new Dictionary<string, System.Text.Json.Nodes.JsonNode?>
+                { ["created"] = new System.Text.Json.Nodes.JsonArray(), ["created_count"] = 0 });
         }
 
         /// <summary>r21 (live L4 H3, 0a1dff76): the Height call listed the fittings the Width call had already adjusted, and the result added
@@ -970,7 +989,12 @@ namespace BinaVibe.Copilot.Writes
                 {
                     // L15: what the code creates, by name, and (preview) the values it edits.
                     var visibleAdded = new HashSet<long>(touchedOnEnvelope);
-                    EnvelopeChanges.SetCreated(run.Envelope!, CreatedItems(doc, addedNonBenign.Where(visibleAdded.Contains)));
+                    run.Created = CreatedItems(doc, addedNonBenign.Where(visibleAdded.Contains));
+                    EnvelopeChanges.SetCreated(run.Envelope!, run.Created);
+                    run.Code = call.Args.ValueKind == System.Text.Json.JsonValueKind.Object && call.Args.TryGetProperty("code", out var code)
+                               && code.ValueKind == System.Text.Json.JsonValueKind.String ? code.GetString() : null;
+                    foreach (var id in addedNonBenign.Where(touchedSet.Contains))
+                        run.AddedTouched[id] = labelled.CategoryOf.TryGetValue(id, out var c) && !string.IsNullOrWhiteSpace(c) ? c : EnvelopeChanges.UnknownCategory;
                     if (phase == WritePhase.Preview)
                     {
                         // r23: the sizes the model's own code left on MEP curves, read before the preview's group rolls back; and the
