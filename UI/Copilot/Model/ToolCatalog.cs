@@ -65,7 +65,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
         {
             // ── Actions: generic verb commands ──
             new SlashTool { Id="create",    Category="Actions", Name="Create",             Subtitle="Create elements from description",              Badge=ToolBadge.AiAssisted,    IconKey="ti-plus",            Keywords="create make add new build buat bina tambah letak" },
-            new SlashTool { Id="delete",    Category="Actions", Name="Delete",             Subtitle="Delete by selection / filter — preview first",  Badge=ToolBadge.Deterministic, IconKey="ti-trash",           Keywords="delete remove erase clear padam buang hapus" },
+            new SlashTool { Id="delete",    Category="Actions", Name="Delete",             Subtitle="Delete by selection / filter; one Undo restores",Badge=ToolBadge.Deterministic, IconKey="ti-trash",           Keywords="delete remove erase clear padam buang hapus" },
             new SlashTool { Id="change",    Category="Actions", Name="Change",             Subtitle="Swap type / material / parameter",              Badge=ToolBadge.Deterministic, IconKey="ti-exchange",        Keywords="change swap replace type material parameter tukar ganti" },
             new SlashTool { Id="rename",    Category="Actions", Name="Rename",             Subtitle="Bulk rename by pattern",                        Badge=ToolBadge.Deterministic, IconKey="ti-pencil",          Keywords="rename name pattern batch namakan nama semula" },
             new SlashTool { Id="open-view", Category="Actions", Name="Open View",          Subtitle="Open view / sheet by name",                     Badge=ToolBadge.Deterministic, IconKey="ti-eye",             Keywords="open view sheet goto jump navigate buka papar", Local=true },
@@ -73,7 +73,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
             // ── Task tools from the same mining round ──
             new SlashTool { Id="clone",     Category="General", Name="Clone Sheet",        Subtitle="Duplicate template sheet per room / level",     Badge=ToolBadge.Deterministic, IconKey="ti-copy",            Keywords="clone duplicate sheet template copy salin" },
             new SlashTool { Id="place",     Category="General", Name="Place at Selection", Subtitle="Place family relative to selection",            Badge=ToolBadge.AiAssisted,    IconKey="ti-map-pin",         Keywords="place put position spacing selection letak jarak bawah tepi" },
-            new SlashTool { Id="audit",     Category="General", Name="Name Audit",         Subtitle="JKR name audit → fix via /rename",              Badge=ToolBadge.Report,        IconKey="ti-clipboard-check", Keywords="audit naming standard jkr compliance check semak nama" },
+            new SlashTool { Id="audit",     Category="General", Name="Name Audit",         Subtitle="JKR name audit, then fix with /rename",         Badge=ToolBadge.Report,        IconKey="ti-clipboard-check", Keywords="audit naming standard jkr compliance check semak nama" },
         };
 
         // addin-local Id → bina-ai P1 command id (app/commands/*.md).
