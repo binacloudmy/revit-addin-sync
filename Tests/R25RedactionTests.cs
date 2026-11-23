@@ -60,5 +60,38 @@ namespace RevitAddinSync.Tests
         [InlineData("Can't edit until a.rahman resaves the element", "Can't edit until <user> resaves the element")]
         public void TheWorksharingFormsStillTakeTheUser(string raw, string expected) =>
             Assert.Equal(expected, DialogRedaction.RedactPaths(raw, "nobody-here", null));
+
+        // r25 final pass: a Malaysian name has a connector (bin, binti, bt, b., a/l, a/p, @) or a particle (van, de, al) before its
+        // last part, in any case, and Revit may print the name in lower case. The whole name goes, after "until" too.
+        [Theory]
+        [InlineData("Can't edit the element until Aminah Binti Ali resaves it", "Can't edit the element until <user> resaves it")]
+        [InlineData("Element is owned by Ahmad Faiz bin Hassan", "Element is owned by <user>")]
+        [InlineData("Element is owned by aminah binti ali.", "Element is owned by <user>.")]
+        [InlineData("Element is owned by Siti bt Kassim, request it first", "Element is owned by <user>, request it first")]
+        [InlineData("Element is borrowed by Ahmad b. Ali", "Element is borrowed by <user>")]
+        [InlineData("Element is owned by Muthu a/l Rajan", "Element is owned by <user>")]
+        [InlineData("Element is owned by Kavitha a/p ramu", "Element is owned by <user>")]
+        [InlineData("Element is owned by Ali @ Abu Bakar", "Element is owned by <user>")]
+        [InlineData("Element is edited by Jan van Dijk", "Element is edited by <user>")]
+        [InlineData("Element is edited by Maria de Souza", "Element is edited by <user>")]
+        [InlineData("Element is owned by Hassan al Hadi", "Element is owned by <user>")]
+        [InlineData("Element is owned by ahmad faiz hassan, request it first", "Element is owned by <user>, request it first")]
+        [InlineData("Element is borrowed by siti aminah in the central model", "Element is borrowed by <user> in the central model")]
+        [InlineData("Element is owned by aminah ali until she syncs", "Element is owned by <user> until she syncs")]
+        public void AMalaysianNameIsRedactedWhole(string raw, string expected) =>
+            Assert.Equal(expected, DialogRedaction.RedactPaths(raw, "nobody-here", null));
+
+        [Theory]
+        [InlineData("Save until Friday.")]
+        [InlineData("Wait until Revit finishes loading.")]
+        [InlineData("Hidden until Level 2 is visible.")]
+        [InlineData("Element is used by Group Type 'Typical Toilet'.")]
+        [InlineData("Wall type is used by Revit Family Door.")]
+        [InlineData("Element is owned by you.")]
+        [InlineData("The dimension is locked by Constraint.")]
+        [InlineData("Element is owned by another user.")]
+        [InlineData("The element is owned by the central model.")]
+        public void TheNameRulesLeaveOrdinaryTextAlone(string raw) =>
+            Assert.Equal(raw, DialogRedaction.RedactPaths(raw, "nobody-here", null));
     }
 }

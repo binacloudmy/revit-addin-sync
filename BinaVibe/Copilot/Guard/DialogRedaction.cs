@@ -33,12 +33,18 @@ namespace BinaVibe.Copilot.Writes
         // Only ownership wording names a user: never "used by Group Type ...", "locked by Constraint" (only "locked by user") or "owned by you".
         // The stop words need a space after them, so an initial-dot login ("owned by a.rahman") is still a user.
         private const string NameEnd = @"(?=[\s,;:()]|\.(?:\s|$)|$)";
+        // r25 final pass: a name goes on through a Malay connector or a particle and the word after it, in any case ("Ahmad Faiz bin
+        // Hassan", "Muthu a/l Rajan", "aminah binti ali"), and a lower-case name is up to 3 words, ending at punctuation or a stop word.
+        private const string NameStop = @"(?:the|in|on|at|for|until|and|from|to|is|was)" + NameEnd;
+        private const string NameJoin = @"\s+(?:bin|binti|bt|b\.|a/l|a/p|@|van|de|al)\s+[^\s'""‘’,;:()]+?" + NameEnd;
         private static readonly System.Text.RegularExpressions.Regex ByUser = new(@"\b(owned|borrowed|edited|requested|held|checked out|reserved|locked(?=\s+by\s+user\b)) by\s+(?:user\s+)?(?!(?:another|other|someone|the|a|an)\s)(?!you" + NameEnd + @")(?:'[^']{1,64}'|""[^""]{1,64}""|‘[^’]{1,64}’|[^\s'""‘’,;:()]+?" + NameEnd
-            + @"(?:\s+(?-i:(?!(?:The|This|That|It|You)\b)\p{Lu}[\p{L}\-]*)" + NameEnd + @"){0,4})", Opt);
+            + @"(?:\s+(?!" + NameStop + @"|b\.)(?-i:\p{Ll}[\p{L}\-]*)" + NameEnd + @"){0,2}"
+            + @"(?:" + NameJoin + @"|\s+(?-i:(?!(?:The|This|That|It|You)\b)\p{Lu}[\p{L}\-]*)" + NameEnd + @"){0,4})", Opt);
         private static readonly System.Text.RegularExpressions.Regex QuotedUser = new(@"\b(until|user|by user)\s+(?:'[^']{1,64}'|""[^""]{1,64}""|‘[^’]{1,64}’)", Opt);
-        // r25: Revit's own "until aminah.b resaves ...": one unquoted token, not an ordinary word ("until you Reload Latest"), and only
-        // before a worksharing verb, so "until Friday", "until Revit finishes" and "until Level 2 is visible" stay text.
-        private static readonly System.Text.RegularExpressions.Regex UntilUser = new(@"\buntil\s+(?!(?:the|you|it|a|an|this|that|all|they|we|he|she|its|your|their|now|then|next|after|before)(?:\s|$))[^\s'""‘’,;:()<>]+?(?=\s+(?:resaves|releases|syncs|relinquishes)\b)", Opt);
+        // r25: Revit's own "until aminah.b resaves ..." or "until Aminah Binti Ali resaves ...": up to 5 unquoted words, not an ordinary
+        // first word ("until you Reload Latest") nor a stop word after it, and only before a worksharing verb, so "until Friday",
+        // "until Revit finishes" and "until Level 2 is visible" stay text.
+        private static readonly System.Text.RegularExpressions.Regex UntilUser = new(@"\buntil\s+(?!(?:the|you|it|a|an|this|that|all|they|we|he|she|its|your|their|now|then|next|after|before)(?:\s|$))[^\s'""‘’,;:()<>]+?(?:\s+(?!" + NameStop + @")[^\s'""‘’,;:()<>]+?){0,4}(?=\s+(?:resaves|releases|syncs|relinquishes)\b)", Opt);
         // r25: a cloud model path ("BIM 360://Project/Model.rvt", or the cloud docs scheme) holds the project name: everything after
         // "://" up to a quote or the end of the line. Runs after Segments, which already took a web address with a dotted host.
         private static readonly System.Text.RegularExpressions.Regex SchemeRest = new(@"://[^""'‘’\r\n]*", Opt);
