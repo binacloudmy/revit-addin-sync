@@ -19,7 +19,7 @@ namespace BinaVibe.Copilot.Read
 {
     public sealed class SynonymEntry
     {
-        public SynonymEntry(string ms, string en, string[]? categories, string[] also, bool keepText = false, string[]? namedIn = null, string[]? not = null)
+        public SynonymEntry(string ms, string en, string[]? categories, string[] also, bool keepText = false, string[]? namedIn = null, string[]? not = null, string[]? replaces = null)
         {
             Ms = ms;
             En = en;
@@ -28,7 +28,13 @@ namespace BinaVibe.Copilot.Read
             KeepText = keepText;
             NamedIn = namedIn ?? Array.Empty<string>();
             Not = not ?? Array.Empty<string>();
+            Replaces = replaces ?? Array.Empty<string>();
         }
+
+        /// <summary>AI-581: the model's usual wrong category for the thing (a valve asked as a plumbing
+        /// fixture): a query giving it searches the thing's categories instead; any other category it
+        /// gives is searched too.</summary>
+        public IReadOnlyList<string> Replaces { get; }
 
         /// <summary>AI-581: more categories where only elements whose own name says the word count
         /// (a valve is a pipe accessory or a pipe fitting named valve). A query with such a word

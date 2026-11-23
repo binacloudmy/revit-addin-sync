@@ -58,7 +58,11 @@ namespace BinaVibe.Copilot.Read
         public static ScopeDecision Decide(FindQuery q, bool hasHandle)
         {
             var d = new ScopeDecision();
-            if (q.CategoryOsts.Count > 0) d.Categories.AddRange(q.CategoryOsts);
+            if (q.CategoryOsts.Count > 0)
+            {
+                d.Categories.AddRange(q.CategoryOsts);
+                d.ResolveCategoryText = q.KeepCategoryText;   // AI-581: the model's category beside a thing word's
+            }
             else if (q.CategoryText != null) d.ResolveCategoryText = true;
             else if (hasHandle) d.HandleOnly = true;
             else

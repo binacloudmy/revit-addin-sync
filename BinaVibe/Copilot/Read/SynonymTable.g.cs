@@ -43,7 +43,7 @@ namespace BinaVibe.Copilot.Read
             new SynonymEntry("tandas duduk", "pedestal toilet", new[] { "OST_PlumbingFixtures" }, new[] { "seated toilet" }, keepText: true),
             new SynonymEntry("lampu", "light fixture", new[] { "OST_LightingFixtures" }, new[] { "light fixtures", "lighting fixture", "lighting fixtures", "luminaire", "luminaires" }),
             new SynonymEntry("suis", "switch", new[] { "OST_LightingDevices" }, new[] { "switches", "suis lampu", "light switch" }, namedIn: new[] { "OST_ElectricalFixtures" }, not: new[] { "socket", "soket", "outlet", "receptacle", "sso" }),
-            new SynonymEntry("injap", "valve", null, new[] { "valves", "injap paip", "pipe valve", "pipe valves" }, namedIn: new[] { "OST_PipeAccessory", "OST_PipeFitting" }),
+            new SynonymEntry("injap", "valve", null, new[] { "valves", "injap paip", "pipe valve", "pipe valves" }, namedIn: new[] { "OST_PipeAccessory", "OST_PipeFitting" }, replaces: new[] { "OST_PlumbingFixtures" }),
             new SynonymEntry("soket", "socket", new[] { "OST_ElectricalFixtures" }, new[] { "sockets", "soket kuasa", "power outlet", "power point", "receptacle" }),
             new SynonymEntry("papan agihan", "distribution board", new[] { "OST_ElectricalEquipment" }, new[] { "papan suis", "switchboard", "panel board", "panelboard", "db board", "db", "distribution boards" }, keepText: true),
             new SynonymEntry("penghawa dingin", "air conditioner", new[] { "OST_MechanicalEquipment" }, new[] { "penyaman udara", "aircond", "air conditioning unit", "ac unit" }, keepText: true),

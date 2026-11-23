@@ -94,6 +94,10 @@ namespace BinaVibe.Copilot.Read
 
         public bool HasCategory => CategoryOsts.Count > 0 || CategoryText != null;
 
+        /// <summary>AI-581: CategoryText is searched as well as CategoryOsts (the model's own category beside a
+        /// thing word's, resolved in the model).</summary>
+        public bool KeepCategoryText;
+
         public FindQuery Clone()
         {
             var c = (FindQuery)MemberwiseClone();
@@ -330,11 +334,20 @@ namespace BinaVibe.Copilot.Read
             // switch) replaces the category the model gives: its own pick (Plumbing Fixtures,
             // Electrical Fixtures) found bidets and sockets, not the thing. A category the text itself
             // names stays searched ("fire alarm switches": Fire Alarm Devices named switch too).
+            // A thing whose Not word the text also says is not that thing ("switch socket outlet",
+            // "suis soket": JKR's SSO is the socket): the word is read as before.
+            bool Says(SynonymEntry thing, int k) => Enumerable.Range(0, segments.Count).Any(j => j != k
+                && thing.Not.Select(Fuzzy.Fold).Any(n => segments[j].Text == n || (segments[j].Entry?.Variants.Any(v => Fuzzy.Fold(v) == n) ?? false)));
             var things = new HashSet<int>(Enumerable.Range(0, segments.Count)
-                .Where(k => segments[k].Entry is { } e && e.NamedIn.Count > 0 && !AfterCode(k)));
+                .Where(k => segments[k].Entry is { } e && e.NamedIn.Count > 0 && !AfterCode(k) && !Says(e, k)));
             var named = new HashSet<int>();
             if (things.Count > 0)
             {
+                // The model's own category stays searched, with the thing word as its condition, unless it is
+                // the thing's known wrong pick (Plumbing Fixtures for a valve).
+                var given = query.CategoryOsts.ToList();
+                bool Replaced(string c) => things.Any(k => segments[k].Entry!.Replaces.Contains(c));
+                query.KeepCategoryText = given.Count == 0 && query.CategoryText != null;
                 query.CategoryOsts.Clear();
                 for (var k = 0; k < segments.Count; k++)
                 {
@@ -345,6 +358,9 @@ namespace BinaVibe.Copilot.Read
                 }
                 foreach (var k in named)
                     foreach (var c in segments[k].Entry!.Categories)
+                        if (!query.CategoryOsts.Contains(c)) query.CategoryOsts.Add(c);
+                if (!given.All(Replaced))
+                    foreach (var c in given)
                         if (!query.CategoryOsts.Contains(c)) query.CategoryOsts.Add(c);
             }
 

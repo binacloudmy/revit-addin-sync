@@ -269,7 +269,7 @@ namespace RevitAddinSync.Tests
                     ? ", " + arg + ": new[] { " + string.Join(", ", l.EnumerateArray().Select(x => Lit(x.GetString()!))) + " }"
                     : "";
                 sb.Append("            new SynonymEntry(" + Lit(ms) + ", " + Lit(en) + ", " + cat + ", " + alsoText + (keep ? ", keepText: true" : "")
-                    + Named("named_in", "namedIn") + Named("not", "not") + "),\n");
+                    + Named("named_in", "namedIn") + Named("not", "not") + Named("replaces", "replaces") + "),\n");
             }
             sb.Append("        };\n    }\n}\n");
             return sb.ToString();

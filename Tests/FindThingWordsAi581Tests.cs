@@ -104,6 +104,45 @@ namespace RevitAddinSync.Tests
             Assert.False(Hit(q, PF, "jkrME_pip-ft_elbow"));
         }
 
+        // Verifier: a category the model gives outside the thing's own set is kept, with the word as its
+        // condition; only the thing's known wrong pick (Plumbing Fixtures for a valve) is replaced.
+        [Fact]
+        public void TheModelsCategoryIsKeptUnlessItIsTheKnownWrongPick()
+        {
+            var me = Q("{\"category\":\"Mechanical Equipment\",\"text\":\"valve\"}");   // no synonym: resolved in Revit
+            Assert.Equal(new[] { PA, PF }, me.CategoryOsts);
+            Assert.True(me.KeepCategoryText);
+            var d = FindScope.Decide(me, false);
+            Assert.True(d.ResolveCategoryText);
+            Assert.Equal(new[] { PA, PF }, d.Categories);
+            Assert.True(TextMatch.Matches(me.Terms, new[] { "jkrME_mec-eq_pressure reducing valve station" }, null, "OST_MechanicalEquipment"));
+            Assert.False(TextMatch.Matches(me.Terms, new[] { "jkrME_mec-eq_booster pump set" }, null, "OST_MechanicalEquipment"));
+
+            var fa = Q("{\"category\":\"Fire Alarm Devices\",\"text\":\"switch\"}");   // synonym "fire alarm devices"? kept either way
+            Assert.True(fa.CategoryOsts.Contains("OST_FireAlarmDevices") || fa.KeepCategoryText);
+            Assert.Contains(LD, fa.CategoryOsts);
+            Assert.True(TextMatch.Matches(fa.Terms, new[] { "jkrEL_fir-al_break glass switch_surface_24V" }, null, "OST_FireAlarmDevices"));
+            Assert.False(TextMatch.Matches(fa.Terms, new[] { "jkrEL_fir-al_smoke detector_2 wire_24V" }, null, "OST_FireAlarmDevices"));
+
+            var pf = Q("{\"category\":\"Plumbing Fixtures\",\"text\":\"valve\"}");
+            Assert.Equal(new[] { PA, PF }, pf.CategoryOsts);
+            Assert.False(pf.KeepCategoryText);
+        }
+
+        // Verifier: JKR's SSO is a "13A switch socket outlet": naming the socket takes the switch word's
+        // socket exclusion away, so the sockets are found.
+        [Theory]
+        [InlineData("{\"text\":\"13A switch socket outlet\"}")]
+        [InlineData("{\"text\":\"switch socket outlet\"}")]
+        [InlineData("{\"text\":\"suis soket\"}")]
+        [InlineData("{\"category\":\"Electrical Fixtures\",\"text\":\"13A switch socket outlet\"}")]
+        public void ASwitchSocketOutletIsFound(string query)
+        {
+            var q = Q(query);
+            var sso = new[] { "jkrEL_ele-fx_SSO_2G_flush_13A_N", "13A Switch Socket Outlet" };
+            Assert.True((q.CategoryOsts.Count == 0 || q.CategoryOsts.Contains(EF)) && TextMatch.Matches(q.Terms, sso, null, EF));
+        }
+
         [Fact]
         public void OtherQueriesKeepTheirCategory()
         {
