@@ -29,5 +29,40 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void Counts_line_single_check() =>
             Assert.Equal("1 of 1 check passes · 0 fail", ScoreBand.CountsLine(1, 1, 0, 0));
+
+        [Fact]
+        public void Fallback_line_without_a_report_has_no_fake_fail_count() =>
+            Assert.Equal("30 of 61 checks pass", ScoreBand.CountsLine(30, 61, null, 0));
+
+        /// <summary>"39 of 59 checks pass · 16 fail · 4 could not be checked": the first number of every part, added.</summary>
+        private static int Sum(string line) =>
+            line.Split('·').Select(p => int.Parse(p.Trim().Split(' ')[0])).Sum();
+
+        [Theory]
+        [InlineData("jkr_run_failing.json")]
+        [InlineData("jkr_run_compliant.json")]
+        public void Report_line_adds_up_to_the_total(string run)
+        {
+            var r = SpecChecklistTests.Report(run);
+            var t = SpecChecklist.TallyOf(r);
+            var line = ScoreBand.CountsLine(r);
+            Assert.Equal(t.Total, Sum(line));
+            Assert.Contains(" · " + t.Fail + " fail", line);
+        }
+
+        [Fact]
+        public void Human_class_fail_is_not_counted_as_a_fail_and_the_line_still_adds_up()
+        {
+            // A Human check (rooms_department) and a List check (grids_levels) reported as fail get no verdict: not in the fail count, counted as passed, as the %.
+            var r = SpecReport.Build(new[]
+            {
+                new SpecResult { Source = SpecReport.Audit, CheckerId = "rooms_department", RowKey = "A6", Status = "fail", IssueId = "x", Note = "12/40 rooms" },
+                new SpecResult { Source = SpecReport.Audit, CheckerId = "materials_assigned", RowKey = "A7", Status = "fail" },
+            });
+            var t = SpecChecklist.TallyOf(r);
+            var line = ScoreBand.CountsLine(r);
+            Assert.Equal(t.Total, Sum(line));
+            Assert.Contains(" · " + t.Fail + " fail", line);
+        }
     }
 }

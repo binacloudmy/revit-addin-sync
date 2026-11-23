@@ -529,9 +529,9 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         {
             get
             {
-                if (_spec == null) return ScoreBand.CountsLine(AiPass, AiTotal, 0, 0);
-                var t = SpecChecklist.TallyOf(_spec);
-                return ScoreBand.CountsLine(t.Passed, t.Total, _spec.FailChecks, t.Unjudged, t.Partial);
+                // No report: only pass / total are known, so no fail count is invented.
+                if (_spec == null) return ScoreBand.CountsLine(AiPass, AiTotal, null, 0);
+                return ScoreBand.CountsLine(_spec);
             }
         }
 
