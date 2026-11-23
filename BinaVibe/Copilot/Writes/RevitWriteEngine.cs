@@ -349,9 +349,13 @@ namespace BinaVibe.Copilot.Writes
                 if (lookedUp.Count > 0)
                 {
                     foreach (var kv in runs)
+                    {
                         EnvelopeChanges.ApplyDeletedCategories(outcome.Envelopes[kv.Key], kv.Value.DeletedTouched, kv.Value.DeletedSide, lookedUp);
+                        foreach (var id in kv.Value.DeletedSide.Keys.Where(lookedUp.ContainsKey).ToList()) kv.Value.DeletedSide[id] = lookedUp[id];
+                    }
                     foreach (var kv in lookedUp) outcome.Shape.CategoryOf[kv.Key] = kv.Value;
                 }
+                foreach (var kv in runs) FoldRebuilt(outcome.Envelopes[kv.Key], kv.Value);   // AI-553
             }
 
             // Code plans name no targets, so their ownership check runs on what the preview
@@ -544,6 +548,7 @@ namespace BinaVibe.Copilot.Writes
                         }
                         st.Mark("born ids (" + born.Count + ")");
                     }
+                    for (var i = 0; i < n; i++) if (commitRuns[i] != null) FoldRebuilt(envelopes[i], commitRuns[i]!);   // AI-553
                     RevitValueFingerprints.Fill(doc!, shape, builder.AddedIds);   // R75, compared with the preview's
                     st.Mark("value fingerprints");
                     var verdict = ShapeComparer.Compare(fresh, preview.Shape, shape);
@@ -808,6 +813,16 @@ namespace BinaVibe.Copilot.Writes
             return gone.Count;
         }
 
+        /// <summary>AI-553 (live b3ae1908): side-effect deletions Revit paired with an addition of the same category (it rebuilt the element), and
+        /// deleted internal pieces, come out of the envelope's counts with the additions they pair with (ChangeSetMath.Rebuilt). Envelope counts
+        /// only: the batch shape that drift and force judge is not touched.</summary>
+        private static void FoldRebuilt(Envelope? env, CallRun run)
+        {
+            var rebuilt = ChangeSetMath.Rebuilt(run.DeletedSide, run.AddedSide);
+            BornIds.DropFromEnvelope(env, null, run.DeletedSide, rebuilt);
+            BornIds.DropAddedFromEnvelope(env, run.AddedSide, rebuilt);
+        }
+
         /// <summary>r21 (live L4 H3, 0a1dff76): the Height call listed the fittings the Width call had already adjusted, and the result added
         /// them up ("adjusted 4 Duct Fittings, 2 Air Terminals" for 2 and 1). Each call keeps only the side-effect modifications no earlier
         /// call counted (BatchSideEffects.Repeated); envelope counts only.</summary>
@@ -887,6 +902,7 @@ namespace BinaVibe.Copilot.Writes
                 }
 
                 var raw = run.Changes ?? new ChangeSet();
+                ChangeSetMath.KeepExisting(raw, id => CategoryNameOf(doc, id));   // AI-553: reported deleted, still there
                 var benign = new HashSet<long>();
                 var labelled = Classify(doc, raw, categoriesBefore, benign);
                 run.Changed = labelled.Added.Count(id => !benign.Contains(id)) + labelled.Modified.Count(id => !benign.Contains(id))

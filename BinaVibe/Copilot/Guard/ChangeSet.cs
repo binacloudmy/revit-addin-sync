@@ -99,6 +99,51 @@ namespace BinaVibe.Copilot.Guard
             return (touched, side);
         }
 
+        /// <summary>AI-553 (live b3ae1908): a deleted id that still resolves once the call's transaction committed was not deleted. It
+        /// moves to Modified under the category <paramref name="categoryIfExists"/> reads (null: gone; a throw counts as gone). In place;
+        /// returns how many moved.</summary>
+        public static int KeepExisting(ChangeSet set, Func<long, string?> categoryIfExists)
+        {
+            if (set == null || categoryIfExists == null || set.Deleted.Count == 0) return 0;
+            var moved = 0;
+            foreach (var id in set.Deleted.ToList())
+            {
+                string? category;
+                try { category = categoryIfExists(id); }
+                catch (Exception) { category = null; }
+                if (category == null) continue;
+                set.Deleted.Remove(id);
+                if (!set.Modified.Contains(id)) set.Modified.Add(id);
+                set.CategoryOf[id] = category;
+                moved++;
+            }
+            return moved;
+        }
+
+        /// <summary>AI-553 (live b3ae1908: "2 Windows deleted" on a Comments write, the model still at 79 windows; AI-557 afcbdb00:
+        /// 2 Structural Columns and 4 Structural Framing on a type change, still 144 and 2598): side-effect deletions that are not a
+        /// deletion of a model element, and the additions they pair with. Revit rebuilt the element: per category, as many deleted
+        /// ids as there are added ids of that category pair (lowest ids first) and both drop out. A deleted internal piece (a
+        /// "class:" key: no category; an Analytical category) drops alone. An unknown ("Other") or unpaired deletion stays.</summary>
+        public static HashSet<long> Rebuilt(IReadOnlyDictionary<long, string>? deletedSide, IReadOnlyDictionary<long, string>? addedSide)
+        {
+            var drop = new HashSet<long>();
+            if (deletedSide == null) return drop;
+            foreach (var kv in deletedSide)
+                if (Writes.ChangeClassifier.IsClassKey(kv.Value) || (kv.Value?.StartsWith("Analytical", StringComparison.OrdinalIgnoreCase) ?? false))
+                    drop.Add(kv.Key);
+            foreach (var g in deletedSide.Where(kv => !drop.Contains(kv.Key) && !string.IsNullOrWhiteSpace(kv.Value) && kv.Value != UnknownCategory)
+                                         .GroupBy(kv => kv.Value, StringComparer.Ordinal))
+            {
+                var back = (addedSide ?? new Dictionary<long, string>()).Where(kv => string.Equals(kv.Value, g.Key, StringComparison.Ordinal))
+                    .Select(kv => kv.Key).OrderBy(i => i).ToList();
+                var gone = g.Select(kv => kv.Key).OrderBy(i => i).Take(back.Count).ToList();
+                drop.UnionWith(gone);
+                drop.UnionWith(back.Take(gone.Count));
+            }
+            return drop;
+        }
+
         /// <summary>True when nothing was added, modified or deleted (the call is a noop).</summary>
         public static bool IsEmpty(ChangeSet set) =>
             set == null || (set.Added.Count == 0 && set.Modified.Count == 0 && set.Deleted.Count == 0);
