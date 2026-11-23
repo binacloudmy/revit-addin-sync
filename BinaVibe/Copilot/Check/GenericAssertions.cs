@@ -204,6 +204,48 @@ namespace BinaVibe.Copilot.Check
         }
 
         // ------------------------------------------------------------------
+        // Per type (AI-554)
+        // ------------------------------------------------------------------
+
+        /// <summary>"type" for a rule on the type name, "family" for one on the family name, else
+        /// null (a per-element rule). The name is the type's, so the rule is about the type: 314 walls
+        /// of a few types are a few type names to fix, not 314.</summary>
+        public static string? NameUnit(RuleAssertion a) => (a.Param ?? "").Trim().ToLowerInvariant() switch
+        {
+            "type" or "type name" or "family and type" => "type",
+            "family" or "family name" => "family",
+            _ => null,
+        };
+
+        /// <summary>One outcome per type (per family for a family rule) on its first instance, saying how
+        /// many instances use it; every other instance of a failing one goes to the fail handle. An
+        /// unreadable element stays its own outcome.</summary>
+        public static void EvaluateNames(RuleRun run, RuleAssertion a, string unit, IReadOnlyList<ElementValues> elements)
+        {
+            string Key(ElementValues v) => v.UnavailableReason != null || (v.TypeName == null && v.FamilyName == null)
+                ? "#" + v.Source + "|" + v.Ref.Id + "|" + v.Ref.Link
+                : v.Source + "|" + v.Category + "|" + v.FamilyName + (unit == "type" ? "|" + v.TypeName : "");
+            foreach (var g in elements.GroupBy(Key, StringComparer.Ordinal))
+            {
+                var list = g.ToList();
+                var o = Evaluate(a, list[0]);
+                run.Add(list[0].Ref, list.Count == 1 ? o : UsedBy(o, unit + " used by " + list.Count + " instances"));
+                if (o.IsFail) run.FailRefs.AddRange(list.Skip(1).Select(v => v.Ref));
+            }
+        }
+
+        private static Outcome UsedBy(Outcome o, string note)
+        {
+            var reason = o.Reason.Length == 0 ? note : o.Reason + " (" + note + ")";
+            return o.Kind switch
+            {
+                OutcomeKind.Pass => Outcome.Pass(o.Value, reason),
+                OutcomeKind.Fail => Outcome.Fail(reason, o.Value, o.Code),
+                _ => Outcome.NotVerified(reason, o.Value, o.Code),
+            };
+        }
+
+        // ------------------------------------------------------------------
         // Set level
         // ------------------------------------------------------------------
 

@@ -57,6 +57,14 @@ namespace BinaVibe.Copilot.Read
         /// they never match through the room the element stands in; a modifier ("pintu
         /// tandas" = doors of toilets) does.</summary>
         public bool OwnNameOnly { get; set; }
+
+        /// <summary>AI-581: categories (OST_ names) whose elements are the thing without saying
+        /// the word (every lighting device is a switch); elsewhere the word must match.</summary>
+        public List<string> AnyIn { get; set; } = new();
+
+        /// <summary>AI-581: folded words that, in the element's own name, undo a match
+        /// ("switched socket outlet" is no switch).</summary>
+        public List<string> Not { get; set; } = new();
     }
 
     public sealed class FindQuery
@@ -260,7 +268,12 @@ namespace BinaVibe.Copilot.Read
             if (query.CategoryText != null)
             {
                 var entry = Synonyms.EntryFor(query.CategoryText);
-                if (entry != null && entry.Categories.Count > 0)
+                if (entry != null && entry.NamedIn.Count > 0)
+                {
+                    query.CategoryOsts.AddRange(entry.Searched);
+                    query.Terms.Add(Thing(Fuzzy.Fold(query.CategoryText), entry));
+                }
+                else if (entry != null && entry.Categories.Count > 0)
                 {
                     query.CategoryOsts.AddRange(entry.Categories);
                     if (entry.KeepText) query.Terms.Add(OwnName(Group(Fuzzy.Fold(query.CategoryText), entry)));
@@ -312,6 +325,29 @@ namespace BinaVibe.Copilot.Read
             bool AfterCode(int k) => k > 0 && segments[k - 1].Entry == null && segments[k - 1].Text.Any(char.IsDigit);
             bool IsLevels(SynonymEntry e) => e.Categories.Count == 1 && e.Categories[0] == LevelsCategory;
 
+            // AI-581: a word for a thing found in several categories ("injap": a pipe accessory or a
+            // pipe fitting named valve; "suis": a lighting device, or an electrical fixture named
+            // switch) replaces the category the model gives: its own pick (Plumbing Fixtures,
+            // Electrical Fixtures) found bidets and sockets, not the thing. A category the text itself
+            // names stays searched ("fire alarm switches": Fire Alarm Devices named switch too).
+            var things = new HashSet<int>(Enumerable.Range(0, segments.Count)
+                .Where(k => segments[k].Entry is { } e && e.NamedIn.Count > 0 && !AfterCode(k)));
+            var named = new HashSet<int>();
+            if (things.Count > 0)
+            {
+                query.CategoryOsts.Clear();
+                for (var k = 0; k < segments.Count; k++)
+                {
+                    if (segments[k].Entry is not { } e) continue;
+                    if (things.Contains(k)) { foreach (var c in e.Searched) if (!query.CategoryOsts.Contains(c)) query.CategoryOsts.Add(c); continue; }
+                    if (e.Categories.Count == 0 || IsLevels(e) || AfterCode(k)) continue;
+                    named.Add(k);
+                }
+                foreach (var k in named)
+                    foreach (var c in segments[k].Entry!.Categories)
+                        if (!query.CategoryOsts.Contains(c)) query.CategoryOsts.Add(c);
+            }
+
             // Categories named by the text: every category word not glued to a code;
             // Levels only when it is the only one ("aras" alone lists levels).
             var inferred = new HashSet<int>();
@@ -361,6 +397,12 @@ namespace BinaVibe.Copilot.Read
                     continue;
                 }
                 FlushPlain();
+                if (things.Contains(k))
+                {
+                    query.Terms.Add(Thing(text, entry));
+                    continue;
+                }
+                if (named.Contains(k)) continue;   // its category is searched; the thing word is the condition
                 if (inferred.Contains(k))
                 {
                     // Narrow words (sinki, curtain wall) keep their text, OR-ed in one group.
@@ -380,6 +422,16 @@ namespace BinaVibe.Copilot.Read
             }
             FlushPlain();
             if (narrow != null) query.Terms.Insert(0, OwnName(narrow));
+        }
+
+        /// <summary>AI-581: the condition a thing word sets: its own name, any element of its own
+        /// categories, never a name with one of its Not words.</summary>
+        private static TermGroup Thing(string phrase, SynonymEntry entry)
+        {
+            var g = OwnName(Group(phrase, entry));
+            g.AnyIn = entry.Categories.ToList();
+            g.Not = entry.Not.Select(Fuzzy.Fold).Where(v => v.Length > 0).ToList();
+            return g;
         }
 
         private static TermGroup OwnName(TermGroup g)

@@ -265,6 +265,13 @@ namespace BinaVibe.Copilot.Check
                     return;
                 }
                 default:
+                    // AI-554: a type or family name rule counts each type (family) once.
+                    var unit = GenericAssertions.NameUnit(a);
+                    if (unit != null)
+                    {
+                        GenericAssertions.EvaluateNames(run, a, unit, selected.Select(s => s.Values).ToList());
+                        return;
+                    }
                     foreach (var s in selected) run.Add(s.Values.Ref, GenericAssertions.Evaluate(a, s.Values));
                     return;
             }
