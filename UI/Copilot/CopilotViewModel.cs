@@ -503,6 +503,10 @@ namespace RevitWebAppSync.UI.Copilot
         // The prompt kept while signed out — sent automatically after sign-in.
         private PromptPayload _pendingAfterSignIn;
         private SlashTool _pendingSlashAfterSignIn;
+        // r25: what the last turn really sent, for "Send again" / "Try again" on its failure card.
+        private PromptPayload _lastSent;
+        private SlashTool _lastSentSlash;
+        private Dictionary<string, object> _lastSentArgs;
 
         private void OnSessionChanged()
         {
@@ -581,6 +585,7 @@ namespace RevitWebAppSync.UI.Copilot
         /// failure then renders as a plain reply.</summary>
         private ChatMessage CardForFailure(RouteResult rr, PromptPayload retry)
         {
+            var slash = _lastSentSlash; var args = _lastSentArgs;
             switch (rr?.FailureKind ?? RouteFailure.None)
             {
                 case RouteFailure.SignIn:
@@ -595,7 +600,7 @@ namespace RevitWebAppSync.UI.Copilot
                     return AttentionCard("Another request is still running",
                         FailureCards.TurnActiveBody(rr.PaneNote, rr.Language == ReceiptLanguage.Ms),
                         "copilot · HTTP 409 turn active", primaryLabel: "Send again",
-                        primary: () => { if (retry != null) ChatSend(retry.Text, retry.ImagesBase64, retry.Files); });
+                        primary: () => Resend(retry, slash, args));
                 case RouteFailure.Unreachable:
                 case RouteFailure.HostBlocked:
                     _pendingAfterSignIn = retry;
@@ -607,9 +612,16 @@ namespace RevitWebAppSync.UI.Copilot
                         && (e.IndexOf("used up", StringComparison.OrdinalIgnoreCase) >= 0 || e.IndexOf("limit", StringComparison.OrdinalIgnoreCase) >= 0))
                         return AttentionCard("AI credit limit reached for this period", "Your plan's credits are used up. Upgrade, or wait for the next period.",
                             "copilot · plan_limit", primaryLabel: "See plans", primary: () => UpgradeRequested?.Invoke(), secondaryLabel: "Try again",
-                            secondary: () => { if (retry != null) ChatSend(retry.Text, retry.ImagesBase64, retry.Files); });
+                            secondary: () => Resend(retry, slash, args));
                     return null;
             }
+        }
+
+        /// <summary>Send a failed turn again as it was sent: text, images, files, the slash command and its inputs, the shown text and
+        /// the @ mentions (as the sign-in path does).</summary>
+        private void Resend(PromptPayload p, SlashTool slash, Dictionary<string, object> args)
+        {
+            if (p != null) ChatSend(p.Text, p.ImagesBase64, p.Files, slash, args, displayText: p.DisplayText, mentions: p.Mentions);
         }
 
         public bool IsSending
@@ -846,6 +858,8 @@ namespace RevitWebAppSync.UI.Copilot
             // (r17), so the backend adds that command's instructions. A command saved on this PC sends none.
             var routeTextOverride = slashChip != null ? SlashPrompt(slashChip, text, commandArgs) : null;
             _pendingCommandId = ToolCatalog.WireCommandId(slashChip);
+            _lastSent = new PromptPayload { Text = text, ImagesBase64 = images, Files = files, DisplayText = displayText, Mentions = mentions };
+            _lastSentSlash = slashChip; _lastSentArgs = commandArgs;
             Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Thinking, Text = "Thinking…" });
             _ = SendWithAttachmentsAsync(routeTextOverride ?? text, files, interp.ToolId, images, text, mentions);
         }
@@ -1211,7 +1225,7 @@ namespace RevitWebAppSync.UI.Copilot
             // Attention) instead of a reply bubble carrying the raw reason.
             if (rr != null && rr.Failed)
             {
-                var card = CardForFailure(rr, new PromptPayload { Text = displayText });
+                var card = CardForFailure(rr, _lastSent);
                 if (card != null) { ReplaceLastThinking(card); RunStatus = TurnStatus.Failed; SendQueued(rr); return; }
             }
 
