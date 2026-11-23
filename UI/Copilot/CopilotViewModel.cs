@@ -593,7 +593,7 @@ namespace RevitWebAppSync.UI.Copilot
                         primary: () => { try { RevitWebAppSync.Services.UpdateService.EnsureUpToDate(); } catch { } });
                 case RouteFailure.TurnActive:
                     return AttentionCard("Another request is still running",
-                        "Wait for it to finish or press Stop, then send again. Nothing was changed in the model.",
+                        FailureCards.TurnActiveBody(rr.PaneNote, rr.Language == ReceiptLanguage.Ms),
                         "copilot · HTTP 409 turn active", primaryLabel: "Send again",
                         primary: () => { if (retry != null) ChatSend(retry.Text, retry.ImagesBase64, retry.Files); });
                 case RouteFailure.Unreachable:

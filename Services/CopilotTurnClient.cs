@@ -84,6 +84,8 @@ namespace RevitWebAppSync.Services
         public int? HttpStatus;
         /// <summary>A tool request ran but its results never reached the cloud.</summary>
         public bool ResultsUndelivered;
+        /// <summary>r25: the 409 was the backend's another_session_write (another chat's write is still running), not this chat being busy.</summary>
+        public bool AnotherChatWrite;
         /// <summary>The add-in refused to send anything: the configured address is not one this build may use.
         /// Not a network failure, so the pane must not say BINA could not be reached.</summary>
         public bool HostBlocked;
@@ -259,6 +261,11 @@ namespace RevitWebAppSync.Services
 
     public sealed class CopilotTurnClient
     {
+        /// <summary>r25: the 409 detail the backend sends while another chat's write is still running.</summary>
+        public const string AnotherSessionWriteDetail = "another_session_write";
+        public const string AnotherChatWriteMessage = "A change is still being applied in another BINA chat. Try again in a moment.";
+        public const string AnotherChatWriteMessageMs = "Satu perubahan masih sedang dibuat dalam chat BINA yang lain. Cuba lagi sebentar lagi.";
+
         private readonly HttpClient _http;
         private readonly CopilotClientOptions _opt;
         private readonly object _sync = new object();
@@ -353,7 +360,7 @@ namespace RevitWebAppSync.Services
             string? stale;
             lock (_sync)
             {
-                if (outcome.Kind != TurnOutcomeKind.TurnActive || _active != null
+                if (outcome.Kind != TurnOutcomeKind.TurnActive || outcome.AnotherChatWrite || _active != null
                     || !_givenUp.TryGetValue(session, out stale) || stale == turnId) return outcome;
                 if (_cancels.TryGetValue(stale, out var entry)) entry.Started = false;   // sent again even if it landed
             }
@@ -806,6 +813,8 @@ namespace RevitWebAppSync.Services
                         Message = "BINA's copilot needs a newer add-in. Update BINA Sync to keep using it." };
                 case 409:
                     Unbind(st);
+                    if (await DetailAsync(resp).ConfigureAwait(false) == AnotherSessionWriteDetail)
+                        return new TurnOutcome { Kind = TurnOutcomeKind.TurnActive, HttpStatus = status, AnotherChatWrite = true, Message = AnotherChatWriteMessage };
                     return new TurnOutcome { Kind = TurnOutcomeKind.TurnActive, HttpStatus = status,
                         Message = "Another request is still running in this chat. Wait for it or press Stop." };
                 case 401:
@@ -821,6 +830,19 @@ namespace RevitWebAppSync.Services
                         Message = status >= 500 ? "BINA had a problem on its side. Wait a moment and send again."
                             : "BINA could not accept this request (HTTP " + status + "). Send it again." };
             }
+        }
+
+        /// <summary>The "detail" string of an error body, or null (no body, not JSON, no string detail).</summary>
+        private static async Task<string?> DetailAsync(HttpResponseMessage resp)
+        {
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(await resp.Content.ReadAsStringAsync().ConfigureAwait(false));
+                return doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object
+                       && doc.RootElement.TryGetProperty("detail", out var d) && d.ValueKind == System.Text.Json.JsonValueKind.String
+                    ? d.GetString() : null;
+            }
+            catch (Exception) { return null; }
         }
 
         private static bool IsRetryableStatus(int status) => status == 429 || (status >= 500 && status <= 599);

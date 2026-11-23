@@ -38,6 +38,13 @@ namespace RevitWebAppSync.UI.Copilot.Model
             }
         }
 
+        /// <summary>r25: the 409 card's body. Another chat's write still running (the backend's another_session_write) has its own
+        /// words, in the chat's language; a busy chat keeps the old ones.</summary>
+        public static string TurnActiveBody(string? paneNote, bool malay) =>
+            paneNote == RevitWebAppSync.Services.CopilotTurnClient.AnotherChatWriteMessage
+                ? (malay ? RevitWebAppSync.Services.CopilotTurnClient.AnotherChatWriteMessageMs : RevitWebAppSync.Services.CopilotTurnClient.AnotherChatWriteMessage)
+                : "Wait for it to finish or press Stop, then send again. Nothing was changed in the model.";
+
         private static string Origin(string? note, string fallback) => string.IsNullOrWhiteSpace(note) ? fallback : note!.Trim();
 
         private static string Sentence(string? note, string fallback)
