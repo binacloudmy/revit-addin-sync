@@ -77,7 +77,8 @@ namespace RevitAddinSync.Tests
                 "BinaVibe/Copilot/Writes/WriteBatchRunner.cs", "BinaVibe/Copilot/Undo/UndoService.cs",
             })
             {
-                var raw = System.Text.RegularExpressions.Regex.Matches(Src(rel), @"[^.(]\b(ex|io)\.Message\b").Count;
+                // r25 final pass: any ex/io message (ex.Message, ex.InnerException?.Message, notes.Add(ex.Message)) not passed straight to RedactPaths.
+                var raw = System.Text.RegularExpressions.Regex.Matches(Src(rel), @"(?<!RedactPaths\()\b(ex|io)\b(?:\??\.InnerException)*\??\.Message\b").Count;
                 Assert.True(raw == 0, rel + " still puts a raw ex.Message into its text");
             }
         }
