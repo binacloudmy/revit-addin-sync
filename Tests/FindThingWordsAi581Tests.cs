@@ -114,6 +114,8 @@ namespace RevitAddinSync.Tests
             Assert.True(me.KeepCategoryText);
             var d = FindScope.Decide(me, false);
             Assert.True(d.ResolveCategoryText);
+            Assert.True(d.CategoryTextOptional);   // "HVAC" Revit cannot resolve: the valve categories are still searched
+            Assert.False(FindScope.Decide(Q("{\"category\":\"HVAC\"}"), false).CategoryTextOptional);
             Assert.Equal(new[] { PA, PF }, d.Categories);
             Assert.True(TextMatch.Matches(me.Terms, new[] { "jkrME_mec-eq_pressure reducing valve station" }, null, "OST_MechanicalEquipment"));
             Assert.False(TextMatch.Matches(me.Terms, new[] { "jkrME_mec-eq_booster pump set" }, null, "OST_MechanicalEquipment"));
