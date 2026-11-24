@@ -5169,8 +5169,7 @@ namespace BinaVibe.Mcp.Tools
                 foreach (var f in plan.Resolved)
                     if (available.TryGetValue(f, out var sf2)) { try { def.AddField(sf2); added.Add(f); } catch { } }
                 try { sched.Name = plan.ProposedName; } catch { /* keep Revit's default */ }
-                tx.Commit();
-                doc.Regenerate();
+                tx.Commit();   // Commit regenerates; a Regenerate() here, outside the transaction, threw "modification forbidden"
                 var exists = doc.GetElement(sched.Id) is ViewSchedule check;
                 int fieldCount = 0;
                 try { fieldCount = sched.Definition.GetFieldCount(); } catch { }
