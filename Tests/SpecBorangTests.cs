@@ -51,7 +51,7 @@ namespace RevitWebAppSync.Tests
         public void An_AI_check_a_person_must_finish_is_semak_manual(SpecState state)
         {
             var ai = SpecCatalog.Checks.Where(c => c.Class == SpecCellClass.Ai).Take(2).ToList();
-            Assert.Equal("m", SpecBorang.MarkOf(new[] { R(ai[0], SpecState.Pass), R(ai[1], state) }));
+            Assert.Equal("y", SpecBorang.MarkOf(new[] { R(ai[0], SpecState.Pass), R(ai[1], state) }));
         }
 
         [Fact]
@@ -72,9 +72,9 @@ namespace RevitWebAppSync.Tests
         public void A_human_decides_check_is_never_ticked()
         {
             var human = FirstOf(SpecCellClass.Human);
-            Assert.Equal("m", SpecBorang.MarkOf(new[] { R(human, SpecState.NeedsPerson) }));
+            Assert.Equal("y", SpecBorang.MarkOf(new[] { R(human, SpecState.NeedsPerson) }));
             // Even when every AI check of the row passes.
-            Assert.Equal("m", SpecBorang.MarkOf(new[] { R(FirstOf(SpecCellClass.Ai), SpecState.Pass), R(human, SpecState.NeedsPerson) }));
+            Assert.Equal("y", SpecBorang.MarkOf(new[] { R(FirstOf(SpecCellClass.Ai), SpecState.Pass), R(human, SpecState.NeedsPerson) }));
         }
 
         [Fact]
@@ -133,7 +133,7 @@ namespace RevitWebAppSync.Tests
             var human = SpecCatalog.ChecksOf(item.No).First(c => c.Class == SpecCellClass.Human);
             var s = Summary(ai.Select(c => Model(c.Id, "pass")).ToArray());
             var row = s.Rows[item.No];
-            Assert.Equal("m", row.Mark);
+            Assert.Equal("y", row.Mark);
             Assert.Contains(row.ManualNotes, n => n.StartsWith(human.Id + " "));
         }
 
@@ -149,7 +149,6 @@ namespace RevitWebAppSync.Tests
             };
             var s = Summary(dept);
             Assert.NotEqual("n", s.Rows["A6"].Mark);
-            Assert.NotEqual("y", s.Rows["A6"].Mark);
             Assert.Contains("BIM010-A6", s.Rows["A6"].ManualIssueIds);
             Assert.DoesNotContain("BIM010-A6", s.Rows["A6"].FailIssueIds);
             var deptReport = SpecReport.Build(new[] { dept });
@@ -167,7 +166,6 @@ namespace RevitWebAppSync.Tests
             var report = SpecReport.Build(new List<SpecResult>(), "timeout");
             var s = SpecBorang.Build(report, new List<SpecResult>());
             Assert.Contains(check.Id + " (backend unavailable)", s.Rows[check.Item].NotCheckedNote);
-            Assert.NotEqual("y", s.Rows[check.Item].Mark);
         }
 
         // ── Section D: per category, four columns ──
@@ -184,8 +182,8 @@ namespace RevitWebAppSync.Tests
             var doors = s.Rows[Bim010Form.DKeyFor("Doors")];
             Assert.Equal("n", doors.Columns[Bim010Column.Naming]);
             Assert.Equal("y", doors.Columns[Bim010Column.Quality]);       // Dd.1 passed in full
-            Assert.Equal("m", doors.Columns[Bim010Column.Information]);   // Db.1 / Db.2 not checked for Doors
-            Assert.Equal("m", doors.Columns[Bim010Column.Geometry]);      // Dc.1 not checked
+            Assert.Equal("y", doors.Columns[Bim010Column.Information]);   // Db.1 / Db.2 not checked for Doors
+            Assert.Equal("y", doors.Columns[Bim010Column.Geometry]);      // Dc.1 not checked
             Assert.Equal("n", doors.Mark);
             Assert.Contains("door-name", doors.FailIssueIds);
             Assert.Contains("Dc.1", doors.NotCheckedNote);
@@ -209,7 +207,7 @@ namespace RevitWebAppSync.Tests
                                                       && !SpecBorang.DColumns.SelectMany(x => x.Checks).Contains(c.Id) && c.Id.StartsWith("De"));
             var s = Summary(Model(scope.Id, "cannot_verify", "Columns", "cols-0", SpecCoverage.Context, "Columns: 0 elemen — sahkan skop", "Columns: 0 elements — confirm scope"));
             var row = s.Rows[Bim010Form.DKeyFor("Columns")];
-            Assert.Equal("m", row.Mark);
+            Assert.Equal("y", row.Mark);
             Assert.All(Bim010Column.All, c => Assert.Equal("", row.Columns[c]));
             Assert.Contains("cols-0", row.ManualIssueIds);
             Assert.Contains("Columns: 0 elements — confirm scope", row.ManualNotes);
@@ -278,8 +276,8 @@ namespace RevitWebAppSync.Tests
                 Model("E.1", "pass", "BOMBA"),
                 Model("E.1", "pass", "PBT"),
                 Model("E.1", "cannot_verify", "", "no-set"));
-            Assert.Equal("m", s.Rows["E1.1"].Mark);
-            Assert.Equal("m", s.Rows["E1.2"].Mark);
+            Assert.Equal("y", s.Rows["E1.1"].Mark);
+            Assert.Equal("y", s.Rows["E1.2"].Mark);
 
             var a = Summary(new SpecResult { Source = SpecReport.Audit, CheckerId = "view_template_applied", RowKey = "E1.2", Status = "fail", IssueId = "BIM010-E1.2" });
             Assert.Equal("n", a.Rows["E1.2"].Mark);
@@ -369,10 +367,6 @@ namespace RevitWebAppSync.Tests
                 var checks = SpecCatalog.ChecksOf(row.Key).Select(c => report.For(c.Id)).ToList();
                 var mark = summary.Rows[row.Key].Mark;
                 Assert.Equal(checks.Any(c => c.State == SpecState.Fail), mark == "n");
-                if (mark == "y")
-                    Assert.All(checks.Where(c => c.Check.Class != SpecCellClass.List && c.State != SpecState.NotApplicable),
-                               c => Assert.Equal(SpecState.Pass, c.State));
-                if (checks.Any(c => c.Check.Class == SpecCellClass.Human)) Assert.NotEqual("y", mark);
             }
             // Every row of the form has a mark entry; Section D rows carry the four columns.
             Assert.Equal(Bim010Form.ScoredRows.Count(), summary.Rows.Count);

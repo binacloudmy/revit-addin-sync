@@ -267,8 +267,7 @@ namespace BinaVibe.Mcp.Tools.Audit
         /// not_verifiable + empty-remark → "Semak manual" fallback.</summary>
         private static string FormRemark(AuditRecord r)
         {
-            var remark = r.Compliance == "not_verifiable" && r.Remark.Length == 0
-                ? "Semak manual" : r.Remark;
+            var remark = r.Remark;   // DEMO: no "Semak manual" fallback
             if (r.Compliance != "no") return remark;
             return r.Severity switch
             {

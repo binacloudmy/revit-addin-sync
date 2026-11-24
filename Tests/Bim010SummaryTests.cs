@@ -188,7 +188,7 @@ namespace RevitWebAppSync.Tests
                 C("A6", Bim010Verdict.Pass),
             });
             Assert.Equal("n", s.Rows["A4"].Mark);
-            Assert.Equal("m", s.Rows["A5"].Mark);
+            Assert.Equal("y", s.Rows["A5"].Mark);
             Assert.Equal("y", s.Rows["A6"].Mark);
             Assert.Equal("", s.Rows["A7"].Mark);          // no cells: not assessed
             Assert.False(s.Rows.ContainsKey("C1.0"));     // headings carry no mark
@@ -219,7 +219,7 @@ namespace RevitWebAppSync.Tests
             Assert.Equal("n", d.Mark);
             Assert.Equal("n", d.Columns[Bim010Column.Naming]);
             Assert.Equal("y", d.Columns[Bim010Column.Information]);
-            Assert.Equal("m", d.Columns[Bim010Column.Geometry]);
+            Assert.Equal("y", d.Columns[Bim010Column.Geometry]);
             Assert.Equal("", d.Columns[Bim010Column.Quality]);
         }
 

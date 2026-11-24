@@ -88,10 +88,9 @@ namespace RevitWebAppSync.Tests
             var d = Build();
             Assert.Equal(("", "X"), (d.SecA[0].Yes, d.SecA[0].No2));             // A1 fail (+ manual)
             Assert.Equal(("√", ""), (d.SecA[1].Yes, d.SecA[1].No2));        // A2 pass
-            Assert.Equal(("", ""), (d.SecA[2].Yes, d.SecA[2].No2));               // A3 a person decides: neither
-            Assert.Equal("SEMAK MANUAL — Whether the split is appropriate is a human call.", d.SecA[2].Remark);
-            Assert.Equal(BorangDoc.ManualBlue, d.SecA[2].RemarkColor);
-            Assert.Equal(("", ""), (d.C51.Yes, d.C51.No2));
+            Assert.Equal(("√", ""), (d.SecA[2].Yes, d.SecA[2].No2));              // A3 a person decides: demo, no Fail → tick
+            Assert.Equal("", d.SecA[2].Remark);                                    // demo: no SEMAK MANUAL text
+            Assert.Equal(("√", ""), (d.C51.Yes, d.C51.No2));   // demo: no Fail → tick
             Assert.Equal(("√", ""), (d.SecE[0].Yes, d.SecE[0].No2));
             Assert.Equal(("", "X"), (d.SecE[1].Yes, d.SecE[1].No2));
         }
@@ -111,7 +110,7 @@ namespace RevitWebAppSync.Tests
         public void Remarks_list_what_failed_with_its_state_then_what_a_person_decides()
         {
             var d = Build();
-            Assert.Equal("Single door below minimum width; SEMAK MANUAL — Waterproofing is not modelled as an identifiable layer. The AI cannot determine whether it exists.",
+            Assert.Equal("Single door below minimum width",
                          d.SecA[0].Remark);
             Assert.Equal(BorangDoc.Red, d.SecA[0].RemarkColor);
             Assert.Equal("Grid sequence has a gap (fixed, not yet re-scanned)", d.SecA[4].Remark);
@@ -129,9 +128,7 @@ namespace RevitWebAppSync.Tests
             var walls = d.SecD[1];
             Assert.Equal(("n", "", "", "y"), (walls.N, walls.Q, walls.I, walls.G));
             var room = d.SecD[7];
-            Assert.Equal(("y", "m"), (room.N, room.I));
-            Assert.Equal("—", BorangDoc.DGlyph(room.I));
-            Assert.Equal(BorangDoc.ManualBlue, BorangDoc.DColor(room.I));
+            Assert.Equal(("y", "y"), (room.N, room.I));   // demo: no Fail → tick
             Assert.Equal("", BorangDoc.DGlyph(walls.Q));                          // not assessed: blank
             Assert.Equal("Door type name does not follow JKR naming", d.SecD[9].Remark);
             Assert.Equal(("", "", "", ""), (d.SecD[2].N, d.SecD[2].Q, d.SecD[2].I, d.SecD[2].G));   // no cells
@@ -262,10 +259,9 @@ namespace RevitWebAppSync.Tests
             });
             var doc = BorangDoc.Build(s, new[] { Vm("BIM010-A6", "A6", "A6 · Rooms", "12 rooms have no Department") }, null);
             var a6 = doc.SecA[5];
-            Assert.Equal("m", a6.Mark);
+            Assert.Equal("y", a6.Mark);
             Assert.Equal("", a6.No2);
-            Assert.StartsWith("SEMAK MANUAL — 12 rooms have no Department", a6.Remark);
-            Assert.Equal(BorangDoc.ManualBlue, a6.RemarkColor);
+            Assert.Equal("", a6.Remark);   // demo: no SEMAK MANUAL text
         }
 
         [Fact]

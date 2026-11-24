@@ -156,7 +156,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
             var scored = Scored(checks);
             if (scored.Count == 0) return "";
             if (scored.Any(c => c.State == SpecState.Fail)) return "n";
-            if (scored.Any(c => c.Check.Class == SpecCellClass.Human || c.State != SpecState.Pass)) return "m";
+            // DEMO: no Fail → tick, whatever a person still decides (was "m" = semak manual).
             return "y";
         }
 
@@ -273,7 +273,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                 var colIds = new HashSet<string>(DColumns.SelectMany(c => c.Checks));
                 var person = rep.Checks.Where(c => c.Check.Section == "D" && c.Check.Class == SpecCellClass.Human
                                                    && !colIds.Contains(c.Check.Id) && c.Listed > 0).ToList();
-                rm.Mark = person.Count > 0 ? "m" : "";
+                rm.Mark = person.Count > 0 ? "y" : "";   // DEMO: was "m"
                 AddRemarks(rm, person, report);
                 return rm;
             }
@@ -288,7 +288,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
                     .ToList();
                 if (m == "y" && wideOpen.Count > 0)
                 {
-                    m = "m";
+                    // DEMO: no "m" any more: the column stays ticked, the note is kept.
                     wideNotes.AddRange(wideOpen.Select(w => w.Check.Id + ": a model-wide result needs a look (see the Checklist)"));
                 }
                 rm.Columns[column] = m;

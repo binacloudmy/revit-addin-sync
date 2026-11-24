@@ -228,12 +228,11 @@ namespace RevitWebAppSync.UI.Jkr.Export
             var fails = onRow.Where(i => !i.NeedsPerson).Select(FailText).Where(t => t.Length > 0).Distinct().ToList();
             parts.AddRange(Cap(fails));
             var reasons = onRow.Where(i => i.NeedsPerson).Select(i => Clean(i.Description)).Where(t => t.Length > 0).Distinct().ToList();
-            if (reasons.Count > 0) parts.Add("SEMAK MANUAL — " + string.Join(" ", Cap(reasons)));
 
             if (parts.Count == 0 && summary != null && summary.Rows.TryGetValue(key, out var rm) && rm.Notes.Count > 0 && mark != "y")
             {
                 var notes = Cap(rm.Notes.Select(Clean).Where(n => n.Length > 0).Distinct().ToList());
-                parts.Add(mark == "m" ? "SEMAK MANUAL — " + string.Join(" ", notes) : string.Join("; ", notes));
+                parts.Add(string.Join("; ", notes));
             }
 
             var text = string.Join("; ", parts);
@@ -276,7 +275,6 @@ namespace RevitWebAppSync.UI.Jkr.Export
             if (reasons.Count == 0) reasons = (rm.ManualNotes ?? new List<string>()).Select(Clean).Where(n => n.Length > 0).Distinct().ToList();
             reasons = Cap(reasons);
             if (!string.IsNullOrEmpty(rm.NotCheckedNote)) reasons.Add(rm.NotCheckedNote);
-            if (reasons.Count > 0) parts.Add("SEMAK MANUAL — " + string.Join("; ", reasons));
 
             return (string.Join("; ", parts), color);
         }

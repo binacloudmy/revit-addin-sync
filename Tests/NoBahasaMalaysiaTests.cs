@@ -111,7 +111,6 @@ namespace RevitWebAppSync.Tests
             ("BinaVibe/Mcp/Tools/Audit/AuditCheckers.cs", "keluarga", "keyword that matches a Malay Borang row description"),
             ("BinaVibe/Mcp/Tools/Audit/AuditCheckers.cs", "helaian", "keyword that matches a Malay Borang row description"),
             ("BinaVibe/Mcp/Tools/Audit/AuditCheckers.cs", "jadual", "keyword that matches a Malay Borang row description"),
-            ("BinaVibe/Mcp/Tools/Audit/AuditTools.cs", "Semak manual", "the Borang docx/pdf remark fallback (Borang export, Malay form)"),
         };
 
         // ── allow-list 4: part A files still holding Malay in this branch (must shrink to empty) ──

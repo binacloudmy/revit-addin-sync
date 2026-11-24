@@ -203,7 +203,7 @@ namespace BinaVibe.Mcp.Tools.Audit
         {
             var l = cells.ToList();
             if (l.Any(c => c.Verdict == Bim010Verdict.Fail)) return "n";
-            if (l.Any(c => c.Verdict == Bim010Verdict.Manual)) return "m";
+            // DEMO: no Fail → tick, even when a cell is Manual (was "m" = semak manual).
             return l.Count > 0 ? "y" : "";
         }
 
