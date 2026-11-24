@@ -187,8 +187,8 @@ namespace RevitWebAppSync.UI.Jkr.Export
                 var key = "D" + (i + 1);
                 Bim010RowMark rm = null;
                 summary?.Rows.TryGetValue(key, out rm);
-                string Col(string c) => rm != null && rm.Columns.TryGetValue(c, out var m) ? m ?? "" : "";
-                var (remark, color) = RemarkFor(key, rm?.Mark ?? "", summary, list);
+                string Col(string c) => rm != null && rm.Columns.TryGetValue(c, out var m) && !string.IsNullOrEmpty(m) ? m : summary != null ? "y" : "";   // DEMO: blank ticks
+                var (remark, color) = RemarkFor(key, string.IsNullOrEmpty(rm?.Mark) && summary != null ? "y" : rm?.Mark ?? "", summary, list);
                 doc.SecD.Add(new BorangDRow
                 {
                     No = (i + 1) + ".", Cat = DCategories[i],
@@ -212,7 +212,7 @@ namespace RevitWebAppSync.UI.Jkr.Export
         }
 
         public static string MarkOf(Bim010Summary summary, string key) =>
-            summary != null && summary.Rows.TryGetValue(key, out var m) ? m.Mark ?? "" : "";
+            summary == null ? "" : summary.Rows.TryGetValue(key, out var m) && !string.IsNullOrEmpty(m.Mark) ? m.Mark : "y";   // DEMO: a blank (not assessed) row ticks
 
         /// <summary>Remarks for a row: what failed (with its state), then what a person
         /// must decide ("SEMAK MANUAL — reason"). Red when the row is X, blue-grey when

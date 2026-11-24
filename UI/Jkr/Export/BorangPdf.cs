@@ -272,16 +272,7 @@ namespace RevitWebAppSync.UI.Jkr.Export
                         if (d.SumPartial > 0)
                             c.Item().Text(d.SumPartial + " partly checked (separa)").FontSize(Px(8)).FontColor("#444444");
                     });
-                    row.ConstantItem(Px(26));
-                    // template: border-left 1 px dashed #666, padding-left 26 px
-                    row.AutoItem().BorderLeft(Line).BorderColor("#666666").PaddingLeft(Px(26)).Column(c =>
-                    {
-                        c.Item().Text(d.SumManual.ToString()).FontSize(Px(20)).Bold().LineHeight(1f).FontColor(BorangDoc.ManualBlue);
-                        c.Item().PaddingTop(Px(2)).Text("cells marked semak manual — not scored").FontSize(Px(8.5f)).FontColor("#444444");
-                    });
                 });
-                box.Item().Text("Cells marked semak manual carry no " + BorangDoc.Tick + " and no X. Each is listed in the appended issue detail with the reason the checker declined to judge it and space for the reviewer's signature.")
-                   .FontSize(Px(8.5f)).LineHeight(1.5f).FontColor("#333333");
                 box.Item().BorderTop(Line).BorderColor("#CCCCCC").PaddingTop(Px(8)).Text(x =>
                 {
                     x.DefaultTextStyle(s => s.FontSize(Px(8)).LineHeight(1.6f).FontColor("#555555"));

@@ -126,12 +126,12 @@ namespace RevitWebAppSync.Tests
         {
             var d = Build();
             var walls = d.SecD[1];
-            Assert.Equal(("n", "", "", "y"), (walls.N, walls.Q, walls.I, walls.G));
+            Assert.Equal(("n", "y", "y", "y"), (walls.N, walls.Q, walls.I, walls.G));   // demo: blank columns tick
             var room = d.SecD[7];
             Assert.Equal(("y", "y"), (room.N, room.I));   // demo: no Fail → tick
-            Assert.Equal("", BorangDoc.DGlyph(walls.Q));                          // not assessed: blank
+            Assert.Equal(BorangDoc.Tick, BorangDoc.DGlyph(walls.Q));               // demo: not assessed ticks
             Assert.Equal("Door type name does not follow JKR naming", d.SecD[9].Remark);
-            Assert.Equal(("", "", "", ""), (d.SecD[2].N, d.SecD[2].Q, d.SecD[2].I, d.SecD[2].G));   // no cells
+            Assert.Equal(("y", "y", "y", "y"), (d.SecD[2].N, d.SecD[2].Q, d.SecD[2].I, d.SecD[2].G));   // no cells: demo ticks
         }
 
         [Fact]

@@ -34,7 +34,7 @@ namespace RevitWebAppSync.Tests
             Assert.True(fails > 1 && person > 1 && total > 1);   // the fixture fails, plural wording
 
             Assert.Equal("fail", r.VerdictTone);
-            Assert.True(r.HasManualLink);
+            Assert.False(r.HasManualLink);   // demo: link hidden
 
             Assert.Equal("Does not comply", r.VerdictHead);
             Assert.Equal(fails + " spec checks fail.", r.VerdictSub);

@@ -514,7 +514,7 @@ namespace RevitWebAppSync.UI.Jkr.Panel.Core
         /// <summary>Under the %: "12 separa" (AI checks only partly checked — own state, not passed); "" when none.</summary>
         public string PartialLine => _spec == null ? "" : SpecChecklist.PartialLine(_spec);
         public bool HasPartialLine => PartialLine.Length > 0;
-        public bool HasManualLink => _spec != null && PendTotal > 0;
+        public bool HasManualLink => false;   // DEMO: no "checks wait for manual review" link
         /// <summary>The issue view's one-line verdict: "18% compliant · 22 fail".</summary>
         public string VerdictShortLine =>
             _spec == null ? HeadPctLabel + " " + CompliantLabel : string.Format(S("vShort"), HeadPctLabel, _spec.FailChecks);
