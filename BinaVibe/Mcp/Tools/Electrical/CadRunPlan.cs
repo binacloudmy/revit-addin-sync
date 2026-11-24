@@ -56,8 +56,112 @@ namespace BinaVibe.Mcp.Tools.Electrical
         public double? RunHeightMm;
     }
 
+    /// <summary>The fittings a cable tray type has assigned (its routing fittings).</summary>
+    internal sealed class TrayFittings
+    {
+        public string Name = "";
+        public bool Bend, Tee, Cross, Union;
+        public bool Any => Bend || Tee || Cross || Union;
+        public int Count => (Bend ? 1 : 0) + (Tee ? 1 : 0) + (Cross ? 1 : 0) + (Union ? 1 : 0);
+    }
+
+    /// <summary>One routed run's end at a junction: which run, which end, where, and the plan
+    /// direction from the junction into the run. Group keeps different types and levels apart.</summary>
+    internal sealed class JunctionEnd
+    {
+        public int Item;
+        public bool AtStart;
+        public string Group = "";
+        public double X, Y, Z, Dx, Dy;
+    }
+
     internal static class CadRunPlan
     {
+        /// <summary>
+        /// The tray type to route with: the named one when it has any fitting; else the project's
+        /// type with the most fittings (a bend first, then by name), and <paramref name="switched"/>
+        /// is true; else the named one, which then builds straight runs only.
+        /// </summary>
+        public static TrayFittings ChooseTrayType(TrayFittings named, IEnumerable<TrayFittings> all, out bool switched)
+        {
+            switched = false;
+            if (named.Any) return named;
+            TrayFittings? other = all.Where(t => t.Any)
+                .OrderByDescending(t => t.Bend).ThenByDescending(t => t.Count).ThenBy(t => t.Name, StringComparer.Ordinal)
+                .FirstOrDefault();
+            if (other == null) return named;
+            switched = true;
+            return other;
+        }
+
+        /// <summary>A run with a corner needs a bend; a straight one always builds.</summary>
+        public static bool CanBuild(TrayFittings t, int points) => points <= 2 || t.Bend;
+
+        /// <summary>Why a junction of <paramref name="ends"/> cannot be joined with this type, or
+        /// null when it can. Two ends straight on are only connected and need no fitting.</summary>
+        public static string? JoinSkip(TrayFittings t, int ends, bool straight)
+        {
+            if (ends == 2 && straight) return null;
+            if (!t.Any) return "tray type '" + t.Name + "' has no fittings; joins skipped";
+            if (ends == 2) return t.Bend ? null : "tray type '" + t.Name + "' has no bend";
+            if (ends == 3) return t.Tee ? null : "tray type '" + t.Name + "' has no tee";
+            return t.Cross ? null : "tray type '" + t.Name + "' has no cross";
+        }
+
+        /// <summary>Run ends meeting at one junction: ends of one group within joinMm of each
+        /// other in plan and height, two or more of them, in input order.</summary>
+        public static List<List<JunctionEnd>> JunctionGroups(IReadOnlyList<JunctionEnd> ends, double joinMm = 20) =>
+            AllGroups(ends, joinMm).Where(g => g.Count >= 2).ToList();
+
+        /// <summary>
+        /// The ends no other built end meets, each with the runs (their Item) among
+        /// <paramref name="unbuilt"/> that end at the same junction: the partners not built.
+        /// </summary>
+        public static List<(JunctionEnd End, List<int> Partners)> LoneEnds(IReadOnlyList<JunctionEnd> ends,
+                                                                           IReadOnlyList<JunctionEnd> unbuilt, double joinMm = 20) =>
+            AllGroups(ends, joinMm).Where(g => g.Count == 1).Select(g => (g[0],
+                unbuilt.Where(u => Near(g[0], u, joinMm)).Select(u => u.Item).Distinct().ToList())).ToList();
+
+        private static List<List<JunctionEnd>> AllGroups(IReadOnlyList<JunctionEnd> ends, double joinMm)
+        {
+            var groups = new List<List<JunctionEnd>>();
+            foreach (JunctionEnd e in ends)
+            {
+                List<JunctionEnd>? at = groups.FirstOrDefault(g => Near(g[0], e, joinMm));
+                if (at == null) groups.Add(at = new List<JunctionEnd>());
+                at.Add(e);
+            }
+            return groups;
+        }
+
+        private static bool Near(JunctionEnd a, JunctionEnd b, double joinMm) => a.Group == b.Group &&
+            Math.Abs(a.X - b.X) <= joinMm && Math.Abs(a.Y - b.Y) <= joinMm && Math.Abs(a.Z - b.Z) <= joinMm;
+
+        /// <summary>
+        /// The ends in the order Revit's fittings take them: for a tee the two most opposite
+        /// first (the main) and the branch last; for a cross the most opposite pair, then the
+        /// other two. Two ends are returned as given.
+        /// </summary>
+        public static List<JunctionEnd> FittingOrder(List<JunctionEnd> ends)
+        {
+            if (ends.Count < 3) return ends.ToList();
+            int bi = 0, bj = 1;
+            double best = double.MaxValue;
+            for (int i = 0; i < ends.Count; i++)
+                for (int j = i + 1; j < ends.Count; j++)
+                {
+                    double dot = (ends[i].Dx * ends[j].Dx) + (ends[i].Dy * ends[j].Dy);
+                    if (dot < best) { best = dot; bi = i; bj = j; }
+                }
+            var order = new List<JunctionEnd> { ends[bi], ends[bj] };
+            order.AddRange(ends.Where((_, k) => k != bi && k != bj));
+            return order;
+        }
+
+        /// <summary>Two ends pointing opposite ways (within 10 degrees) carry straight on.</summary>
+        public static bool Straight(JunctionEnd a, JunctionEnd b) =>
+            (a.Dx * b.Dx) + (a.Dy * b.Dy) <= -Math.Cos(10 * Math.PI / 180);
+
         /// <summary>Each run flag, and whether it leaves the run out of a default route_conduit.</summary>
         public static readonly IReadOnlyDictionary<string, bool> FlagExcludes = new Dictionary<string, bool>(StringComparer.Ordinal)
         {

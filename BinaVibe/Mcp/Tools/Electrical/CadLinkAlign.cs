@@ -136,6 +136,25 @@ namespace BinaVibe.Mcp.Tools.Electrical
             };
         }
 
+        /// <summary>A turn within this of a quarter turn is square to the model.</summary>
+        public const double SquareTolDeg = 1;
+
+        /// <summary>A link still where link_file put it: unturned, at the internal origin.</summary>
+        public static bool AtOrigin(FitTransform t) =>
+            Math.Abs(t.RotationRad) < 1e-6 && Math.Abs(t.TxMm) < 1 && Math.Abs(t.TyMm) < 1;
+
+        /// <summary>
+        /// Whether the plan's fit is offered as where to move a link still at the origin
+        /// (link_place): not failed, and square to the model. A pose 82 degrees off was another
+        /// plan of the sheet laid across the building, not the building.
+        /// </summary>
+        public static bool CanPlaceLink(FitResult fit)
+        {
+            if (fit.Outcome == "failed") return false;
+            double off = ((fit.Transform.RotationRad * 180 / Math.PI % 90) + 90) % 90;
+            return Math.Min(off, 90 - off) <= SquareTolDeg;
+        }
+
         public static FitTransform? FromBasis(LinkBasis link, out string? unusable) =>
             FromBasis(link.OriginMm, link.BasisX, link.BasisY, link.BasisZ, out unusable);
 
@@ -351,6 +370,21 @@ namespace BinaVibe.Mcp.Tools.Electrical
             try { return System.IO.Path.GetFullPath(path); }
             catch (Exception) { return path; }
         }
+
+        /// <summary>A link's place measured on every level, best first.</summary>
+        public static List<LevelFit> MeasureLevels(IReadOnlyList<FitSegment> cad,
+            IReadOnlyDictionary<string, IReadOnlyList<FitSegment>> modelByLevel, FitTransform t, FitOptions o) =>
+            modelByLevel
+                .Select(pair => new LevelFit { Level = pair.Key, Fit = Measure(cad, pair.Value, t, o) })
+                .OrderByDescending(f => f.Fit.Score)
+                .ThenByDescending(f => f.Fit.CoveredMm)
+                .ThenBy(f => f.Level, StringComparer.Ordinal)
+                .ToList();
+
+        /// <summary>The link lays the drawing on two levels about equally (typical floors).</summary>
+        public static bool LevelTie(List<LevelFit> byLink) =>
+            byLink.Count > 1 && byLink[0].Fit.Outcome != "failed" &&
+            byLink[0].Fit.Score - byLink[1].Fit.Score <= TieMargin;
 
         /// <summary>
         /// A transform as wire fields: <c>{prefix}rotation_deg</c> in (-180, 180], 3 places, and

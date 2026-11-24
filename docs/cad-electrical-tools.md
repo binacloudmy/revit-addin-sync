@@ -290,6 +290,8 @@ The headline then reads "Alignment 0.61 from your positioned link."
 
 When the fit cannot place the drawing, the user can link the DWG (`link_file`) and move it onto the building (`move_elements`). The link's total transform is then the placement.
 
+`link_file` links a DWG at the origin and never moves it. When `dwg_ref` is such a link (unturned, at the internal origin) and the plan's own fit passed (not `failed`) with a rotation within 1 degree of 0, 90, 180 or 270, the plan result carries `link_place` (`link_id`, `rotation_deg`, `tx_mm`, `ty_mm`) and a note: rotate the link about 0,0 with `rotate_elements` when `rotation_deg` is not 0, then `move_elements` by (`tx_mm`, `ty_mm`), then plan again with `link_id`. The plan itself stays read-only.
+
 **When it is used:**
 - With `link_id`, always. The fit is not run.
 - Without it, only after both the centreline fit and the face fit fail. A passing fit is never overridden.
@@ -301,7 +303,7 @@ When the fit cannot place the drawing, the user can link the DWG (`link_file`) a
 
 **The transform:** the rotation is `atan2(BasisX.Y, BasisX.X)`, and the translation is the link's origin in mm. A mirrored, tilted or scaled link is refused with `link_unusable`. Revit puts a link's unit into its geometry, not its transform, so `scaled` is also a link whose plan bounding box is not 0.8-1.25 times the drawing's extent as the engine reads it (a link in another unit). `link_file` links a DWG in the engine's unit and returns it as `unit`.
 
-**The level:** the `level` arg, else the cluster's plan rows. Else, with `link_id`, the level the link's position scores best on. A second level within 0.05 gives `level_ambiguous`.
+**The level:** the `level` arg, else the cluster's plan rows. Else, with `link_id` or a link found automatically after the fit failed, the level the link's position scores best on (each found link is measured on every level, never only on the failed fit's best level). A second level within 0.05 gives `level_ambiguous`.
 
 **Link outcomes:** the user placed the link, so the bands are lower than the fit's:
 - `accepted` at 0.50 or more;
@@ -327,7 +329,7 @@ The crop guard holds: too little drawing wall inside the footprint fails as for 
 | `link_misaligned` | `link_id` scores below 0.25 on the level, or lays too little of the drawing inside it | `link_id`, `level`, `cluster`, `score`, `score_uncropped`, `inside_share`, `reason` (`alignment_failed` or `crop_too_small`), `rotation_deg`, `tx_mm`, `ty_mm` (the link's placement). `candidates`: the clusters' `{cluster, titles, score}` under the link, best first. Bounded under the 50 s HTTP cap: clusters without walls are skipped, at most 12 others are measured, and none after 30 s of plan time; `clusters_truncated` is true when a cluster was left out. When another cluster scores better, the message names it. |
 | `link_low_score` | The link (given or found) scores provisional, 0.25 to 0.50, and `confirm_low_score` is not true | `link_id`, `level`, `cluster`, `score`. Check the level and the link's place, or pass `confirm_low_score=true` |
 | `link_ambiguous` | No `link_id`, the fit failed, and the model holds several links of the drawing, one of them clearing 0.25 | `level`, `cluster`. `candidates`: `{link_id, score, outcome, unusable, rotation_deg, tx_mm, ty_mm}`, best first |
-| `level_ambiguous` | With `link_id` and no level given, two levels score within 0.05 | `cluster`, `link_id`. `candidates`: `{level, score, outcome}` |
+| `level_ambiguous` | With a link (`link_id` or found) and no level given, two levels score within 0.05 | `cluster`, `link_id`. `candidates`: `{level, score, outcome}` |
 
 `links_tried` rows on `alignment_failed` have the `link_ambiguous` candidate shape.
 
@@ -716,8 +718,8 @@ For each conduit or trunking row, in mapping order:
    - Pieces along one line join when their ends are within 20 mm. If that merge would move an end by more than 20 mm, the pieces are chained as drawn.
    - An arc of radius up to 1000 mm whose ends meet two pieces within 20 mm, each along the arc's tangent (within 5 degrees), is a bend. The two pieces are extended to their intersection, which becomes the corner. Any other arc is a free arc: counted, not chained.
    - Ends within 20 mm are one node. A node within 20 mm of another piece's interior splits that piece there, so a branch meets the run it touches. Two pieces that cross with no end at the crossing stay apart.
-   - At a junction (three or more pieces at one node), the two pieces closest to opposite (within 10 degrees) carry on as one run. Every other piece ends there, as a `junction` end. There is no tee and no junction box.
-   - Vertices turning less than 1 degree are removed. A run shorter than the kind's minimum is dropped and counted (`dropped_short`): 300 mm for conduit, 1000 mm for cable tray (trunking).
+   - At a junction (three or more pieces at one node), every piece ends there, as a `junction` end: a run that went straight through is split. `route_conduit` then joins the ends that meet there (below).
+   - Vertices turning less than 1 degree are removed. A run shorter than the kind's minimum is dropped and counted (`dropped_short`): 300 mm for conduit, 1000 mm for cable tray (trunking). A run with a junction at both ends is kept however short: it is part of the network.
    - Runs are ordered by layer, then lowest x, then lowest y, so indices are the same from call to call.
 5. **Planning** (`CadRunPlan`, model mm):
    - Each point is carried onto the model by the fit. Z is the level plus the run height: the row's, else the call's.
@@ -795,7 +797,7 @@ The run is built in one transaction, with an elbow at each corner. The result ha
    - A conduit diameter must be one of the type's sizes.
    - A type error fails every run that uses it.
 2. **Skips.** A run whose created elements all still exist is skipped as `already_routed`. After an undo, it is built again.
-3. **Transactions.** One `TransactionGroup`, with one transaction per run. A run that fails rolls back alone. The group is assimilated when at least one run was built, so the call is one undo step.
+3. **Transactions.** One `TransactionGroup`, with one transaction per run, then one per corner elbow. A run that fails rolls back alone. The group is assimilated when at least one run was built, so the call is one undo step.
 4. **Device ends (conduit).** The device is found by:
    - the run end's element id (an existing device), else
    - the plan point's placed device (`place_socket_points` records it), else
@@ -810,12 +812,16 @@ The run is built in one transaction, with an elbow at each corner. The result ha
 **Result:**
 - `ok`: true when a run was built, or when none failed
 - `plan_id`, `runs_created`, `runs_failed`
-- `created`: `index`, `new_ids`, `fitting_ids`, `length_mm`, `start` and `end` (`kind`, `point_index`, `element_id`, `connected`)
+- `created`: `index`, `new_ids`, `fitting_ids`, `unjoined_corners` (corner point indices whose elbow failed), `length_mm`, `start` and `end` (`kind`, `point_index`, `element_id`, `connected`)
 - `failed`: `index`, `reason`, `failed_corner_index`
 - `skipped`: `index`, `reason`
 - `new_ids`, `fitting_ids`, `total_length_mm`, `open_connectors`, `warnings`: flat over all the runs, as `route_pipe` returns them
 
 No runs selected gives `ok: false`. If the plan has no runs at all, the error says to run `plan_cad_electrical` with `run_height_mm`.
+
+**Junctions (plan mode):** after the runs are built, the ends of the runs built in that call that meet at one junction (same type and level, within 20 mm) are joined in one transaction each, inside the call's group: two running straight on are connected, two at an angle get an elbow, three a tee (the two most opposite are the main), four a cross. More than four, or a fitting Revit refuses, is a warning, and the runs stay built. An end no other built run meets keeps its one open end, with a warning per end: "junction at (x, y) mm: run N's end is open, partner run M not built" (or "no partner run" when no plan run ends there).
+
+**Tray fittings (plan mode):** before routing, the cable tray type's routing fittings are read (horizontal bend or Bend, Tee, Cross, Union). A type with none is swapped for the project's tray type with the most fittings (one with a bend first), and a warning names both. When no tray type has any, only straight runs are built: a run with a corner is `skipped` with the reason, and every join that needs a fitting is a warning ("tray type X has no fittings; joins skipped"). A join the type lacks the fitting for (no tee, no cross) is skipped the same way. Each corner elbow is made in its own transaction after the run's legs are committed (Revit reports a bend that does not fit only at commit). One that fails is rolled back alone: the legs stay, the corner is listed in `unjoined_corners` and warned about ("corner K kept, not joined: ...").
 
 ### `place_cad_electrical` (mutate)
 

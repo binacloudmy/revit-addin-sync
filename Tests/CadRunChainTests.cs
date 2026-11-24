@@ -130,20 +130,19 @@ namespace Tests
         }
 
         [Fact]
-        public void A_tee_keeps_the_straight_pair_as_one_run_and_ends_the_branch_as_junction()
+        public void A_tee_ends_all_three_runs_at_the_junction()
         {
             ChainResult r = Chain(S(0, 0, 1000, 0), S(1000, 0, 2000, 0), S(1000, 0, 1000, 1000));
 
             Assert.Equal(1, r.Junctions);
-            Assert.Equal(2, r.Runs.Count);
-            ChainedRun main = r.Runs.Single(run => run.LengthMm > 1500);
-            ChainedRun branch = r.Runs.Single(run => run.LengthMm < 1500);
-            Assert.Equal(2, main.Points.Count);
-            Assert.Equal("open", main.StartKind);
-            Assert.Equal("open", main.EndKind);
-            Assert.Equal("junction", branch.StartKind);
-            Assert.Equal("open", branch.EndKind);
-            Near(1000, 0, branch.Points[0]);
+            Assert.Equal(3, r.Runs.Count);
+            Assert.All(r.Runs, run => Assert.Equal(2, run.Points.Count));
+            foreach (ChainedRun run in r.Runs)
+            {
+                bool startsThere = Math.Abs(run.Points[0].X - 1000) < 1e-6 && Math.Abs(run.Points[0].Y) < 1e-6;
+                Assert.Equal("junction", startsThere ? run.StartKind : run.EndKind);
+                Assert.Equal("open", startsThere ? run.EndKind : run.StartKind);
+            }
         }
 
         [Fact]
@@ -152,11 +151,111 @@ namespace Tests
             ChainResult r = Chain(S(0, 0, 2000, 0), S(1000, 10, 1000, 1000));
 
             Assert.Equal(1, r.Junctions);
-            ChainedRun main = r.Runs.Single(run => run.LengthMm > 1500);
-            ChainedRun branch = r.Runs.Single(run => run.LengthMm < 1500);
-            Assert.Equal(2, main.Points.Count);
+            Assert.Equal(3, r.Runs.Count);
+            ChainedRun branch = r.Runs.Single(run => Math.Abs(run.Points[0].X - run.Points[1].X) < 1e-6);
             Assert.Equal("junction", branch.StartKind);
             Near(1000, 0, branch.Points[0]);
+        }
+
+        [Fact]
+        public void A_short_piece_between_two_junctions_is_kept()
+        {
+            // Two tees 200 mm apart: the 200 mm piece between them is tray, not annotation.
+            ChainResult r = Chain(S(0, 0, 1000, 0), S(1000, 0, 1200, 0), S(1200, 0, 3000, 0),
+                                  S(1000, 0, 1000, 1000), S(1200, 0, 1200, -1000));
+
+            Assert.Equal(2, r.Junctions);
+            ChainedRun middle = r.Runs.Single(run => run.LengthMm < 300);
+            Assert.Equal("junction", middle.StartKind);
+            Assert.Equal("junction", middle.EndKind);
+        }
+
+        private static TrayFittings Tray(string name, bool bend = false, bool tee = false, bool cross = false, bool union = false) =>
+            new TrayFittings { Name = name, Bend = bend, Tee = tee, Cross = cross, Union = union };
+
+        [Fact]
+        public void A_tray_type_with_fittings_is_kept()
+        {
+            TrayFittings named = Tray("Trunking", bend: true);
+            Assert.Same(named, CadRunPlan.ChooseTrayType(named, new[] { named, Tray("Ladder", true, true, true, true) }, out bool switched));
+            Assert.False(switched);
+        }
+
+        [Fact]
+        public void A_tray_type_without_fittings_is_swapped_for_one_with_a_bend()
+        {
+            TrayFittings named = Tray("Trunking");
+            var all = new[] { named, Tray("A tees only", tee: true, cross: true, union: true), Tray("B ladder", bend: true, tee: true) };
+            TrayFittings chosen = CadRunPlan.ChooseTrayType(named, all, out bool switched);
+            Assert.True(switched);
+            Assert.Equal("B ladder", chosen.Name);
+        }
+
+        [Fact]
+        public void With_no_fittings_anywhere_only_straight_runs_build_and_joins_skip()
+        {
+            TrayFittings named = Tray("Trunking");
+            TrayFittings chosen = CadRunPlan.ChooseTrayType(named, new[] { named, Tray("Other") }, out bool switched);
+            Assert.False(switched);
+            Assert.Same(named, chosen);
+            Assert.True(CadRunPlan.CanBuild(chosen, 2));
+            Assert.False(CadRunPlan.CanBuild(chosen, 3));
+            Assert.Equal("tray type 'Trunking' has no fittings; joins skipped", CadRunPlan.JoinSkip(chosen, 3, false));
+            Assert.Null(CadRunPlan.JoinSkip(chosen, 2, true));   // straight on: connected, no fitting
+        }
+
+        [Fact]
+        public void A_join_skips_only_the_fitting_the_type_lacks()
+        {
+            TrayFittings t = Tray("Trunking", bend: true, tee: true);
+            Assert.Null(CadRunPlan.JoinSkip(t, 2, false));
+            Assert.Null(CadRunPlan.JoinSkip(t, 3, false));
+            Assert.Equal("tray type 'Trunking' has no cross", CadRunPlan.JoinSkip(t, 4, false));
+        }
+
+        private static JunctionEnd End(int item, double dx, double dy, double x = 1000, double y = 0) =>
+            new JunctionEnd { Item = item, Group = "tray", X = x, Y = y, Z = 3000, Dx = dx, Dy = dy };
+
+        [Fact]
+        public void Ends_at_one_point_are_one_junction_and_the_tee_main_comes_first()
+        {
+            var ends = new List<JunctionEnd> { End(0, 0, 1), End(1, -1, 0), End(2, 1, 0, 1005, 3), End(3, 0, 1, 5000, 0) };
+            List<JunctionEnd> node = Assert.Single(CadRunPlan.JunctionGroups(ends));
+            Assert.Equal(new[] { 0, 1, 2 }, node.Select(e => e.Item));
+
+            List<JunctionEnd> order = CadRunPlan.FittingOrder(node);
+            Assert.Equal(new[] { 1, 2, 0 }, order.Select(e => e.Item));   // main pair, then the branch
+            Assert.True(CadRunPlan.Straight(order[0], order[1]));
+        }
+
+        [Fact]
+        public void A_cross_pairs_the_opposite_ends()
+        {
+            var node = new List<JunctionEnd> { End(0, 1, 0), End(1, 0, 1), End(2, -1, 0), End(3, 0, -1) };
+            List<JunctionEnd> order = CadRunPlan.FittingOrder(node);
+            Assert.True(CadRunPlan.Straight(order[0], order[1]));
+            Assert.True(CadRunPlan.Straight(order[2], order[3]));
+        }
+
+        [Fact]
+        public void Other_groups_and_heights_do_not_join()
+        {
+            var a = End(0, 1, 0);
+            var b = End(1, -1, 0); b.Group = "conduit";
+            var c = End(2, 0, 1); c.Z = 3500;
+            Assert.Empty(CadRunPlan.JunctionGroups(new List<JunctionEnd> { a, b, c }));
+        }
+
+        [Fact]
+        public void A_lone_junction_end_names_its_unbuilt_partner()
+        {
+            var built = new List<JunctionEnd> { End(0, 1, 0), End(1, -1, 0), End(2, 0, 1, 5000, 0) };
+            var unbuilt = new List<JunctionEnd> { End(47, 0, -1, 5010, 0), End(41, 0, -1, 9000, 0) };
+
+            var lone = Assert.Single(CadRunPlan.LoneEnds(built, unbuilt));
+            Assert.Equal(2, lone.End.Item);
+            Assert.Equal(new[] { 47 }, lone.Partners);
+            Assert.Empty(Assert.Single(CadRunPlan.LoneEnds(new List<JunctionEnd> { End(0, 1, 0) }, unbuilt)).Partners);
         }
 
         [Fact]

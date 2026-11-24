@@ -4370,11 +4370,11 @@ namespace BinaVibe.Mcp.Tools
         }
 
         // ─── set_section_box ────────────────────────────────────────────
-        // Scope the active 3D view's section box to a level or to elements.
-        public static Dictionary<string, object?> SetSectionBox(Document doc, JsonElement args)
+        // Scope a 3D view's section box to a level or to elements: the active 3D
+        // view, else the default "{3D}", else a new isometric one; then open it.
+        public static Dictionary<string, object?> SetSectionBox(UIDocument uidoc, JsonElement args)
         {
-            if (!(doc.ActiveView is View3D v3))
-                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = "active view is not a 3D view — call create_3d_view first" };
+            var doc = uidoc.Document;
 
             double marginFt = 1000.0 / 304.8;
             var ids = ArgsHelp.GetLongList(args, "element_ids");
@@ -4421,12 +4421,29 @@ namespace BinaVibe.Mcp.Tools
                 Max = new XYZ(max.X + marginFt, max.Y + marginFt, max.Z + marginFt),
             };
 
-            using var tx = new Transaction(doc, "BinaVibe: set_section_box");
-            TxGuard.StartSwallowing(tx);
-            try { v3.IsSectionBoxActive = true; v3.SetSectionBox(box); tx.Commit(); }
-            catch { tx.RollBack(); throw; }
+            var v3 = doc.ActiveView is View3D av && !av.IsTemplate ? av
+                : new FilteredElementCollector(doc).OfClass(typeof(View3D)).Cast<View3D>()
+                    .FirstOrDefault(v => !v.IsTemplate && v.Name == "{3D}");
+            using (var tx = new Transaction(doc, "BinaVibe: set_section_box"))
+            {
+                TxGuard.StartSwallowing(tx);
+                try
+                {
+                    if (v3 == null)
+                    {
+                        var vft = new FilteredElementCollector(doc).OfClass(typeof(ViewFamilyType)).Cast<ViewFamilyType>()
+                            .FirstOrDefault(t => t.ViewFamily == ViewFamily.ThreeDimensional)
+                            ?? throw new InvalidOperationException("no 3D view family type in this project");
+                        v3 = View3D.CreateIsometric(doc, vft.Id);
+                    }
+                    v3.IsSectionBoxActive = true; v3.SetSectionBox(box); tx.Commit();
+                }
+                catch { tx.RollBack(); throw; }
+            }
+            // Open it OUTSIDE the transaction (view activation is not a doc edit).
+            if (doc.ActiveView?.Id != v3.Id) { try { uidoc.ActiveView = v3; } catch { /* best-effort */ } }
 
-            return new Dictionary<string, object?> { ["ok"] = true, ["scoped_to"] = scopedTo };
+            return new Dictionary<string, object?> { ["ok"] = true, ["scoped_to"] = scopedTo, ["view_id"] = v3.Id.Value, ["view"] = v3.Name };
         }
 
         // ─── create_project_parameter ───────────────────────────────────
@@ -5138,6 +5155,7 @@ namespace BinaVibe.Mcp.Tools
                 throw new ArgumentException($"category '{catName}' not recognised");
             var fields = ArgsHelp.GetStringList(args, "fields");
             var dryRun = ArgsHelp.GetBool(args, "dry_run") ?? false;
+            var displayName = Category.GetCategory(doc, bic)?.Name ?? catName;   // "Cable Trays", not "OST_CableTray"
             var existingNames = new FilteredElementCollector(doc).OfClass(typeof(ViewSchedule)).Cast<ViewSchedule>()
                 .Select(v => v.Name).ToList();
 
@@ -5153,7 +5171,7 @@ namespace BinaVibe.Mcp.Tools
                     try { var n = sf.GetName(doc); if (!string.IsNullOrEmpty(n) && !available.ContainsKey(n)) available[n] = sf; }
                     catch { }
                 }
-                var plan = BinaVibe.Documentation.SchedulePlan.Build(catName, fields, available.Keys, existingNames);
+                var plan = BinaVibe.Documentation.SchedulePlan.Build(displayName, fields, available.Keys, existingNames, ArgsHelp.GetString(args, "name"));
                 if (dryRun)
                 {
                     tx.RollBack();   // the schedule was only created to enumerate fields
@@ -5169,8 +5187,7 @@ namespace BinaVibe.Mcp.Tools
                 foreach (var f in plan.Resolved)
                     if (available.TryGetValue(f, out var sf2)) { try { def.AddField(sf2); added.Add(f); } catch { } }
                 try { sched.Name = plan.ProposedName; } catch { /* keep Revit's default */ }
-                tx.Commit();
-                doc.Regenerate();
+                tx.Commit();   // Commit regenerates; a Regenerate() here, outside the transaction, threw "modification forbidden"
                 var exists = doc.GetElement(sched.Id) is ViewSchedule check;
                 int fieldCount = 0;
                 try { fieldCount = sched.Definition.GetFieldCount(); } catch { }

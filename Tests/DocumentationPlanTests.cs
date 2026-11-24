@@ -58,5 +58,15 @@ namespace RevitAddinSync.Tests
             Assert.Equal("Door Schedule 3", plan.ProposedName);
             Assert.Equal(true, plan.ToPreview()["would_create"]);
         }
+
+        [Theory]
+        [InlineData("Electrical Fixtures", null, "Electrical Fixture Schedule")]
+        [InlineData("OST_CableTray", null, "Cable Tray Schedule")]
+        [InlineData("Cable Trays", "My Trays", "My Trays 2")]   // caller's name wins, still made unique
+        public void SchedulePlan_NamesReadably_AndCallerNameWins(string category, string? name, string expected)
+        {
+            var plan = SchedulePlan.Build(category, null, new[] { "Comments" }, existingNames: new[] { "My Trays" }, name);
+            Assert.Equal(expected, plan.ProposedName);
+        }
     }
 }

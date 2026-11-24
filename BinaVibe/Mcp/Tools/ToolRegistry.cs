@@ -155,7 +155,7 @@ namespace BinaVibe.Mcp.Tools
                 "dimension_grids"               => Mutators.DimensionGrids(doc, args),
                 "crop_view_to_elements"         => Mutators.CropViewToElements(doc, args),
                 "create_3d_view"                => Mutators.Create3dView(uidoc, args),
-                "set_section_box"               => Mutators.SetSectionBox(doc, args),
+                "set_section_box"               => Mutators.SetSectionBox(uidoc, args),
                 "find_missing_parameter"        => Inspectors.FindMissingParameter(doc, args),
                 "rename_elements"               => Mutators.RenameElements(doc, args),
                 // Batch JKR rename + param write-back; names composed by the
@@ -327,18 +327,10 @@ namespace BinaVibe.Mcp.Tools
         private static T WithDwg<T>(UIApplication app, Document doc, string dwgRef,
                                     Func<Document, ImportInstance, string, T> body)
         {
-            if (string.IsNullOrWhiteSpace(dwgRef))
-                throw new InvalidOperationException(
-                    "dwg_ref is required — call list_cad_links, or use the ref from the [Attached DWG] block");
-
             if (DwgScratchCache.IsAttachmentRef(dwgRef))
                 return DwgScratchCache.Use(app, dwgRef, (d, imp) => body(d, imp, "attachment"));
 
-            var raw = dwgRef.StartsWith("model:", StringComparison.OrdinalIgnoreCase)
-                ? dwgRef.Substring("model:".Length) : dwgRef;
-            if (!long.TryParse(raw, out var id))
-                throw new InvalidOperationException(
-                    "bad dwg_ref '" + dwgRef + "' — expected \"model:<id>\" or \"att:<guid>\"");
+            var id = DwgRef.ParseModelId(dwgRef);
             if (doc.GetElement(ElemIds.From(id)) is not ImportInstance imp2)
                 throw new InvalidOperationException(
                     "no CAD import with id " + id + " in this model — call list_cad_links for the current refs");
