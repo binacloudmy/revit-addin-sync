@@ -1499,10 +1499,6 @@ namespace BinaVibe.Mcp.Tools.Electrical
         /// </summary>
         public static string ResolvePath(Document doc, string dwgRef)
         {
-            if (string.IsNullOrWhiteSpace(dwgRef))
-                throw new InvalidOperationException(
-                    "dwg_ref is required — call list_cad_links, or use the ref from the [Attached DWG] block");
-
             string? path;
             if (DwgScratchCache.IsAttachmentRef(dwgRef))
             {
@@ -1513,11 +1509,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
             }
             else
             {
-                var raw = dwgRef.StartsWith("model:", StringComparison.OrdinalIgnoreCase)
-                    ? dwgRef.Substring("model:".Length) : dwgRef;
-                if (!long.TryParse(raw, out var id))
-                    throw new InvalidOperationException(
-                        "bad dwg_ref '" + dwgRef + "' — expected \"model:<id>\" or \"att:<guid>\"");
+                var id = DwgRef.ParseModelId(dwgRef);
                 if (doc.GetElement(ElemIds.From(id)) is not ImportInstance imp)
                     throw new InvalidOperationException(
                         "no CAD import with id " + id + " in this model — call list_cad_links for the current refs");

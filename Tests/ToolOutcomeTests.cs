@@ -73,5 +73,25 @@ namespace RevitAddinSync.Tests
             Assert.Equal(500, ToolOutcome.ErrorStatus(new System.InvalidOperationException(""), "x", null, out string other));
             Assert.Equal("InvalidOperationException", other);
         }
+
+        [Theory]
+        [InlineData(@"C:\demo_v2\elec.dwg")]
+        [InlineData("elec.dwg")]
+        [InlineData("model:abc")]
+        [InlineData("")]
+        public void BadDwgRef_is_a_400_argument_error(string dwgRef)
+        {
+            var ex = Assert.ThrowsAny<System.ArgumentException>(() => BinaVibe.Mcp.Tools.DwgRef.ParseModelId(dwgRef));
+            Assert.Equal(400, ToolOutcome.ErrorStatus(ex, "read_cad_electrical", null, out _));
+        }
+
+        [Fact]
+        public void FilePathDwgRef_says_to_link_or_attach()
+        {
+            var ex = Assert.Throws<System.ArgumentException>(() => BinaVibe.Mcp.Tools.DwgRef.ParseModelId(@"C:\x\elec.dwg"));
+            Assert.Contains("file path", ex.Message);
+            Assert.Equal(123, BinaVibe.Mcp.Tools.DwgRef.ParseModelId("model:123"));
+            Assert.Equal(123, BinaVibe.Mcp.Tools.DwgRef.ParseModelId("123"));
+        }
     }
 }
