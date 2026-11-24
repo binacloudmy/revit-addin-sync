@@ -303,7 +303,7 @@ When the fit cannot place the drawing, the user can link the DWG (`link_file`) a
 
 **The transform:** the rotation is `atan2(BasisX.Y, BasisX.X)`, and the translation is the link's origin in mm. A mirrored, tilted or scaled link is refused with `link_unusable`. Revit puts a link's unit into its geometry, not its transform, so `scaled` is also a link whose plan bounding box is not 0.8-1.25 times the drawing's extent as the engine reads it (a link in another unit). `link_file` links a DWG in the engine's unit and returns it as `unit`.
 
-**The level:** the `level` arg, else the cluster's plan rows. Else, with `link_id`, the level the link's position scores best on. A second level within 0.05 gives `level_ambiguous`.
+**The level:** the `level` arg, else the cluster's plan rows. Else, with `link_id` or a link found automatically after the fit failed, the level the link's position scores best on (each found link is measured on every level, never only on the failed fit's best level). A second level within 0.05 gives `level_ambiguous`.
 
 **Link outcomes:** the user placed the link, so the bands are lower than the fit's:
 - `accepted` at 0.50 or more;
@@ -329,7 +329,7 @@ The crop guard holds: too little drawing wall inside the footprint fails as for 
 | `link_misaligned` | `link_id` scores below 0.25 on the level, or lays too little of the drawing inside it | `link_id`, `level`, `cluster`, `score`, `score_uncropped`, `inside_share`, `reason` (`alignment_failed` or `crop_too_small`), `rotation_deg`, `tx_mm`, `ty_mm` (the link's placement). `candidates`: the clusters' `{cluster, titles, score}` under the link, best first. Bounded under the 50 s HTTP cap: clusters without walls are skipped, at most 12 others are measured, and none after 30 s of plan time; `clusters_truncated` is true when a cluster was left out. When another cluster scores better, the message names it. |
 | `link_low_score` | The link (given or found) scores provisional, 0.25 to 0.50, and `confirm_low_score` is not true | `link_id`, `level`, `cluster`, `score`. Check the level and the link's place, or pass `confirm_low_score=true` |
 | `link_ambiguous` | No `link_id`, the fit failed, and the model holds several links of the drawing, one of them clearing 0.25 | `level`, `cluster`. `candidates`: `{link_id, score, outcome, unusable, rotation_deg, tx_mm, ty_mm}`, best first |
-| `level_ambiguous` | With `link_id` and no level given, two levels score within 0.05 | `cluster`, `link_id`. `candidates`: `{level, score, outcome}` |
+| `level_ambiguous` | With a link (`link_id` or found) and no level given, two levels score within 0.05 | `cluster`, `link_id`. `candidates`: `{level, score, outcome}` |
 
 `links_tried` rows on `alignment_failed` have the `link_ambiguous` candidate shape.
 

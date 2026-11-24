@@ -153,6 +153,35 @@ namespace Tests
             Assert.True(r.Score < CadLinkAlign.FloorScore);
         }
 
+        // AI-588: the link's place picks the level, not the failed fit's best level.
+        [Fact]
+        public void The_level_the_link_lies_on_comes_first()
+        {
+            FitTransform truth = Turn(0, 250000, -80000);
+            var byLevel = new Dictionary<string, IReadOnlyList<FitSegment>>
+            {
+                ["Level 1"] = Move(LPlan().Take(8), Turn(90, 0, 0)),   // another floor plan
+                ["Level 2"] = Move(LPlan(), truth),
+            };
+            List<LevelFit> ranked = CadLinkAlign.MeasureLevels(LPlan(), byLevel, truth, new FitOptions());
+
+            Assert.Equal("Level 2", ranked[0].Level);
+            Assert.Equal("accepted", ranked[0].Fit.Outcome);
+            Assert.False(CadLinkAlign.LevelTie(ranked));
+        }
+
+        [Fact]
+        public void Typical_floors_under_one_link_tie()
+        {
+            FitTransform truth = Turn(0, 250000, -80000);
+            var byLevel = new Dictionary<string, IReadOnlyList<FitSegment>>
+            {
+                ["Level 2"] = Move(LPlan(), truth),
+                ["Level 3"] = Move(LPlan(), truth),
+            };
+            Assert.True(CadLinkAlign.LevelTie(CadLinkAlign.MeasureLevels(LPlan(), byLevel, truth, new FitOptions())));
+        }
+
         // ─── TransformFields (alignment_failed's best_*) ───────────────
 
         [Theory]

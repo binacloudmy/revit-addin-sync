@@ -352,6 +352,21 @@ namespace BinaVibe.Mcp.Tools.Electrical
             catch (Exception) { return path; }
         }
 
+        /// <summary>A link's place measured on every level, best first.</summary>
+        public static List<LevelFit> MeasureLevels(IReadOnlyList<FitSegment> cad,
+            IReadOnlyDictionary<string, IReadOnlyList<FitSegment>> modelByLevel, FitTransform t, FitOptions o) =>
+            modelByLevel
+                .Select(pair => new LevelFit { Level = pair.Key, Fit = Measure(cad, pair.Value, t, o) })
+                .OrderByDescending(f => f.Fit.Score)
+                .ThenByDescending(f => f.Fit.CoveredMm)
+                .ThenBy(f => f.Level, StringComparer.Ordinal)
+                .ToList();
+
+        /// <summary>The link lays the drawing on two levels about equally (typical floors).</summary>
+        public static bool LevelTie(List<LevelFit> byLink) =>
+            byLink.Count > 1 && byLink[0].Fit.Outcome != "failed" &&
+            byLink[0].Fit.Score - byLink[1].Fit.Score <= TieMargin;
+
         /// <summary>
         /// A transform as wire fields: <c>{prefix}rotation_deg</c> in (-180, 180], 3 places, and
         /// <c>{prefix}tx_mm</c>, <c>{prefix}ty_mm</c>, 1 place. On a failed fit (prefix "best_")

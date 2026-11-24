@@ -240,30 +240,11 @@ namespace BinaVibe.Mcp.Tools.Electrical
             }
             else if (givenTransform != null)
             {
-                // The link's place measured on every level: the best wins, a near tie asks.
-                List<LevelFit> byLink = modelByLevel
-                    .Select(pair => new LevelFit { Level = pair.Key, Fit = CadLinkAlign.Measure(cad, pair.Value, givenTransform, fitOptions) })
-                    .OrderByDescending(f => f.Fit.Score)
-                    .ThenByDescending(f => f.Fit.CoveredMm)
-                    .ThenBy(f => f.Level, StringComparer.Ordinal)
-                    .ToList();
+                List<LevelFit> byLink = CadLinkAlign.MeasureLevels(cad, modelByLevel, givenTransform, fitOptions);
                 if (byLink.Count == 0)
                     return Failed(dwgRef, "no_model_walls", "the model has no levels to place on");
-                if (byLink.Count > 1 && byLink[0].Fit.Outcome != "failed" &&
-                    byLink[0].Fit.Score - byLink[1].Fit.Score <= CadLinkAlign.TieMargin)
-                {
-                    Dictionary<string, object?> ambiguous = Failed(dwgRef, "level_ambiguous",
-                        "link " + linkArg!.Value + " lays the drawing on several levels about equally (typical floors) — pass level",
-                        byLink.Take(5).Select(f => (object?)new Dictionary<string, object?>
-                        {
-                            ["level"] = f.Level,
-                            ["score"] = Math.Round(f.Fit.Score, 3),
-                            ["outcome"] = f.Fit.Outcome,
-                        }).ToList());
-                    ambiguous["cluster"] = cluster;
-                    ambiguous["link_id"] = linkArg.Value;
-                    return ambiguous;
-                }
+                if (CadLinkAlign.LevelTie(byLink))
+                    return LinkLevelAmbiguous(dwgRef, cluster, linkArg!.Value, byLink);
                 level = model.Levels.First(l => l.Name == byLink[0].Level);
             }
             else
@@ -344,6 +325,9 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 if (fit.Outcome == "failed" && (fit.FailReason == "alignment_failed" || fit.FailReason == "crop_too_small"))
                 {
                     IReadOnlyList<FitSegment> levelWalls = modelByLevel[level.Name];
+                    // A level from the failed fit is no evidence (AI-588: it put the sockets on another
+                    // floor): then each link is measured on every level, as for link_id, and its best counts.
+                    var linkLevels = new Dictionary<long, List<LevelFit>>();
                     List<LinkMeasure> measured = MatchingLinks(doc, path).Select(link =>
                     {
                         FitTransform? t = CadLinkAlign.FromBasis(link, out string? unusable);
@@ -352,16 +336,31 @@ namespace BinaVibe.Mcp.Tools.Electrical
                             t = null;
                             unusable = "scaled";
                         }
-                        return new LinkMeasure
+                        FitResult? linkFit = null;
+                        if (t != null && levelName == null)
                         {
-                            Id = link.Id,
-                            Unusable = unusable,
-                            Fit = t != null ? CadLinkAlign.Measure(cad, levelWalls, t, fitOptions) : null,
-                        };
+                            linkLevels[link.Id] = CadLinkAlign.MeasureLevels(cad, modelByLevel, t, fitOptions);
+                            linkFit = linkLevels[link.Id][0].Fit;
+                        }
+                        else if (t != null) linkFit = CadLinkAlign.Measure(cad, levelWalls, t, fitOptions);
+                        return new LinkMeasure { Id = link.Id, Unusable = unusable, Fit = linkFit };
                     }).ToList();
                     LinkChoice choice = CadLinkAlign.Choose(measured, automatic: true, fitOptions);
                     if (choice.Status == "ambiguous")
                         return LinkAmbiguous(dwgRef, level.Name, cluster, choice);
+                    if (choice.Status == "chosen" && linkLevels.TryGetValue(choice.Best!.Id, out List<LevelFit>? byLink))
+                    {
+                        if (CadLinkAlign.LevelTie(byLink))
+                            return LinkLevelAmbiguous(dwgRef, cluster, choice.Best.Id, byLink);
+                        if (byLink[0].Level != level.Name)
+                        {
+                            level = model.Levels.First(l => l.Name == byLink[0].Level);
+                            walls = structural.TryGetValue(level.Name, out List<ModelWall>? moved) ? moved : new List<ModelWall>();
+                            thinIgnored = model.WallsByLevel.TryGetValue(level.Name, out List<ModelWall>? allMoved)
+                                ? allMoved.Count - walls.Count : 0;
+                            fitNotes.Clear();   // they named other levels of the failed fit
+                        }
+                    }
                     if (choice.Status == "chosen")
                     {
                         fitScoreBeforeLink = fit.Score;
@@ -788,6 +787,21 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
         /// <summary>A CAD link or import and its total transform; <paramref name="unreadable"/>
         /// says why there is none.</summary>
+        private static Dictionary<string, object?> LinkLevelAmbiguous(string dwgRef, int cluster, long linkId, List<LevelFit> byLink)
+        {
+            Dictionary<string, object?> ambiguous = Failed(dwgRef, "level_ambiguous",
+                "link " + linkId + " lays the drawing on several levels about equally (typical floors) — pass level",
+                byLink.Take(5).Select(f => (object?)new Dictionary<string, object?>
+                {
+                    ["level"] = f.Level,
+                    ["score"] = Math.Round(f.Fit.Score, 3),
+                    ["outcome"] = f.Fit.Outcome,
+                }).ToList());
+            ambiguous["cluster"] = cluster;
+            ambiguous["link_id"] = linkId;
+            return ambiguous;
+        }
+
         /// <summary>The drawing's wall-like layers, else the layer-name hints the CAD to BIM pane uses.</summary>
         private static List<string> DefaultBackground(ElectricalScan scan)
         {
