@@ -318,6 +318,11 @@ namespace BinaVibe.Mcp.Tools
                 ColorMode = ImportColorMode.Preserved,
             };
             string? unitName = SetEngineUnit(options, path);
+            // The fit is read before the link: it needs only the drawing and the model's walls.
+            Electrical.FitTransform? place = null;
+            Dictionary<string, object?> placed;
+            try { place = Electrical.CadElectricalTools.PlaceForLink(doc, path, out placed); }
+            catch (Exception ex) { placed = new Dictionary<string, object?> { ["moved"] = false, ["reason"] = "the fit failed: " + ex.Message }; }
 
             int before = new FilteredElementCollector(doc)
                 .OfClass(typeof(ImportInstance)).GetElementCount();
@@ -350,6 +355,22 @@ namespace BinaVibe.Mcp.Tools
                 // Revit pins an origin-to-origin link; link_file leaves it free so it can be moved
                 // onto the building (move_elements on a pinned link fails).
                 if (doc.GetElement(id) is ImportInstance linkedCad) linkedCad.Pinned = false;
+                // Onto the building, in the same transaction (one undo): turn about the internal
+                // origin, then shift, which is FitTransform.Apply, so the link's transform is the fit.
+                if (place != null)
+                {
+                    try
+                    {
+                        if (Math.Abs(place.RotationRad) > 1e-9)
+                            ElementTransformUtils.RotateElement(doc, id, Line.CreateBound(XYZ.Zero, XYZ.BasisZ), place.RotationRad);
+                        ElementTransformUtils.MoveElement(doc, id, new XYZ(place.TxMm / 304.8, place.TyMm / 304.8, 0));
+                    }
+                    catch (Exception ex)
+                    {
+                        placed["moved"] = false;
+                        placed["reason"] = "the link could not be moved onto the building: " + ex.Message;
+                    }
+                }
                 try
                 {
                     TxGuard.CommitOrThrow(tx);
@@ -377,6 +398,7 @@ namespace BinaVibe.Mcp.Tools
                 ["kind"] = "cad",
                 ["file"] = fileName,
                 ["unit"] = unitName?.ToLowerInvariant() ?? "default",
+                ["placed"] = placed,
                 ["warnings"] = warnings,
             };
         }
