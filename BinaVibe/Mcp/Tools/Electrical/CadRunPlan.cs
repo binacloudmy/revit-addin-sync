@@ -110,18 +110,32 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
         /// <summary>Run ends meeting at one junction: ends of one group within joinMm of each
         /// other in plan and height, two or more of them, in input order.</summary>
-        public static List<List<JunctionEnd>> JunctionGroups(IReadOnlyList<JunctionEnd> ends, double joinMm = 20)
+        public static List<List<JunctionEnd>> JunctionGroups(IReadOnlyList<JunctionEnd> ends, double joinMm = 20) =>
+            AllGroups(ends, joinMm).Where(g => g.Count >= 2).ToList();
+
+        /// <summary>
+        /// The ends no other built end meets, each with the runs (their Item) among
+        /// <paramref name="unbuilt"/> that end at the same junction: the partners not built.
+        /// </summary>
+        public static List<(JunctionEnd End, List<int> Partners)> LoneEnds(IReadOnlyList<JunctionEnd> ends,
+                                                                           IReadOnlyList<JunctionEnd> unbuilt, double joinMm = 20) =>
+            AllGroups(ends, joinMm).Where(g => g.Count == 1).Select(g => (g[0],
+                unbuilt.Where(u => Near(g[0], u, joinMm)).Select(u => u.Item).Distinct().ToList())).ToList();
+
+        private static List<List<JunctionEnd>> AllGroups(IReadOnlyList<JunctionEnd> ends, double joinMm)
         {
             var groups = new List<List<JunctionEnd>>();
             foreach (JunctionEnd e in ends)
             {
-                List<JunctionEnd>? at = groups.FirstOrDefault(g => g[0].Group == e.Group &&
-                    Math.Abs(g[0].X - e.X) <= joinMm && Math.Abs(g[0].Y - e.Y) <= joinMm && Math.Abs(g[0].Z - e.Z) <= joinMm);
+                List<JunctionEnd>? at = groups.FirstOrDefault(g => Near(g[0], e, joinMm));
                 if (at == null) groups.Add(at = new List<JunctionEnd>());
                 at.Add(e);
             }
-            return groups.Where(g => g.Count >= 2).ToList();
+            return groups;
         }
+
+        private static bool Near(JunctionEnd a, JunctionEnd b, double joinMm) => a.Group == b.Group &&
+            Math.Abs(a.X - b.X) <= joinMm && Math.Abs(a.Y - b.Y) <= joinMm && Math.Abs(a.Z - b.Z) <= joinMm;
 
         /// <summary>
         /// The ends in the order Revit's fittings take them: for a tee the two most opposite

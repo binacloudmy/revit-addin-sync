@@ -247,6 +247,18 @@ namespace Tests
         }
 
         [Fact]
+        public void A_lone_junction_end_names_its_unbuilt_partner()
+        {
+            var built = new List<JunctionEnd> { End(0, 1, 0), End(1, -1, 0), End(2, 0, 1, 5000, 0) };
+            var unbuilt = new List<JunctionEnd> { End(47, 0, -1, 5010, 0), End(41, 0, -1, 9000, 0) };
+
+            var lone = Assert.Single(CadRunPlan.LoneEnds(built, unbuilt));
+            Assert.Equal(2, lone.End.Item);
+            Assert.Equal(new[] { 47 }, lone.Partners);
+            Assert.Empty(Assert.Single(CadRunPlan.LoneEnds(new List<JunctionEnd> { End(0, 1, 0) }, unbuilt)).Partners);
+        }
+
+        [Fact]
         public void A_crossing_with_no_shared_end_is_two_runs()
         {
             ChainResult r = Chain(S(0, 0, 2000, 0), S(1000, -1000, 1000, 1000));

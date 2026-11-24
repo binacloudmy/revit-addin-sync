@@ -543,13 +543,14 @@ namespace BinaVibe.Mcp.Tools
                                 endConn = DeviceConnector(doc, plan, run.End, pts, atStart: false, present, runWarnings);
                             }
 
-                            var (segments, fittingIds) = BuildRunLegs(doc, spec, level, pts, runWarnings);
+                            var (segments, fittingIds) = BuildRunLegs(doc, spec, level, pts, elbows: false);
                             bool startConnected = Connect(segments[0], pts[0], startConn, "start", runWarnings);
                             bool endConnected = Connect(segments[segments.Count - 1], pts[pts.Count - 1], endConn, "end", runWarnings);
+                            TxGuard.CommitOrThrow(tx);
+                            List<int> unjoined = BuildElbows(doc, segments, pts, fittingIds, runWarnings);
 
                             var newIds = segments.Select(s => (long)s.Id.Value).ToList();
                             double lengthFt = segments.Sum(s => s.get_Parameter(BuiltInParameter.CURVE_ELEM_LENGTH)?.AsDouble() ?? 0);
-                            TxGuard.CommitOrThrow(tx);
 
                             run.CreatedIds = newIds.Concat(fittingIds).ToList();
                             built.Add((run, segments));
@@ -562,6 +563,7 @@ namespace BinaVibe.Mcp.Tools
                                 ["index"] = run.Index,
                                 ["new_ids"] = newIds,
                                 ["fitting_ids"] = fittingIds,
+                                ["unjoined_corners"] = unjoined,
                                 ["length_mm"] = Math.Round(lengthFt * MmPerFoot, 1),
                                 ["start"] = EndRow(run.Start, startConnected),
                                 ["end"] = EndRow(run.End, endConnected),
@@ -583,7 +585,7 @@ namespace BinaVibe.Mcp.Tools
                         }
                     }
 
-                    allFittings.AddRange(JoinJunctions(doc, built, specs, warnings));
+                    allFittings.AddRange(JoinJunctions(doc, built, plan.Runs, specs, warnings));
                     if (Electrical.OverheadPlacement.KeepGroup(0, created.Count)) group.Assimilate();
                     else group.RollBack();
                 }
@@ -619,27 +621,38 @@ namespace BinaVibe.Mcp.Tools
         /// cross. A junction Revit refuses is a warning; its runs stay built.
         /// </summary>
         private static List<long> JoinJunctions(Document doc, List<(PlannedRun Run, List<MEPCurve> Segments)> built,
+                                                IEnumerable<PlannedRun> planRuns,
                                                 Dictionary<string, RunCurveSpec> specs, List<string> warnings)
         {
-            var ends = new List<Electrical.JunctionEnd>();
-            for (int i = 0; i < built.Count; i++)
+            void AddEnds(List<Electrical.JunctionEnd> to, PlannedRun run, int item)
             {
-                PlannedRun run = built[i].Run;
                 List<double[]> p = run.PointsMm;
-                if (p.Count < 2) continue;
+                if (p.Count < 2) return;
                 foreach (bool atStart in new[] { true, false })
                 {
                     if ((atStart ? run.Start.Kind : run.End.Kind) != "junction") continue;
                     double[] at = atStart ? p[0] : p[p.Count - 1], into = atStart ? p[1] : p[p.Count - 2];
                     double dx = into[0] - at[0], dy = into[1] - at[1], l = Math.Sqrt((dx * dx) + (dy * dy));
                     if (l < 1e-9) continue;
-                    ends.Add(new Electrical.JunctionEnd
+                    to.Add(new Electrical.JunctionEnd
                     {
-                        Item = i, AtStart = atStart, Group = SpecKey(run) + "|" + run.LevelName,
+                        Item = item, AtStart = atStart, Group = SpecKey(run) + "|" + run.LevelName,
                         X = at[0], Y = at[1], Z = at[2], Dx = dx / l, Dy = dy / l,
                     });
                 }
             }
+            var ends = new List<Electrical.JunctionEnd>();
+            for (int i = 0; i < built.Count; i++) AddEnds(ends, built[i].Run, i);
+            var unbuilt = new List<Electrical.JunctionEnd>();   // Item is the run index
+            foreach (PlannedRun run in planRuns.Where(r => built.All(b => b.Run.Index != r.Index)))
+                AddEnds(unbuilt, run, run.Index);
+
+            // A lone end stays open: say why, once per end.
+            foreach (var (end, partners) in Electrical.CadRunPlan.LoneEnds(ends, unbuilt))
+                warnings.Add($"junction at ({end.X:0}, {end.Y:0}) mm: run {built[end.Item].Run.Index}'s " +
+                             (end.AtStart ? "start" : "end") + " is open, " +
+                             (partners.Count == 0 ? "no partner run"
+                                 : "partner run " + string.Join(", ", partners) + " not built"));
 
             var ids = new List<long>();
             foreach (List<Electrical.JunctionEnd> node in Electrical.CadRunPlan.JunctionGroups(ends))
@@ -863,12 +876,11 @@ namespace BinaVibe.Mcp.Tools
         }
 
         /// <summary>One segment per leg, sized, and an elbow at every corner. Throws
-        /// RouteFailure with the leg or corner index.</summary>
-        /// With <paramref name="keepOnElbowFail"/> (plan mode), a corner whose elbow fails is rolled
-        /// back alone in its own SubTransaction and warned about; the run's legs stay.
+        /// RouteFailure with the leg or corner index. Without <paramref name="elbows"/> only the
+        /// legs are built (plan mode makes each elbow in its own transaction, BuildElbows).</summary>
         private static (List<MEPCurve> Segments, List<long> FittingIds) BuildRunLegs(Document doc, RunCurveSpec spec,
                                                                                      Level level, List<XYZ> pts,
-                                                                                     List<string>? keepOnElbowFail = null)
+                                                                                     bool elbows = true)
         {
             var segments = new List<MEPCurve>();
             for (int i = 0; i < pts.Count - 1; i++)
@@ -882,27 +894,43 @@ namespace BinaVibe.Mcp.Tools
             }
 
             var fittingIds = new List<long>();
+            for (int corner = 1; elbows && corner < pts.Count - 1; corner++)
+                fittingIds.Add(CreateElbow(doc, segments[corner - 1], segments[corner], pts[corner], corner));
+            return (segments, fittingIds);
+        }
+
+        /// <summary>
+        /// Plan mode: one transaction per corner elbow, after the run's legs are committed. Revit
+        /// posts a bend that does not fit (short legs) only when the transaction commits, so a
+        /// SubTransaction cannot catch it; its own transaction rolls back that elbow alone and
+        /// the legs stay. Returns the corners kept, not joined.
+        /// </summary>
+        private static List<int> BuildElbows(Document doc, List<MEPCurve> segments, List<XYZ> pts,
+                                             List<long> fittingIds, List<string> warnings)
+        {
+            var unjoined = new List<int>();
             for (int corner = 1; corner < pts.Count - 1; corner++)
             {
-                if (keepOnElbowFail == null)
-                {
-                    fittingIds.Add(CreateElbow(doc, segments[corner - 1], segments[corner], pts[corner], corner));
-                    continue;
-                }
-                using var st = new SubTransaction(doc);
-                st.Start();
+                var tx = new Transaction(doc, "BinaVibe: route conduit corner");
                 try
                 {
-                    fittingIds.Add(CreateElbow(doc, segments[corner - 1], segments[corner], pts[corner], corner));
-                    st.Commit();
+                    TxGuard.StartSwallowing(tx);
+                    long id = CreateElbow(doc, segments[corner - 1], segments[corner], pts[corner], corner);
+                    TxGuard.CommitOrThrow(tx);
+                    fittingIds.Add(id);
                 }
-                catch (RouteFailure rf)
+                catch (Exception ex)
                 {
-                    if (st.GetStatus() == TransactionStatus.Started) st.RollBack();
-                    keepOnElbowFail.Add(rf.Message + "; the legs are kept, not joined");
+                    SafeRollback(tx);
+                    unjoined.Add(corner);
+                    warnings.Add($"corner {corner} kept, not joined: the elbow failed ({ex.Message})");
+                }
+                finally
+                {
+                    tx.Dispose();
                 }
             }
-            return (segments, fittingIds);
+            return unjoined;
         }
 
         private static MEPCurve CreateLeg(Document doc, RunCurveSpec spec, Level level, XYZ a, XYZ b)

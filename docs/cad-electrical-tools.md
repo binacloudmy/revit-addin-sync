@@ -797,7 +797,7 @@ The run is built in one transaction, with an elbow at each corner. The result ha
    - A conduit diameter must be one of the type's sizes.
    - A type error fails every run that uses it.
 2. **Skips.** A run whose created elements all still exist is skipped as `already_routed`. After an undo, it is built again.
-3. **Transactions.** One `TransactionGroup`, with one transaction per run. A run that fails rolls back alone. The group is assimilated when at least one run was built, so the call is one undo step.
+3. **Transactions.** One `TransactionGroup`, with one transaction per run, then one per corner elbow. A run that fails rolls back alone. The group is assimilated when at least one run was built, so the call is one undo step.
 4. **Device ends (conduit).** The device is found by:
    - the run end's element id (an existing device), else
    - the plan point's placed device (`place_socket_points` records it), else
@@ -812,16 +812,16 @@ The run is built in one transaction, with an elbow at each corner. The result ha
 **Result:**
 - `ok`: true when a run was built, or when none failed
 - `plan_id`, `runs_created`, `runs_failed`
-- `created`: `index`, `new_ids`, `fitting_ids`, `length_mm`, `start` and `end` (`kind`, `point_index`, `element_id`, `connected`)
+- `created`: `index`, `new_ids`, `fitting_ids`, `unjoined_corners` (corner point indices whose elbow failed), `length_mm`, `start` and `end` (`kind`, `point_index`, `element_id`, `connected`)
 - `failed`: `index`, `reason`, `failed_corner_index`
 - `skipped`: `index`, `reason`
 - `new_ids`, `fitting_ids`, `total_length_mm`, `open_connectors`, `warnings`: flat over all the runs, as `route_pipe` returns them
 
 No runs selected gives `ok: false`. If the plan has no runs at all, the error says to run `plan_cad_electrical` with `run_height_mm`.
 
-**Junctions (plan mode):** after the runs are built, the ends of the runs built in that call that meet at one junction (same type and level, within 20 mm) are joined in one transaction each, inside the call's group: two running straight on are connected, two at an angle get an elbow, three a tee (the two most opposite are the main), four a cross. More than four, or a fitting Revit refuses, is a warning, and the runs stay built. A junction whose other runs were dropped as short keeps its one open end.
+**Junctions (plan mode):** after the runs are built, the ends of the runs built in that call that meet at one junction (same type and level, within 20 mm) are joined in one transaction each, inside the call's group: two running straight on are connected, two at an angle get an elbow, three a tee (the two most opposite are the main), four a cross. More than four, or a fitting Revit refuses, is a warning, and the runs stay built. An end no other built run meets keeps its one open end, with a warning per end: "junction at (x, y) mm: run N's end is open, partner run M not built" (or "no partner run" when no plan run ends there).
 
-**Tray fittings (plan mode):** before routing, the cable tray type's routing fittings are read (horizontal bend or Bend, Tee, Cross, Union). A type with none is swapped for the project's tray type with the most fittings (one with a bend first), and a warning names both. When no tray type has any, only straight runs are built: a run with a corner is `skipped` with the reason, and every join that needs a fitting is a warning ("tray type X has no fittings; joins skipped"). A join the type lacks the fitting for (no tee, no cross) is skipped the same way. A corner elbow that fails is rolled back alone in its own sub-transaction and warned about; the run's legs stay.
+**Tray fittings (plan mode):** before routing, the cable tray type's routing fittings are read (horizontal bend or Bend, Tee, Cross, Union). A type with none is swapped for the project's tray type with the most fittings (one with a bend first), and a warning names both. When no tray type has any, only straight runs are built: a run with a corner is `skipped` with the reason, and every join that needs a fitting is a warning ("tray type X has no fittings; joins skipped"). A join the type lacks the fitting for (no tee, no cross) is skipped the same way. Each corner elbow is made in its own transaction after the run's legs are committed (Revit reports a bend that does not fit only at commit). One that fails is rolled back alone: the legs stay, the corner is listed in `unjoined_corners` and warned about ("corner K kept, not joined: ...").
 
 ### `place_cad_electrical` (mutate)
 
