@@ -78,6 +78,9 @@ namespace BinaVibe.Copilot.Writes
         public long? BornFloor;
         /// <summary>r18: the deleted or modified ids the preview proved born (gone after its rollback), for the workshared pairing.</summary>
         public List<long> Born = new();
+        /// <summary>AI-553 (live a94f3408): a side-effect deletion that was a nested family instance -> its SuperComponent, read after the
+        /// preview's rollback; the commit drops it while that parent still exists (ChangeSetMath.Nested). Envelope counts only.</summary>
+        public Dictionary<long, long> NestedParentOf = new();
 
         public string CategoryOfId(long id) => CategoryOf.TryGetValue(id, out var c) && !string.IsNullOrWhiteSpace(c) ? c : "Other";
 

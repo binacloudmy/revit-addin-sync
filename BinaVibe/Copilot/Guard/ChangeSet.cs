@@ -144,6 +144,28 @@ namespace BinaVibe.Copilot.Guard
             return drop;
         }
 
+        /// <summary>AI-553 (live a94f3408: a Comments write on 39 windows said "removed 2 Windows", nothing added, all 39 still there): side-effect
+        /// deletions of nested shared sub-components Revit regenerated under an element that is still there. <paramref name="parentOf"/> holds
+        /// the SuperComponent the preview read for a deleted id (after its rollback, when the id existed again). An id drops only when its
+        /// parent is not among <paramref name="deletedAll"/> and <paramref name="parentExists"/> says it is still there (a throw counts as gone).
+        /// No parent read, a deleted or vanished parent: the deletion stays.</summary>
+        public static HashSet<long> Nested(IReadOnlyDictionary<long, string>? deletedSide, IReadOnlyDictionary<long, long>? parentOf,
+                                           ICollection<long>? deletedAll, Func<long, bool> parentExists)
+        {
+            var drop = new HashSet<long>();
+            if (deletedSide == null || parentOf == null || parentExists == null) return drop;
+            var gone = new HashSet<long>(deletedAll ?? Array.Empty<long>());
+            foreach (var id in deletedSide.Keys)
+            {
+                if (!parentOf.TryGetValue(id, out var parent) || gone.Contains(parent)) continue;
+                bool there;
+                try { there = parentExists(parent); }
+                catch (Exception) { there = false; }
+                if (there) drop.Add(id);
+            }
+            return drop;
+        }
+
         /// <summary>AI-553 (AI-557 live afcbdb00: a type change by code reported 2 Structural Columns and 4 Structural Framing deleted, the
         /// model still at 144 and 2598). Code counts every change as touched, so <see cref="Rebuilt"/> never sees these. When
         /// <paramref name="code"/> changes types (ChangeTypeId) and names no deletion, a touched deletion pairs with a touched addition of the same category, one for one,

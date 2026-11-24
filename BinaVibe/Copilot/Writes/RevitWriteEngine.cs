@@ -357,6 +357,10 @@ namespace BinaVibe.Copilot.Writes
                     foreach (var kv in lookedUp) outcome.Shape.CategoryOf[kv.Key] = kv.Value;
                 }
                 foreach (var kv in runs) { FoldRebuilt(outcome.Envelopes[kv.Key], kv.Value); FoldRetyped(outcome.Envelopes[kv.Key], kv.Value); }   // AI-553
+                // AI-553 (live a94f3408): the deleted ids exist again now; their SuperComponent is read here, for this card and the commit's.
+                outcome.Shape.NestedParentOf = NestedParents(doc, runs.Values.SelectMany(r => r.DeletedSide.Keys));
+                foreach (var kv in runs) FoldNested(outcome.Envelopes[kv.Key], kv.Value, outcome.Shape.NestedParentOf, outcome.Shape.Deleted, id => true);
+                MarkSideDeletions(doc, st, runs.Values.SelectMany(r => r.DeletedSide.Keys));
             }
 
             // Code plans name no targets, so their ownership check runs on what the preview
@@ -550,6 +554,9 @@ namespace BinaVibe.Copilot.Writes
                         st.Mark("born ids (" + born.Count + ")");
                     }
                     for (var i = 0; i < n; i++) if (commitRuns[i] != null) { FoldRebuilt(envelopes[i], commitRuns[i]!); FoldRetyped(envelopes[i], commitRuns[i]!); }   // AI-553
+                    for (var i = 0; i < n; i++)   // AI-553 (live a94f3408): nested pieces regenerated under a parent that is still there
+                        if (commitRuns[i] != null)
+                            FoldNested(envelopes[i], commitRuns[i]!, preview.Shape?.NestedParentOf, shape.Deleted, id => doc!.GetElement(ElemIds.From(id)) != null);
                     RevitValueFingerprints.Fill(doc!, shape, builder.AddedIds);   // R75, compared with the preview's
                     st.Mark("value fingerprints");
                     var verdict = ShapeComparer.Compare(fresh, preview.Shape, shape);
@@ -826,6 +833,44 @@ namespace BinaVibe.Copilot.Writes
             var rebuilt = ChangeSetMath.Rebuilt(run.DeletedSide, run.AddedSide);
             BornIds.DropFromEnvelope(env, null, run.DeletedSide, rebuilt);
             BornIds.DropAddedFromEnvelope(env, run.AddedSide, rebuilt);
+        }
+
+        /// <summary>AI-553 (live a94f3408): side-effect deletions that were nested family instances of a parent still there
+        /// (ChangeSetMath.Nested) come out of the envelope's counts. Envelope counts only: the batch shape is not touched.</summary>
+        private static void FoldNested(Envelope? env, CallRun run, IReadOnlyDictionary<long, long>? parentOf, ICollection<long> deletedAll, Func<long, bool> parentExists) =>
+            BornIds.DropFromEnvelope(env, null, run.DeletedSide, ChangeSetMath.Nested(run.DeletedSide, parentOf, deletedAll, parentExists));
+
+        /// <summary>AI-553: the SuperComponent of each deleted id that is a nested family instance (the first MaxDeletedLookups ids).
+        /// Only valid while the ids exist: after the preview's rollback.</summary>
+        private static Dictionary<long, long> NestedParents(Document doc, IEnumerable<long> ids)
+        {
+            var map = new Dictionary<long, long>();
+            foreach (var id in ids.Distinct().OrderBy(i => i).Take(EnvelopeChanges.MaxDeletedLookups))
+            {
+                try
+                {
+                    if (doc.GetElement(ElemIds.From(id)) is FamilyInstance fi && fi.SuperComponent is Element parent)
+                        map[id] = (long)parent.Id.Value;
+                }
+                catch (Exception) { /* unreadable: the deletion stays */ }
+            }
+            return map;
+        }
+
+        /// <summary>AI-553: the clicks log names the side-effect deletions a card still shows (first 5: id, class, SuperComponent), so a live
+        /// run can tell what Revit removed.</summary>
+        private static void MarkSideDeletions(Document doc, StageTimer st, IEnumerable<long> ids)
+        {
+            foreach (var id in ids.Distinct().OrderBy(i => i).Take(5))
+            {
+                try
+                {
+                    var e = doc.GetElement(ElemIds.From(id));
+                    var super = (e as FamilyInstance)?.SuperComponent?.Id.Value.ToString(CultureInfo.InvariantCulture) ?? "none";
+                    st.Mark("side deletion " + id.ToString(CultureInfo.InvariantCulture) + " " + (e?.GetType().Name ?? "gone") + " super=" + super);
+                }
+                catch (Exception) { /* diagnostics only */ }
+            }
         }
 
         /// <summary>AI-553 (AI-557 afcbdb00): a code call that deletes nothing, whose touched deletions pair with touched additions of the same
