@@ -718,8 +718,8 @@ For each conduit or trunking row, in mapping order:
    - Pieces along one line join when their ends are within 20 mm. If that merge would move an end by more than 20 mm, the pieces are chained as drawn.
    - An arc of radius up to 1000 mm whose ends meet two pieces within 20 mm, each along the arc's tangent (within 5 degrees), is a bend. The two pieces are extended to their intersection, which becomes the corner. Any other arc is a free arc: counted, not chained.
    - Ends within 20 mm are one node. A node within 20 mm of another piece's interior splits that piece there, so a branch meets the run it touches. Two pieces that cross with no end at the crossing stay apart.
-   - At a junction (three or more pieces at one node), the two pieces closest to opposite (within 10 degrees) carry on as one run. Every other piece ends there, as a `junction` end. There is no tee and no junction box.
-   - Vertices turning less than 1 degree are removed. A run shorter than the kind's minimum is dropped and counted (`dropped_short`): 300 mm for conduit, 1000 mm for cable tray (trunking).
+   - At a junction (three or more pieces at one node), every piece ends there, as a `junction` end: a run that went straight through is split. `route_conduit` then joins the ends that meet there (below).
+   - Vertices turning less than 1 degree are removed. A run shorter than the kind's minimum is dropped and counted (`dropped_short`): 300 mm for conduit, 1000 mm for cable tray (trunking). A run with a junction at both ends is kept however short: it is part of the network.
    - Runs are ordered by layer, then lowest x, then lowest y, so indices are the same from call to call.
 5. **Planning** (`CadRunPlan`, model mm):
    - Each point is carried onto the model by the fit. Z is the level plus the run height: the row's, else the call's.
@@ -818,6 +818,8 @@ The run is built in one transaction, with an elbow at each corner. The result ha
 - `new_ids`, `fitting_ids`, `total_length_mm`, `open_connectors`, `warnings`: flat over all the runs, as `route_pipe` returns them
 
 No runs selected gives `ok: false`. If the plan has no runs at all, the error says to run `plan_cad_electrical` with `run_height_mm`.
+
+**Junctions (plan mode):** after the runs are built, the ends of the runs built in that call that meet at one junction (same type and level, within 20 mm) are joined in one transaction each, inside the call's group: two running straight on are connected, two at an angle get an elbow, three a tee (the two most opposite are the main), four a cross. More than four, or a fitting Revit refuses, is a warning, and the runs stay built. A junction whose other runs were dropped as short keeps its one open end.
 
 ### `place_cad_electrical` (mutate)
 

@@ -491,6 +491,7 @@ namespace BinaVibe.Mcp.Tools
                 todo.Add(run);
             }
 
+            var built = new List<(PlannedRun Run, List<MEPCurve> Segments)>();
             using (var group = new TransactionGroup(doc, "BinaVibe: route_conduit"))
             {
                 group.Start();
@@ -529,6 +530,7 @@ namespace BinaVibe.Mcp.Tools
                             TxGuard.CommitOrThrow(tx);
 
                             run.CreatedIds = newIds.Concat(fittingIds).ToList();
+                            built.Add((run, segments));
                             allNew.AddRange(newIds);
                             allFittings.AddRange(fittingIds);
                             totalFt += lengthFt;
@@ -559,6 +561,7 @@ namespace BinaVibe.Mcp.Tools
                         }
                     }
 
+                    allFittings.AddRange(JoinJunctions(doc, built, warnings));
                     if (Electrical.OverheadPlacement.KeepGroup(0, created.Count)) group.Assimilate();
                     else group.RollBack();
                 }
@@ -585,6 +588,78 @@ namespace BinaVibe.Mcp.Tools
                 ["open_connectors"] = ComputeOpenConnectors(elements!),
                 ["warnings"] = warnings,
             };
+        }
+
+        /// <summary>
+        /// One fitting per junction of the runs built in this call: the planner ends every run at
+        /// a junction, so the ends there are joined as they meet: two straight on are connected,
+        /// two at an angle get an elbow, three a tee (the most opposite pair is the main), four a
+        /// cross. A junction Revit refuses is a warning; its runs stay built.
+        /// </summary>
+        private static List<long> JoinJunctions(Document doc, List<(PlannedRun Run, List<MEPCurve> Segments)> built,
+                                                List<string> warnings)
+        {
+            var ends = new List<Electrical.JunctionEnd>();
+            for (int i = 0; i < built.Count; i++)
+            {
+                PlannedRun run = built[i].Run;
+                List<double[]> p = run.PointsMm;
+                if (p.Count < 2) continue;
+                foreach (bool atStart in new[] { true, false })
+                {
+                    if ((atStart ? run.Start.Kind : run.End.Kind) != "junction") continue;
+                    double[] at = atStart ? p[0] : p[p.Count - 1], into = atStart ? p[1] : p[p.Count - 2];
+                    double dx = into[0] - at[0], dy = into[1] - at[1], l = Math.Sqrt((dx * dx) + (dy * dy));
+                    if (l < 1e-9) continue;
+                    ends.Add(new Electrical.JunctionEnd
+                    {
+                        Item = i, AtStart = atStart, Group = SpecKey(run) + "|" + run.LevelName,
+                        X = at[0], Y = at[1], Z = at[2], Dx = dx / l, Dy = dy / l,
+                    });
+                }
+            }
+
+            var ids = new List<long>();
+            foreach (List<Electrical.JunctionEnd> node in Electrical.CadRunPlan.JunctionGroups(ends))
+            {
+                string where = $"junction at ({node[0].X:0}, {node[0].Y:0}) mm";
+                if (node.Count > 4)
+                {
+                    warnings.Add($"{where}: {node.Count} runs meet, no fitting joins more than 4");
+                    continue;
+                }
+                List<Electrical.JunctionEnd> order = Electrical.CadRunPlan.FittingOrder(node);
+                var tx = new Transaction(doc, "BinaVibe: join runs at a junction");
+                try
+                {
+                    TxGuard.StartSwallowing(tx);
+                    var point = new XYZ(node[0].X / MmPerFoot, node[0].Y / MmPerFoot, node[0].Z / MmPerFoot);
+                    List<Connector> c = order.Select(e =>
+                    {
+                        List<MEPCurve> segs = built[e.Item].Segments;
+                        MEPCurve seg = e.AtStart ? segs[0] : segs[segs.Count - 1];
+                        return NearestConnector(ConnectorsOf(seg), point, double.MaxValue, freeOnly: true)
+                               ?? throw new RouteFailure("no free connector on the run's end", -1);
+                    }).ToList();
+                    FamilyInstance? fitting = null;
+                    if (c.Count == 2 && Electrical.CadRunPlan.Straight(order[0], order[1])) c[0].ConnectTo(c[1]);
+                    else if (c.Count == 2) fitting = doc.Create.NewElbowFitting(c[0], c[1]);
+                    else if (c.Count == 3) fitting = doc.Create.NewTeeFitting(c[0], c[1], c[2]);
+                    else fitting = doc.Create.NewCrossFitting(c[0], c[1], c[2], c[3]);
+                    TxGuard.CommitOrThrow(tx);
+                    if (fitting != null) ids.Add(fitting.Id.Value);
+                }
+                catch (Exception ex)
+                {
+                    SafeRollback(tx);
+                    warnings.Add($"{where}: the {node.Count}-way fitting failed: {ex.Message}");
+                }
+                finally
+                {
+                    tx.Dispose();
+                }
+            }
+            return ids;
         }
 
         private static string SpecKey(PlannedRun run) =>

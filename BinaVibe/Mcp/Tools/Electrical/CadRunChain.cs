@@ -24,8 +24,6 @@ namespace BinaVibe.Mcp.Tools.Electrical
         public double JoinMm = 20;
         /// <summary>A vertex turning less than this is no corner, and is removed.</summary>
         public double CollinearDeg = 1;
-        /// <summary>At a junction, two edges this close to opposite carry on as one run.</summary>
-        public double StraightThroughDeg = 10;
         /// <summary>A run shorter than this is not returned (TooShort counts it).</summary>
         public double MinRunMm = 300;
         /// <summary>A leg shorter than this is flagged short_leg: its elbows may not fit.</summary>
@@ -163,8 +161,9 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 run.LengthMm = Length(run.Points);
                 if (run.Closed) run.Flags.Add("closed_loop");
 
-                // 10. Too short to be a run.
-                if (run.LengthMm < o.MinRunMm)
+                // 10. Too short to be a run. A piece between two junctions is part of the network
+                // (runs end at every junction), so it stays however short.
+                if (run.LengthMm < o.MinRunMm && !(run.StartKind == "junction" && run.EndKind == "junction"))
                 {
                     result.TooShort++;
                     continue;
@@ -540,51 +539,18 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
             int Other(int edge, int node) => edges[edge].U == node ? edges[edge].V : edges[edge].U;
 
-            // Where a walk arriving at a node along one edge carries on.
+            // Where a walk arriving at a node along one edge carries on: only through a node of
+            // two edges. Every run ends at a junction, so route_conduit joins its ends there with
+            // one tee or cross (a run carrying straight through left the branch open).
             var next = new Dictionary<(int Node, int Edge), int>();
-            double through = -Math.Cos(o.StraightThroughDeg * Math.PI / 180);
             junctions = 0;
             foreach (var pair in incident.OrderBy(p => p.Key))
             {
-                int node = pair.Key;
                 List<int> list = pair.Value;
-                if (list.Count == 2)
-                {
-                    next[(node, list[0])] = list[1];
-                    next[(node, list[1])] = list[0];
-                    continue;
-                }
-                if (list.Count < 3) continue;
-
-                junctions++;
-                var dirs = list.Select(e =>
-                {
-                    var from = nodes[node];
-                    var to = nodes[Other(e, node)];
-                    double dx = to.X - from.X, dy = to.Y - from.Y, l = Math.Sqrt((dx * dx) + (dy * dy));
-                    return l > 0 ? (dx / l, dy / l) : (0.0, 0.0);
-                }).ToList();
-
-                int bi = -1, bj = -1;
-                double bestDot = double.MaxValue;
-                for (int i = 0; i < list.Count; i++)
-                {
-                    for (int j = i + 1; j < list.Count; j++)
-                    {
-                        double dot = (dirs[i].Item1 * dirs[j].Item1) + (dirs[i].Item2 * dirs[j].Item2);
-                        if (dot < bestDot)
-                        {
-                            bestDot = dot;
-                            bi = i;
-                            bj = j;
-                        }
-                    }
-                }
-                if (bi >= 0 && bestDot <= through)
-                {
-                    next[(node, list[bi])] = list[bj];
-                    next[(node, list[bj])] = list[bi];
-                }
+                if (list.Count >= 3) junctions++;
+                if (list.Count != 2) continue;
+                next[(pair.Key, list[0])] = list[1];
+                next[(pair.Key, list[1])] = list[0];
             }
 
             string KindAt(int node) => incident[node].Count == 1 ? "open" : "junction";

@@ -56,8 +56,58 @@ namespace BinaVibe.Mcp.Tools.Electrical
         public double? RunHeightMm;
     }
 
+    /// <summary>One routed run's end at a junction: which run, which end, where, and the plan
+    /// direction from the junction into the run. Group keeps different types and levels apart.</summary>
+    internal sealed class JunctionEnd
+    {
+        public int Item;
+        public bool AtStart;
+        public string Group = "";
+        public double X, Y, Z, Dx, Dy;
+    }
+
     internal static class CadRunPlan
     {
+        /// <summary>Run ends meeting at one junction: ends of one group within joinMm of each
+        /// other in plan and height, two or more of them, in input order.</summary>
+        public static List<List<JunctionEnd>> JunctionGroups(IReadOnlyList<JunctionEnd> ends, double joinMm = 20)
+        {
+            var groups = new List<List<JunctionEnd>>();
+            foreach (JunctionEnd e in ends)
+            {
+                List<JunctionEnd>? at = groups.FirstOrDefault(g => g[0].Group == e.Group &&
+                    Math.Abs(g[0].X - e.X) <= joinMm && Math.Abs(g[0].Y - e.Y) <= joinMm && Math.Abs(g[0].Z - e.Z) <= joinMm);
+                if (at == null) groups.Add(at = new List<JunctionEnd>());
+                at.Add(e);
+            }
+            return groups.Where(g => g.Count >= 2).ToList();
+        }
+
+        /// <summary>
+        /// The ends in the order Revit's fittings take them: for a tee the two most opposite
+        /// first (the main) and the branch last; for a cross the most opposite pair, then the
+        /// other two. Two ends are returned as given.
+        /// </summary>
+        public static List<JunctionEnd> FittingOrder(List<JunctionEnd> ends)
+        {
+            if (ends.Count < 3) return ends.ToList();
+            int bi = 0, bj = 1;
+            double best = double.MaxValue;
+            for (int i = 0; i < ends.Count; i++)
+                for (int j = i + 1; j < ends.Count; j++)
+                {
+                    double dot = (ends[i].Dx * ends[j].Dx) + (ends[i].Dy * ends[j].Dy);
+                    if (dot < best) { best = dot; bi = i; bj = j; }
+                }
+            var order = new List<JunctionEnd> { ends[bi], ends[bj] };
+            order.AddRange(ends.Where((_, k) => k != bi && k != bj));
+            return order;
+        }
+
+        /// <summary>Two ends pointing opposite ways (within 10 degrees) carry straight on.</summary>
+        public static bool Straight(JunctionEnd a, JunctionEnd b) =>
+            (a.Dx * b.Dx) + (a.Dy * b.Dy) <= -Math.Cos(10 * Math.PI / 180);
+
         /// <summary>Each run flag, and whether it leaves the run out of a default route_conduit.</summary>
         public static readonly IReadOnlyDictionary<string, bool> FlagExcludes = new Dictionary<string, bool>(StringComparer.Ordinal)
         {
