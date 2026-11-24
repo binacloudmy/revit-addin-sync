@@ -133,8 +133,9 @@ namespace UiHarness
             var s5 = Step("s5", "Compose answer", "summary + door type table");
             Show(); await Task.Delay(200);
 
-            // 6 — the answer streams (the same StreamingReply path the live
-            // OnCodeStream handler renders through).
+            // 6 — the answer arrives (the same StreamingReply path the live
+            // OnCodeStream handler takes): the running card's bar moves, no
+            // prose is drawn until the final message below.
             for (int i = 24; i <= Answer.Length; i += 24)
             {
                 Show(streamingReply: true, text: Answer.Substring(0, i));

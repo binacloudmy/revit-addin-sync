@@ -176,8 +176,6 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
         private void ResetLiveCaches()
         {
-            _liveMd = null;
-            _liveMdText = null;
             _liveLookEls.Clear();
         }
 
@@ -412,6 +410,9 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             // content raises ExtentHeightChange). Unconditionally scrolling here would
             // yank a user who has scrolled up to read.
             if (e.Action == NotifyCollectionChangedAction.Replace && TryRenderLiveTail(e)) return;
+            // The running card became the turn's result: it rises in rather than jumping (stream UX, 24 Nov).
+            _riseTail = e.Action == NotifyCollectionChangedAction.Replace && e.OldItems?.Count == 1 && e.NewItems?.Count == 1
+                && Model.LiveSwap.Settles(e.OldItems[0] as ChatMessage, e.NewItems[0] as ChatMessage);
             // r23 (AI-464, live P11): the composer's words (idle "Tanya Copilot", the running ones) follow the thread; a new chat is English.
             if (Prompt != null) Prompt.RunLanguage = LiveLanguage();
             Rebuild();
@@ -594,9 +595,13 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         private StackPanel _threadPanel;
         // The panel index of the last message's row in the last full Rebuild (-1: none); undo lines are rows too.
         private int _tailRow = -1;
+        // Set by OnThread for the one Rebuild that draws a live turn's result (LiveSwap.Settles).
+        private bool _riseTail;
 
         private void Rebuild()
         {
+            var rise = _riseTail;
+            _riseTail = false;
             if (Vm == null || BodyHost == null) return;
             RevitWebAppSync.UI.Copilot.Model.HandleProbe.Mark("chat rebuild start");
             bool empty = Vm.Thread.Count == 0;
@@ -658,7 +663,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 foreach (var note in Vm.UndoNotices.After(mi))
                     thread.Children.Add(UndoNoticeLine(note));
             }
-            if (appended && _tailRow >= 0)
+            if ((appended || rise) && _tailRow >= 0)
                 MsgRise(thread.Children[_tailRow] as FrameworkElement);
             BodyHost.Children.Add(thread);
             _threadPanel = thread;
@@ -733,42 +738,6 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             tt.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(7, 0, dur) { EasingFunction = ease });
         }
 
-        // Liveness affordance pinned under a streaming reply: three pulsing dots
-        // (typing-indicator style) so a mid-word pause — backend running tools
-        // between tool-loop rounds, 10s+ — reads as "still working", not frozen.
-        // Direct BeginAnimation (not a XAML Storyboard, which crashes in a Revit
-        // dockable pane — same constraint as MsgRise/the spinner). The dots live
-        // only on the live Thinking+StreamingReply bubble; when the turn completes
-        // the message flips to a plain reply and this element is never built.
-        private static FrameworkElement StreamingDots()
-        {
-            var row = new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                Margin = new Thickness(0, 2, 0, 8),
-                HorizontalAlignment = HorizontalAlignment.Left,
-            };
-            var fill = CopilotColors.Token("Cp.Faint");
-            var dur = new Duration(TimeSpan.FromMilliseconds(560));
-            for (int i = 0; i < 3; i++)
-            {
-                var dot = new System.Windows.Shapes.Ellipse
-                {
-                    Width = 5, Height = 5, Fill = fill, Opacity = 0.3,
-                    Margin = new Thickness(i == 0 ? 0 : 4, 0, 0, 0),
-                    VerticalAlignment = VerticalAlignment.Center,
-                };
-                dot.BeginAnimation(OpacityProperty, new DoubleAnimation(0.3, 1.0, dur)
-                {
-                    AutoReverse = true,
-                    RepeatBehavior = RepeatBehavior.Forever,
-                    BeginTime = TimeSpan.FromMilliseconds(i * 180),
-                });
-                row.Children.Add(dot);
-            }
-            return row;
-        }
-
         private FrameworkElement Message(ChatMessage m)
         {
             // User bubble — shared with the History detail view.
@@ -807,20 +776,20 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             col.MaxWidth = BubbleMaxWidth();
 
             // Live turn: ONE activity indicator (the step card once steps
-            // arrive, else the single-line thinking trail), then the reply as
-            // it streams, the pictures `look` took so far, and the pulsing dots.
-            // Only this message re-renders per stream tick (TryRenderLiveTail).
+            // arrive, else the single-line thinking trail), then the pictures
+            // `look` took so far. The reply's text is not drawn here: the backend
+            // sends it whole just before turn_end, so painting it only flashed
+            // the raw prose before the card replaced it (stream UX, 24 Nov); the
+            // finished reply holds every word. Only this message re-renders per
+            // stream tick (TryRenderLiveTail).
             if (m.Kind == CpMsgKind.Thinking)
             {
                 // The running card is full width (design Running.dc.html), not the 85% reply column.
                 FullWidth(col);
                 aiRow.Children.Add(Controls.RunningCardView.CopilotLabel());
                 col.Children.Add(RunningPanel(m));
-                if (m.StreamingReply && !string.IsNullOrEmpty(m.Text))
-                    col.Children.Add(LiveReplyText(m.Text, FullColumnWidth()));
                 var looks = LiveLookImages();
                 if (looks != null) col.Children.Add(looks);
-                if (m.StreamingReply) col.Children.Add(StreamingDots());
                 aiRow.Children.Add(col);
                 return aiRow;
             }
@@ -1006,43 +975,6 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             int i = vm.Thread.IndexOf(m);
             if (i < 0) return true;
             return EvidenceDedupe.IsLastHolder(vm.Thread.Select(t => (object)t.Evidence).ToList(), i);
-        }
-
-        // ─── Live reply text (streaming) ─────────────────────────────────────
-        // The reply grows by ~80 characters a tick. Drawing it whole each tick
-        // flashed a half-written table as raw "| a | b |" pipes, so the tail
-        // block that is not finished yet (a table with no line after it, an
-        // unclosed ``` fence) is held back and named in one faint line; it
-        // appears whole once it ends, or when the turn's final reply replaces
-        // this message. The markdown element is reused while the drawable part
-        // has not changed (a tick inside a held table re-parses nothing).
-        private FrameworkElement _liveMd;
-        private string _liveMdText;
-        private double _liveMdWidth;
-
-        private FrameworkElement LiveReplyText(string text, double maxWidth)
-        {
-            var stable = RevitWebAppSync.Helpers.MarkdownBlocks.StableForStreaming(text, out var held);
-            var host = new StackPanel();
-            if (stable.Length > 0)
-            {
-                if (_liveMd == null || _liveMdText != stable || _liveMdWidth != maxWidth)
-                {
-                    _liveMd = CopilotMessageBubble.MarkdownText(stable, maxWidth);
-                    _liveMdText = stable;
-                    _liveMdWidth = maxWidth;
-                }
-                else if (_liveMd.Parent is Panel oldParent)
-                    oldParent.Children.Remove(_liveMd);
-                host.Children.Add(_liveMd);
-            }
-            if (held != RevitWebAppSync.Helpers.HeldBlock.None)
-            {
-                var tb = new TextBlock { Text = held == RevitWebAppSync.Helpers.HeldBlock.Table ? "Preparing a table…" : "Writing code…", FontSize = 11.5, FontStyle = FontStyles.Italic, Margin = new Thickness(0, 0, 0, 6) };
-                tb.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Faint");
-                host.Children.Add(tb);
-            }
-            return host;
         }
 
         // True when m is the very last message in the whole thread — used to
