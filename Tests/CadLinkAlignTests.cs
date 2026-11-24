@@ -182,6 +182,27 @@ namespace Tests
             Assert.True(CadLinkAlign.LevelTie(CadLinkAlign.MeasureLevels(LPlan(), byLevel, truth, new FitOptions())));
         }
 
+        // link_place: only a fit that passed and is square to the model moves an origin link.
+        [Theory]
+        [InlineData(0, "provisional", true)]
+        [InlineData(0.8, "accepted", true)]
+        [InlineData(90, "provisional", true)]
+        [InlineData(-179.5, "accepted", true)]
+        [InlineData(269.2, "accepted", true)]
+        [InlineData(81.843, "provisional", false)]   // FRIDAY's cluster 0 pose
+        [InlineData(1.5, "accepted", false)]
+        [InlineData(0, "failed", false)]
+        public void Link_place_needs_a_passing_square_fit(double degrees, string outcome, bool expected) =>
+            Assert.Equal(expected, CadLinkAlign.CanPlaceLink(new FitResult { Transform = Turn(degrees, -135355, 700864), Outcome = outcome }));
+
+        [Fact]
+        public void Only_an_unmoved_link_is_at_the_origin()
+        {
+            Assert.True(CadLinkAlign.AtOrigin(Turn(0, 0.2, -0.3)));
+            Assert.False(CadLinkAlign.AtOrigin(Turn(0, -135355, 700864)));
+            Assert.False(CadLinkAlign.AtOrigin(Turn(90, 0, 0)));
+        }
+
         // ─── TransformFields (alignment_failed's best_*) ───────────────
 
         [Theory]

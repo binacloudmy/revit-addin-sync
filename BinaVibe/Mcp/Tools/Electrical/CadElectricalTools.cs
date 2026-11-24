@@ -705,6 +705,28 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
             var notes = new List<string>(mapping.Notes);
             notes.AddRange(fitNotes);
+            // link_file links at the origin; a fit square to the model says where the link goes.
+            // The plan stays read-only: the AI moves the link, then plans with link_id.
+            Dictionary<string, object?>? linkPlace = null;
+            if (method != CadLinkAlign.Method && !DwgScratchCache.IsAttachmentRef(dwgRef) && CadLinkAlign.CanPlaceLink(fit) &&
+                doc.GetElement(ElemIds.From(DwgRef.ParseModelId(dwgRef))) is ImportInstance refImp && refImp.IsLinked)
+            {
+                LinkBasis refLink = ReadLink(doc, refImp, out string? unreadLink);
+                FitTransform? at = unreadLink == null ? CadLinkAlign.FromBasis(refLink, out _) : null;
+                if (at != null && CadLinkAlign.AtOrigin(at))
+                {
+                    linkPlace = new Dictionary<string, object?> { ["link_id"] = refLink.Id };
+                    foreach (var pair in CadLinkAlign.TransformFields(fit.Transform)) linkPlace[pair.Key] = pair.Value;
+                    string turn = Math.Abs((double)linkPlace["rotation_deg"]!) > 0
+                        ? "rotate_elements(element_ids=[" + refLink.Id + "], angle_deg=" + Num(linkPlace["rotation_deg"]) +
+                          ", axis_x_mm=0, axis_y_mm=0), then "
+                        : "";
+                    notes.Add("link " + refLink.Id + " is still at the origin: move it onto the building with " + turn +
+                              "move_elements(element_ids=[" + refLink.Id + "], dx_mm=" + Num(linkPlace["tx_mm"]) +
+                              ", dy_mm=" + Num(linkPlace["ty_mm"]) + ", dz_mm=0), then call plan_cad_electrical again with link_id=" +
+                              refLink.Id);
+                }
+            }
             if (runHeightArg.HasValue && runRows.Count == 0)
                 notes.Add("run_height_mm was given but the mapping has no conduit or trunking layer; it was not used");
             if (provisional && method == CadLinkAlign.Method)
@@ -732,6 +754,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                                                             conduitBlock),
                 ["params_used"] = plan.ParamsUsed,
             };
+            if (linkPlace != null) result["link_place"] = linkPlace;
 
             if (ArgsHelp.GetBool(args, "include_points") ?? false)
             {
@@ -785,8 +808,6 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
         // ─── the positioned CAD link (plan step 5) ──────────────────────
 
-        /// <summary>A CAD link or import and its total transform; <paramref name="unreadable"/>
-        /// says why there is none.</summary>
         private static Dictionary<string, object?> LinkLevelAmbiguous(string dwgRef, int cluster, long linkId, List<LevelFit> byLink)
         {
             Dictionary<string, object?> ambiguous = Failed(dwgRef, "level_ambiguous",
@@ -811,53 +832,11 @@ namespace BinaVibe.Mcp.Tools.Electrical
             return scan.LayerNames.Where(hints.IsWallLayer).ToList();
         }
 
-        /// <summary>
-        /// Where link_file lays a new DWG link: the drawing's biggest plan (cluster 0) fitted to the
-        /// model's structural walls on the level it fits best, as plan_cad_electrical would. Null,
-        /// with the reason in <paramref name="placed"/>, when it would not place as a link (link
-        /// bands: below 0.25), the plan has copies on the sheet, or there is nothing to fit to; the
-        /// link then stays at the origin. Typical floors tie on level but share the place in plan.
-        /// shortcut: always cluster 0 (the biggest plan); add a cluster arg to link_file when one sheet's plans sit apart.
-        /// </summary>
-        public static FitTransform? PlaceForLink(Document doc, string path, out Dictionary<string, object?> placed)
-        {
-            placed = new Dictionary<string, object?> { ["moved"] = false, ["cluster"] = 0 };
-            ElectricalScan scan;
-            try { scan = ScanFor(path); }
-            catch (Exception ex) { placed["reason"] = "the drawing could not be read: " + ex.Message; return null; }
-            List<string> background = scan.Clusters.Count > 0 && !scan.Census.Drawing.AecRefused
-                ? DefaultBackground(scan) : new List<string>();
-            if (background.Count == 0) { placed["reason"] = "no floor plan to fit: no wall layer in the drawing"; return null; }
+        private static string Num(object? v) =>
+            Convert.ToDouble(v, System.Globalization.CultureInfo.InvariantCulture).ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
 
-            List<FitSegment> cad = scan.WallCentrelines(0, background, false);
-            var modelByLevel = new Dictionary<string, IReadOnlyList<FitSegment>>(StringComparer.Ordinal);
-            foreach (var pair in CadElectricalResolver.Read(doc).WallsByLevel)
-                modelByLevel[pair.Key] = CadSymbolResolve.Structural(pair.Value)
-                    .Select(w => new FitSegment(w.X1, w.Y1, w.X2, w.Y2)).ToList();
-            var options = new FitOptions();
-            List<LevelFit> fits = CadModelFit.FitLevels(cad, modelByLevel, options, out _);
-            if (fits.Count == 0) { placed["reason"] = "the model has no walls to fit the drawing to"; return null; }
-
-            LevelFit best = fits[0];
-            FitResult asLink = CadLinkAlign.Measure(cad, modelByLevel[best.Level], best.Fit.Transform, options);
-            placed["level"] = best.Level;
-            placed["score"] = Math.Round(asLink.Score, 3);
-            placed["outcome"] = asLink.Outcome;
-            foreach (var pair in CadLinkAlign.TransformFields(best.Fit.Transform)) placed[pair.Key] = pair.Value;
-            if (best.Fit.Rivals.Count > 0)
-            {
-                placed["reason"] = "the sheet holds " + (best.Fit.Rivals.Count + 1) + " copies of this plan: move the link onto the building by hand";
-                return null;
-            }
-            if (asLink.Outcome == "failed")
-            {
-                placed["reason"] = "the drawing's walls do not lie on the model's walls (" + (asLink.FailReason ?? "failed") + "): move the link onto the building by hand";
-                return null;
-            }
-            placed["moved"] = true;
-            return best.Fit.Transform;
-        }
-
+        /// <summary>A CAD link or import and its total transform; <paramref name="unreadable"/>
+        /// says why there is none.</summary>
         private static LinkBasis ReadLink(Document doc, ImportInstance imp, out string? unreadable)
         {
             unreadable = null;

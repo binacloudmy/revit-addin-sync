@@ -136,6 +136,25 @@ namespace BinaVibe.Mcp.Tools.Electrical
             };
         }
 
+        /// <summary>A turn within this of a quarter turn is square to the model.</summary>
+        public const double SquareTolDeg = 1;
+
+        /// <summary>A link still where link_file put it: unturned, at the internal origin.</summary>
+        public static bool AtOrigin(FitTransform t) =>
+            Math.Abs(t.RotationRad) < 1e-6 && Math.Abs(t.TxMm) < 1 && Math.Abs(t.TyMm) < 1;
+
+        /// <summary>
+        /// Whether the plan's fit is offered as where to move a link still at the origin
+        /// (link_place): not failed, and square to the model. A pose 82 degrees off was another
+        /// plan of the sheet laid across the building, not the building.
+        /// </summary>
+        public static bool CanPlaceLink(FitResult fit)
+        {
+            if (fit.Outcome == "failed") return false;
+            double off = ((fit.Transform.RotationRad * 180 / Math.PI % 90) + 90) % 90;
+            return Math.Min(off, 90 - off) <= SquareTolDeg;
+        }
+
         public static FitTransform? FromBasis(LinkBasis link, out string? unusable) =>
             FromBasis(link.OriginMm, link.BasisX, link.BasisY, link.BasisZ, out unusable);
 

@@ -290,7 +290,7 @@ The headline then reads "Alignment 0.61 from your positioned link."
 
 When the fit cannot place the drawing, the user can link the DWG (`link_file`) and move it onto the building (`move_elements`). The link's total transform is then the placement.
 
-`link_file` lays a new DWG link on the building itself: before linking it fits the drawing's biggest plan (cluster 0) to the structural walls of the level it fits best, and when that place scores at least 0.25 in the link bands below, it turns and moves the link there in the link's own transaction. The result's `placed` says `moved`, `level`, `cluster`, `score`, `outcome` and the transform (`rotation_deg`, `tx_mm`, `ty_mm`); when it did not move the link (no walls, a sheet with copies of the plan, or a score under 0.25), `reason` says why and the link stays at the origin.
+`link_file` links a DWG at the origin and never moves it. When `dwg_ref` is such a link (unturned, at the internal origin) and the plan's own fit passed (not `failed`) with a rotation within 1 degree of 0, 90, 180 or 270, the plan result carries `link_place` (`link_id`, `rotation_deg`, `tx_mm`, `ty_mm`) and a note: rotate the link about 0,0 with `rotate_elements` when `rotation_deg` is not 0, then `move_elements` by (`tx_mm`, `ty_mm`), then plan again with `link_id`. The plan itself stays read-only.
 
 **When it is used:**
 - With `link_id`, always. The fit is not run.
