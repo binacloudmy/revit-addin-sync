@@ -18,7 +18,11 @@
 //    scores, so the user sees which plan the link was laid on. Bounded: clusters without
 //    walls are skipped, at most MaxMeasuredClusters are measured, and it stops when the
 //    caller's clock runs out (the add-in's HTTP call is capped at 50 s).
-// 5. SameDrawing: a link_id must be an instance of the drawing behind dwg_ref, by full path
+// 5. ScaleOff: Revit puts a link's unit scale into its geometry, not its transform, so a link
+//    in the wrong unit has a unit basis. Its extent, against the engine's extent of the drawing,
+//    is what shows it: a ratio outside 0.8-1.25 is "scaled". ImportUnitName is the matching unit
+//    for the link itself, so a new link agrees with the engine.
+// 6. SameDrawing: a link_id must be an instance of the drawing behind dwg_ref, by full path
 //    or file name; a link of another drawing (the architect's model) is link_is_other_drawing.
 //
 // Millimetres. Cad2Bim engine and System only; must compile on net48.
@@ -45,6 +49,9 @@ namespace BinaVibe.Mcp.Tools.Electrical
         public double[] BasisX = { 1, 0, 0 };
         public double[] BasisY = { 0, 1, 0 };
         public double[] BasisZ = { 0, 0, 1 };
+        /// <summary>The link's model bounding box in plan, mm; 0 when Revit gives none.</summary>
+        public double WidthMm;
+        public double HeightMm;
     }
 
     /// <summary>One link measured against one level's walls.</summary>
@@ -130,6 +137,44 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
         public static FitTransform? FromBasis(LinkBasis link, out string? unusable) =>
             FromBasis(link.OriginMm, link.BasisX, link.BasisY, link.BasisZ, out unusable);
+
+        /// <summary>A link's extent over the engine's this far from 1 is a link in another unit.</summary>
+        public const double MinExtentRatio = 0.8;
+        public const double MaxExtentRatio = 1.25;
+
+        /// <summary>
+        /// Whether a link's plan bounding box (axis-aligned, after the link's rotation) is the
+        /// size of the engine's drawing extent turned by the same rotation. Compared on the
+        /// diagonal; false when either extent is missing, since nothing can be told.
+        /// </summary>
+        public static bool ScaleOff(double linkWidthMm, double linkHeightMm, double rotationRad,
+                                    double drawingWidthMm, double drawingHeightMm)
+        {
+            double c = Math.Abs(Math.Cos(rotationRad)), s = Math.Abs(Math.Sin(rotationRad));
+            double w = (drawingWidthMm * c) + (drawingHeightMm * s), h = (drawingWidthMm * s) + (drawingHeightMm * c);
+            double expected = Math.Sqrt((w * w) + (h * h));
+            double actual = Math.Sqrt((linkWidthMm * linkWidthMm) + (linkHeightMm * linkHeightMm));
+            if (expected <= 0 || actual <= 0) return false;
+            double ratio = actual / expected;
+            return ratio < MinExtentRatio || ratio > MaxExtentRatio;
+        }
+
+        public static bool ScaleOff(LinkBasis link, FitTransform t, double drawingWidthMm, double drawingHeightMm) =>
+            ScaleOff(link.WidthMm, link.HeightMm, t.RotationRad, drawingWidthMm, drawingHeightMm);
+
+        /// <summary>The Revit ImportUnit name for the engine's millimetres per drawing unit, or
+        /// null (leave Default) for a unit Revit's import has no name for.</summary>
+        public static string? ImportUnitName(double mmPerUnit)
+        {
+            if (Same(mmPerUnit, 1)) return "Millimeter";
+            if (Same(mmPerUnit, 10)) return "Centimeter";
+            if (Same(mmPerUnit, 1000)) return "Meter";
+            if (Same(mmPerUnit, 25.4)) return "Inch";
+            if (Same(mmPerUnit, 304.8)) return "Foot";
+            return null;
+        }
+
+        private static bool Same(double a, double b) => Math.Abs(a - b) <= 1e-9 * b;
 
         /// <summary>accepted at 0.50 or more, provisional at 0.25 or more, else failed.</summary>
         public static string OutcomeFor(double score) =>

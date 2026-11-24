@@ -112,19 +112,15 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 LinkDrawingMismatch? other = CadLinkAlign.OtherDrawing(linkArg.Value, givenLink.FullPath, path);
                 if (other != null) return LinkIsOtherDrawing(dwgRef, other);
                 givenTransform = unreadable == null ? CadLinkAlign.FromBasis(givenLink, out unreadable) : null;
-                if (givenTransform == null)
-                {
-                    Dictionary<string, object?> unusable = Failed(dwgRef, "link_unusable",
-                        "link " + linkArg.Value + " is " + unreadable + ": only a link that is turned and moved, " +
-                        "not mirrored, tilted or scaled, can place the drawing");
-                    unusable["link_id"] = linkArg.Value;
-                    unusable["reason"] = unreadable;
-                    return unusable;
-                }
+                if (givenTransform == null) return LinkUnusable(dwgRef, linkArg.Value, unreadable);
             }
 
             ElectricalScan scan = ScanFor(path);
             if (scan.Census.Drawing.AecRefused) return AecRefused(dwgRef, scan.Census);
+            double drawingWidthMm = scan.Census.Drawing.WidthM * 1000, drawingHeightMm = scan.Census.Drawing.HeightM * 1000;
+            if (givenLink != null && givenTransform != null &&
+                CadLinkAlign.ScaleOff(givenLink, givenTransform, drawingWidthMm, drawingHeightMm))
+                return LinkUnusable(dwgRef, linkArg!.Value, "scaled");
 
             // 2. The mapping, checked against the drawing and the model.
             ModelSnapshot model = CadElectricalResolver.Read(doc);
@@ -356,6 +352,11 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     List<LinkMeasure> measured = MatchingLinks(doc, path).Select(link =>
                     {
                         FitTransform? t = CadLinkAlign.FromBasis(link, out string? unusable);
+                        if (t != null && CadLinkAlign.ScaleOff(link, t, drawingWidthMm, drawingHeightMm))
+                        {
+                            t = null;
+                            unusable = "scaled";
+                        }
                         return new LinkMeasure
                         {
                             Id = link.Id,
@@ -809,7 +810,26 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 link.BasisZ = Xyz(t.BasisZ);
             }
             catch (Exception) { unreadable = "without a readable transform"; }
+            BoundingBoxXYZ? box = imp.get_BoundingBox(null);
+            if (box != null)
+            {
+                link.WidthMm = (box.Max.X - box.Min.X) * MmPerFoot;
+                link.HeightMm = (box.Max.Y - box.Min.Y) * MmPerFoot;
+            }
             return link;
+        }
+
+        /// <summary>link_unusable for link_id: mirrored, tilted, scaled (its extent is not the
+        /// drawing's: a link in another unit) or without a readable transform.</summary>
+        private static Dictionary<string, object?> LinkUnusable(string dwgRef, long linkId, string? reason)
+        {
+            Dictionary<string, object?> unusable = Failed(dwgRef, "link_unusable",
+                "link " + linkId + " is " + reason + ": only a link that is turned and moved, " +
+                "not mirrored, tilted or scaled, can place the drawing" +
+                (reason == "scaled" ? " (its size is not the drawing's: relink the DWG with link_file, which links it in the drawing's unit)" : ""));
+            unusable["link_id"] = linkId;
+            unusable["reason"] = reason;
+            return unusable;
         }
 
         /// <summary>

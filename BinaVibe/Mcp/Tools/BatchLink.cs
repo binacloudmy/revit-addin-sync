@@ -317,6 +317,7 @@ namespace BinaVibe.Mcp.Tools
                 Placement = ImportPlacement.Origin,
                 ColorMode = ImportColorMode.Preserved,
             };
+            string? unitName = SetEngineUnit(options, path);
 
             int before = new FilteredElementCollector(doc)
                 .OfClass(typeof(ImportInstance)).GetElementCount();
@@ -372,8 +373,25 @@ namespace BinaVibe.Mcp.Tools
                 ["linked_id"] = (long)id.Value,
                 ["kind"] = "cad",
                 ["file"] = fileName,
+                ["unit"] = unitName?.ToLowerInvariant() ?? "default",
                 ["warnings"] = warnings,
             };
+        }
+
+        /// <summary>
+        /// Links the drawing in the unit the CAD engine reads it in (Units.Resolve, via the cached
+        /// electrical scan), not the DWG header's: a header that says inches over a millimetre
+        /// drawing made the underlay 25.4 times too big. Returns the unit's name, or null when the
+        /// drawing cannot be scanned or its unit has no ImportUnit (Revit's Default then holds).
+        /// </summary>
+        internal static string? SetEngineUnit(DWGImportOptions options, string path)
+        {
+            string? name;
+            try { name = Electrical.CadLinkAlign.ImportUnitName(Electrical.CadElectricalTools.ScanFor(path).Census.Drawing.MmPerUnit); }
+            catch (Exception) { return null; }
+            if (name == null || !Enum.TryParse(name, out ImportUnit unit)) return null;
+            options.Unit = unit;
+            return name;
         }
 
         private static string OneLine(string text)

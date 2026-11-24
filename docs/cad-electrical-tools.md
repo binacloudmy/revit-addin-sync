@@ -298,7 +298,7 @@ When the fit cannot place the drawing, the user can link the DWG (`link_file`) a
 - Without it, the model's CAD links of the same file: by full path, else by file name. Imports have no file, so they need `link_id`.
 - An `att:` ref resolves to the file the pane attached, not to a copy. A link of that file matches by path. A link made from a copy elsewhere matches by file name.
 
-**The transform:** the rotation is `atan2(BasisX.Y, BasisX.X)`, and the translation is the link's origin in mm. A mirrored, tilted or scaled link is refused with `link_unusable`.
+**The transform:** the rotation is `atan2(BasisX.Y, BasisX.X)`, and the translation is the link's origin in mm. A mirrored, tilted or scaled link is refused with `link_unusable`. Revit puts a link's unit into its geometry, not its transform, so `scaled` is also a link whose plan bounding box is not 0.8-1.25 times the drawing's extent as the engine reads it (a link in another unit). `link_file` links a DWG in the engine's unit and returns it as `unit`.
 
 **The level:** the `level` arg, else the cluster's plan rows. Else, with `link_id`, the level the link's position scores best on. A second level within 0.05 gives `level_ambiguous`.
 
