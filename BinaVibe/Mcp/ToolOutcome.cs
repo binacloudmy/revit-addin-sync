@@ -4,6 +4,7 @@
 // "error" when present. The Dictionary indexer throws on a missing key (AI-55),
 // so every read here goes through TryGetValue.
 
+using System;
 using System.Collections.Generic;
 
 namespace BinaVibe.Mcp
@@ -19,6 +20,28 @@ namespace BinaVibe.Mcp
 
         /// <summary>Ledger reason for a failed tool: its "error" text if any,
         /// else the generic "failed". Never throws on a missing key (AI-55).</summary>
+        /// <summary>
+        /// The HTTP status and message for a tool that threw. A write that touched a pinned
+        /// element (<paramref name="pinnedId"/>) is 409 naming it; a System.ArgumentException
+        /// is the tools' own argument check ("missing dz"), so 400 with which tool it was;
+        /// anything else 500. Revit's API exceptions are not System.ArgumentException.
+        /// </summary>
+        public static int ErrorStatus(Exception ex, string tool, long? pinnedId, out string message)
+        {
+            if (pinnedId.HasValue)
+            {
+                message = "element " + pinnedId.Value + " is pinned, unpin it first (pin_elements with pinned=false)";
+                return 409;
+            }
+            message = string.IsNullOrEmpty(ex.Message) ? ex.GetType().Name : ex.Message;
+            if (ex is ArgumentException)
+            {
+                message = "bad arguments for " + tool + ": " + message;
+                return 400;
+            }
+            return 500;
+        }
+
         public static string FailureReason(Dictionary<string, object?>? result)
         {
             if (result != null && result.TryGetValue("error", out var e) && e != null)

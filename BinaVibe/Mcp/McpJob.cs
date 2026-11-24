@@ -59,6 +59,8 @@ namespace BinaVibe.Mcp
         // Result of the call. Exactly one of these is non-null once completed.
         public Dictionary<string, object?>? Result { get; private set; }
         public string? Error { get; private set; }
+        /// <summary>The HTTP status of <see cref="Error"/>: 400 bad arguments, 409 pinned, else 500.</summary>
+        public int ErrorStatus { get; private set; } = 500;
 
         private int _completed;   // 0 = pending, 1 = completed (CAS guard)
 
@@ -76,10 +78,11 @@ namespace BinaVibe.Mcp
         }
 
         /// <summary>Complete with an error. First caller wins.</summary>
-        public void SetError(string error)
+        public void SetError(string error, int status = 500)
         {
             if (Interlocked.CompareExchange(ref _completed, 1, 0) != 0) return;
             Error = error;
+            ErrorStatus = status;
             Signal();
         }
 

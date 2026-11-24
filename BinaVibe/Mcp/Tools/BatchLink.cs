@@ -276,7 +276,7 @@ namespace BinaVibe.Mcp.Tools
             var fileName = Path.GetFileName(path);
             var existingTypes = new FilteredElementCollector(doc)
                 .OfClass(typeof(RevitLinkType)).Cast<RevitLinkType>().ToList();
-            var outcome = LinkOneRvt(doc, path, pin: true, existingTypes);
+            var outcome = LinkOneRvt(doc, path, pin: false, existingTypes);
             if (outcome.Status == "failed")
                 return Err($"{fileName}: {outcome.Reason}");
 
@@ -317,6 +317,7 @@ namespace BinaVibe.Mcp.Tools
                 Placement = ImportPlacement.Origin,
                 ColorMode = ImportColorMode.Preserved,
             };
+            string? unitName = SetEngineUnit(options, path);
 
             int before = new FilteredElementCollector(doc)
                 .OfClass(typeof(ImportInstance)).GetElementCount();
@@ -346,6 +347,9 @@ namespace BinaVibe.Mcp.Tools
                     tx.RollBack();
                     return Err($"Revit could not link {fileName} (corrupt, password-protected, or an unsupported CAD version)");
                 }
+                // Revit pins an origin-to-origin link; link_file leaves it free so it can be moved
+                // onto the building (move_elements on a pinned link fails).
+                if (doc.GetElement(id) is ImportInstance linkedCad) linkedCad.Pinned = false;
                 try
                 {
                     TxGuard.CommitOrThrow(tx);
@@ -372,8 +376,25 @@ namespace BinaVibe.Mcp.Tools
                 ["linked_id"] = (long)id.Value,
                 ["kind"] = "cad",
                 ["file"] = fileName,
+                ["unit"] = unitName?.ToLowerInvariant() ?? "default",
                 ["warnings"] = warnings,
             };
+        }
+
+        /// <summary>
+        /// Links the drawing in the unit the CAD engine reads it in (Units.Resolve, via the cached
+        /// electrical scan), not the DWG header's: a header that says inches over a millimetre
+        /// drawing made the underlay 25.4 times too big. Returns the unit's name, or null when the
+        /// drawing cannot be scanned or its unit has no ImportUnit (Revit's Default then holds).
+        /// </summary>
+        internal static string? SetEngineUnit(DWGImportOptions options, string path)
+        {
+            string? name;
+            try { name = Electrical.CadLinkAlign.ImportUnitName(Electrical.CadElectricalTools.ScanFor(path).Census.Drawing.MmPerUnit); }
+            catch (Exception) { return null; }
+            if (name == null || !Enum.TryParse(name, out ImportUnit unit)) return null;
+            options.Unit = unit;
+            return name;
         }
 
         private static string OneLine(string text)
@@ -462,7 +483,6 @@ namespace BinaVibe.Mcp.Tools
                     return Err($"{fileName}: {res.LoadResult}");
                 }
                 var inst = RevitLinkInstance.Create(doc, res.ElementId);
-                if (inst != null) inst.Pinned = true;
                 tx.Commit();
 
                 int after = new FilteredElementCollector(doc)

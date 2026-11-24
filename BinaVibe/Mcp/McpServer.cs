@@ -175,7 +175,7 @@ namespace BinaVibe.Mcp
 
                 if (job.Error != null)
                 {
-                    await WriteJson(ctx, 500, new { error = job.Error });
+                    await WriteJson(ctx, job.ErrorStatus, new { error = job.Error });
                     return;
                 }
 

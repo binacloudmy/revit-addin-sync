@@ -253,6 +253,7 @@ namespace BinaVibe.Mcp.Tools
                 Placement = ImportPlacement.Origin,
                 ColorMode = ImportColorMode.Preserved,
             };
+            BatchLink.SetEngineUnit(options, path);
             // A drawing with stray geometry far away raises a dialog (answered OK by the guard)
             // and posts an out-of-range warning (deleted by the swallowing preprocessor), either
             // of which would otherwise sit modal in front of a read nobody is watching.

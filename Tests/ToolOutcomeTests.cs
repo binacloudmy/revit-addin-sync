@@ -62,5 +62,16 @@ namespace RevitAddinSync.Tests
             Assert.False(ToolOutcome.IsFailure(new Dictionary<string, object?> { ["ok"] = true }));
             Assert.False(ToolOutcome.IsFailure(new Dictionary<string, object?> { ["elements"] = new List<object>() }));   // no "ok" => success
         }
+
+        [Fact]
+        public void ErrorStatus_pinned_is_409_bad_arguments_400_else_500()
+        {
+            Assert.Equal(409, ToolOutcome.ErrorStatus(new System.InvalidOperationException("Unable to move element(s)"), "move_elements", 1617312, out string pinned));
+            Assert.Equal("element 1617312 is pinned, unpin it first (pin_elements with pinned=false)", pinned);
+            Assert.Equal(400, ToolOutcome.ErrorStatus(new System.ArgumentException("missing download_url"), "load_family", null, out string bad));
+            Assert.Equal("bad arguments for load_family: missing download_url", bad);
+            Assert.Equal(500, ToolOutcome.ErrorStatus(new System.InvalidOperationException(""), "x", null, out string other));
+            Assert.Equal("InvalidOperationException", other);
+        }
     }
 }
