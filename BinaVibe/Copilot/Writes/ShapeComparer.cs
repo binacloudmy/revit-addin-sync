@@ -81,6 +81,9 @@ namespace BinaVibe.Copilot.Writes
         /// <summary>AI-553 (live a94f3408): a side-effect deletion that was a nested family instance -> its SuperComponent, read after the
         /// preview's rollback; the commit drops it while that parent still exists (ChangeSetMath.Nested). Envelope counts only.</summary>
         public Dictionary<long, long> NestedParentOf = new();
+        /// <summary>AI-553 (live 0.0.175): side-effect deletions that were element types, read after the preview's rollback; the commit
+        /// drops them from the envelope's counts (ChangeSetMath.SideTypes).</summary>
+        public HashSet<long> DeletedTypes = new();
 
         public string CategoryOfId(long id) => CategoryOf.TryGetValue(id, out var c) && !string.IsNullOrWhiteSpace(c) ? c : "Other";
 

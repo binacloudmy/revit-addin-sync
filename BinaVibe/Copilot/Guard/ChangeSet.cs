@@ -166,6 +166,12 @@ namespace BinaVibe.Copilot.Guard
             return drop;
         }
 
+        /// <summary>AI-553 (live 0.0.175: the clicks log named the two "Windows" a Comments write removed as FamilySymbol): side-effect deletions
+        /// that were element types, read as such after the preview's rollback (<paramref name="typeIds"/>). A type the write did not target is
+        /// not an element in the model; Revit drops it on regeneration. Instances are never in <paramref name="typeIds"/>, so they still show.</summary>
+        public static HashSet<long> SideTypes(IReadOnlyDictionary<long, string>? deletedSide, ICollection<long>? typeIds) =>
+            deletedSide == null || typeIds == null ? new HashSet<long>() : new HashSet<long>(deletedSide.Keys.Where(typeIds.Contains));
+
         /// <summary>AI-553 (AI-557 live afcbdb00: a type change by code reported 2 Structural Columns and 4 Structural Framing deleted, the
         /// model still at 144 and 2598). Code counts every change as touched, so <see cref="Rebuilt"/> never sees these. When
         /// <paramref name="code"/> changes types (ChangeTypeId) and names no deletion, a touched deletion pairs with a touched addition of the same category, one for one,

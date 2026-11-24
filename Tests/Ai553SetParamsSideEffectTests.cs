@@ -53,6 +53,29 @@ namespace RevitAddinSync.Tests
             Assert.Empty(ChangeSetMath.Nested(TwoWindows, parentOf, TwoWindows.Keys.ToList(), id => throw new System.Exception("gone")));
         }
 
+        // Live 0.0.175: the clicks log said "side deletion 3414767 FamilySymbol": the two "Windows" were window types, not instances.
+        [Fact]
+        public void CommentsWrite_TwoWindowTypesDeleted_NoDeletionReported()
+        {
+            var deleted = new Dictionary<long, string> { [3414767] = "Windows", [3414768] = "Windows" };
+
+            var drop = ChangeSetMath.SideTypes(deleted, new HashSet<long> { 3414767, 3414768 });
+
+            Assert.Equal(new long[] { 3414767, 3414768 }, drop.OrderBy(i => i));
+        }
+
+        [Fact]
+        public void ADeletedWindowInstanceBesideADeletedType_IsStillADeletion()
+        {
+            var deleted = new Dictionary<long, string> { [3414767] = "Windows", [940066] = "Windows" };
+
+            var drop = ChangeSetMath.SideTypes(deleted, new HashSet<long> { 3414767 });
+
+            Assert.Equal(new long[] { 3414767 }, drop);
+            Assert.Empty(ChangeSetMath.SideTypes(deleted, null));
+            Assert.Empty(ChangeSetMath.SideTypes(null, new HashSet<long> { 3414767 }));
+        }
+
         [Fact]
         public void NoFactsFromThePreview_DropsNothing()
         {

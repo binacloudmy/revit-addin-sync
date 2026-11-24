@@ -358,9 +358,15 @@ namespace BinaVibe.Copilot.Writes
                 }
                 foreach (var kv in runs) { FoldRebuilt(outcome.Envelopes[kv.Key], kv.Value); FoldRetyped(outcome.Envelopes[kv.Key], kv.Value); }   // AI-553
                 // AI-553 (live a94f3408): the deleted ids exist again now; their SuperComponent is read here, for this card and the commit's.
-                outcome.Shape.NestedParentOf = NestedParents(doc, runs.Values.SelectMany(r => r.DeletedSide.Keys));
-                foreach (var kv in runs) FoldNested(outcome.Envelopes[kv.Key], kv.Value, outcome.Shape.NestedParentOf, outcome.Shape.Deleted, id => true);
-                MarkSideDeletions(doc, st, runs.Values.SelectMany(r => r.DeletedSide.Keys));
+                var sideDeleted = runs.Values.SelectMany(r => r.DeletedSide.Keys).ToList();
+                MarkSideDeletions(doc, st, sideDeleted, outcome.Shape.Born);
+                outcome.Shape.NestedParentOf = NestedParents(doc, sideDeleted);
+                outcome.Shape.DeletedTypes = ElementTypes(doc, sideDeleted);
+                foreach (var kv in runs)
+                {
+                    FoldNested(outcome.Envelopes[kv.Key], kv.Value, outcome.Shape.NestedParentOf, outcome.Shape.Deleted, id => true);
+                    FoldTypes(outcome.Envelopes[kv.Key], kv.Value, outcome.Shape.DeletedTypes);
+                }
             }
 
             // Code plans name no targets, so their ownership check runs on what the preview
@@ -556,7 +562,10 @@ namespace BinaVibe.Copilot.Writes
                     for (var i = 0; i < n; i++) if (commitRuns[i] != null) { FoldRebuilt(envelopes[i], commitRuns[i]!); FoldRetyped(envelopes[i], commitRuns[i]!); }   // AI-553
                     for (var i = 0; i < n; i++)   // AI-553 (live a94f3408): nested pieces regenerated under a parent that is still there
                         if (commitRuns[i] != null)
+                        {
                             FoldNested(envelopes[i], commitRuns[i]!, preview.Shape?.NestedParentOf, shape.Deleted, id => doc!.GetElement(ElemIds.From(id)) != null);
+                            FoldTypes(envelopes[i], commitRuns[i]!, preview.Shape?.DeletedTypes);
+                        }
                     RevitValueFingerprints.Fill(doc!, shape, builder.AddedIds);   // R75, compared with the preview's
                     st.Mark("value fingerprints");
                     var verdict = ShapeComparer.Compare(fresh, preview.Shape, shape);
@@ -857,17 +866,37 @@ namespace BinaVibe.Copilot.Writes
             return map;
         }
 
-        /// <summary>AI-553: the clicks log names the side-effect deletions a card still shows (first 5: id, class, SuperComponent), so a live
-        /// run can tell what Revit removed.</summary>
-        private static void MarkSideDeletions(Document doc, StageTimer st, IEnumerable<long> ids)
+        /// <summary>AI-553 (live 0.0.175): side-effect deletions that were element types (ChangeSetMath.SideTypes) come out of the envelope's
+        /// counts; a deleted instance is never a type and still shows. Envelope counts only: the batch shape is not touched.</summary>
+        private static void FoldTypes(Envelope? env, CallRun run, ICollection<long>? typeIds) =>
+            BornIds.DropFromEnvelope(env, null, run.DeletedSide, ChangeSetMath.SideTypes(run.DeletedSide, typeIds));
+
+        /// <summary>AI-553: the deleted ids that are element types (the first MaxDeletedLookups ids). Only valid while the ids exist: after
+        /// the preview's rollback. Unreadable: not a type, so the deletion stays.</summary>
+        private static HashSet<long> ElementTypes(Document doc, IEnumerable<long> ids)
+        {
+            var types = new HashSet<long>();
+            foreach (var id in ids.Distinct().OrderBy(i => i).Take(EnvelopeChanges.MaxDeletedLookups))
+            {
+                try { if (doc.GetElement(ElemIds.From(id)) is ElementType) types.Add(id); }
+                catch (Exception) { /* unreadable: the deletion stays */ }
+            }
+            return types;
+        }
+
+        /// <summary>AI-553: the clicks log names the preview's side-effect deletions (first 5: id, class, name, SuperComponent, and whether the
+        /// preview proved it born), so a live run can tell what Revit removed.</summary>
+        private static void MarkSideDeletions(Document doc, StageTimer st, IEnumerable<long> ids, ICollection<long> born)
         {
             foreach (var id in ids.Distinct().OrderBy(i => i).Take(5))
             {
                 try
                 {
                     var e = doc.GetElement(ElemIds.From(id));
-                    var super = (e as FamilyInstance)?.SuperComponent?.Id.Value.ToString(CultureInfo.InvariantCulture) ?? "none";
-                    st.Mark("side deletion " + id.ToString(CultureInfo.InvariantCulture) + " " + (e?.GetType().Name ?? "gone") + " super=" + super);
+                    var super = e is FamilyInstance fi && fi.SuperComponent != null ? ((long)fi.SuperComponent.Id.Value).ToString(CultureInfo.InvariantCulture) : "none";
+                    var name = e == null ? "" : e is ElementType t ? (t.FamilyName + ": " + t.Name) : e.Name;
+                    st.Mark("side deletion " + id.ToString(CultureInfo.InvariantCulture) + " " + (e?.GetType().Name ?? "gone") + " name=\"" + name + "\" super=" + super
+                            + " born=" + (born != null && born.Contains(id) ? "yes" : "no"));
                 }
                 catch (Exception) { /* diagnostics only */ }
             }
