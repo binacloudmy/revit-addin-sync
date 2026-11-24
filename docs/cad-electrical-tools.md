@@ -821,6 +821,8 @@ No runs selected gives `ok: false`. If the plan has no runs at all, the error sa
 
 **Junctions (plan mode):** after the runs are built, the ends of the runs built in that call that meet at one junction (same type and level, within 20 mm) are joined in one transaction each, inside the call's group: two running straight on are connected, two at an angle get an elbow, three a tee (the two most opposite are the main), four a cross. More than four, or a fitting Revit refuses, is a warning, and the runs stay built. A junction whose other runs were dropped as short keeps its one open end.
 
+**Tray fittings (plan mode):** before routing, the cable tray type's routing fittings are read (horizontal bend or Bend, Tee, Cross, Union). A type with none is swapped for the project's tray type with the most fittings (one with a bend first), and a warning names both. When no tray type has any, only straight runs are built: a run with a corner is `skipped` with the reason, and every join that needs a fitting is a warning ("tray type X has no fittings; joins skipped"). A join the type lacks the fitting for (no tee, no cross) is skipped the same way. A corner elbow that fails is rolled back alone in its own sub-transaction and warned about; the run's legs stay.
+
 ### `place_cad_electrical` (mutate)
 
 The one write after `plan_cad_electrical`: devices and runs together, behind one confirmation card.

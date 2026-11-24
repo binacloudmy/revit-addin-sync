@@ -170,6 +170,49 @@ namespace Tests
             Assert.Equal("junction", middle.EndKind);
         }
 
+        private static TrayFittings Tray(string name, bool bend = false, bool tee = false, bool cross = false, bool union = false) =>
+            new TrayFittings { Name = name, Bend = bend, Tee = tee, Cross = cross, Union = union };
+
+        [Fact]
+        public void A_tray_type_with_fittings_is_kept()
+        {
+            TrayFittings named = Tray("Trunking", bend: true);
+            Assert.Same(named, CadRunPlan.ChooseTrayType(named, new[] { named, Tray("Ladder", true, true, true, true) }, out bool switched));
+            Assert.False(switched);
+        }
+
+        [Fact]
+        public void A_tray_type_without_fittings_is_swapped_for_one_with_a_bend()
+        {
+            TrayFittings named = Tray("Trunking");
+            var all = new[] { named, Tray("A tees only", tee: true, cross: true, union: true), Tray("B ladder", bend: true, tee: true) };
+            TrayFittings chosen = CadRunPlan.ChooseTrayType(named, all, out bool switched);
+            Assert.True(switched);
+            Assert.Equal("B ladder", chosen.Name);
+        }
+
+        [Fact]
+        public void With_no_fittings_anywhere_only_straight_runs_build_and_joins_skip()
+        {
+            TrayFittings named = Tray("Trunking");
+            TrayFittings chosen = CadRunPlan.ChooseTrayType(named, new[] { named, Tray("Other") }, out bool switched);
+            Assert.False(switched);
+            Assert.Same(named, chosen);
+            Assert.True(CadRunPlan.CanBuild(chosen, 2));
+            Assert.False(CadRunPlan.CanBuild(chosen, 3));
+            Assert.Equal("tray type 'Trunking' has no fittings; joins skipped", CadRunPlan.JoinSkip(chosen, 3, false));
+            Assert.Null(CadRunPlan.JoinSkip(chosen, 2, true));   // straight on: connected, no fitting
+        }
+
+        [Fact]
+        public void A_join_skips_only_the_fitting_the_type_lacks()
+        {
+            TrayFittings t = Tray("Trunking", bend: true, tee: true);
+            Assert.Null(CadRunPlan.JoinSkip(t, 2, false));
+            Assert.Null(CadRunPlan.JoinSkip(t, 3, false));
+            Assert.Equal("tray type 'Trunking' has no cross", CadRunPlan.JoinSkip(t, 4, false));
+        }
+
         private static JunctionEnd End(int item, double dx, double dy, double x = 1000, double y = 0) =>
             new JunctionEnd { Item = item, Group = "tray", X = x, Y = y, Z = 3000, Dx = dx, Dy = dy };
 

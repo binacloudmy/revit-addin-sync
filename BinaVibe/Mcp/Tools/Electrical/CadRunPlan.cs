@@ -56,6 +56,15 @@ namespace BinaVibe.Mcp.Tools.Electrical
         public double? RunHeightMm;
     }
 
+    /// <summary>The fittings a cable tray type has assigned (its routing fittings).</summary>
+    internal sealed class TrayFittings
+    {
+        public string Name = "";
+        public bool Bend, Tee, Cross, Union;
+        public bool Any => Bend || Tee || Cross || Union;
+        public int Count => (Bend ? 1 : 0) + (Tee ? 1 : 0) + (Cross ? 1 : 0) + (Union ? 1 : 0);
+    }
+
     /// <summary>One routed run's end at a junction: which run, which end, where, and the plan
     /// direction from the junction into the run. Group keeps different types and levels apart.</summary>
     internal sealed class JunctionEnd
@@ -68,6 +77,37 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
     internal static class CadRunPlan
     {
+        /// <summary>
+        /// The tray type to route with: the named one when it has any fitting; else the project's
+        /// type with the most fittings (a bend first, then by name), and <paramref name="switched"/>
+        /// is true; else the named one, which then builds straight runs only.
+        /// </summary>
+        public static TrayFittings ChooseTrayType(TrayFittings named, IEnumerable<TrayFittings> all, out bool switched)
+        {
+            switched = false;
+            if (named.Any) return named;
+            TrayFittings? other = all.Where(t => t.Any)
+                .OrderByDescending(t => t.Bend).ThenByDescending(t => t.Count).ThenBy(t => t.Name, StringComparer.Ordinal)
+                .FirstOrDefault();
+            if (other == null) return named;
+            switched = true;
+            return other;
+        }
+
+        /// <summary>A run with a corner needs a bend; a straight one always builds.</summary>
+        public static bool CanBuild(TrayFittings t, int points) => points <= 2 || t.Bend;
+
+        /// <summary>Why a junction of <paramref name="ends"/> cannot be joined with this type, or
+        /// null when it can. Two ends straight on are only connected and need no fitting.</summary>
+        public static string? JoinSkip(TrayFittings t, int ends, bool straight)
+        {
+            if (ends == 2 && straight) return null;
+            if (!t.Any) return "tray type '" + t.Name + "' has no fittings; joins skipped";
+            if (ends == 2) return t.Bend ? null : "tray type '" + t.Name + "' has no bend";
+            if (ends == 3) return t.Tee ? null : "tray type '" + t.Name + "' has no tee";
+            return t.Cross ? null : "tray type '" + t.Name + "' has no cross";
+        }
+
         /// <summary>Run ends meeting at one junction: ends of one group within joinMm of each
         /// other in plan and height, two or more of them, in input order.</summary>
         public static List<List<JunctionEnd>> JunctionGroups(IReadOnlyList<JunctionEnd> ends, double joinMm = 20)
