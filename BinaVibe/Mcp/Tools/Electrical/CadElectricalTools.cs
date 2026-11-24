@@ -379,6 +379,9 @@ namespace BinaVibe.Mcp.Tools.Electrical
                         linksTried = choice.Ranked.Select(l => (object?)LinkRow(l)).ToList();
                 }
             }
+            if (method == CadLinkAlign.Method &&
+                CadLinkAlign.NeedsConfirm(fit, ArgsHelp.GetBool(args, "confirm_low_score") ?? false))
+                return LinkLowScore(dwgRef, level.Name, cluster, linkUsed!.Value, fit);
             if (fit.Outcome == "failed")
             {
                 string message = fit.FailReason == "crop_too_small"
@@ -890,6 +893,22 @@ namespace BinaVibe.Mcp.Tools.Electrical
             ambiguous["level"] = level;
             ambiguous["cluster"] = cluster;
             return ambiguous;
+        }
+
+        /// <summary>A link that lays the drawing provisionally (0.25-0.50) places nothing until the
+        /// caller confirms: at that score it is as likely on the wrong level as on the right one.</summary>
+        private static Dictionary<string, object?> LinkLowScore(string dwgRef, string level, int cluster, long linkId, FitResult fit)
+        {
+            string score = Math.Round(fit.Score, 2).ToString(System.Globalization.CultureInfo.InvariantCulture);
+            Dictionary<string, object?> low = Failed(dwgRef, "link_low_score",
+                "link " + linkId + " lays the drawing on " + level + " at only " + score + " (below " +
+                CadLinkAlign.AcceptScore.ToString(System.Globalization.CultureInfo.InvariantCulture) +
+                "): check the level and the link's place, or pass confirm_low_score=true to place anyway");
+            low["link_id"] = linkId;
+            low["level"] = level;
+            low["cluster"] = cluster;
+            low["score"] = Math.Round(fit.Score, 3);
+            return low;
         }
 
         /// <summary>link_id given, and its place does not lay the cluster on the level: every

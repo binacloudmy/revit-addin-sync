@@ -46,5 +46,13 @@ namespace Tests
             Assert.False(CadLinkAlign.ScaleOff(0, 0, 0, 1354490, 633140));
             Assert.False(CadLinkAlign.ScaleOff(1354490, 633140, 0, 0, 0));
         }
+
+        [Theory]
+        [InlineData("accepted", false, false)]
+        [InlineData("provisional", false, true)]
+        [InlineData("provisional", true, false)]
+        [InlineData("failed", false, false)]
+        public void NeedsConfirm_only_a_provisional_link_without_confirm(string outcome, bool confirmed, bool expected) =>
+            Assert.Equal(expected, CadLinkAlign.NeedsConfirm(new FitResult { Outcome = outcome }, confirmed));
     }
 }

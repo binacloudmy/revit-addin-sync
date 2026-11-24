@@ -234,6 +234,7 @@ A run layer row plans no runs and is listed under the conduit block's `unplanned
 | `cluster` | int | Census plan cluster; else the only plan row with a level, else the only cluster, else `cluster_needed` |
 | `pick` | int | Chooses one of several identical copies of the floor (see rivals) |
 | `link_id` | int | A CAD link or import in the model, moved onto the building by the user. The drawing is placed where its transform puts it, and the fit is not run. See **Positioned link**. |
+| `confirm_low_score` | bool, default false | Place from a positioned link that scores provisional (0.25 to 0.50). Without it such a link is refused with `link_low_score`. |
 | `run_height_mm` | number | Height of conduit and trunking runs above the level, -1000 to 10000, for run rows that give none. Never defaulted. Out of range: `bad_run_height`. |
 | `include_points` | bool | Diagnostic: adds `points`, `dropped` and `runs`, at most 2000 rows each. Not exposed to the AI. |
 
@@ -304,7 +305,7 @@ When the fit cannot place the drawing, the user can link the DWG (`link_file`) a
 
 **Link outcomes:** the user placed the link, so the bands are lower than the fit's:
 - `accepted` at 0.50 or more;
-- `provisional` from 0.25 to 0.50: every point is flagged `provisional_alignment`, and a note asks for a spot-check;
+- `provisional` from 0.25 to 0.50, placed only with `confirm_low_score=true` (else `link_low_score`): every point is flagged `provisional_alignment`, and a note asks for a spot-check;
 - below 0.25 nothing is placed.
 
 The crop guard holds: too little drawing wall inside the footprint fails as for a fit.
@@ -324,6 +325,7 @@ The crop guard holds: too little drawing wall inside the footprint fails as for 
 | `link_is_other_drawing` | `link_id` is a CAD link of another file than `dwg_ref`'s drawing (for example the architect's model). Checked first, so it fails fast | `link_id`, `link_file`, `drawing_file`. Call `list_cad_links` and pick the link whose name matches `drawing_file` |
 | `link_unusable` | The link is mirrored, tilted or scaled, or its transform cannot be read | `link_id`, `reason`: `mirrored`, `tilted`, `scaled`, `without a readable transform` |
 | `link_misaligned` | `link_id` scores below 0.25 on the level, or lays too little of the drawing inside it | `link_id`, `level`, `cluster`, `score`, `score_uncropped`, `inside_share`, `reason` (`alignment_failed` or `crop_too_small`), `rotation_deg`, `tx_mm`, `ty_mm` (the link's placement). `candidates`: the clusters' `{cluster, titles, score}` under the link, best first. Bounded under the 50 s HTTP cap: clusters without walls are skipped, at most 12 others are measured, and none after 30 s of plan time; `clusters_truncated` is true when a cluster was left out. When another cluster scores better, the message names it. |
+| `link_low_score` | The link (given or found) scores provisional, 0.25 to 0.50, and `confirm_low_score` is not true | `link_id`, `level`, `cluster`, `score`. Check the level and the link's place, or pass `confirm_low_score=true` |
 | `link_ambiguous` | No `link_id`, the fit failed, and the model holds several links of the drawing, one of them clearing 0.25 | `level`, `cluster`. `candidates`: `{link_id, score, outcome, unusable, rotation_deg, tx_mm, ty_mm}`, best first |
 | `level_ambiguous` | With `link_id` and no level given, two levels score within 0.05 | `cluster`, `link_id`. `candidates`: `{level, score, outcome}` |
 

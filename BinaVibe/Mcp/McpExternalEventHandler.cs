@@ -127,14 +127,34 @@ namespace BinaVibe.Mcp
                 {
                     job.TFinished = System.Diagnostics.Stopwatch.GetTimestamp();
                     LogTimings(job);
-                    if (job.Mutate) BinaVibe.DocState.OperationLedger.Instance.Fail(job.IdempotencyKey, ex.Message);
-                    job.SetError(ex.Message);
+                    int status = ToolOutcome.ErrorStatus(ex, job.Tool, PinnedIdIn(app, job.Args), out string message);
+                    if (job.Mutate) BinaVibe.DocState.OperationLedger.Instance.Fail(job.IdempotencyKey, message);
+                    job.SetError(message, status);
                     RevitWebAppSync.Services.TelemetryService.Track("tool_exec", "failed",
                         new { tool = job.Tool, error_class = ex.GetType().Name });
                 }
                 n++;
             }
             return n;
+        }
+
+        /// <summary>A pinned element among the job's element_ids / element_id, if any: a write
+        /// that threw on one is reported as pinned. Only read after a failure.</summary>
+        private static long? PinnedIdIn(UIApplication app, System.Text.Json.JsonElement args)
+        {
+            try
+            {
+                var doc = app.ActiveUIDocument?.Document;
+                if (doc == null || args.ValueKind != System.Text.Json.JsonValueKind.Object) return null;
+                var ids = ArgsHelp.GetLongList(args, "element_ids");
+                long? one = ArgsHelp.GetLong(args, "element_id");
+                if (one.HasValue) ids.Add(one.Value);
+                foreach (long id in ids)
+                    if (doc.GetElement(Autodesk.Revit.DB.ElemIds.From(id)) is Autodesk.Revit.DB.Element e && e.Pinned)
+                        return id;
+            }
+            catch { /* the original error stands */ }
+            return null;
         }
 
         /// <summary>Fast-fail every still-pending job with one message (idle

@@ -11,6 +11,7 @@
 //    shifts only.
 // 2. Measure: CadModelFit.Measure on the given transform, graded with the link bands. The
 //    user placed the link, so 0.50 is accepted, 0.25 provisional, below that nothing places.
+//    A provisional link places only with confirm_low_score (NeedsConfirm); else link_low_score.
 // 3. Choose: one link, or the best of several when none ties it at another place. Found
 //    automatically (no link_id), several links of the drawing are ambiguous: automatic use
 //    takes a single matching link only.
@@ -175,6 +176,10 @@ namespace BinaVibe.Mcp.Tools.Electrical
         }
 
         private static bool Same(double a, double b) => Math.Abs(a - b) <= 1e-9 * b;
+
+        /// <summary>A provisional link placement (0.25-0.50) needs the caller's confirm_low_score;
+        /// accepted places, failed never does.</summary>
+        public static bool NeedsConfirm(FitResult fit, bool confirmed) => fit.Outcome == "provisional" && !confirmed;
 
         /// <summary>accepted at 0.50 or more, provisional at 0.25 or more, else failed.</summary>
         public static string OutcomeFor(double score) =>

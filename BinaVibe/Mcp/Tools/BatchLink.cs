@@ -276,7 +276,7 @@ namespace BinaVibe.Mcp.Tools
             var fileName = Path.GetFileName(path);
             var existingTypes = new FilteredElementCollector(doc)
                 .OfClass(typeof(RevitLinkType)).Cast<RevitLinkType>().ToList();
-            var outcome = LinkOneRvt(doc, path, pin: true, existingTypes);
+            var outcome = LinkOneRvt(doc, path, pin: false, existingTypes);
             if (outcome.Status == "failed")
                 return Err($"{fileName}: {outcome.Reason}");
 
@@ -347,6 +347,9 @@ namespace BinaVibe.Mcp.Tools
                     tx.RollBack();
                     return Err($"Revit could not link {fileName} (corrupt, password-protected, or an unsupported CAD version)");
                 }
+                // Revit pins an origin-to-origin link; link_file leaves it free so it can be moved
+                // onto the building (move_elements on a pinned link fails).
+                if (doc.GetElement(id) is ImportInstance linkedCad) linkedCad.Pinned = false;
                 try
                 {
                     TxGuard.CommitOrThrow(tx);
@@ -480,7 +483,6 @@ namespace BinaVibe.Mcp.Tools
                     return Err($"{fileName}: {res.LoadResult}");
                 }
                 var inst = RevitLinkInstance.Create(doc, res.ElementId);
-                if (inst != null) inst.Pinned = true;
                 tx.Commit();
 
                 int after = new FilteredElementCollector(doc)
