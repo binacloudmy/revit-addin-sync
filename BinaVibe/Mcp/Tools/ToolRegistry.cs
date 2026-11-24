@@ -155,7 +155,7 @@ namespace BinaVibe.Mcp.Tools
                 "dimension_grids"               => Mutators.DimensionGrids(doc, args),
                 "crop_view_to_elements"         => Mutators.CropViewToElements(doc, args),
                 "create_3d_view"                => Mutators.Create3dView(uidoc, args),
-                "set_section_box"               => Mutators.SetSectionBox(doc, args),
+                "set_section_box"               => Mutators.SetSectionBox(uidoc, args),
                 "find_missing_parameter"        => Inspectors.FindMissingParameter(doc, args),
                 "rename_elements"               => Mutators.RenameElements(doc, args),
                 // Batch JKR rename + param write-back; names composed by the

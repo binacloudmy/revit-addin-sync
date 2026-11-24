@@ -99,7 +99,7 @@ namespace BinaVibe.Documentation
             _ => new[] { "Family and Type", "Level", "Comments" },
         };
 
-        public static SchedulePlan Build(string category, IEnumerable<string>? requested, IEnumerable<string> available, IEnumerable<string> existingNames)
+        public static SchedulePlan Build(string category, IEnumerable<string>? requested, IEnumerable<string> available, IEnumerable<string> existingNames, string? name = null)
         {
             var avail = available.Where(a => !string.IsNullOrEmpty(a)).Distinct().ToList();
             var wanted = (requested?.Where(r => !string.IsNullOrWhiteSpace(r)).ToList() ?? new List<string>());
@@ -114,16 +114,19 @@ namespace BinaVibe.Documentation
                 if (key != null && !resolved.Contains(key)) resolved.Add(key);
                 else if (key == null) unresolved.Add(f);
             }
-            var baseName = SingularTitle(category) + " Schedule";
+            var baseName = string.IsNullOrWhiteSpace(name) ? SingularTitle(category) + " Schedule" : name!.Trim();
             var names = new HashSet<string>(existingNames, StringComparer.OrdinalIgnoreCase);
-            var name = baseName;
-            for (int i = 2; names.Contains(name); i++) name = $"{baseName} {i}";
-            return new SchedulePlan(category, resolved, unresolved, avail.Take(20).ToList(), name, names.Contains(baseName));
+            var unique = baseName;
+            for (int i = 2; names.Contains(unique); i++) unique = $"{baseName} {i}";
+            return new SchedulePlan(category, resolved, unresolved, avail.Take(20).ToList(), unique, names.Contains(baseName));
         }
 
         private static string SingularTitle(string category)
         {
             var c = category.Trim();
+            // Raw ids ("OST_CableTray") when Revit gave no display name: "CableTray" -> "Cable Tray".
+            if (c.StartsWith("OST_", StringComparison.OrdinalIgnoreCase))
+                c = System.Text.RegularExpressions.Regex.Replace(c.Substring(4), "(?<=[a-z])(?=[A-Z])", " ");
             if (c.EndsWith("s", StringComparison.OrdinalIgnoreCase) && !c.EndsWith("ss", StringComparison.OrdinalIgnoreCase)) c = c.Substring(0, c.Length - 1);
             return c;
         }
