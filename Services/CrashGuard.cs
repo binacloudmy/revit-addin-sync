@@ -85,6 +85,14 @@ namespace RevitWebAppSync.Services
             catch (Exception) { }
         }
 
+        /// <summary>An exception a pane handler caught itself (the composer's key, text and pick handlers, 25 Nov): logged and
+        /// tracked as the dispatcher hook does. Keyboard input to a dockable pane can run outside that hook. Never throws.</summary>
+        public static void Contained(string where, Exception ex)
+        {
+            try { Report("contained_" + where, ex, flush: false); }
+            catch (Exception) { }
+        }
+
         private static void Report(string stage, Exception? ex, bool flush)
         {
             Debug.WriteLine("[BINA] crash guard " + stage + ": " + ex);

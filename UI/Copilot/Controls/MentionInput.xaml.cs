@@ -92,9 +92,11 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         public MentionInput()
         {
             InitializeComponent();
-            Editor.TextChanged += OnTextChanged;
-            Editor.PreviewKeyDown += OnPreviewKeyDown;
-            Editor.SelectionChanged += (_, __) => SnapCaretOutOfChip();
+            // 25 Nov (ClickUp 14zefhy5mud): an exception from a key handler of this pane reached Revit's native loop, past
+            // CrashGuard's dispatcher hook, and ended Revit. The composer's input handlers log and swallow instead.
+            Editor.TextChanged += (s, e) => Guarded("composer_text", () => OnTextChanged(s, e));
+            Editor.PreviewKeyDown += (s, e) => Guarded("composer_key", () => OnPreviewKeyDown(s, e), () => e.Handled = true);
+            Editor.SelectionChanged += (_, __) => Guarded("composer_caret", SnapCaretOutOfChip);
             Editor.SizeChanged += (_, __) => QueueDrawChips();
             Editor.AddHandler(ScrollViewer.ScrollChangedEvent, new ScrollChangedEventHandler((_, __) => QueueDrawChips()));
             DataObject.AddPastingHandler(Editor, OnPaste);
@@ -116,6 +118,16 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     e.Handled = true;
                 }
             };
+        }
+
+        private static void Guarded(string where, Action handler, Action onError = null)
+        {
+            try { handler(); }
+            catch (Exception ex)
+            {
+                RevitWebAppSync.Services.CrashGuard.Contained(where, ex);
+                try { onError?.Invoke(); } catch (Exception) { }
+            }
         }
 
         private void OnPaste(object sender, DataObjectPastingEventArgs e)
@@ -344,22 +356,24 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
         // Picked from the palette (click or Enter): strip the "/query" from the
         // editor, close, and hand the tool up to the PromptBar for the chip.
-        private void OnSlashToolPicked(SlashTool tool)
+        // 25 Nov (ClickUp 14zefhy5mud, 14zefhy5mqv): clearing the "/query" raises TextChanged at once, DetectToken finds no "/" and
+        // CloseSlash sets _slashIndex to -1, so the old "Editor.CaretIndex = _slashIndex" threw ArgumentOutOfRangeException before
+        // ToolPicked: a click left an empty box and no command chip, Enter ended Revit. The span is read once, before the edit.
+        private void OnSlashToolPicked(SlashTool tool) => Guarded("composer_slash_pick", () =>
         {
             var text = Editor.Text ?? "";
-            int caret = Editor.CaretIndex;
-            if (_slashIndex >= 0 && _slashIndex <= text.Length)
+            var span = SlashTrigger.PickSpan(text.Length, _slashIndex, Editor.CaretIndex);
+            if (span is (int start, int length))
             {
-                if (caret < _slashIndex || caret > text.Length) caret = text.Length;
                 // Select and clear only the "/query", so chips elsewhere keep their place.
-                Editor.Select(_slashIndex, caret - _slashIndex);
+                Editor.Select(start, length);
                 Editor.SelectedText = "";
-                Editor.CaretIndex = _slashIndex;
+                Editor.CaretIndex = Math.Min(start, Editor.Text.Length);
             }
             CloseSlash();
             Editor.Focus();
             ToolPicked?.Invoke(tool);
-        }
+        });
 
         // Design popover (lines 502-512): ONE caps header, then either the
         // Project-Browser-style tree (nothing typed after "@": browse) or the flat,

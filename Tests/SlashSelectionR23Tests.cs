@@ -78,7 +78,7 @@ namespace RevitAddinSync.Tests
             Assert.Contains("int at = Model.MentionToken.Find(text, caret, out string query);", detectBody);
             Assert.Contains("BuildPicker(query);", detectBody);
             // A pick strips the "/query" from the slash index (0 for a seeded "/") as for a typed one.
-            Assert.Contains("Editor.Select(_slashIndex, caret - _slashIndex);", Body(input, "private void OnSlashToolPicked(SlashTool tool)"));
+            Assert.Contains("SlashTrigger.PickSpan(text.Length, _slashIndex, Editor.CaretIndex);", Body(input, "private void OnSlashToolPicked(SlashTool tool)"));
         }
 
         // ─── AI-464 (live 3c11223a on 0.0.165): the running composer in a Malay chat ─────────────────────────────────────

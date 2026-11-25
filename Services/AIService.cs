@@ -116,9 +116,9 @@ namespace RevitWebAppSync.Services
             foreach (var root in LibraryRoots(_baseUrl, BinaConfig.Load().ResolvedCloudBaseUrl))
             {
                 UI.Copilot.Model.LibraryLoad attempt;
+                if (!MaySend(root)) { attempts.Add(new UI.Copilot.Model.LibraryLoad { Failure = UI.Copilot.Model.LibraryFailure.Blocked }); continue; }   // nothing sent
                 try
                 {
-                    if (!MaySend(root)) throw Refused();   // the library's Unreachable load, nothing sent
                     using var req = new HttpRequestMessage(HttpMethod.Get, $"{root}/agents/revit-ai/library");
                     if (!string.IsNullOrEmpty(accessToken))
                         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);

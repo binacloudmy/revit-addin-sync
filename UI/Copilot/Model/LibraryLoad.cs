@@ -10,7 +10,9 @@ using System.Linq;
 
 namespace RevitWebAppSync.UI.Copilot.Model
 {
-    public enum LibraryFailure { None, Unreachable, Timeout, SignIn, Server, Empty }
+    // 25 Nov (ClickUp 14zefhy5ap3): a base this build may not send the token to (CopilotHostPolicy) read "the server can't be reached.
+// Check your internet connection", which is not the cause. It is Blocked now and says so.
+    public enum LibraryFailure { None, Unreachable, Timeout, SignIn, Server, Empty, Blocked }
 
     /// <summary>One attempt (or the outcome of all of them): the sections on success, else why not.</summary>
     public sealed class LibraryLoad
@@ -46,9 +48,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
             LibraryFailure.SignIn => 0,
             LibraryFailure.Server => 1,
             LibraryFailure.Empty => 2,
-            LibraryFailure.Timeout => 3,
-            LibraryFailure.Unreachable => 4,
-            _ => 5,
+            LibraryFailure.Blocked => 3,
+            LibraryFailure.Timeout => 4,
+            LibraryFailure.Unreachable => 5,
+            _ => 6,
         };
 
         /// <summary>The outcome of all attempts: the first success, else the most useful failure (unreachable when none was made).</summary>
@@ -71,6 +74,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 LibraryFailure.SignIn => "Couldn't load the prompt library: your sign-in has expired" + code + ". Sign in again from the Bina tab, then retry.",
                 LibraryFailure.Server => "Couldn't load the prompt library: the server answered with an error" + code + ". Retry later; if it keeps failing, report it.",
                 LibraryFailure.Empty => "The prompt library is empty on the server: there are no prompts to show yet.",
+                LibraryFailure.Blocked => "Couldn't load the prompt library: the configured server address is not a BINA server, and this build only signs in to BINA's own servers. Ask your BINA admin to check the server address.",
                 _ => "",
             };
         }

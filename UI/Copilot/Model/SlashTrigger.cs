@@ -25,5 +25,15 @@ namespace RevitWebAppSync.UI.Copilot.Model
             }
             return -1;
         }
+
+        /// <summary>The "/query" a palette pick clears: from the "/" to the caret (the end of the text when the caret is outside
+        /// it), or null when no typed "/" opened the palette (slashIndex -1: opened over a draft) or the index is stale.
+        /// Callers read slashIndex before they edit the text: the edit re-runs detection, which resets it to -1.</summary>
+        public static (int Start, int Length)? PickSpan(int textLength, int slashIndex, int caret)
+        {
+            if (slashIndex < 0 || slashIndex >= textLength) return null;
+            if (caret < slashIndex || caret > textLength) caret = textLength;
+            return (slashIndex, caret - slashIndex);
+        }
     }
 }
