@@ -805,7 +805,11 @@ namespace BinaVibe.Copilot.Read
                 else
                 {
                     uidoc.Selection.SetElementIds(hostIds);
-                    selected = hostIds.Count;
+                    // ClickUp 14zefhy5ap0: "Selected in Revit: 2" with nothing selected. Count what Revit holds, once more if fewer (as c61a1d44).
+                    selected = uidoc.Selection.GetElementIds().Count;
+                    if (selected < hostIds.Count) { uidoc.Selection.SetElementIds(hostIds); selected = uidoc.Selection.GetElementIds().Count; }
+                    var warn = BinaVibe.Copilot.Code.UiSelectionReadBack.Warning(hostIds.Count, selected);
+                    if (warn != null) outcome.Notes.Add(warn);
                 }
             }
             catch
