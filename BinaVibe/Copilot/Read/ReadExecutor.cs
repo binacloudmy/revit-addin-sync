@@ -93,15 +93,17 @@ namespace BinaVibe.Copilot.Read
 
         private Envelope RunOne(UIApplication app, UIDocument? uidoc, Document? doc, string live, string turnId, ToolCallDto call, SnapshotModel snapshot)
         {
-            if (doc == null || uidoc == null)
+            // read_dwg_plan reads a file on disk, never the model: it needs no open or matching document (AI-607).
+            var needsDoc = call.Tool != ToolNames.ReadDwgPlan;
+            if (needsDoc && (doc == null || uidoc == null))
                 return snapshot?.Doc != null
                     ? ReadEnvelope.Fail(ErrorCodes.DocChanged, "The document this turn was about is no longer open. Ask the drafter to open it and resend.")
                     : ReadEnvelope.Fail(ErrorCodes.NotFound, "No Revit document is open.", Array.Empty<string>());
-            if (!DocIdentity.Matches(live, snapshot))
+            if (needsDoc && !DocIdentity.Matches(live, snapshot))
                 return ReadEnvelope.Fail(ErrorCodes.DocChanged,
                     snapshot?.Doc == null
-                        ? "This turn started with no document open; '" + doc.Title + "' is open now. Ask the drafter to resend."
-                        : "The active document changed since this turn started (it was '" + snapshot.Doc.Title + "', now '" + doc.Title + "'). Ask the drafter to resend.");
+                        ? "This turn started with no document open; '" + doc!.Title + "' is open now. Ask the drafter to resend."
+                        : "The active document changed since this turn started (it was '" + snapshot.Doc.Title + "', now '" + doc!.Title + "'). Ask the drafter to resend.");
 
             var tool = CopilotToolCatalog.Find(call.Tool);
             if (tool == null || (tool.Kind != ToolKind.Read && tool.Kind != ToolKind.Code))
@@ -110,8 +112,8 @@ namespace BinaVibe.Copilot.Read
             var ctx = new ToolContext
             {
                 App = app,
-                Doc = doc,
-                UiDoc = uidoc,
+                Doc = doc!,
+                UiDoc = uidoc!,
                 TurnId = turnId ?? "",
                 CallId = call.CallId ?? "",
                 IdempotencyKey = call.IdempotencyKey ?? "",
@@ -133,7 +135,7 @@ namespace BinaVibe.Copilot.Read
             using var st = BinaVibe.Copilot.Guard.StageTimer.Begin("read " + tool.Name, 250);   // only a slow read is logged
             try
             {
-                using (ScopeFor(doc, tool.Name))
+                using (doc == null ? null : ScopeFor(doc, tool.Name))
                 {
                     var run = tool.Run(ctx, call.Args)
                               ?? ReadEnvelope.Fail(ErrorCodes.RuntimeError, tool.Name + " returned no result.");
