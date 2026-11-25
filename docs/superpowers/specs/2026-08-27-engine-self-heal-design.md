@@ -168,7 +168,7 @@ BASE_URL".
 
 **PR 3** - "the installer tells the engine where its gateway is":
 
-1. `GATEWAY_URL` key in `.env.staging` (-> bina-ai-staging) and
+1. `GATEWAY_URL` key in `.env.staging` (-> bina-ai-stg-onebistro) and
    `.env.production` (-> same as BASE_URL). `EnvChannelTests` requires it on
    deployed channels and pins the staging value.
 2. `BinaConfig.DEFAULT_GATEWAY_URL = Env("GATEWAY_URL") ?? DEFAULT_AI_BASE_URL`;

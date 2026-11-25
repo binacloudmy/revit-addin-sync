@@ -52,12 +52,10 @@ namespace Tests
             "bina.cloud",
             "bina-be-stg.azurewebsites.net",
             // bina-ai left azurewebsites for binacloud.ai (2026-09): staging
-            // to bina-ai-stg-onebistro, prod to bina-ai-prod-ready. Both
-            // default hostnames still answer, but no channel may name one -
-            // they bypass Cloudflare, so a build shipping one silently opts
-            // the fleet out of the edge.
-            "bina-ai-staging.azurewebsites.net",
-            "bina-ai-prod.azurewebsites.net",
+            // to bina-ai-stg-onebistro, prod to bina-ai-prod-ready. The old
+            // azurewebsites hosts are dead (confirmed 2026-11-25), so no
+            // channel may name any *.azurewebsites.net host.
+            ".azurewebsites.net",
             // The retired bypass API lived at the APEX of this workers zone.
             // The staging landing page (LOGIN_WEB_URL) is a SUBDOMAIN of the
             // same zone and is live - match the apex only.
@@ -223,7 +221,7 @@ namespace Tests
                 if (kv.Key.Equals("BASE_URL", StringComparison.OrdinalIgnoreCase)) continue;
 
                 var v = kv.Value.ToLowerInvariant();
-                Assert.False(v.Contains("-prod") || v.Contains("bina-ai-prod"),
+                Assert.False(v.Contains("-prod"),
                     ".env.staging: " + kv.Key + " looks like a production host (" + kv.Value + ")");
             }
         }
