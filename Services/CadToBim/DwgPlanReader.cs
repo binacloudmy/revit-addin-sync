@@ -37,6 +37,8 @@ namespace RevitWebAppSync.Services.CadToBim
         public List<Opening> Windows = new List<Opening>();
         public List<Space> Rooms = new List<Space>();
         public int LooseEnds;
+        /// <summary>No title and small or few walls: a detail, a stair strip or an elevation, not a floor plan.</summary>
+        public bool IsDetail;
     }
 
     /// <summary>Everything read from one drawing, in millimetres.</summary>
@@ -73,6 +75,14 @@ namespace RevitWebAppSync.Services.CadToBim
 
         /// <summary>Labels this close outside a plan's walls still belong to it (titles sit under the plan).</summary>
         public const double TitleReachMm = 3000.0;
+
+        /// <summary>A plan's own label sits under it or at its bottom edge, at most this far from its walls.</summary>
+        public const double LabelReachMm = CadClassifier.PlanGapMm;
+        public const double LabelSlackMm = 1000.0;
+
+        /// <summary>An untitled cluster below either size is a detail, not a floor plan (stair strips are 1-7 m wide).</summary>
+        public const int DetailMaxWalls = 20;
+        public const double DetailMinSideMm = 8000.0;
 
         // ───────── reading ─────────
 
@@ -167,8 +177,11 @@ namespace RevitWebAppSync.Services.CadToBim
             List<Opening> openings = CadClassifier.ClassifyOpeningsFromSymbols(
                 walls, swings, model.Segments.Where(s => settings.IsWindowLayer(s.Layer)).ToList());
 
-            List<PlanCluster> clusters = CadClassifier.ClusterPlans(walls, model.Texts);
+            // resplit: plans stacked on one sheet only come apart once their neighbours are cut away (ASWARA).
+            List<PlanCluster> clusters = CadClassifier.ClusterPlans(walls, model.Texts, resplit: true);
             AttachNearbyTitles(clusters, model.Texts);
+            Dictionary<PlanCluster, TextElement> labels = PickLabels(clusters, model.Texts);
+            var claimed = new HashSet<TextElement>(labels.Values);
 
             if (walls.Count > 0)
             {
@@ -180,7 +193,9 @@ namespace RevitWebAppSync.Services.CadToBim
             {
                 PlanCluster c = clusters[i];
                 var plan = new DwgPlan { N = i + 1, Cluster = c };
-                (plan.Title, plan.Level, plan.Elevation) = LevelText(c.Texts.Select(t => t.Text));
+                (plan.Title, plan.Level, plan.Elevation) = LevelText(c.Texts.Where(t => !claimed.Contains(t)).Select(t => t.Text));
+                if (labels.TryGetValue(c, out TextElement label)) (plan.Title, plan.Level) = (label.Text, Level(label.Text));
+                plan.IsDetail = plan.Title == null && (c.Walls.Count < DetailMaxWalls || Math.Min(c.Width, c.Height) < DetailMinSideMm);
                 foreach (Opening o in openings.Where(o => c.Contains(o.Position)))
                     (o.IsDoor ? plan.Doors : plan.Windows).Add(o);
                 plan.Rooms.AddRange(spaces.Where(s => s.Boundary.Count > 0 && c.Contains(Centroid(s.Boundary))));
@@ -188,8 +203,80 @@ namespace RevitWebAppSync.Services.CadToBim
                 sheet.Plans.Add(plan);
             }
 
+            NumberDuplicates(sheet.Plans.Where(p => !p.IsDetail).ToList());
+            string missed = UnclaimedLabels(model.Texts, claimed, sheet.Plans.Where(p => !p.IsDetail).Select(p => p.Cluster).ToList());
+            if (missed != null) sheet.Warnings.Add(missed);
+
             sheet.OpeningBlocks = OpeningBlocks(document, settings);
             return sheet;
+        }
+
+        // Plan labels are short capitals that open with a plan or level word: "ARAS 2 (ASRAMA213 ORG)",
+        // "PELAN BUMBUNG". Mixed case is a note ("Aras Lantai"), and notes are not titles.
+        private static readonly Regex LabelLeadRx = new Regex(
+            @"^\s*(PELAN|FLOOR\s+PLAN|ARAS|LANTAI|TINGKAT|LEVEL|ROOF|BUMBUNG|(GROUND|FIRST|SECOND|THIRD|UPPER|LOWER)\s+FLOOR)\b");
+
+        public static bool IsPlanLabel(string text) =>
+            !string.IsNullOrWhiteSpace(text) && text.Length <= 60 && text == text.ToUpperInvariant()
+            && (LabelLeadRx.IsMatch(text) || TitleRx.IsMatch(text));
+
+        /// <summary>
+        /// Each plan's own label: the nearest plan label under it or at its bottom edge. Closest
+        /// pairs are settled first and a label serves one plan only, so a plan cannot borrow its
+        /// neighbour's label (ASWARA's ARAS 2 had taken the BUMBUNG roof notes beside it).
+        /// </summary>
+        public static Dictionary<PlanCluster, TextElement> PickLabels(List<PlanCluster> clusters, IReadOnlyList<TextElement> texts)
+        {
+            var pairs = new List<(double Gap, PlanCluster Plan, TextElement Label)>();
+            foreach (TextElement t in texts.Where(t => IsPlanLabel(t.Text)))
+                foreach (PlanCluster c in clusters)
+                {
+                    if (t.P1.y > c.MinY + LabelSlackMm) continue;   // above the bottom edge: inside or over the plan
+                    double dx = Math.Max(0, Math.Max(c.MinX - Math.Max(t.P1.x, t.P2.x), Math.Min(t.P1.x, t.P2.x) - c.MaxX));
+                    double dy = Math.Max(0, c.MinY - Math.Max(t.P1.y, t.P2.y));
+                    double gap = Math.Sqrt((dx * dx) + (dy * dy));
+                    if (gap <= LabelReachMm) pairs.Add((gap, c, t));
+                }
+
+            var picked = new Dictionary<PlanCluster, TextElement>();
+            var used = new HashSet<TextElement>();
+            foreach (var p in pairs.OrderBy(p => p.Gap))
+            {
+                if (picked.ContainsKey(p.Plan) || used.Contains(p.Label)) continue;
+                picked[p.Plan] = p.Label;
+                used.Add(p.Label);
+            }
+            return picked;
+        }
+
+        /// <summary>Two plans with one name get "(2)", "(3)" in listing order, so the user can tell them apart.</summary>
+        public static void NumberDuplicates(List<DwgPlan> plans)
+        {
+            foreach (var group in plans.Where(p => (p.Title ?? p.Level) != null).GroupBy(p => p.Title ?? p.Level).Where(g => g.Count() > 1).ToList())
+            {
+                int k = 1;
+                foreach (DwgPlan p in group.OrderBy(p => p.N).Skip(1)) p.Title = group.Key + " (" + ++k + ")";
+            }
+        }
+
+        /// <summary>
+        /// A warning naming the plan labels that sit outside every plan found and belong to none: their plans were missed.
+        /// Only labels drawn as large as the titles that were used count, and not lines of a stacked list: a title
+        /// block's "SITE PLAN / KEY PLAN" and an elevation's small level tags are not plans (elec.dwg had 15 such).
+        /// </summary>
+        public static string UnclaimedLabels(IReadOnlyList<TextElement> texts, ISet<TextElement> claimed, List<PlanCluster> plans)
+        {
+            static double H(TextElement t) => t.P2.y - t.P1.y;
+            double minHeight = claimed.Count == 0 ? 0 : claimed.Min(H) - 1e-6;
+            List<TextElement> labels = texts.Where(t => IsPlanLabel(t.Text)).ToList();
+            bool InList(TextElement t) => labels.Any(o => o != t && Math.Abs(o.P1.x - t.P1.x) < H(t) && Math.Abs(o.P1.y - t.P1.y) < 2 * H(t));
+            List<string> names = labels
+                .Where(t => !claimed.Contains(t) && H(t) >= minHeight && !plans.Any(c => c.Contains(t.P1)) && !InList(t))
+                .Select(t => t.Text).Distinct().ToList();
+            if (names.Count == 0) return null;
+            return names.Count + " plan label" + (names.Count == 1 ? "" : "s") + " sit outside every plan found, so "
+                + (names.Count == 1 ? "its plan" : "their plans") + " may be missing or listed as details: "
+                + string.Join(", ", names.Take(5).Select(n => "\"" + n + "\"")) + (names.Count > 5 ? ", ..." : "") + ".";
         }
 
         /// <summary>Titles sit under or beside a plan, outside its walls: a label outside every plan joins the nearest one within reach.</summary>
@@ -340,7 +427,7 @@ namespace RevitWebAppSync.Services.CadToBim
         {
             var units = UnitsVerdict(sheet.HeaderUnit, sheet.HeaderMmPerUnit, sheet.UsedMmPerUnit);
             bool unitsOk = (bool)units["plausible"];
-            List<DwgPlan> real = sheet.Plans.Where(p => p.Cluster.Walls.Count >= MinPlanWalls).ToList();
+            List<DwgPlan> real = sheet.Plans.Where(p => p.Cluster.Walls.Count >= MinPlanWalls && !p.IsDetail).ToList();
 
             var data = new Dictionary<string, object>
             {
@@ -353,7 +440,9 @@ namespace RevitWebAppSync.Services.CadToBim
             {
                 data["sheet_m"] = Metres(sheet.SheetWidthMm) + " x " + Metres(sheet.SheetHeightMm);
                 data["plans_found"] = real.Count;
-                int fragments = sheet.Plans.Count - real.Count;
+                int detailCount = sheet.Plans.Count(p => p.Cluster.Walls.Count >= MinPlanWalls && p.IsDetail);
+                if (detailCount > 0) data["details_skipped"] = detailCount;
+                int fragments = sheet.Plans.Count - real.Count - detailCount;
                 if (fragments > 0) data["fragments_skipped"] = fragments;
                 data["plans"] = real.Take(MaxPlanRows).Select(Row).ToList();
                 if (real.Count > MaxPlanRows) data["plans_not_listed"] = real.Count - MaxPlanRows;

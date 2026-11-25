@@ -267,6 +267,116 @@ namespace Tests
             Assert.Contains(data.GetProperty("layers").EnumerateArray(), l => l.GetProperty("name").GetString() == "A-WALL" && l.GetProperty("role").GetString() == "wall");
         }
 
+        // ── AI-607 round 3: stacked plans, labels, details, warning, text codes ──
+
+        [Fact]
+        public void Plans_stacked_on_a_sheet_beside_a_taller_plan_come_apart()
+        {
+            // ASWARA: two floors stacked 7 m apart, with a taller plan beside them whose walls
+            // bridge that gap in the sheet-wide row band. One pass merged the stacked pair.
+            var d = new Drawing(UnitsType.Millimeters);
+            d.House(0, 0, "ARAS 1");
+            d.House(0, 15000, "ARAS 2");
+            d.Rect("A-WALL", 20000, 0, 30000, 23000);
+            d.Rect("A-WALL", 20200, 200, 29800, 22800);
+            d.Text("ARAS 3", 22000, -1500);
+
+            var data = Data(Read(d));
+            var titles = data.GetProperty("plans").EnumerateArray().Select(r => r.GetProperty("title").GetString()).OrderBy(t => t).ToList();
+
+            Assert.Equal(3, data.GetProperty("plans_found").GetInt32());
+            Assert.Equal(new[] { "ARAS 1", "ARAS 2", "ARAS 3" }, titles);
+        }
+
+        [Fact]
+        public void A_plan_takes_the_label_under_it_not_a_roof_note_beside_it()
+        {
+            var d = new Drawing(UnitsType.Millimeters);
+            d.House(0, 0, "ARAS 2 (ASRAMA213 ORG)");
+            d.Text("BUMBUNG", -1000, 4000);   // a roof note beside the plan, inside its height
+
+            var row = Data(Read(d)).GetProperty("plans")[0];
+
+            Assert.Equal("ARAS 2 (ASRAMA213 ORG)", row.GetProperty("title").GetString());
+            Assert.Equal("ARAS 2", row.GetProperty("level").GetString());
+        }
+
+        [Fact]
+        public void A_label_serves_one_plan_and_the_closest_pairs_settle_first()
+        {
+            var a = new Cad2Bim.PlanCluster { MinX = 0, MaxX = 10000, MinY = 0, MaxY = 8000 };
+            var b = new Cad2Bim.PlanCluster { MinX = 16000, MaxX = 26000, MinY = 0, MaxY = 8000 };
+            Cad2Bim.TextElement L(string s, double x1, double x2) =>
+                new Cad2Bim.TextElement { Text = s, P1 = new Cad2Bim.Point(x1, -1500), P2 = new Cad2Bim.Point(x2, -1100) };
+            var between = L("ARAS 1", 11000, 14000);   // 1.5 m from a, 2.3 m from b
+            var underB = L("ARAS 2", 17000, 19000);    // 1.1 m from b
+
+            var picked = DwgPlanReader.PickLabels(new List<Cad2Bim.PlanCluster> { a, b }, new[] { between, underB });
+
+            Assert.Same(between, picked[a]);
+            Assert.Same(underB, picked[b]);
+        }
+
+        [Fact]
+        public void Two_plans_with_one_name_are_numbered()
+        {
+            var plans = new List<DwgPlan>
+            {
+                new DwgPlan { N = 3, Title = "PELAN BUMBUNG" },
+                new DwgPlan { N = 5, Title = "PELAN BUMBUNG" },
+                new DwgPlan { N = 6, Level = "ARAS 1" },
+            };
+
+            DwgPlanReader.NumberDuplicates(plans);
+
+            Assert.Equal(new[] { "PELAN BUMBUNG", "PELAN BUMBUNG (2)", null }, plans.Select(p => p.Title));
+        }
+
+        [Fact]
+        public void A_plan_label_with_no_plan_is_a_warning_but_a_title_block_list_is_not()
+        {
+            var d = new Drawing(UnitsType.Millimeters);
+            d.House(0, 0, "ARAS 1");
+            d.Text("ARAS 2", 60000, 0);         // its plan was never found
+            d.Text("SITE PLAN", 60000, 20000);  // a title block's list of plans
+            d.Text("KEY PLAN", 60000, 20300);
+
+            var warnings = Data(Read(d)).GetProperty("warnings").EnumerateArray().Select(w => w.GetString()).ToList();
+
+            string w1 = Assert.Single(warnings);
+            Assert.Contains("\"ARAS 2\"", w1);
+            Assert.DoesNotContain("SITE PLAN", w1);
+        }
+
+        [Fact]
+        public void An_untitled_stair_strip_is_counted_as_a_detail_not_listed()
+        {
+            var d = new Drawing(UnitsType.Millimeters);
+            d.House(0, 0, "ARAS 1");
+            d.Rect("A-WALL", 40000, 0, 42000, 10000);
+            d.Rect("A-WALL", 40200, 200, 41800, 9800);
+
+            var data = Data(Read(d));
+
+            Assert.Equal(1, data.GetProperty("plans_found").GetInt32());
+            Assert.Equal(1, data.GetProperty("details_skipped").GetInt32());
+        }
+
+        [Fact]
+        public void Text_codes_are_stripped_so_titles_read_as_drawn()
+        {
+            var d = new Drawing(UnitsType.Millimeters);
+            d.Doc.Entities.Add(new MText { Value = @"{\W1;\C2;BANGUNAN ASRAMA \P-  PELAN ARAS 2}", InsertPoint = new XYZ(0, 0, 0), Height = 250 });
+            d.Doc.Entities.Add(new MText { Value = @"\pxi-3,l4,ql,t4;- 6mm tbl. bumbung", InsertPoint = new XYZ(0, 1000, 0), Height = 250 });
+            d.Text("%%UPELAN ARAS 1%%u", 0, 2000);
+            d.Text("3%%D cerun", 0, 3000);
+
+            var texts = Cad2Bim.ModelSource.Read(d.Doc).Texts.Select(t => t.Text).ToList();
+
+            Assert.Equal(new[] { "BANGUNAN ASRAMA - PELAN ARAS 2", "- 6mm tbl. bumbung", "PELAN ARAS 1", "3° cerun" }, texts);
+            Assert.True(DwgPlanReader.IsPlanLabel(texts[2]));
+        }
+
         [Fact]
         public void Listing_of_a_40_plan_sheet_stays_within_the_size_budget()
         {
