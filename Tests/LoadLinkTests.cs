@@ -151,7 +151,7 @@ namespace RevitAddinSync.Tests
             Assert.Equal("write", ToolNames.KindOf(ToolNames.LoadLink));
             Assert.Contains(ToolNames.LoadLink, ToolNames.AddIn);
             Assert.Equal(ToolNames.RunRevitCode, ToolNames.All[ToolNames.All.ToList().IndexOf(ToolNames.LoadLink) - 1]);
-            Assert.Equal(12, ToolNames.All.Count);   // AI-530: bind_parameters follows load_link
+            Assert.Equal(13, ToolNames.All.Count);   // AI-530: bind_parameters follows load_link; AI-605: read_dwg_plan follows it
         }
 
         [Fact]
