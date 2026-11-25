@@ -571,21 +571,21 @@
   {
     "name": "read_dwg_plan",
     "kind": "read",
-    "description": "Read the DWG attached to the chat. Read-only: the file stays on this PC and nothing changes in Revit. Without plans: the floor plans on the sheet (n, title, level text, size, walls), layer roles with reasons, ambiguous layers with a best guess, door and window block names and a units verdict. With plans (1-3 n from that list): per plan walls by thickness, doors and windows by width, outline closed or not, loose wall ends and room names. If units.needs_confirmation is true, ask the user before building. With no DWG attached it says to attach one.",
+    "description": "Read the attached DWG, read-only. No plans: list the floor plans by n, with layer roles and units. plans (1-3 n): walls, doors, windows and rooms per plan. If units.needs_confirmation, ask the user before building.",
     "parameters": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
         "dwg_ref": {
           "type": "string",
-          "description": "The att:... (or model:...) ref from the [Attached DWG] block."
+          "description": "att:... or model:... ref from [Attached DWG]."
         },
         "plans": {
           "type": "array",
           "minItems": 1,
           "maxItems": 3,
           "items": { "type": "integer", "minimum": 1 },
-          "description": "Plan n numbers from the listing. Omit to list the plans."
+          "description": "n from the listing; omit to list."
         }
       }
     }
