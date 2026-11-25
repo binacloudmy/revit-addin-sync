@@ -27,6 +27,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
             ToolNames.SetParameters => ms ? "Menetapkan parameter" : "Setting parameters",
             ToolNames.Look => ms ? "Mengambil imej model" : "Taking a picture of the model",
             ToolNames.RunRevitCode => ms ? "Menjalankan kod Revit" : "Running Revit code",
+            ToolNames.ReadDwgPlan => ms ? "Membaca pelan DWG" : "Reading the DWG plan",
             _ => tool,
         };
 

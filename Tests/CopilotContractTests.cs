@@ -255,11 +255,11 @@ namespace RevitAddinSync.Tests
         // ------------------------------------------------------------------
 
         [Fact]
-        public void ToolsJson_HasExactlyTenTools_DescriptionsUnder600()
+        public void ToolsJson_HasExactlyElevenTools_DescriptionsUnder600()
         {
             var tools = Parse(Read("tools.json")).EnumerateArray().ToList();
 
-            Assert.Equal(10, tools.Count);
+            Assert.Equal(11, tools.Count);
             Assert.Equal(ToolNames.All, tools.Select(t => t.GetProperty("name").GetString()!).ToArray());
             foreach (var tool in tools)
             {
@@ -357,6 +357,7 @@ namespace RevitAddinSync.Tests
             ("set_parameters", "3a03eb49bb8c9934dae7b60a0c71cad8d6ddf0a2eba1b132116deaadb499ec80"),
             ("look", "f45ba7a0b671a17e1f2d3f80257405e4af52208d5bb50dfea1ce74b2fb2eb701"),
             ("run_revit_code", "1f902b3245aef8cd92f4425be20bcf79627bf84817564bb7817216fdb61a23f3"),
+            ("read_dwg_plan", "2eb7daad01dd76348e876cda9b32f9e3b3e1c79b8593893b7c8517479fe15b44"),
             ("lookup", "a6f953c7394d76c2fa829142cea7580a85174c7449bab0b1b2bad317ba717745"),
             ("ask_user", "610b6edeb31d573df542dfba745e811d107bf1de7c496e7eede8a60f1c0f2841"),
             ("report", "59670aedb3e09bba8eeaeab58c352df2bbfec84d90f6a06ea40c2438434f0525"),
@@ -434,9 +435,9 @@ namespace RevitAddinSync.Tests
         }
 
         [Fact]
-        public void ToolNames_AddInToolsAreTheSevenNonCloudTools()
+        public void ToolNames_AddInToolsAreTheEightNonCloudTools()
         {
-            Assert.Equal(7, ToolNames.AddIn.Count);
+            Assert.Equal(8, ToolNames.AddIn.Count);
             Assert.Equal(ToolNames.All.Where(n => ToolNames.KindOf(n) is "read" or "write" or "code"), ToolNames.AddIn);
             Assert.Equal("server", ToolNames.KindOf(ToolNames.Lookup));
             Assert.Equal("pane", ToolNames.KindOf(ToolNames.AskUser));

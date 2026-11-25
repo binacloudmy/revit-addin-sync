@@ -220,7 +220,7 @@
           "description": "Stable across retries of the same call; the add-in ledger keys commits on it."
         },
         "tool": {
-          "enum": ["model_overview", "find_elements", "inspect", "check", "set_parameters", "look", "run_revit_code"]
+          "enum": ["model_overview", "find_elements", "inspect", "check", "set_parameters", "look", "run_revit_code", "read_dwg_plan"]
         },
         "args": {
           "type": "object",

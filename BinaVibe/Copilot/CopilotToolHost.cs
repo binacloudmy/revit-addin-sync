@@ -7,7 +7,7 @@
 //
 // Both are settable properties; W5 wires them at integration. Before anything
 // runs, every call is checked against the catalogue (ToolNames.AddIn, the same
-// 7 names as CopilotToolCatalog.All):
+// 8 names as CopilotToolCatalog.All):
 //   - a name outside the catalogue          -> NotAllowed
 //   - set_parameters in a read request      -> NotAllowed (writes go through the write runner)
 //   - a read tool in a write request        -> NotAllowed

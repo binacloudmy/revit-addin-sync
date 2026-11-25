@@ -1,5 +1,5 @@
 #nullable enable
-// The 7 tools the add-in runs (plan §4 Task 0.2; owned by W0). lookup runs in
+// The 8 tools the add-in runs (plan §4 Task 0.2; owned by W0; read_dwg_plan: AI-605). lookup runs in
 // the cloud and ask_user in the pane, so they are not here. Nothing outside
 // this list may run from a protocol-3 tool_request (CopilotToolHost enforces).
 
@@ -23,6 +23,7 @@ namespace BinaVibe.Copilot
             new SetParametersTool(),
             new LookTool(),
             new RunRevitCodeTool(),
+            new ReadDwgPlanTool(),
         };
 
         /// <summary>The catalogued tool with this exact name, or null.</summary>

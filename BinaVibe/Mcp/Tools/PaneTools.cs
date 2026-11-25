@@ -75,9 +75,9 @@ namespace BinaVibe.Mcp.Tools
         public static Dictionary<string, object?> DwgOpenAttachment(UIApplication app, string path)
         {
             var dwgRef = DwgScratchCache.OpenAttachment(app, path);
-            var doc = app.ActiveUIDocument?.Document
-                ?? throw new InvalidOperationException("no active document — open a Revit project first");
-            var summary = WithDwg(app, doc, dwgRef, (d, imp, source) => DwgReader.Summarize(d, imp, dwgRef, source));
+            // An "att:" ref reads through its own scratch document, so no model has to be open (AI-607).
+            var doc = app.ActiveUIDocument?.Document;
+            var summary = WithDwg(app, doc!, dwgRef, (d, imp, source) => DwgReader.Summarize(d, imp, dwgRef, source));
 
             // Enrich with ACadSharp data if available — block names, text preview.
             var acadData = DwgScratchCache.GetAcadSharpData(dwgRef);
