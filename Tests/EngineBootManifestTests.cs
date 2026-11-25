@@ -20,9 +20,9 @@ namespace RevitWebAppSync.Tests
             ["BINA_ENGINE"] = "1",
             ["BINA_ENGINE_SECRET"] = "s3cr3t-engine-secret",
             ["BINA_ENGINE_PORT"] = "48810",
-            ["BINA_GATEWAY_URL"] = "https://bina-ai-prod.azurewebsites.net",
+            ["BINA_GATEWAY_URL"] = "https://bina-ai-prod-ready.binacloud.ai",
             ["BINA_ENGINE_TOKEN"] = "device-token-abc123",
-            ["LANGFUSE_BASE_URL"] = "https://bina-ai-prod.azurewebsites.net/gateway/langfuse",
+            ["LANGFUSE_BASE_URL"] = "https://bina-ai-prod-ready.binacloud.ai/gateway/langfuse",
             ["LANGFUSE_PUBLIC_KEY"] = "device-token-abc123",
             ["LANGFUSE_SECRET_KEY"] = "engine",
         };
@@ -70,13 +70,13 @@ namespace RevitWebAppSync.Tests
             // The four things the launcher must NOT re-derive.
             Assert.Equal(48810, m.Port);
             Assert.EndsWith(@"engine\1.0.1\run-engine.cmd", m.Launcher);
-            Assert.Equal("https://bina-ai-prod.azurewebsites.net", m.Env["BINA_GATEWAY_URL"]);
+            Assert.Equal("https://bina-ai-prod-ready.binacloud.ai", m.Env["BINA_GATEWAY_URL"]);
             Assert.Equal(new[] { "DEEPSEEK_API_KEY", "OPENAI_API_KEY" }, m.StripEnv);
 
             // Non-secret env passes through untouched.
             Assert.Equal("1", m.Env["BINA_ENGINE"]);
             Assert.Equal("engine", m.Env["LANGFUSE_SECRET_KEY"]);
-            Assert.Equal("https://bina-ai-prod.azurewebsites.net/gateway/langfuse", m.Env["LANGFUSE_BASE_URL"]);
+            Assert.Equal("https://bina-ai-prod-ready.binacloud.ai/gateway/langfuse", m.Env["LANGFUSE_BASE_URL"]);
         }
 
         [Fact]

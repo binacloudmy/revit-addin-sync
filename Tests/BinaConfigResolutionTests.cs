@@ -10,16 +10,19 @@ namespace Tests
     // deterministic — no embedded-env coupling.
     public class BinaConfigResolutionTests
     {
-        private const string Prod = "https://bina-ai-prod.azurewebsites.net";
-        private const string StaleStaging = "https://bina-ai-staging.azurewebsites.net";
+        private const string Prod = "https://bina-ai-prod-ready.binacloud.ai";
+        // Old *.azurewebsites.net host a persisted config.json may still hold.
+        private const string Stale = "https://bina-ai-legacy.azurewebsites.net";
+        // Current staging host (.env.staging).
+        private const string Staging = "https://bina-ai-stg-onebistro.binacloud.ai";
         private const string CustomHost = "https://gateway.customer-dc.example.com";
         private const string LocalEngine = "http://localhost:48810";
 
         [Fact]
         public void Gateway_StaleOurHost_FollowsEnvDefault()
         {
-            Assert.Equal(Prod, UrlResolution.ResolveGateway(StaleStaging, Prod));
-            Assert.Equal(Prod, UrlResolution.ResolveGateway(StaleStaging + "/", Prod));
+            Assert.Equal(Prod, UrlResolution.ResolveGateway(Stale, Prod));
+            Assert.Equal(Prod, UrlResolution.ResolveGateway(Stale + "/", Prod));
         }
 
         [Fact]
@@ -30,8 +33,8 @@ namespace Tests
             // GATEWAY default - which is NOT its BASE_URL. BinaConfig passes
             // DEFAULT_GATEWAY_URL here; passing DEFAULT_AI_BASE_URL sends every
             // engine turn to a gateway with inference off.
-            Assert.Equal(StaleStaging, UrlResolution.ResolveGateway(Prod, StaleStaging));
-            Assert.Equal(StaleStaging, UrlResolution.ResolveGateway(Prod + "/", StaleStaging));
+            Assert.Equal(Staging, UrlResolution.ResolveGateway(Prod, Staging));
+            Assert.Equal(Staging, UrlResolution.ResolveGateway(Prod + "/", Staging));
         }
 
         [Fact]
@@ -52,7 +55,7 @@ namespace Tests
         {
             // The colocate cutover case: localhost AIBaseUrl + staging-era
             // GatewayUrl persisted in config.json.
-            var gw = UrlResolution.ResolveGateway(StaleStaging, Prod);
+            var gw = UrlResolution.ResolveGateway(Stale, Prod);
             var ai = UrlResolution.ResolveAIBase(LocalEngine, false, Prod);
             Assert.Equal(Prod, UrlResolution.ResolveCloudBase(gw, ai, Prod));
         }
@@ -66,7 +69,7 @@ namespace Tests
         [Fact]
         public void AIBase_OurHost_FollowsEnvDefault()
         {
-            Assert.Equal(Prod, UrlResolution.ResolveAIBase(StaleStaging, false, Prod));
+            Assert.Equal(Prod, UrlResolution.ResolveAIBase(Stale, false, Prod));
         }
 
         [Fact]
@@ -88,7 +91,7 @@ namespace Tests
         {
             var feed = "https://github.com/binacloudmy/revit-addin-sync/releases/latest/download/version.json";
             Assert.Equal(feed, UrlResolution.ResolveUpdateFeed(
-                StaleStaging + "/addin/version.json", feed));
+                Stale + "/addin/version.json", feed));
             Assert.Equal("https://my.cdn.example/version.json",
                 UrlResolution.ResolveUpdateFeed("https://my.cdn.example/version.json", feed));
         }
@@ -97,10 +100,10 @@ namespace Tests
         public void AllowBackendOverride_HonorsOurHostPins_ForUat()
         {
             // Release build steered at staging for UAT via config.json.
-            Assert.Equal(StaleStaging,
-                UrlResolution.ResolveAIBase(StaleStaging, false, Prod, allowBackendOverride: true));
-            Assert.Equal(StaleStaging,
-                UrlResolution.ResolveGateway(StaleStaging, Prod, allowBackendOverride: true));
+            Assert.Equal(Stale,
+                UrlResolution.ResolveAIBase(Stale, false, Prod, allowBackendOverride: true));
+            Assert.Equal(Stale,
+                UrlResolution.ResolveGateway(Stale, Prod, allowBackendOverride: true));
             // Loopback guard still wins even with the override flag.
             Assert.Equal(Prod,
                 UrlResolution.ResolveApiBase("http://127.0.0.1:8000", Prod, allowBackendOverride: true));
@@ -110,9 +113,9 @@ namespace Tests
         public void ApiAndLoginWeb_LoopbackOrOurHost_FollowEnvDefault()
         {
             Assert.Equal(Prod, UrlResolution.ResolveApiBase("http://127.0.0.1:8000", Prod));
-            Assert.Equal(Prod, UrlResolution.ResolveApiBase(StaleStaging, Prod));
+            Assert.Equal(Prod, UrlResolution.ResolveApiBase(Stale, Prod));
             var web = "https://plugins.jkrbinaxone.com";
-            Assert.Equal(web, UrlResolution.ResolveLoginWeb(StaleStaging, web));
+            Assert.Equal(web, UrlResolution.ResolveLoginWeb(Stale, web));
             Assert.Equal(CustomHost, UrlResolution.ResolveLoginWeb(CustomHost, web));
         }
 
