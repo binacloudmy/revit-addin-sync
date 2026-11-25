@@ -352,6 +352,23 @@ namespace Tests
         public void Bad_arguments_are_refused(string json) =>
             Assert.False(DwgPlanReader.TryParseArgs(JsonDocument.Parse(json).RootElement, out _, out _));
 
+        /// <summary>Headless run on a real file: set AI605_DWG (and optionally AI605_PLANS="1,7", AI605_OUT=path).
+        /// Does nothing when AI605_DWG is unset, so CI is unaffected.</summary>
+        [Fact]
+        public void Headless_read_of_a_real_dwg_when_AI605_DWG_is_set()
+        {
+            string? path = Environment.GetEnvironmentVariable("AI605_DWG");
+            if (string.IsNullOrEmpty(path)) return;
+            int[] plans = (Environment.GetEnvironmentVariable("AI605_PLANS") ?? "")
+                .Split(',', StringSplitOptions.RemoveEmptyEntries).Select(int.Parse).ToArray();
+
+            Envelope e = DwgPlanReader.Build(DwgPlanReader.ReadFile(path, Defaults), plans);
+            string json = JsonSerializer.Serialize(e, new JsonSerializerOptions { WriteIndented = true });
+            string? output = Environment.GetEnvironmentVariable("AI605_OUT");
+            if (!string.IsNullOrEmpty(output)) System.IO.File.WriteAllText(output, json);
+            Assert.True(e.Ok || e.Error != null, json);
+        }
+
         [Fact]
         public void Good_arguments_are_read()
         {
