@@ -74,7 +74,7 @@ namespace RevitAddinSync.Tests
         {
             var blocked = new LibraryLoad { Failure = LibraryFailure.Blocked };
             var message = LibraryLoad.Message(blocked);
-            Assert.StartsWith("Couldn't load the prompt library: the configured server address is not a BINA server", message);
+            Assert.StartsWith("Couldn't load the prompt library: the configured server address is not one this build may sign in to", message);
             Assert.DoesNotContain("internet", message);
             // The other base's answer still wins when it says more; Blocked beats a plain unreachable or timeout.
             var expired = LibraryLoad.FromResponse(401, null);

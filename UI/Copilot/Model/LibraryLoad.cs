@@ -74,7 +74,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 LibraryFailure.SignIn => "Couldn't load the prompt library: your sign-in has expired" + code + ". Sign in again from the Bina tab, then retry.",
                 LibraryFailure.Server => "Couldn't load the prompt library: the server answered with an error" + code + ". Retry later; if it keeps failing, report it.",
                 LibraryFailure.Empty => "The prompt library is empty on the server: there are no prompts to show yet.",
-                LibraryFailure.Blocked => "Couldn't load the prompt library: the configured server address is not a BINA server, and this build only signs in to BINA's own servers. Ask your BINA admin to check the server address.",
+                LibraryFailure.Blocked => "Couldn't load the prompt library: the configured server address is not one this build may sign in to (only BINA's own https servers). Ask your BINA admin to check the server address.",
                 _ => "",
             };
         }
