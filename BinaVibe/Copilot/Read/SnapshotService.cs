@@ -103,6 +103,7 @@ namespace BinaVibe.Copilot.Read
             ca.DocumentSavedAs += OnDocumentSavedAs;
             ca.DocumentSaved += OnDocumentSaved;
             ca.DocumentSynchronizedWithCentral += OnDocumentSynced;
+            ca.DocumentReloadedLatest += OnDocumentReloadedLatest;
             app.ViewActivated += OnViewActivated;
             app.SelectionChanged += OnSelectionChanged;
             app.Idling += OnIdling;
@@ -188,6 +189,14 @@ namespace BinaVibe.Copilot.Read
             lock (Gate) return ChangeSeqs.TryGetValue(DocKey(doc), out var s) ? s : 0;
         }
 
+        private static long _modelEventSeq;
+        /// <summary>Moves on every event that can change what a document holds, in any document: every DocumentChanged (ours included,
+        /// unfiltered), open, create, close, Save As, Sync with Central and Reload Latest. Only for caches that must drop on any change
+        /// (the @ picker tree); it is not change_seq and is never sent.</summary>
+        public static long ModelEventSeq => System.Threading.Interlocked.Read(ref _modelEventSeq);
+
+        private static void BumpModelEvents() => System.Threading.Interlocked.Increment(ref _modelEventSeq);
+
         private static string DocKey(Document doc)
         {
             string path = "";
@@ -202,6 +211,7 @@ namespace BinaVibe.Copilot.Read
 
         private static void OnDocumentOpened(object? sender, DocumentOpenedEventArgs e)
         {
+            BumpModelEvents();
             try
             {
                 var doc = e.Document;
@@ -215,6 +225,7 @@ namespace BinaVibe.Copilot.Read
 
         private static void OnDocumentCreated(object? sender, DocumentCreatedEventArgs e)
         {
+            BumpModelEvents();
             try
             {
                 var doc = e.Document;
@@ -240,6 +251,7 @@ namespace BinaVibe.Copilot.Read
         // open on the next Idling instead.
         private static void OnDocumentClosed(object? sender, DocumentClosedEventArgs e)
         {
+            BumpModelEvents();
             _pruneNonces = true;
             _docDirty = true;
             _viewDirty = true;
@@ -248,6 +260,7 @@ namespace BinaVibe.Copilot.Read
 
         private static void OnDocumentChanged(object? sender, DocumentChangedEventArgs e)
         {
+            BumpModelEvents();
             try
             {
                 var doc = e.GetDocument();
@@ -278,6 +291,7 @@ namespace BinaVibe.Copilot.Read
         // Save As changes the path, so the key moves; the nonce (the identity) stays.
         private static void OnDocumentSavedAs(object? sender, DocumentSavedAsEventArgs e)
         {
+            BumpModelEvents();
             try
             {
                 var doc = e.Document;
@@ -303,7 +317,14 @@ namespace BinaVibe.Copilot.Read
 
         private static void OnDocumentSaved(object? sender, DocumentSavedEventArgs e) => _docDirty = true;
 
-        private static void OnDocumentSynced(object? sender, DocumentSynchronizedWithCentralEventArgs e) => _docDirty = true;
+        private static void OnDocumentSynced(object? sender, DocumentSynchronizedWithCentralEventArgs e)
+        {
+            BumpModelEvents();
+            _docDirty = true;
+        }
+
+        // Reload Latest brings in other users' work; whether it raises DocumentChanged is not documented, so it moves the picker stamp itself.
+        private static void OnDocumentReloadedLatest(object? sender, DocumentReloadedLatestEventArgs e) => BumpModelEvents();
 
         /// <summary>The active view, the selection or the open document changed (raised on Revit's thread, never throws): the pane's Home
         /// asks again what the view is. Subscribers must hand the work to their own thread and debounce: a drag selection raises many.</summary>
