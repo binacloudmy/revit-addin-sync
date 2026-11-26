@@ -54,17 +54,19 @@ namespace Cad2Bim {
         /// then across it, and a gap wider than any room ends a band.
         /// </summary>
         public static List<PlanCluster> ClusterPlans(
-                List<Wall> walls, IReadOnlyList<TextElement>? texts = null, double gapMm = PlanGapMm) {
+                List<Wall> walls, IReadOnlyList<TextElement>? texts = null, double gapMm = PlanGapMm,
+                bool resplit = false) {
 
             var clusters = new List<PlanCluster>();
             if (walls.Count == 0) return clusters;
 
-            foreach (List<Wall> band in Band(walls, gapMm, vertical: true)) {
-                foreach (List<Wall> column in Band(band, gapMm, vertical: false)) {
-                    var cluster = new PlanCluster();
-                    foreach (Wall wall in column) cluster.Add(wall);
-                    clusters.Add(cluster);
-                }
+            IEnumerable<List<Wall>> pieces = resplit
+                ? Split(walls, gapMm, vertical: true)
+                : Band(walls, gapMm, vertical: true).SelectMany(band => Band(band, gapMm, vertical: false));
+            foreach (List<Wall> piece in pieces) {
+                var cluster = new PlanCluster();
+                foreach (Wall wall in piece) cluster.Add(wall);
+                clusters.Add(cluster);
             }
 
             // Biggest first: the plans that matter lead, and stray fragments fall to the end.
@@ -78,6 +80,21 @@ namespace Cad2Bim {
             }
 
             return clusters;
+        }
+
+        /// <summary>Cuts down, then across, then down again inside each piece, until no blank
+        /// strip is left. One pass is not enough: two plans stacked on one sheet share their rows
+        /// with the plans beside them, whose walls bridge the gap between the two.</summary>
+        private static IEnumerable<List<Wall>> Split(List<Wall> walls, double gapMm, bool vertical) {
+            List<List<Wall>> bands = Band(walls, gapMm, vertical).ToList();
+            if (bands.Count == 1) {
+                List<List<Wall>> across = Band(walls, gapMm, !vertical).ToList();
+                if (across.Count == 1) { yield return walls; yield break; }
+                bands = across;
+                vertical = !vertical;
+            }
+            foreach (List<Wall> band in bands)
+                foreach (List<Wall> piece in Split(band, gapMm, !vertical)) yield return piece;
         }
 
         /// <summary>Runs of walls with no gap wider than the tolerance between them along one
