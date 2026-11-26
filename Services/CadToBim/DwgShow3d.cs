@@ -14,11 +14,28 @@ namespace RevitWebAppSync.Services.CadToBim
     {
         private static readonly Regex AskRx = new Regex(@"^\s*(tunjuk|show)\s*(me\s+)?(the\s+)?3\s*d\b",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        // Only ever tried against a read sheet, so only with a DWG attached: "turn this 2D into 3D", "convert (this) to 3D", "jadikan 3D", "tukar ke 3D".
+        private static readonly Regex ConvertRx = new Regex(
+            @"^\s*(turn\s+(this\s+)?(2\s*d\s+)?(in)?to|convert\s+(this\s+)?(2\s*d\s+)?(in)?to|jadikan|tukar\s+(ke|kepada))\s+3\s*d\b",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
         private static readonly Regex NumberRx = new Regex(@"^(pelan\s+|plan\s+)?(\d{1,3})$", RegexOptions.IgnoreCase);
 
         /// <summary>The plans read_dwg_plan lists (same filter as DwgPlanReader.Build).</summary>
         public static List<DwgPlan> Listed(DwgPlanSheet sheet) =>
             sheet.Plans.Where(p => p.Cluster.Walls.Count >= DwgPlanReader.MinPlanWalls && !p.IsDetail).ToList();
+
+        private static Match Ask(string text)
+        {
+            Match m = AskRx.Match(text);
+            return m.Success ? m : ConvertRx.Match(text);
+        }
+
+        /// <summary>The DWG to read before answering: a "tunjuk 3D" with a drawing attached that read_dwg_plan has not read
+        /// (<paramref name="lastReadPath"/>). null = answer from the cached sheet as before, or no DWG at all.</summary>
+        public static string ToRead(string attachedPath, string lastReadPath, string text) =>
+            !string.IsNullOrEmpty(attachedPath) && !string.IsNullOrWhiteSpace(text) && Ask(text).Success
+            && !string.Equals(attachedPath, lastReadPath, System.StringComparison.OrdinalIgnoreCase)
+                ? attachedPath : null;
 
         /// <summary>True when the add-in answers the text itself: "tunjuk 3D" / "show 3D" after read_dwg_plan read a sheet,
         /// followed by nothing, a plan number, or words of a listed plan's title. Anything else ("show 3D view of the roof")
@@ -28,7 +45,7 @@ namespace RevitWebAppSync.Services.CadToBim
             plan = null;
             problem = null;
             if (string.IsNullOrWhiteSpace(text) || sheet == null) return false;
-            Match ask = AskRx.Match(text);
+            Match ask = Ask(text);
             if (!ask.Success) return false;
             List<DwgPlan> listed = Listed(sheet);
             if (listed.Count == 0) return false;

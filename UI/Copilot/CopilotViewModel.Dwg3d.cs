@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using System.Windows.Threading;
 using BinaVibe.Copilot.Contracts;
 using RevitWebAppSync.Services.CadToBim;
@@ -20,13 +21,70 @@ namespace RevitWebAppSync.UI.Copilot
         private bool DwgShow3dAsk(string text, string shown, List<string> images, List<FileAttachment> files, SlashTool slashChip)
         {
             if (slashChip != null) return false;
+            if (_dwg3dHandOn) return false;
             var (path, sheet) = DwgPlanReader.LastRead;
+            string toRead = DwgShow3d.ToRead(AttachedDwgPath(files), path, text);
+            if (toRead != null)
+            {
+                ReadThenAnswer(toRead, text, shown, images, files);
+                return true;
+            }
             if (!DwgShow3d.Intercepts(sheet, text, out DwgPlan plan, out string problem)) return false;
-            Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = shown, ImagesBase64 = images, Files = files, Time = System.DateTime.Now.ToString("h:mm tt") });
+            Thread.Add(UserBubble(shown, images, files));
+            Answer(path, plan, problem);
+            return true;
+        }
+
+        private bool _dwg3dHandOn;
+
+        private ChatMessage UserBubble(string shown, List<string> images, List<FileAttachment> files) =>
+            new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = shown, ImagesBase64 = images, Files = files, Time = System.DateTime.Now.ToString("h:mm tt") };
+
+        /// <summary>The DWG on this message, else the latest one attached earlier in this chat. null = none.</summary>
+        private string AttachedDwgPath(List<FileAttachment> files)
+        {
+            IEnumerable<FileAttachment> Dwgs(List<FileAttachment> fs) => fs?.Where(f => f.Kind == AttachmentKind.Dwg) ?? Enumerable.Empty<FileAttachment>();
+            var all = Dwgs(files).Concat(Thread.Reverse().Where(m => m.Kind == CpMsgKind.User).SelectMany(m => Dwgs(m.Files)));
+            foreach (var f in all)
+            {
+                string p = !string.IsNullOrEmpty(f.Path) ? f.Path
+                    : BinaVibe.Mcp.Tools.DwgScratchCache.IsAttachmentRef(f.Ref) ? BinaVibe.Mcp.Tools.DwgScratchCache.GetPath(f.Ref) : null;
+                if (p != null && System.IO.File.Exists(p)) return p;
+            }
+            return null;
+        }
+
+        /// <summary>"tunjuk 3D" before read_dwg_plan read the attached DWG: read it here, off the UI thread (the same
+        /// DwgPlanReader.ReadFile read_dwg_plan calls, so its cache serves the tool too), then answer or hand the turn on.</summary>
+        private async void ReadThenAnswer(string dwg, string text, string shown, List<string> images, List<FileAttachment> files)
+        {
+            var bubble = UserBubble(shown, images, files);
+            var note = new ChatMessage { Role = "ai", Kind = CpMsgKind.AiReply, Text = "Membaca " + System.IO.Path.GetFileName(dwg) + "…", Time = System.DateTime.Now.ToString("h:mm tt") };
+            Thread.Add(bubble);
+            Thread.Add(note);
+            DwgPlanSheet sheet = null;
+            var settings = CadToBimSettings.Load();
+            try { sheet = await System.Threading.Tasks.Task.Run(() => DwgPlanReader.ReadFile(dwg, settings)); }
+            catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] tunjuk 3D read failed: " + ex.Message); }
+            Thread.Remove(note);
+            if (DwgShow3d.Intercepts(sheet, text, out DwgPlan plan, out string problem))
+            {
+                Answer(dwg, plan, problem);
+                return;
+            }
+            // Not a plan this sheet can show (or unreadable): the server answers, as it did before.
+            Thread.Remove(bubble);
+            _dwg3dHandOn = true;
+            try { ChatSend(text, images, files, displayText: shown); }
+            finally { _dwg3dHandOn = false; }
+        }
+
+        private void Answer(string path, DwgPlan plan, string problem)
+        {
             if (plan == null)
             {
-                Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.AiReply, Text = problem, Time = System.DateTime.Now.ToString("h:mm tt") });
-                return true;
+                Reply(problem);
+                return;
             }
 
             string id = Dwg3dAskPrefix + (++_dwg3dCards);
@@ -44,7 +102,6 @@ namespace RevitWebAppSync.UI.Copilot
             };
             var card = AskCardModel.From(ask, ReceiptLanguage.Ms);
             Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Clarify, Question = card.Question, Ask = card, Time = System.DateTime.Now.ToString("h:mm tt") });
-            return true;
         }
 
         /// <summary>Ya / Tidak on the local card. True when the card was ours.</summary>

@@ -61,6 +61,34 @@ namespace Tests
         }
 
         [Fact]
+        public void An_attached_DWG_not_yet_read_is_read_first_and_no_DWG_goes_to_the_engine()
+        {
+            Assert.Equal("C:/aswara.dwg", DwgShow3d.ToRead("C:/aswara.dwg", null, "tunjuk 3d"));
+            Assert.Equal("C:/aswara.dwg", DwgShow3d.ToRead("C:/aswara.dwg", "C:/other.dwg", "jadikan 3D"));
+            Assert.Null(DwgShow3d.ToRead("C:/aswara.dwg", "c:/ASWARA.dwg", "tunjuk 3d"));   // already read: the cached sheet answers
+            Assert.Null(DwgShow3d.ToRead(null, null, "tunjuk 3d"));
+            Assert.Null(DwgShow3d.ToRead(null, null, "turn this 2D into 3D"));
+            Assert.Null(DwgShow3d.ToRead(null, null, "show 3D view of the roof"));
+            Assert.Null(DwgShow3d.ToRead("C:/aswara.dwg", null, "apa itu 3D?"));
+            Assert.False(DwgShow3d.Intercepts(null, "jadikan 3D", out _, out _));
+            Assert.False(DwgShow3d.Intercepts(null, "show 3D view of the roof", out _, out _));
+        }
+
+        [Fact]
+        public void Convert_phrases_ask_like_tunjuk_3D_once_a_sheet_is_read()
+        {
+            var one = Sheet(Plan(1, "PELAN ARAS 1", 5));
+            foreach (string t in new[] { "turn this 2D into 3D", "convert this to 3D", "convert to 3d", "Convert this 2D to 3D.",
+                                         "turn this into 3D", "jadikan 3D", "tukar ke 3D", "tukar kepada 3d" })
+                Assert.Equal(1, Pick(one, t).N);
+            var two = Sheet(Plan(1, "ARAS 1", 5), Plan(2, "PELAN BUMBUNG", 6));
+            Assert.Equal(2, Pick(two, "jadikan 3D bumbung").N);
+            Assert.Null(Pick(two, "convert this to 3D"));                 // several: "Pelan yang mana?"
+            Assert.False(DwgShow3d.Intercepts(two, "show 3D view of the roof", out _, out _));
+            Assert.False(DwgShow3d.Intercepts(two, "convert this to IFC", out _, out _));
+        }
+
+        [Fact]
         public void Request_is_one_plan_in_place_on_the_lowest_level()
         {
             DwgPlan p = Plan(2, "PELAN ARAS 1", 5);
