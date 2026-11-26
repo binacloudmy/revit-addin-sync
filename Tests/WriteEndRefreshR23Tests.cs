@@ -49,7 +49,7 @@ namespace RevitAddinSync.Tests
         {
             var engine = Src("BinaVibe/Copilot/Writes/RevitWriteEngine.cs");
             // The preview request (a Cancel at the card ends here) and the commit request, committed or not, both in their finally.
-            Assert.Contains("finally { Code.RevitCodeHost.ForgetSelectionSwap(); RefreshCommandState(app, batch.TurnId, selectedAtStart); }", engine);
+            Assert.Contains("finally { Code.RevitCodeHost.ForgetSelectionSwap(); KeepSelectionAfterIsolate(app, batch, selectedAtStart); RefreshCommandState(app, batch.TurnId, selectedAtStart); }", engine);
             var commit = engine.Substring(engine.IndexOf("public Task<CommitOutcome> CommitAsync(", System.StringComparison.Ordinal));
             commit = commit.Substring(0, commit.IndexOf("}, ct);", System.StringComparison.Ordinal));
             var give = commit.IndexOf("Code.RevitCodeHost.GiveBackSelection(track.Doc, track.UiDoc);", System.StringComparison.Ordinal);
