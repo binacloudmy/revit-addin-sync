@@ -114,7 +114,7 @@ namespace BinaVibe.Copilot.Writes
                 var back = Code.TurnSelection.KeepAfterIsolate(batch.Calls, selectedAtStart, SelectedIds(app), id => doc.GetElement(ElemIds.From(id)) != null);
                 if (back != null) uidoc.Selection.SetElementIds(back.Select(ElemIds.From).ToList());
             }
-            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] isolate selection give-back: " + ex.Message); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] isolate selection give-back failed: " + ex.GetType().Name); }   // the type only: the message is not logged raw (R25)
         }
 
         // r23: the turn whose write request last refreshed Revit's command state (Revit's one API thread).
