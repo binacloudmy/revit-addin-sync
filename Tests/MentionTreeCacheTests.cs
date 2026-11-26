@@ -170,6 +170,55 @@ namespace Tests
             Assert.Empty(MentionTreeCache.Clone(null));
         }
 
+        // The provider's raw reads for one unchanged model.
+        private static string StampOf(bool hooked = true, bool temporary = false, string session = "nonce-a", long events = 7,
+                                      long? view = 311, int[] worksets = null, long?[] settings = null) =>
+            MentionTreeCache.Stamp(hooked, temporary, session, events, view, worksets ?? new[] { 2, 1 }, settings ?? new long?[] { null, 90, 91, 92 });
+
+        [Fact]
+        public void Stamp_is_the_same_for_the_same_reads()
+        {
+            Assert.NotNull(StampOf());
+            Assert.Equal(StampOf(), StampOf());
+            Assert.Equal(StampOf(worksets: new[] { 1, 2 }), StampOf(worksets: new[] { 2, 1 }));   // workset order does not matter
+        }
+
+        [Fact]
+        public void Stamp_moves_with_every_input_the_tree_depends_on()
+        {
+            var before = StampOf();
+            Assert.NotEqual(before, StampOf(events: 8));                                   // any model event
+            Assert.NotEqual(before, StampOf(session: "nonce-b"));                          // closed and reopened
+            Assert.NotEqual(before, StampOf(view: 412));                                   // another active view
+            Assert.NotEqual(before, StampOf(view: null));                                  // no active view
+            Assert.NotEqual(before, StampOf(worksets: new[] { 1 }));                       // a workset closed
+            Assert.NotEqual(before, StampOf(settings: new long?[] { 55, 90, 91, 92 }));    // a design option made active
+            Assert.NotEqual(before, StampOf(settings: new long?[] { null, 93, 91, 92 }));  // another browser organization for views
+            Assert.NotEqual(before, StampOf(settings: new long?[] { null, 90, 91, null }));
+        }
+
+        [Fact]
+        public void Stamp_is_null_when_the_model_cannot_be_vouched_for()
+        {
+            Assert.Null(StampOf(hooked: false));      // SnapshotService not attached: ModelEventSeq does not move
+            Assert.Null(StampOf(temporary: true));    // hide/isolate etc. change the view without a model event
+            Assert.Null(StampOf(session: null));
+            Assert.Null(StampOf(session: ""));
+        }
+
+        [Fact]
+        public void A_model_event_through_the_real_stamp_rebuilds_the_tree()
+        {
+            var cache = new MentionTreeCache();
+            cache.Get(StampOf(events: 7), () => (Sample(doorCount: 24), true));
+            var same = cache.Get(StampOf(events: 7), () => throw new InvalidOperationException("must not rebuild"));
+            Assert.Equal(24, Find(same, "915 x 2134mm").Count);
+            var changed = cache.Get(StampOf(events: 8), () => (Sample(doorCount: 23), true));   // a door was deleted
+            Assert.Equal(23, Find(changed, "915 x 2134mm").Count);
+            var isolated = cache.Get(StampOf(events: 8, temporary: true), () => (Sample(doorCount: 23, inView: 1), true));
+            Assert.Equal(1, Find(isolated, "915 x 2134mm").InView);
+        }
+
         private static MentionNode Find(IEnumerable<MentionNode> nodes, string name)
         {
             foreach (var n in nodes)

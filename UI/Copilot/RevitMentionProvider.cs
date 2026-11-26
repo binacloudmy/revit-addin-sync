@@ -75,22 +75,33 @@ namespace RevitWebAppSync.UI.Copilot
             }
         }
 
-        /// <summary>What the kept tree depends on besides the model's content: the document's session (a reopen is a new one), every
-        /// model event of the session (SnapshotService.ModelEventSeq), the active view (its root, IsActive flags and InView counts) and
-        /// the open worksets. Null, so nothing is reused or kept, when the events are not hooked, the stamp cannot be read, or the active
-        /// view is in a temporary mode (hide/isolate, reveal hidden ...): those change what the view shows without a model event.</summary>
+        /// <summary>What the kept tree depends on besides the model's content (MentionTreeCache.Stamp): the document's session (a reopen
+        /// is a new one), every model event of the session (SnapshotService.ModelEventSeq), the active view (its root, IsActive flags and
+        /// InView counts), the open worksets, the active design option and the current browser organizations. Null, so nothing is reused
+        /// or kept, when the events are not hooked, the stamp cannot be read, or the active view is in a temporary mode (hide/isolate,
+        /// reveal hidden ...): those change what the view shows without a model event.</summary>
         private static string TreeStamp(Document doc, View active)
         {
             try
             {
-                if (!BinaVibe.Copilot.Read.SnapshotService.IsAttached) return null;
-                if (active != null && InTemporaryMode(active)) return null;
-                string worksets = "";
-                if (doc.IsWorkshared)
-                    worksets = string.Join(",", new FilteredWorksetCollector(doc).OfKind(WorksetKind.UserWorkset)
-                        .Where(w => w.IsOpen).Select(w => w.Id.IntegerValue).OrderBy(i => i));
-                return BinaVibe.Copilot.Read.SnapshotService.SessionNonceOf(doc) + "|" + BinaVibe.Copilot.Read.SnapshotService.ModelEventSeq
-                       + "|" + (active?.Id.Value.ToString() ?? "-") + "|" + worksets;
+                var worksets = doc.IsWorkshared
+                    ? new FilteredWorksetCollector(doc).OfKind(WorksetKind.UserWorkset).Where(w => w.IsOpen).Select(w => w.Id.IntegerValue).ToList()
+                    : new List<int>();
+                long? Id(Func<ElementId> read)
+                {
+                    try { return read()?.Value; }
+                    catch { return null; }
+                }
+                var settings = new[]
+                {
+                    Id(() => DesignOption.GetActiveDesignOptionId(doc)),
+                    Id(() => BrowserOrganization.GetCurrentBrowserOrganizationForViews(doc)?.Id),
+                    Id(() => BrowserOrganization.GetCurrentBrowserOrganizationForSheets(doc)?.Id),
+                    Id(() => BrowserOrganization.GetCurrentBrowserOrganizationForSchedules(doc)?.Id),
+                };
+                return MentionTreeCache.Stamp(BinaVibe.Copilot.Read.SnapshotService.IsAttached, active != null && InTemporaryMode(active),
+                    BinaVibe.Copilot.Read.SnapshotService.SessionNonceOf(doc), BinaVibe.Copilot.Read.SnapshotService.ModelEventSeq,
+                    active?.Id.Value, worksets, settings);
             }
             catch { return null; }
         }

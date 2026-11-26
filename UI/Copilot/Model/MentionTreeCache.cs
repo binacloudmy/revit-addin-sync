@@ -18,6 +18,19 @@ namespace RevitWebAppSync.UI.Copilot.Model
         private string _stamp;
         private List<MentionNode> _tree;
 
+        /// <summary>The stamp for the provider's raw reads: the document session, the model event count, the active view, the open
+        /// worksets and the document settings the tree follows (active design option, current browser organizations; null when not read).
+        /// Null, so nothing is reused or kept, when the events are not hooked, the active view is in a temporary mode, or there is
+        /// no session.</summary>
+        public static string Stamp(bool eventsHooked, bool temporaryMode, string session, long modelEvents, long? activeViewId,
+                                   IEnumerable<int> openWorksets, IEnumerable<long?> settings)
+        {
+            if (!eventsHooked || temporaryMode || string.IsNullOrEmpty(session)) return null;
+            string Ids<T>(IEnumerable<T> ids) => string.Join(",", (ids ?? Enumerable.Empty<T>()).Select(i => i == null ? "-" : i.ToString()));
+            return session + "|" + modelEvents + "|" + (activeViewId?.ToString() ?? "-") + "|"
+                   + Ids((openWorksets ?? Enumerable.Empty<int>()).OrderBy(i => i)) + "|" + Ids(settings);
+        }
+
         /// <summary>The tree for this stamp: a copy of the kept build when the stamp matches, else a new build.</summary>
         public List<MentionNode> Get(string stamp, Func<(List<MentionNode> Tree, bool Storable)> build)
         {
