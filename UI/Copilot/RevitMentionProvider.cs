@@ -154,7 +154,7 @@ namespace RevitWebAppSync.UI.Copilot
                     .Select(g => MentionNode.Group(g.Key.Group, ViewsIn(g))).ToList()));
             roots.Add(MentionNode.Group(BrowserViews.LegendsBranch, ViewsIn(placed.Where(x => x.Place.Branch == BrowserViews.LegendsBranch))));
             roots.Add(ScheduleBranch(BrowserViews.SchedulesBranch, placed, activeName, () => BrowserOrganization.GetCurrentBrowserOrganizationForSchedules(doc)));
-            roots.Add(ScheduleBranch(BrowserViews.PanelSchedulesBranch, placed, activeName, () => BrowserOrganization.GetCurrentBrowserOrganizationForPanelSchedules(doc)));
+            roots.Add(ScheduleBranch(BrowserViews.PanelSchedulesBranch, placed, activeName, () => PanelScheduleOrganization(doc)));
 
             var sheets = new FilteredElementCollector(doc).OfClass(typeof(ViewSheet)).Cast<ViewSheet>().Where(s => !IsPlaceholder(s)).ToList();
             MentionNode SheetNode(ViewSheet s) => new MentionNode("sheet", $"{s.SheetNumber} - {s.Name}") { ElementId = s.Id.Value };
@@ -317,6 +317,14 @@ namespace RevitWebAppSync.UI.Copilot
                 MentionTreeDump.WriteExtra(".skipped.json", new Newtonsoft.Json.Linq.JArray(rows));
             }
             catch { /* a test aid never fails the picker */ }
+        }
+
+        // GetCurrentBrowserOrganizationForPanelSchedules is not in every Revit year's API (it is missing from 2023-2026), so it is called by name:
+        // null where it does not exist, and the panel schedules are then listed by name with no folders.
+        private static BrowserOrganization PanelScheduleOrganization(Document doc)
+        {
+            var m = typeof(BrowserOrganization).GetMethod("GetCurrentBrowserOrganizationForPanelSchedules", new[] { typeof(Document) });
+            return m?.Invoke(null, new object[] { doc }) as BrowserOrganization;
         }
 
         // The browser shows its organization's name after the branch: "Views (00a_All)", "Sheets (00a_All)", "Schedules/Quantities (all)".
