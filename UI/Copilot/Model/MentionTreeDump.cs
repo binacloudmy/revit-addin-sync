@@ -22,9 +22,24 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 if (n.ElementId.HasValue) o["id"] = n.ElementId.Value;
                 if (n.IsActive) o["active"] = true;
                 if (!string.IsNullOrEmpty(n.ClassName)) o["class"] = n.ClassName;
+                if (!string.IsNullOrEmpty(n.CategoryKey)) o["categoryKey"] = n.CategoryKey;
                 if (n.Children.Count > 0) o["children"] = ToJson(n.Children);
                 return (JToken)o;
             }));
+
+        public static bool Enabled => !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(Variable));
+
+        /// <summary>A second file beside the dump (path + suffix) for what the picker left out; never throws.</summary>
+        public static void WriteExtra(string suffix, JToken content)
+        {
+            try
+            {
+                var path = Environment.GetEnvironmentVariable(Variable);
+                if (string.IsNullOrWhiteSpace(path)) return;
+                File.WriteAllText(path + suffix, content.ToString());
+            }
+            catch { /* a test aid never fails the picker */ }
+        }
 
         public static void Write(IEnumerable<MentionNode> tree)
         {

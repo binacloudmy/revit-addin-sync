@@ -98,6 +98,7 @@ namespace RevitWebAppSync.UI.Copilot
                                 && !string.IsNullOrEmpty(t.FamilyName))
                     .ToList();
 
+                if (MentionTreeDump.Enabled) DumpSkipped(doc, types);
                 var catIds = types.Select(t => t.Category.Id).Distinct().ToList();
                 string docKey = string.IsNullOrEmpty(doc.PathName) ? doc.Title : doc.PathName;
                 var inModel = CountByType(doc, null, catIds, docKey, _tooBigToCount, ModelCountBudgetMs);
@@ -236,6 +237,21 @@ namespace RevitWebAppSync.UI.Copilot
             var rows = org == null ? null : OrganizedRows(org, views, Node);
             return MentionNode.Group(Labelled(branch, org), rows != null ? BrowserTree.Nest(rows)
                 : views.OrderBy(v => v.Name, StringComparer.CurrentCultureIgnoreCase).Select(Node).ToList());
+        }
+
+        // Test aid (BINA_MENTION_DUMP set): the element types the picker leaves out, by category, category type and class.
+        private static void DumpSkipped(Document doc, List<ElementType> kept)
+        {
+            try
+            {
+                var keptIds = new HashSet<ElementId>(kept.Select(t => t.Id));
+                var rows = new FilteredElementCollector(doc).WhereElementIsElementType().Cast<ElementType>()
+                    .Where(t => !keptIds.Contains(t.Id))
+                    .GroupBy(t => new { Cat = t.Category?.Name ?? "(none)", Kind = t.Category?.CategoryType.ToString() ?? "-", Cls = t.GetType().Name, HasFamily = !string.IsNullOrEmpty(t.FamilyName), Key = CategoryKey(t.Category) ?? "" })
+                    .Select(g => new Newtonsoft.Json.Linq.JObject { ["category"] = g.Key.Cat, ["categoryType"] = g.Key.Kind, ["class"] = g.Key.Cls, ["hasFamilyName"] = g.Key.HasFamily, ["categoryKey"] = g.Key.Key, ["count"] = g.Count() });
+                MentionTreeDump.WriteExtra(".skipped.json", new Newtonsoft.Json.Linq.JArray(rows));
+            }
+            catch { /* a test aid never fails the picker */ }
         }
 
         // The browser shows its organization's name after the branch: "Views (00a_All)", "Sheets (00a_All)", "Schedules/Quantities (all)".
