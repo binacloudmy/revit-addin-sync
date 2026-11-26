@@ -63,7 +63,7 @@ namespace BinaVibe.Copilot.Writes
             {
                 var selectedAtStart = SelectedIds(app);
                 try { return PreviewBatch(app, batch); }
-                finally { Code.RevitCodeHost.ForgetSelectionSwap(); RefreshCommandState(app, batch.TurnId, selectedAtStart); }
+                finally { Code.RevitCodeHost.ForgetSelectionSwap(); KeepSelectionAfterIsolate(app, batch, selectedAtStart); RefreshCommandState(app, batch.TurnId, selectedAtStart); }
             }, ct);
 
         public Task<CommitOutcome> CommitAsync(WriteBatch batch, PreviewOutcome preview, string planHash, CancellationToken ct) =>
@@ -79,6 +79,7 @@ namespace BinaVibe.Copilot.Writes
                     // (re-audit: a throw after Assimilate must not reselect written doors); the commit's own give-back decides then.
                     if (Code.TurnSelection.GiveBackAtCommitEnd(track.Doc != null, track.GroupKept)) Code.RevitCodeHost.GiveBackSelection(track.Doc, track.UiDoc);
                     Code.RevitCodeHost.ForgetSelectionSwap();
+                    KeepSelectionAfterIsolate(app, batch, selectedAtStart);
                     RefreshCommandState(app, batch.TurnId, selectedAtStart);   // r23 (P16 G3 7241e714): after the give-back, never instead of it
                 }
             }, ct);
@@ -99,6 +100,21 @@ namespace BinaVibe.Copilot.Writes
                 RevitWebAppSync.UI.Copilot.Model.ClickTrace.Sink("write end: " + ViewActivation.Show(app!));
             }
             catch (Exception) { /* a refresh is a convenience: the write's outcome stands */ }
+        }
+
+        /// <summary>Live 0.0.187: Revit drops the selection when code applies a temporary isolate; the selection held when this
+        /// request started comes back (TurnSelection.KeepAfterIsolate decides). No isolate: nothing happens. Never throws.</summary>
+        private static void KeepSelectionAfterIsolate(UIApplication? app, WriteBatch batch, IReadOnlyList<long> selectedAtStart)
+        {
+            try
+            {
+                var uidoc = app?.ActiveUIDocument;
+                var doc = uidoc?.Document;
+                if (uidoc == null || doc == null) return;
+                var back = Code.TurnSelection.KeepAfterIsolate(batch.Calls, selectedAtStart, SelectedIds(app), id => doc.GetElement(ElemIds.From(id)) != null);
+                if (back != null) uidoc.Selection.SetElementIds(back.Select(ElemIds.From).ToList());
+            }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] isolate selection give-back: " + ex.Message); }
         }
 
         // r23: the turn whose write request last refreshed Revit's command state (Revit's one API thread).

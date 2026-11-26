@@ -22,6 +22,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 using BinaVibe.Copilot.Contracts;
 
 namespace BinaVibe.Copilot.Code
@@ -92,6 +94,30 @@ namespace BinaVibe.Copilot.Code
         /// never after its group was kept (a throw after Assimilate must not reselect the written elements; the commit's own give-back,
         /// with the ids it wrote, is the only one after a kept group).</summary>
         public static bool GiveBackAtCommitEnd(bool documentChecked, bool groupKept) => documentChecked && !groupKept;
+
+        // The same call names as the backend's lines.ISOLATES, plus the singular IsolateCategoryTemporary.
+        private static readonly Regex IsolateCall = new Regex(@"\bIsolate(?:Elements?|Categor(?:y|ies))Temporary\s*\(", RegexOptions.CultureInvariant);
+
+        /// <summary>Whether any run_revit_code call of the batch applies a temporary isolate.</summary>
+        public static bool BatchIsolates(IEnumerable<ToolCallDto>? calls) =>
+            (calls ?? Enumerable.Empty<ToolCallDto>()).Any(c => c != null && c.Tool == ToolNames.RunRevitCode
+                && c.Args.ValueKind == JsonValueKind.Object && c.Args.TryGetProperty("code", out var code)
+                && code.ValueKind == JsonValueKind.String && IsolateCall.IsMatch(code.GetString() ?? ""));
+
+        /// <summary>Live 0.0.187 ("select all the doors in this view and isolate them"): a find selected the 2 doors, the code then
+        /// isolated them and Revit dropped the selection with the isolate; no swap was open (the code never read the selection), so
+        /// nothing gave the doors back and the reply's "selected and isolated" was untrue. After a write request whose code isolates,
+        /// the ids Revit held when the request started come back, only when Revit's selection is empty now (the code's own selection,
+        /// or one already given back, is left as it is) and only the ones that still exist. Null: leave it.</summary>
+        /// <param name="before">The host ids Revit held when the preview or commit request started.</param>
+        /// <param name="live">The host ids Revit holds now, at the end of the request.</param>
+        public static IReadOnlyList<long>? KeepAfterIsolate(IEnumerable<ToolCallDto>? calls, IEnumerable<long>? before, IEnumerable<long>? live, Func<long, bool> exists)
+        {
+            if (exists == null) throw new ArgumentNullException(nameof(exists));
+            if (!BatchIsolates(calls) || (live ?? Enumerable.Empty<long>()).Any()) return null;
+            var back = (before ?? Enumerable.Empty<long>()).Distinct().Where(exists).ToList();
+            return back.Count == 0 ? null : back;
+        }
 
         /// <summary>What a read tool takes as the selection: the turn's ids when Revit's selection is another
         /// one by now, null when Revit's own selection is the one to read (linked picks included).</summary>
