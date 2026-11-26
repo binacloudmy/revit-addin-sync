@@ -112,6 +112,7 @@ namespace RevitWebAppSync.UI.Copilot
                         })));
 
                 roots.RemoveAll(r => !r.Pickable && r.Children.Count == 0);
+                MentionTreeDump.Write(roots);
                 return roots;
             }
             catch
