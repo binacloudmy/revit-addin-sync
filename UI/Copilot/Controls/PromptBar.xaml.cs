@@ -51,7 +51,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             {
                 // Enter while a turn runs queues the next prompt (the view model holds
                 // it until the turn ends); a slash command waits for the turn.
-                if (Busy && _pendingTool != null) return;
+                if (Busy && _pendingTool != null) { Input.RejectSubmit(); return; }
                 // A pending slash command takes the turn: raise it (with any typed
                 // args) and skip the normal text/attachment submit path.
                 if (_pendingTool != null)
@@ -66,6 +66,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                         missing[0].FocusValue();
                         PendingHintText.Text = "Fill " + (missing[0].Input.Label ?? missing[0].Input.Name) + " to send";
                         PendingHintRow.Visibility = Visibility.Visible;
+                        Input.RejectSubmit();
                         return;
                     }
                     PendingHintRow.Visibility = Visibility.Collapsed;

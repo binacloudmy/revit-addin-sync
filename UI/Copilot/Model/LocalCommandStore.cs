@@ -54,6 +54,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
         private readonly string _path;
         private readonly Func<IEnumerable<string>> _reserved;
         private readonly object _gate = new object();
+        // The file exists but could not be read (locked by another process): writing now would replace it with a list built from nothing.
+        private bool _unreadable;
 
         /// <param name="path">The JSON file.</param>
         /// <param name="reservedIds">Ids a saved command may not take (the curated tier's, as the palette knows them).</param>
@@ -94,6 +96,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
             lock (_gate)
             {
                 var list = Load();
+                if (_unreadable) return (null, "Your saved commands are busy (the file is in use). Try again in a moment.");
                 if (list.Count >= MaxCommands) return (null, "At most " + MaxCommands + " saved commands on this PC.");
                 var stamp = (now ?? DateTime.UtcNow);
                 var c = new LocalCommand { Id = UniqueSlug(SavedCommandDraft.SuggestSlug(draft.Name), list.Select(x => x.Id).Concat(_reserved())), CreatedUtc = stamp, EditedUtc = stamp };
@@ -112,6 +115,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
             lock (_gate)
             {
                 var list = Load();
+                if (_unreadable) return (null, "Your saved commands are busy (the file is in use). Try again in a moment.");
                 var c = list.FirstOrDefault(x => string.Equals(x.Id, id, StringComparison.Ordinal));
                 if (c == null) return (null, null);
                 Fill(c, draft);
@@ -127,10 +131,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
             lock (_gate)
             {
                 var list = Load();
+                if (_unreadable) return false;
                 var removed = list.RemoveAll(x => string.Equals(x.Id, id, StringComparison.Ordinal));
                 if (removed == 0) return false;
-                Save(list);
-                return true;
+                return Save(list) == null;   // false when the file could not be written: the command is still there
             }
         }
 
@@ -235,6 +239,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
         {
             try
             {
+                _unreadable = false;
                 if (!File.Exists(_path)) return new List<LocalCommand>();
                 var text = File.ReadAllText(_path);
                 if (string.IsNullOrWhiteSpace(text)) return new List<LocalCommand>();
@@ -249,6 +254,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine("[BINA] saved commands unreadable: " + ex.Message);
+                _unreadable = ex is IOException || ex is UnauthorizedAccessException;
                 KeepCorrupt();
                 return new List<LocalCommand>();
             }

@@ -15,12 +15,12 @@ namespace RevitWebAppSync.UI.Copilot.Model
     {
         public const int Max = 20;
 
-        /// <summary>The picked mentions as wire records (empty kinds and names dropped, at most 20, one per kind and name); null for none.</summary>
+        /// <summary>The picked mentions as wire records (empty kinds and names dropped, at most 20, one per kind, name and id); null for none.</summary>
         public static List<MentionDto>? For(IEnumerable<Mention>? mentions)
         {
             if (mentions == null) return null;
             var list = mentions.Where(m => m != null && !string.IsNullOrWhiteSpace(m.Kind) && !string.IsNullOrWhiteSpace(m.Value))
-                .GroupBy(m => m.Kind + "\u0001" + m.Value.Trim(), StringComparer.Ordinal).Select(g => g.First())
+                .GroupBy(m => m.Kind + "\u0001" + m.Value.Trim() + "\u0001" + m.Id, StringComparer.Ordinal).Select(g => g.First())
                 .Take(Max)
                 .Select(m => new MentionDto { Kind = m.Kind.Trim(), Name = m.Value.Trim(), Id = m.Id })
                 .ToList();

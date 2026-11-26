@@ -19,6 +19,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public int? InView;        // instances in the active view, null = not counted
         public bool IsActive;      // the active view
         public bool SharedName;    // another family has a type of the same name
+        public string Where;       // view / sheet: the browser folders it sits in, so two with one name can be told apart
         public MentionSelection Selection;
         public MentionNode Node;   // the tree node it came from
 
@@ -42,7 +43,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     }
                     case "family": return string.IsNullOrEmpty(Category) ? "Family" : Category + " family";
                     case "selection": return MentionText.SelectionLabel(Selection);
-                    case "view": return IsActive ? "Active view" : "";
+                    case "view": return string.Join(" · ", new[] { IsActive ? "Active view" : null, Where }.Where(x => !string.IsNullOrEmpty(x)));
+                    case "sheet": return Where ?? "";
                     default: return "";
                 }
             }
@@ -98,7 +100,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
         {
             var items = new List<MentionItem>();
             var seen = new Dictionary<string, MentionItem>(StringComparer.OrdinalIgnoreCase);
-            Walk(tree, null, null, null, items, seen);
+            Walk(tree, null, null, null, null, true, items, seen);
 
             foreach (var g in items.Where(i => i.Kind == "type").GroupBy(i => i.NameF))
                 if (g.Select(i => i.FamilyF).Distinct().Count() > 1)
@@ -106,7 +108,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return items;
         }
 
-        private static void Walk(IEnumerable<MentionNode> nodes, string family, string category, string categoryKey,
+        private static void Walk(IEnumerable<MentionNode> nodes, string family, string category, string categoryKey, string where, bool top,
                                  List<MentionItem> items, Dictionary<string, MentionItem> seen)
         {
             if (nodes == null) return;
@@ -127,18 +129,23 @@ namespace RevitWebAppSync.UI.Copilot.Model
                         CategoryKey = n.Kind == "category" || n.Kind == "type" || n.Kind == "family" ? key : null,
                         TypeMark = n.TypeMark, Count = n.Count, InView = n.InView,
                         IsActive = n.IsActive, Selection = n.Selection,
+                        Where = n.Kind == "view" || n.Kind == "sheet" ? where : null,
                     };
                     item.NameF = Normalize(item.Name);
                     item.FamilyF = Normalize(item.Family);
                     item.MarkF = Normalize(item.TypeMark);
                     item.CategoryF = Normalize(item.Category);
 
-                    string dedupe = item.Kind + "\u001f" + item.FamilyF + "\u001f" + item.CategoryF + "\u001f" + item.NameF;
+                    // Views and sheets that share a name (a floor plan and a ceiling plan "Aras 02") stay separate rows: they have different ids.
+                    string dedupe = item.Kind + "\u001f" + item.FamilyF + "\u001f" + item.CategoryF + "\u001f" + item.NameF
+                                    + (n.Kind == "view" || n.Kind == "sheet" ? "\u001f" + n.ElementId : "");
                     if (seen.TryGetValue(dedupe, out var prior))
                         prior.IsActive |= item.IsActive;
                     else { seen[dedupe] = item; items.Add(item); }
                 }
-                Walk(n.Children, fam, cat, key, items, seen);
+                // Folders below the top branch make up a view's "where" (the branch itself, "Views (00a_All)", is not named).
+                string below = n.Kind == "group" && !top ? (string.IsNullOrEmpty(where) ? n.Name : where + " › " + n.Name) : where;
+                Walk(n.Children, fam, cat, key, below, false, items, seen);
             }
         }
 

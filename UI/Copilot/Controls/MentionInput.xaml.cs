@@ -733,6 +733,11 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         /// <summary>Submit from an external trigger (e.g. the send button).</summary>
         public void TriggerSubmit() => Submit();
 
+        private bool _submitRejected;
+
+        /// <summary>Called by the host from inside <see cref="Submitted"/> when it will not send: the box keeps the typed text and chips.</summary>
+        public void RejectSubmit() => _submitRejected = true;
+
         private void Submit()
         {
             var shown = (Editor.Text ?? "").Trim();
@@ -748,7 +753,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             }
             var sent = _chips.Expand(Editor.Text ?? "", selNow).Trim();
             var mentions = _chips.Records(selNow);   // with ids (r17): the turn carries them as structured mentions
+            _submitRejected = false;
             Submitted?.Invoke(sent, shown, mentions);
+            if (_submitRejected) { _submitRejected = false; return; }   // the host refused (busy, or a required input is empty): keep the text and chips
             _chips.Clear();
             Editor.Clear();
             ClosePicker();

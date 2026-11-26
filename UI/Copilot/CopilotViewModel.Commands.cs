@@ -43,12 +43,14 @@ namespace RevitWebAppSync.UI.Copilot
             SaveCommandRequested?.Invoke(SavedCommandDraft.FromTool(t));
         }
 
-        public async System.Threading.Tasks.Task OnDeleteCommandAsync(SlashTool t)
+        /// <summary>True when the command is gone (deleted, or it was not there); false when it is still saved because the file could not be written.</summary>
+        public async System.Threading.Tasks.Task<bool> OnDeleteCommandAsync(SlashTool t)
         {
-            if (t == null || !t.Editable) return;
+            if (t == null || !t.Editable) return true;
             // Quiet on purpose: the row disappears from the list; no chat message (it replaced the pane's home screen with a lone bubble).
             LocalCommandStore.Default.Delete(t.Id);
             await RefreshCommandCatalogAsync(force: true);
+            return !LocalCommandStore.Default.ToTools().Any(x => string.Equals(x.Id, t.Id, System.StringComparison.Ordinal));
         }
 
         /// <summary>Save (or update, when the draft carries EditingId) on this PC — returns

@@ -52,8 +52,13 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 var ok = System.Windows.MessageBox.Show(
                     $"Delete /{t.Id}? This cannot be undone.", "Delete command",
                     MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes;
-                if (ok) _ = Vm.OnDeleteCommandAsync(t);
+                if (ok) _ = DeleteAsync(t);
             };
+            async System.Threading.Tasks.Task DeleteAsync(SlashTool t)
+            {
+                if (!await Vm.OnDeleteCommandAsync(t))
+                    System.Windows.MessageBox.Show($"Could not delete /{t.Id}: your saved commands file is in use. Try again in a moment.", "Delete command", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
             SizeChanged += (_, __) => { if (SlashLayer.Visibility == Visibility.Visible) UpdateSlashPaletteBounds(); };
             DataContextChanged += (_, __) => Hook();
             // Re-render the (code-behind-drawn) thread when the palette flips —

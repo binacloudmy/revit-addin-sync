@@ -295,8 +295,9 @@ namespace RevitWebAppSync.UI.Copilot
             var yes = MessageBox.Show($"Delete /{tool.Id}? This cannot be undone.", "Delete command",
                 MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes;
             if (!yes) return;
-            await _vm.OnDeleteCommandAsync(tool);
+            var gone = await _vm.OnDeleteCommandAsync(tool);
             lib.RefreshSaved();
+            if (!gone) MessageBox.Show($"Could not delete /{tool.Id}: your saved commands file is in use. Try again in a moment.", "Delete command", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
 
         private void RunSavedCommand(SlashTool tool)

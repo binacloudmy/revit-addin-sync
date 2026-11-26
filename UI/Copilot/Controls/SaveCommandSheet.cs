@@ -378,7 +378,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
         private void UpdateSlugHint()
         {
-            _slugHint.Text = "Find it later by typing /" + SavedCommandDraft.SuggestSlug(_nameBox.Text);
+            _slugHint.Text = "Find it later by typing /" + (_draft.EditingId ?? SavedCommandDraft.SuggestSlug(_nameBox.Text));
         }
 
         // ── Sentence rendering (design sheet.sentence) ───────────────────────
