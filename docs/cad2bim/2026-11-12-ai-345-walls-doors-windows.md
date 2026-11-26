@@ -1,0 +1,313 @@
+# AI-345: CAD to BIM walls, doors and windows
+
+Branch `ai345-onto-flow`: the AI-345 build change (first written on `origin/develop` @ d2bf39d7) moved onto the AI-344 four-step flow (Layers → Preview → Build → Review, base `24e8baaf`). The builder keeps AI-344's id recording, real skip reasons, plan views and Undo this build; the pane gains a **TYPES** section in step 3 Build, and the Review shows what AI-345 made or could not do.
+
+## In the four-step flow
+
+**Where.** Step **3 Build**, between WALLS and PLANS ON SHEET (the `BuildTypes` spot AI-344 left). Mockup: `2026-11-12-cad-to-bim-step3-build.png`.
+
+**What it shows.** One row per size the next build creates. Each row is two lines (readable in the 280 px column): the kind and full size with the count on the right, then the type dropdown full width. A door or window type shows its own name first (`0915 x 2134mm`) and its family faint after it; the full name is in the tooltip. Render: `2026-11-13-types-labels.png`.
+
+- `Wall 125 mm ×12` → wall type. One row per wall width as the builder rounds it (5 mm), thinnest first. With more than 6 widths only the 6 most used are listed; "Show N more wall widths" lists the rest.
+- `Door 910 × 2100 ×5` → door type (width from the swing, height from `DoorHeightMm`).
+- `Window 1220 × 1200 ×4` → window type (height from `WindowHeightMm`).
+- Openings under 300 mm get no row (the builder skips them as too narrow).
+
+**What is selected at first.** Exactly what the builder would choose by itself (`BuildTypePlan.Row` runs `BuildSizing.Pick` on the same type list, in the same order, with the same tolerance):
+
+- a type already that size → that type;
+- none, but one can be copied and resized → **`New: CAD Wall 125 mm`** / **`New: CAD 910 x 2100 mm`**, listed first, then every existing type;
+- nothing resizable → the closest type, used at its own size;
+- no type of that kind at all → one greyed entry, "No door family (skipped)" (the build skips those with "no door family in the model").
+
+**What the drafter's pick does.** An existing type picked in a row goes to the builder in `BuildRequest.TypeChoices` and is used **as it is** (not copied, not resized) for every wall of that width or opening of that size. "New: …" is left to the builder. Picks are remembered by size while the pane is open, so erase, brush, pick or going back and forth do not reset them. A type deleted from the model after the pane read it falls back to the builder's own choice.
+
+**Where the type list comes from.** `Cad2BimBuilder.ReadTypes(doc)`, read with the levels when the pane is opened (ribbon or chat). Types made by a build are not added to that list; the next build still reuses them (the row says "New: CAD Wall 125 mm" and the builder finds the existing one of that width).
+
+**Save as new .rvt.** The template's types are unknown before the build, so no dropdowns: the section says "New file: each size gets a template type of that size, or a new CAD type." and the builder chooses as before.
+
+**Review (step 4).** WARNINGS now include, when they apply:
+
+- "New wall types made: CAD Wall 125 mm, CAD Wall 230 mm and 3 more"
+- "New door/window types made: CAD 910 x 2100 mm, …"
+- "N doors or windows keep their family's size (no type could be resized)"
+- "Wall joins rolled back: walls stand unjoined, as drawn"
+- "N doors could not be turned to match the drawing" (Revit refused flipFacing/flipHand, or the family cannot flip)
+- "N doorways left open: their door or window could not be placed" (see "Doorways reopened")
+- "N doors placed without a masonry frame (the wall is too thin for it)" (see "Family cannot be built in this wall")
+- "N doors may not be cut into their wall (check them in 3D)" (see "Doors and windows Revit did not cut")
+- "N windows may not be cut into their wall (check them in 3D)" (same section)
+
+SKIPPED uses AI-344's real reasons for openings too: host wall not built (also when the joins step removed the host), narrower than 300 mm, no door/window family, Revit would not place.
+
+**Undo this build** deletes the walls, openings, rooms, levels and views as before but **keeps the new types** (a later build may already use them). Revit's own Ctrl+Z removes them with the build.
+
+## What changed
+
+| Gap on develop | Now |
+|---|---|
+| Every wall used the first Basic wall type (`DefaultWallType`). | Each wall gets a type of its detected thickness, rounded to 5 mm. The builder uses a Basic type already that width. If none exists, it duplicates the closest one as `CAD Wall <N> mm`, with one structural layer of exactly N mm in the source's core material. |
+| Doors and windows used the first symbol in the category (`FirstSymbol`). | A swing means door, anything else means window. Width is the drawn width rounded to 10 mm, then one step narrower when rounding would make it wider than its host wall piece (2946 → 2940, not 2950). For a door that is the swing radius, the leaf. Height comes from the settings (door 2100, window 1200). The builder uses a type already that size (within 5 mm); an existing type is reused only if it is not wider. If none exists, it duplicates the closest resizable type as `CAD <W> x <H> mm` and sets Width/Height. Wide openings start from a double-door family if the model has one. |
+| Wall joins were turned off at both ends of every wall. | After all walls of a plan are built, joins are allowed at both ends in a separate transaction, before any opening is placed. |
+
+Two geometry fixes came out of the sample runs. Without them the joins and openings would still look wrong:
+
+- **Corners meet.** A traced centreline stops at the other wall's inside face, half a thickness short. Each wall end now moves along its own line onto the centreline of the wall it runs into: an L, a T, or an overshoot trimmed back. The limit is half that wall's thickness plus 100 mm. Nearly parallel pieces (under 20°) are left alone, so doorway gaps stay open. See `BuildSizing.MeetAtCorners`.
+- **Doors sit on their leaf and have a wall to cut.** The symbol reader centres a door on the hinge and clips its width to the host piece. On the samples that gave widths of 0 to 460 mm for 760 to 914 mm doors. The builder now:
+  - takes the width from the swing radius;
+  - centres the door between the hinge and the end of the arc that lies on the wall (the closed leaf);
+  - lengthens a host that stops at the hinge across the doorway, up to the next piece of the same run (`BuildSizing.CoverOpenings`).
+- Windows also get `INSTANCE_SILL_HEIGHT_PARAM` set, not only the point's z.
+
+### How joins and openings are ordered
+
+For each plan:
+
+1. Walls transaction: create the walls, with joins disallowed.
+2. Joins transaction: `AllowWallJoinAtEnd` on both ends of every wall.
+3. Openings and rooms transaction: `Regenerate`, place doors and windows, place rooms. Doors are not turned here.
+4. Door swings: its own transaction inside a nested `TransactionGroup` ("CAD to BIM: door swings"), run once the openings have committed. Each door is turned to its drawn swing (`flipFacing` / `flipHand`, see "Door swing"). If Revit deletes a door once it is turned, the attempt is rolled back and retried with a weaker turn for that door. The nested group is assimilated into the build's own, so the whole build is still one Ctrl+Z.
+
+Why this order:
+
+- Doors cut the final, joined geometry, so the wall is not re-joined under an opening that is already hosted.
+- If Revit refuses the joins, only the joins transaction rolls back. The walls stay, unjoined as before, the openings are still placed, and `BuildReport.JoinsSkipped` is set.
+- `SilenceJoinFailures` stays on the walls and joins transactions. It deletes join warnings and resolves errors with Revit's default resolution, which for joins means unjoin. The openings and door swing transactions use `RecordingFailures`: the same warnings and resolutions, but it first notes Revit's failure text against each element it names.
+- The build counts walls by asking the model which ones are still present, and openings check `host.IsValidObject` before placing. Doors, windows and rooms are now counted the same way and, unlike before, one a failure resolution deletes is also listed in Review with its reason (see "Removed after placing"), not just dropped from the count.
+- `JoinWalls = false` in settings brings back the old unjoined behaviour.
+
+### Door swing
+
+The first Revit 2027 test (demo-plan.dxf, `M_Door-Exterior-Single-Two_Lite`) placed the door swinging into the left room; the DWG arc opens into the right one. Revit places a hosted door by the wall's own sides, not by the drawing. Now, for every door:
+
+1. **Read the swing** (`BuildSizing.SwingOf`, Revit-free). Of the arc's two drawn ends, the one lying along the wall is the closed leaf (strike jamb). The other, about a leaf off the wall, is the open leaf. The open leaf's side of the wall is where the door opens. The arc centre is the hinge jamb. Drawn end points are used, not the mid angle, so clockwise, negative or over-360° angles give the same answer. `DoorCentre` uses the same strike, so a door's position and its turning always use the same leaf.
+2. **Leave alone** doors whose arc shows no clear closed and open leaf (the open leaf must stand at least `SwingMinOpenDegrees` = 20° off the wall). No guessing. Each leaf of a double door is its own swing and its own single-door instance, centred on its own leaf, so each is turned to its own arc.
+3. **Turn** (`Cad2BimBuilder.TurnDoorsSafely` / `TurnDoors`, its own step after the openings commit). The doors are already committed, so their orientation is current: read each door's `FacingOrientation` / `HandOrientation` once and decide both flips from that read, apply `flipFacing()` / `flipHand()`, `Regenerate` once more, then check each door once. A refused flip, a family that cannot flip, or a door that still reads wrong after the check counts in `BuildReport.DoorsNotTurned` ("N doors could not be turned to match the drawing" in Review). It never fails the build.
+   **Weaker turn.** Turning a door at a corner or near a wall end can leave Revit unable to cut it out of its wall, and Revit's resolution deletes the door. So if any door is gone after the swing step commits, the step is rolled back and run again with a weaker turn for those doors: full, then facing only (no hand flip), then none. At most three attempts; if a door is still lost, every door stays as placed. A door that ends up not fully turned and does not match the drawing counts in `DoorsNotTurned`, and its log line ends `NOT turned (facing only | left as placed): Revit could not cut the turned door out of its wall`. Only the attempt that is kept is counted and logged.
+4. **Log** one line per door to `%LOCALAPPDATA%\Bina\RevitSync\logs\cad-to-bim.log` (the file the pane already logs to), under a timestamped "door swing, N door(s):" header. Each line holds the family and type, the hinge in drawing mm, facing and hand as placed (before any flip), what the drawing wants (opens toward, hinge toward), the flips applied, the result, and the convention in force. Example: `door M_Door-Exterior-Single-Two_Lite: 0915 x 2134mm hinge (5200,2500) | placed facing (-1,0) hand (0,1) | drawing opens (1,0) hinge toward (0,-1) | flipped facing+hand | matches drawing | convention SwingAlongFacing=1 HingeAlongHand=1`.
+
+**Mirrored blocks.** A door inside a reflected block insert now reaches `SwingOf` too. The reader keeps an arc as an arc under a reflection as well as a rotation (see "Drawing units, flipped inserts and mirrored arcs" below).
+
+**Convention (one place: `BuildSizing.SwingAlongFacing`, `HingeAlongHand`, both +1).** The leaf opens toward `FacingOrientation`, and the hinge is at the `HandOrientation` end. Reasoning (in the code comment too):
+
+- `FacingOrientation` is the family's +Y in plan, `HandOrientation` its +X. `flipFacing` reverses only facing, `flipHand` only hand (Micrographics "Revit Door Hand & Facing Orientations"; Revit API guide, FamilyInstances).
+- The door template puts the exterior (To Room) above the wall (+Y), and the international (metric) Autodesk library draws its swings on that side (RevitCity thread 21748). Revit sets the room on the swing side as To Room.
+- An unflipped Autodesk door is "left hand reverse" (Ideate). Reverse means it swings toward the person on the exterior side. Left hand means it is hinged on their left. Facing −Y from +Y, the left is +X, the hand end.
+- The demo-plan test agrees: the wall is drawn bottom to top, so its exterior is −X, and the unflipped door swung −X. That test cannot separate this rule from its exact opposite, and the hinge was not checked there. Hence the Revit check below, and the log, which shows facing and hand as placed.
+- The rule is for Autodesk's own content. A type picked in the TYPES section from a non-Autodesk family may follow the other convention. Its doors would then be turned exactly wrong, with no warning. The log names the family per door.
+
+Per door, from `cad2bim-headless <file> --sizes` ("-- door swings the Revit build will match --"):
+
+| Sample | Doors | Read | Left as placed |
+|---|---|---|---|
+| `demo-plan.dxf` | 1 | Hinge (5200,2500), r 900: opens +X (right room, YOTOQXONA), hinge at the lower (−Y) jamb. Matches the drawing. | 0 |
+| `2D_FloorPlan_and_Elevation.dwg` | 12 | 7 open +X (hinge −Y ×4, +Y ×3), 2 open −X (hinge +Y), 1 opens +Y (hinge −X), 1 on the diagonal wall opens up-right. | 1: door at (4100,14548), r 577, arc 58..122° (symmetric about the wall's normal, so no closed leaf). |
+
+### Removed after placing
+
+Revit can delete a door or window when the transaction that placed it commits: it posts "Can't cut instance out of its host" (`IDS_CANT_CUT_INST_OUT`), and the default resolution deletes the instance. Before, the report dropped that id and the count fell (2D_FloorPlan: 7 doors to 6; Wall Base: 23 windows to 20) with nothing in Review.
+
+Now every placed door, window and room goes into a `PlacedLedger` with its drawing position. `RecordingFailures` notes Revit's failure text per element before resolving. After each commit, and again after the build's group is assimilated, anything in the ledger that is gone leaves the created ids and becomes a `SkipReason.RemovedAfterPlacing` skip at its drawing position. Review shows it like any other skip, and clicking the row marks it in the viewport:
+
+- `1 door: Revit removed it: could not cut it out of its wall` (the cut failure, recognised by its GUID `34a653ae-…`, read from a Revit 2027 journal);
+- `1 window: Revit removed it: <Revit's own text>` for any other failure;
+- `1 room: Revit removed it after placing` when Revit gave no reason.
+
+Each removed opening also gets one line in `cad-to-bim.log` under a "removed after placing" header: kind, type and size, drawing position, the host wall's drawn length and Revit thickness, where the opening's centre falls along the host and how far off its line, the drawn width, the wall left past each jamb, and Revit's text. Windows cannot be kept (they fail at placement), so these lines are what will explain the Wall Base windows.
+
+They did. The three Wall Base windows removed were all rounded wider than the wall piece they sat in: a 2950 window in a host 2946 long (centred at 1473, so −2 mm past each jamb), and two 1120 windows in hosts 1118 long (−1 mm past each jamb). Rounding to the nearest 10 mm had made each insert 1–4 mm wider than its wall. The width is now fitted to the drawn host piece (`BuildSizing.FitWidthMm`, used through `OpeningSize(opening, host, …)` by the builder, the TYPES pane and `--sizes` alike): when rounding overshoots the room by at most one 10 mm step, the width drops to the largest multiple of 10 that fits (2940, 1110). An opening may exactly fill its piece (`OpeningEndClearMm = 0`). An opening far wider than its host is left as it is. Picking an existing type no longer takes one up to 5 mm wider (`Pick(..., neverWider: true)`).
+
+**A sliver of wall past each jamb.** 2D_FloorPlan's door at (6364,14677) is 762 drawn, rounded to 760, centred in a host 762 long and 50 thick: 1 mm of wall past each jamb, and Revit removes it ("can't cut"). When the fitted width leaves more than float slack but under 2 × `BuildSizing.HostSliverMm` (2 mm) in all, and the centre is within 2 mm of the host's middle, the opening now takes the host's whole length (`BuildSizing.FillSliverMm`, after `FitWidthMm`). Wall Base's fits (2940 in 2946, 1110 in 1118) leave 6 and 8 mm and are unchanged. The width is still never wider than the host. In the headless run this door is paired with a different, longer host, so `--sizes` does not show the change; the Revit log above is the case it fixes.
+
+### Family cannot be built in this wall
+
+Sample-1's four lost doors were Autodesk door families that Revit refused with "Can't make type" (failure `7c6abae0-cf9f-4d01-a19b-16961525f217`, `String_Family_CantDrawFamily`) in a 100 mm host: the family's own sweep collapses in so thin a wall. It is not caused by where the jamb sits (15+ other doors with 0 mm past the jamb survive; surviving is not cutting, though: see "Doors and windows Revit did not cut" below), and joining or merging the pieces would not help. `RecordingFailures` now notes that failure as its own kind (`FailureKind.CannotMakeType`), and Review says:
+
+- `1 door: Revit removed it: its family cannot be built in this wall (try another door type in TYPES)`
+
+The other texts are unchanged.
+
+**Placed again without the masonry frame.** A Revit 2027 hand test (default metric template) showed it is the family: any stock Autodesk door (tested `M_Door-Passage-Single-Vision_Lite` 750 x 2000) fails "Can't make type" when placed by hand in `Generic - 100mm`, and places fine once its instance parameter "Masonry Frame" is unchecked (Revit then checks "Dry Wall Frame"; Masonry Inset is 25). So after the openings commit, and before anything is listed as removed, each door Revit removed with that failure is placed once more (`Cad2BimBuilder.PlaceWithoutMasonryFrame`, transaction "CAD to BIM: doors (no masonry frame)" inside the build's group): same type, host, level and position, with "Masonry Frame" = 0 and "Dry Wall Frame" = 1 set right after it is created. A door that survives replaces the first attempt (no skip; `PlacedLedger.Forget`), is turned and settled like the others, counts in `BuildReport.DoorsWithoutMasonryFrame` (Review: "N doors placed without a masonry frame (the wall is too thin for it)") and gets a log line under "doors without a masonry frame". A family without a writable "Masonry Frame" parameter, or a door Revit removes again, is reported as above and its doorway is reopened. Never fails the build.
+
+### Doors and windows Revit did not cut
+
+**What was seen.** In Revit 2027, Revit can keep a door or window in the model, hosted, without cutting its wall. It raises no failure and removes nothing, so the "Can't make type" rescue above never sees it. On sample-1, 2 of the 5 doors (the entrance and bedroom 2) stayed uncut. They were exactly the 2 doors whose swing step flipped nothing. The 3 doors the swing step flipped were cut. Windows too: the window cut check read "5 of 5 window(s) do not cut their wall" on sample-1 and "10 of 10" on sample-3, and those windows show as blank rectangles (no panes) in elevation. On sample-2 it read "0 of 8" and its windows show their panes. The uncut windows are the ones placed in a wall gap on a lengthened host (`FindWindowGaps`), but the step does not single them out: it goes by the probe.
+
+**Disproved hypothesis.** All 5 doors end at their host's end (`CoverOpenings` lengthens a host exactly to the leaf's far jamb, so 0 mm of wall is past that jamb). The first idea was that the stock family's "Masonry Frame" needs wall past the jamb, so those doors were placed frame-off. A Revit 2027 build disproved it: with all 5 doors frame-off, the same 2 stayed uncut. The frame on or off makes no difference, and that change was reverted.
+
+**What works.** One flip-hand click on an uncut door makes Revit cut it, and flipping it back keeps the cut. For a window, flipping its facing twice (select it, press Space twice; tested on `M_Window-Casement-Double`) makes Revit cut it, and it stays as it was placed. Why Revit skips the cut in the first place is not known. In a Revit 2027 build the door recut worked: sample-1's entrance logged "flipped hand twice | now cuts its wall", and the after-recut door check read 0 of 5.
+
+**The recut step.** `Cad2BimBuilder.RecutOpeningsSafely` runs after the doorways are reopened:
+
+1. **Check.** `CheckCuts` / `DoesNotCut` probe each door and window still in the model: a short line along the wall through its location point (a quarter of its drawn width either side), at `BuildSizing.CutProbeHeightMm` (a door at min(1000 mm, half the door height); a window at sill + half its height, as requested), against the host's solid. Wall found there means the opening does not cut. No uncut door or window, no further step.
+2. **Recut.** Each uncut opening is flipped twice by the first flip its kind allows (`BuildSizing.RecutOrder` and `RecutBy`): a door by hand, else by facing; a window by facing, else by hand; else it is left as it is. Doors and windows are flipped in the same two transactions ("CAD to BIM: recut doors and windows (flip)", flip, regenerate, commit; then "(flip back)", the same again) inside one nested `TransactionGroup` ("CAD to BIM: recut doors and windows") assimilated into the build's own, so the build is still one Ctrl+Z.
+3. **Roll back.** The group is rolled back if a commit fails, if any door or window that was in the model before is gone after, or if a flipped door or window does not end up facing and handed as it was. The openings involved are then tried one step weaker in their order (`BuildSizing.Weaker`: a door Hand, Facing, None; a window Facing, Hand, None; all of them when the one lost was not flipped). At most three attempts.
+4. **Check again** and count the openings still uncut in `BuildReport.DoorsNotCut` and `BuildReport.WindowsNotCut`. Review says "N doors may not be cut into their wall (check them in 3D)" and "N windows may not be cut into their wall (check them in 3D)" ("1 window may not be cut into its wall (check it in 3D)"), each only when its count is above 0. If the step stops on an error, the as-placed counts are used.
+
+**Log** (`cad-to-bim.log`), one block each:
+
+- `door cut check (as placed), K of M door(s) do not cut their wall:` one line per uncut door, at its real location in drawing mm (for example `door id 123456 at (4650,100) | wall solid in the doorway: Revit did not cut this door`; "| model (x,y)" is added when the plan was moved to the origin).
+- `window cut check (as placed), K of M window(s) do not cut their wall:` the same for windows (`window id 654321 at (1200,0) | wall solid in the window opening: Revit did not cut this window`).
+- `doors recut, R of K door(s):` one line per uncut door (`BuildSizing.DoorRecutLine`): location, type, wall past each jamb, the flip used ("flipped hand twice", "flipped facing twice", "not flipped") and the outcome ("now cuts its wall", "still does not cut", "rolled back: flipping it cost a door", "cannot be flipped, left as it is").
+- `door cut check (after recut), K of M door(s) do not cut their wall:`
+- `windows recut, R of K window(s):` the same line per uncut window (`window id ... at (x,y) | type | wall past each jamb | flipped facing twice | now cuts its wall`; a window whose every flip was rolled back reads "rolled back: flipping it cost an opening").
+- `window cut check (after recut), K of M window(s) do not cut their wall:`
+
+The door blocks appear only when a door was uncut as placed, the window blocks only when a window was.
+
+Headless `--sizes` shows each door's wall past each jamb in the swing listing (`BuildSizing.WallPastJambsMm`, with the fitted width the builder places). This is a diagnostic only; nothing is decided from it.
+
+Tests: `Tests/Cad2BimBuildSizingTests.cs` (wall past each jamb: sample-1's entrance, mid-wall, the start end, running past the host, the fitted width, a diagonal wall, no host; the probe height) and `Tests/Cad2BimDoorSwingTests.cs` (`RecutOrder` for doors and windows, `RecutBy` and `Weaker` for both, the log line for a door and a window, the door and window Review lines).
+
+### Doorways reopened
+
+A host is lengthened across its doorway so a door has wall to cut (`CoverOpenings`). If that door or window then is not there (skipped as too narrow, no family or refused, or placed and removed by Revit), the lengthened wall closed the doorway. After the doors are turned and settled, `Cad2BimBuilder.ReopenDoorways` asks `BuildSizing.ReopenLines` which hosts the remaining openings no longer need lengthened, and moves each wall's `LocationCurve` back to its drawn ends (corner moves stay). Only walls built in this Confirm are touched.
+
+- It runs in a nested `TransactionGroup` ("CAD to BIM: reopen doorways") assimilated into the build's own, so the build is still one undo. If shortening the walls would cost a door or window that is still there, the step is rolled back and the walls stay lengthened. It never fails the build.
+- Each wall moved counts in `BuildReport.DoorwaysReopened` (Review: "N doorways left open: their door or window could not be placed") and gets one line in `cad-to-bim.log` under "doorways reopened, N wall(s):".
+- Known consequence: rooms are placed before the reopen, so a room bounded across the doorway keeps that boundary.
+
+### Hatched wall outlines no longer land mirrored
+
+`CadClassifier.WallsFromOutlines` (and `WallFromCloud`, used by the brush) search for the narrowest box around a shape. When the narrow side was found first, the centre was swapped into the quarter-turned axes without negating, so the wall landed mirrored through the origin (sample-2: ghost walls at negative X). After a +90° turn the new along is the old across and the new across is minus the old along; both places now do that. Headless effect: sample-2 walls 45 → 35, sample-3 plans 2 → 1, 2D_FloorPlan plans 5 → 3 (walls 160 → 159), Wall Base plans 3 → 1 (walls 510 → 507); sample-1 and demo-plan unchanged. Tests: `Tests/Cad2BimOutlinesTests.cs` (an outline starting on its short edge, every start vertex and winding, rotated away from the origin, a vertical cloud).
+
+### Drawing units, flipped inserts and mirrored arcs
+
+Two downloaded plans came back with 0 walls: `Small-apto..dwg` and `Two-Bedrooms-Open-Plan-House-970-sq.ft_.dwg`. Three fixes:
+
+- **Flipped inserts** (`CadRenderSource.OcsXform`, used by `EmitInsert`). An INSERT with extrusion (0,0,-1) stores its insert point and rotation in an OCS whose X runs along world −X. Read as world coordinates, the block landed mirrored through x = 0, metres from where it is drawn. The phantom copy also stretched the drawing's extents. Small-apto then measured 6.3 m, so its wrong millimetre header looked plausible, and a 0.9 unit door was read as 0.9 mm. Two-Bedrooms measured 1.6 km in its correct metre header, so the header was thrown out for inches. Inserts now go through their OCS first, using the arbitrary axis algorithm. A +Z insert takes an identity fast path and is unchanged. Only INSERT extrusion is applied: arcs, circles, polylines, text, hatches and ellipses with a flipped extrusion are still read as world coordinates (2D_FloorPlan has four −Z ellipses). Tests: `Tests/Cad2BimInsertOcsTests.cs`.
+- **Units check** (`Units.Resolve`). Drawings with 200 or more segments are sized by the box between the 1st and 99th percentile of segment midpoints, so a few stray lines cannot set the size. Door swings are also counted for each candidate scale: 60–120° arcs whose radius is a 600–1200 mm leaf at that scale. A clear winner needs at least 3 swings and twice as many as the runner-up. Furniture fillets are quarter arcs too, so a plain majority would pick the wrong unit.
+  - No header: use the clear winner if it makes the drawing building-sized (3 m – 1 km). Otherwise use the size guess.
+  - Header in the 3 m – 1 km band: keep it. The swings overrule it only if none agree with it, another scale wins clearly, and only that scale gives a 5–200 m plan.
+  - Header out of band: keep it if at least 3 swings agree with it. Otherwise use the clear winner, and failing that the size guess.
+
+  The six reference samples resolve exactly as before. Tests: `Tests/Cad2BimPlansUnitsTests.cs`.
+- **Saying so.** When the header was overruled, the pane's units line reads `1 unit = 1000 mm (metres) · header said Millimeters, geometry says otherwise` instead of `· inferred`. The headless units line gets `, header disbelieved`.
+- **Mirrored arcs** (`Xform.TryConformal` / `Xform.MapAngles`). A reflection with uniform scale now keeps an arc as an arc. Angle t maps to phi − t, where phi = atan2(B, A). The direction reverses, so the ends swap: start = phi − end, end = phi − start. Shears still fall back to chords.
+
+Headless, before → after all four fixes. The units line is unchanged unless shown.
+
+| Sample | Units | Walls | Doors | Windows/other | Rooms | Plans |
+|---|---|---|---|---|---|---|
+| sample-1 | | 26 | 5 | 0 | 5 | 1 |
+| sample-2 | | 35 | 5 → 7 | 7 | 3 | 1 |
+| sample-3 | | 50 | 7 | 0 | 6 | 1 |
+| demo-plan | | 11 | 1 | 0 | 2 | 1 |
+| 2D_FloorPlan | | 159 → 157 | 12 → 19 | 15 | 3 | 3 |
+| Wall Base | | 507 | 0 | 13 | 7 | 1 |
+| Small-apto | 1 → 1000 mm per unit, header disbelieved | 0 → 434 | 0 → 10 | 0 | 0 → 2 | 0 → 1 |
+| Two-Bedrooms | 25.4 → 1000 mm per unit | 0 → 73 | 0 → 6 | 0 | 0 | 0 → 1 |
+
+The flipped-insert and units fixes alone change only Small-apto and Two-Bedrooms. The mirrored-arc fix adds the doors. On 2D_FloorPlan it also removes 2 walls. Those were phantoms: chords of mirrored door arcs had joined collinear linework tens of metres away into long faces, and pairing them built walls in empty space. Wall Base trades one wall along a stair line for one along a fixture (count unchanged).
+
+### Windows drawn as lines in a wall gap
+
+The three samples draw a window as the wall stopping and the window's sill, glass and frame lines running across the gap to the next piece. None of those windows was found. The mark pass takes each window line's midpoint and needs it on a wall, and the gap has no wall, only thin "frame walls" that `ClassifyWallsElsewhere` had paired out of the window lines (sample-1: 8 of its 26 walls, 100 mm). Every line's midpoint landed on the same spot of one frame wall, so the window came out 0 mm wide and was dropped. Left in, the frame walls also stopped `CoverOpenings` stretching the real wall across the window (they count as the next piece), and on sample-2 they took the fire exit's swing away from the real wall.
+
+Now (`Openings.cs`):
+
+- **A gap pass** beside the mark pass (`FindWindowGaps`). From each end of each wall it looks for window lines parallel to it (within 5°, inside the wall's thickness plus 50 mm) that start at the end and run on, each picking up within 50 mm of the last. The run ends at the next piece of the same wall if one starts there. It is a window when it is 600–3000 mm wide and either reaches a next piece or has at least two lines. Real wall standing in the gap rules it out, and so does a door swing hinged in the gap (the door wins). Found from both pieces, it is kept once, on the longer piece. Its jambs lie past that piece's end: `Across` no longer clamps them to the host for these windows, and `CoverOpenings` stretches the host to the next piece as it does for a door.
+- **Frame walls** are the walls inside such a gap, along its line. They host no door and take no window mark. `CadClassifier.WindowFrameWalls` names them, and the headless and the pane drop them from the wall list right after deduplication, before plans, rooms, openings and the build see it. The pane reads the window linework for this through `CadToBimViewModel.WindowLines`, the same Window-role layers `Elaborate` uses. Headless prints `frames  N walls made of window lines dropped`.
+- The mark pass is unchanged, so drawings whose windows are crossing marks on a wall that runs on (2D_FloorPlan, Wall Base) give the same openings as before.
+
+Headless, before → after (`--sizes`):
+
+| Sample | Walls | Doors | Windows/other | Rooms | Window sizes after |
+|---|---|---|---|---|---|
+| sample-1 | 26 → 18 | 5 | 0 → 5 | 5 | 1800, 1500, 1200, 1000, 900. All 5 between two pieces |
+| sample-2 | 35 → 24 | 7 | 7 → 8 | 3 → 4 | 1500 ×4, 1800 ×2, 1200 ×2. Before: 690 ×2, 1380 ×2, 1680 ×2, 1080, all hosted on 90 mm frame walls, 1 opening still past its host; now none |
+| sample-3 | 50 → 40 | 7 | 0 → 10 | 6 | 1210 ×6 (1219 drawn, fitted to the gap), 1520 ×2, 1820, 600, one on the 45° bay. 9 between two pieces, 1 with only one. Loose ends 15 → 13 |
+| demo-plan | 11 | 1 | 0 | 2 | No gap windows. The headless does not read its A-GLASS layer as windows. |
+| 2D_FloorPlan | 157 | 19 | 15 | 3 | unchanged |
+| Wall Base | 507 | 0 | 13 | 7 | unchanged |
+
+Tests: 10 in `Tests/Cad2BimOpeningsTests.cs` (gap between two pieces, found once, frame walls reported and never hosting, block-style sill/glass/frame marks, one piece with two lines but not one, too wide and too narrow, lines over a wall that runs on, a door in the gap, a 45° wall, a swing next to a frame wall), 4 in `Tests/Cad2BimBuildSizingTests.cs` (the host stretches to the next piece, frame walls left in stop it, `ReopenLines` gives the gap back, a 1219 gap window fits to 1210) and 1 in `Tests/CadToBimViewModelTests.cs` (`WindowLines`).
+
+Risk: a gap window exactly filling the stretch to the next piece has 0 mm of wall past each jamb, like the Wall Base windows above. If Revit removes these, set `BuildSizing.OpeningEndClearMm` to 1.0.
+
+### Not in this PR
+
+Engine items seen while chasing the above, left for a separate change:
+
+- **W2** corner tolerance.
+- **W3** face pairing.
+- Window and door layer lines read as thin walls where they are not in a wall gap (window lines in a gap are handled, see "Windows drawn as lines in a wall gap").
+- **W5** short faces.
+
+### Files
+
+- `Services/CadToBim/BuildSizing.cs` (new, Revit-free). Rounding, names, `Pick` (exact, else closest resizable, else closest), `UniqueName`, `KindOf`, `OpeningSize`, `OpeningWidthMm`, `DoorCentre`, `MeetAtCorners`, `CoverOpenings`.
+- `Services/CadToBim/Cad2BimBuilder.cs`. `WallTypeCache`, `OpeningTypeCache`, `JoinWalls`, sized `CreateOpenings`, and walls drawn from the met and covered centrelines.
+- `BuildTypes.cs`: `DoorHeightMm`, `WindowHeightMm`, `JoinWalls`, `TypeChoices` (+ `TypeSlot`, `TypeChoice.Find`).
+- `BuildReport.cs`: `NewWallTypes`, `NewOpeningTypes` (+ their names), `UnsizedOpenings`, `JoinsSkipped`.
+- `Services/CadToBim/BuildTypePlan.cs` (new, Revit-free): TYPES rows and defaults, picks → `TypeChoices`, the warning line.
+- `Cad2BimBuilder.ReadTypes`: the model's types for the pane, from the same lists the builder picks from. The type caches honour `TypeChoices` first.
+- `CadToBimSettings.cs`: `DoorHeightMm = 2100`, `WindowHeightMm = 1200`, `JoinWalls = true`. No UI fields yet; set them in `config.json` under `cadToBim` if needed.
+- `UI/CadToBim/CadToBimViewModel.cs`: TYPES rows (`TypeRows`, `ShowAllTypes`, `TypesNote`), the request fields, Review warnings. `CadToBimPanel.xaml(.cs)`: the TYPES section; `RefreshLevels` also reads the types.
+- `Tests/Cad2BimBuildTypePlanTests.cs` (11 tests) and 5 view-model tests in `Tests/CadToBimFlowTests.cs`.
+- `Cad2Bim/Cad2Bim.Headless`: a `--sizes` flag that prints what a build will choose (links `BuildSizing.cs`).
+- `Tests/Cad2BimBuildSizingTests.cs`: 34 tests.
+- Door swing: `BuildSizing.cs` (`DoorSwing`, `SwingOf`, `DoorFlips`, `DoorTurnLine`, the convention constants; `DoorCentre` uses `SwingOf`'s strike), `Cad2BimBuilder.TurnDoors` and its log, `BuildReport.DoorsNotTurned`, the Review warning, the headless per-door listing, and `Tests/Cad2BimDoorSwingTests.cs` (35 tests: demo-plan's door, mirrored and unnormalised arcs, horizontal and diagonal walls in both directions, partly open swings, hinge on a wall face, no-guess cases, double-door leaves on one wall and on two collinear pieces, centre agreeing with the swing, flips, log line, warning).
+
+## What each sample will get
+
+From `cad2bim-headless <file> --sizes`. The headless pipeline matches the pane's (same wall hints, same symbol opening reader), but the pane's brush or erase edits can change the counts. "Type" means `CAD Wall N mm` unless the model already has a Basic type of exactly N mm (for example `Generic - 200mm`).
+
+| Sample | Walls | Main thicknesses → wall types | Corners met | Doors | Windows | Hosts lengthened |
+|---|---|---|---|---|---|---|
+| `2D_FloorPlan_and_Elevation.dwg` (**best test**) | 160 | 50 ×46, 150 ×33, 230 ×27, 75 ×7, then 29 more widths with 1–4 walls each (33 types in total) | 78 of 160, median 51 mm, max 207 mm | 12: 910×2100 ×5, 760×2100 ×3, 610×2100 ×2, 580×2100 ×1, 660×2100 ×1 | 15: 610×1200 ×5, 1220×1200 ×4, 1520×1200 ×4, 760×1200 ×1, 1830×1200 ×1 | 9 walls. 8 of 27 openings ran past their host and 1 is still past (stopped at the next piece). Doors moved from hinge to leaf centre: median 228 mm, max 572 mm. |
+| `demo-plan.dxf` (small, quick) | 11 | 180 ×8, 50 ×2, 150 ×1 | 7 of 11, 90 mm each | 1: 900×2100. Before this change it was 450 wide, centred on the hinge. | 0 | 1 wall, across the doorway |
+| `Res/Wall Base.dwg` | 510 | 50 ×405 (hatch-outline walls), 115 ×22, 120 ×21, 165 ×9, 205 ×9, then 22 more widths (27 types in total) | 123 of 510, median 60 mm, max 172 mm | 0 | 13: 1220×1200 ×6, 610×1200 ×3, 2440×1200 ×2, 1520×1200 ×2 | 0 |
+| `residential_floor_plan.dwg` | 18 | 375 ×7, 350 ×6, 395 ×5 | 0 | 0 (no arcs) | 0 | 0 |
+| `Floor Plan Sample.dwg` | 7 | 55 ×4, 305 ×3 | 0 | 0 | 0 | 0 |
+| `2011-DM-0-A04-6A1.dwg` | 139 | 55 ×49, 75 ×31, then 26 more widths (28 types in total) | 31 of 139, median 38 mm, max 229 mm | 0 (782 arcs, none read as a swing on a wall) | 0 | 0 |
+| `CAD.V01-CAFM-Plan-DE.dwg` | 303 | 80 ×75, 100 ×70, 110 ×64, 95 ×18, then 33 more widths (37 types in total) | 24 of 303, median 99 mm, max 250 mm | 0 | 0 | 0 |
+
+Recommended for the "Done when" check: `2D_FloorPlan_and_Elevation.dwg` (doors, windows and joins), `demo-plan.dxf` (one door across a doorway, easy to see), and `Res/Wall Base.dwg` (windows plus many thicknesses).
+
+## Revit test checklist
+
+Use Revit 2027 (net10 build) or 2025/2026 (net8). Load the add-in from this branch the usual way. Open a project (template with a few basic wall types and the default door/window families). For each of the three samples:
+
+1. **Before.** Build from `develop` with "New file" first, or use an earlier build's RVT. Screenshot the same views as below.
+2. Ribbon → CAD to BIM → pick the DWG. Step **1 Layers** → *Next* → **2 Preview** → *Next* → **3 Build**. Storeys "Keep drawing position", target "Add to this project".
+2a. **TYPES section.** Between WALLS and PLANS ON SHEET. Expect: a size count on the right ("12 sizes"); rows like `Wall 230 mm ×27`, `Door 910 × 2100 ×5`, `Window 1220 × 1200 ×4` (size on top, dropdown below); a template type selected where the model has that exact width (e.g. `Generic - 200mm` for 200 mm) and `New: CAD Wall 125 mm` / `New: CAD 910 x 2100 mm` otherwise; "Show N more wall widths" on 2D_FloorPlan (33 widths). The dropdowns are readable in the 280 px column (door and window types show the type name first, family faint after it; full text in the tooltip). Screenshot it.
+2b. **Pick a type.** Set one wall width to an existing type of a different width (e.g. `125 mm` → `Generic - 200mm`) and one door size to an existing door type. Go back to Preview and forward again: the picks are still there.
+2c. **New file.** Switch target to "Save as new .rvt": the dropdowns go and the note reads "New file: each size gets a template type of that size, or a new CAD type." Switch back.
+2d. Press **Build**.
+3. **Wall types.** Select a few walls of visibly different thickness. In Properties the type should read `CAD Wall <N> mm`, or a template type of that exact width, or the type you picked in 2b for that width (at that type's own thickness). Measure one with the Measure tool against the linked DWG. Screenshot Properties together with the plan.
+4. **Joins.** Zoom into 3–4 L corners and T junctions in plan at Fine detail. The walls should be cleaned up, with no notch at the outside corner and no overlapping hatch. Screenshot one L and one T, before and after.
+5. **Doors.** Select a door. Its type should be `CAD <W> x 2100 mm` with W matching the DWG swing radius (910 or 760 on 2D_FloorPlan). The leaf should sit between the two jambs, not straddling the hinge. A door in a doorway gap should cut the wall, which now runs across the gap. Screenshot plan plus Properties.
+5a. **Door swing.** On demo-plan the door opens into the room shown by the DWG arc (the right room, YOTOQXONA), with its hinge on the arc-centre jamb (the lower one). On 2D_FloorPlan, compare 3–4 doors against the linked DWG the same way. Review must not say "doors could not be turned". If every door opens to the wrong side, set `BuildSizing.SwingAlongFacing` to −1. If every hinge is at the wrong jamb, set `HingeAlongHand` to −1. If only some are wrong, note the family and the door. Then open `%LOCALAPPDATA%\Bina\RevitSync\logs\cad-to-bim.log` and copy the last "door swing" block into AI-345: it shows facing and hand as placed and the flips applied, which settles both constants from this one build. Screenshot plan with the DWG underlay.
+5b. **Doors and windows Revit did not cut.** On sample-1, `cad-to-bim.log` reads "door cut check (as placed), 2 of 5", "doors recut, 2 of 2" and "door cut check (after recut), 0 of 5"; and "window cut check (as placed), 5 of 5", "windows recut, 5 of 5" (each line "flipped facing twice | now cuts its wall") and "window cut check (after recut), 0 of 5". On sample-3 the window blocks read 10 of 10, 10 of 10 and 0 of 10. In elevation every window shows its panes (no blank rectangles) and is placed the same way round as before; all doors cut their wall in plan and in 3D, the swings are as before, and the entrance's "Masonry Frame" is still on. Review has no "may not be cut" line for doors or windows (the "doors placed without a masonry frame" line can appear again). One Ctrl+Z removes the whole build. On sample-2 the window cut check reads 0 of 8 and no "windows recut" block appears; on sample-2, sample-3 and demo-plan the door after-recut check reads 0; on 2D_FloorPlan the counts match the table above; on Wall Base the window cut check reads 0. The positions in the log match the DWG. If a window still shows blank in elevation, copy its "windows recut" line into AI-345.
+6. **Windows.** Select a window. Its type should be `CAD <W> x 1200 mm`, and Sill Height should be 900. Check in a 3D view or an elevation that it cuts the wall. Screenshot 3D.
+6a. **Windows that fill their wall piece (Wall Base).** TYPES should list `Window 2940 × 1200` and `Window 1110 × 1200` rows (not 2950 / 1120 for those three). After the build, Review must not list "Revit removed it: could not cut it out of its wall" for any window, and the window count should be the full count, not 3 short. If these windows (0 mm of wall past each jamb) are still removed, set `BuildSizing.OpeningEndClearMm` to 1.0 and build again.
+7. **Joins with openings.** Find a door or window near a corner (2D_FloorPlan has several). The opening should still cut the wall after the join. A "can't cut instance out of wall" result would show as a missing door, and the pane's skipped count would rise.
+8. **Review (step 4).** CREATED counts compare with the table above. WARNINGS list "New wall types made: CAD Wall …" and "New door/window types made: CAD … mm" (only the sizes not picked in 2b); "… keep their family's size" if a family could not be resized; "Wall joins rolled back" should not appear. SKIPPED shows real reasons per group (e.g. "host wall not built", "narrower than 300 mm"); click a group to ring the items in the viewport. *Select in model* → Doors selects the placed doors.
+9. **Undo.** a) *Undo this build* in Review: walls, openings, rooms, new levels and plans go in one Revit undo step; the new `CAD …` types stay in the type list (by design). b) Build again, then Ctrl+Z once in Revit: the whole build goes, including the new types.
+10. **Add to project twice.** Build into an open project, *Build more*, brush a few more walls, and build again. The second build should reuse the existing `CAD Wall` and `CAD … mm` types (no `(2)` duplicates), and new walls should join the old ones.
+11. **Units and flipped inserts (Small-apto, Two-Bedrooms).** Load `Small-apto..dwg`. Step 2 should show the units line `1 unit = 1000 mm (metres) · header said Millimeters, geometry says otherwise`, and the plan should be about 18 × 18 m. Load `Two-Bedrooms-Open-Plan-House-970-sq.ft_.dwg`: the units line should read `1 unit = 1000 mm · header`, and the fridge, stoves and sink should sit inside the kitchen, not mirrored about 1.6 km to the left. Build both, then check that the doors from mirrored blocks are placed and turned to their arcs.
+
+Where to put screenshots: attach them to AI-345 as before/after pairs per sample (walls+types, one L, one T, one door, one window).
+
+## Risks
+
+- **Many wall types.** Traced thicknesses are noisy, so 2D_FloorPlan gets 33 widths and CAFM 37. That matches the drawing but clutters the type list. A coarser step or snapping to a standard list (100/115/150/200/230/300) is a one-line change in `BuildSizing.WallStepMm` or `WallWidthMm` if the team prefers.
+- **50 mm walls** on Wall Base (405) and 2011-DM come from hatch outlines and are probably not real walls. They will now be 50 mm thick and will join. This is a detection issue, not a build issue.
+- **Corner meeting is geometric.** An end within reach of an unrelated angled wall will move to it, at most half that wall's thickness plus 100 mm. The samples show moves of at most 172–250 mm.
+- ~~Door hand and facing are not set from the swing.~~ Closed: doors are turned to the drawn swing (see "Door swing"). Remaining risk: the convention is checked against sources and one Revit test, not yet against the hinge. A family drawn the other way round (some regional libraries draw swings on the interior) would be turned exactly wrong, without a warning. That family needs the constants flipped.
+- **Revit API names** (`DOOR_WIDTH`, `WINDOW_WIDTH`, `FAMILY_WIDTH_PARAM`, `INSTANCE_SILL_HEIGHT_PARAM`, `CreateSingleLayerCompoundStructure`) compile on all three targets. Whether a given template family takes the values is only provable in Revit.
+- Walls built by the old code on an earlier Confirm keep their joins disallowed, so a corner between an old wall and a new one may stay unjoined.
+- **TYPES list is read once**, when the pane is opened (with the levels). Types added or deleted by hand afterwards are not seen until the pane is reopened; a deleted pick falls back to the builder's own choice.
+- **TYPES XAML** compiles on all three targets but has not been seen inside Revit yet (layout at 280 px, dark theme, dropdown height).
+
+## Open questions
+
+1. **AI-342 repro.** None yet. The tester only wrote "CAD to BIM". Its known gaps are the three fixed here. This needs a file and steps from the tester before AI-342 can be closed against this change.
+2. **Engine-side door position.** The pane overlay still draws doors centred on the hinge with the clipped width. The builder corrects this, but the right fix is `CadClassifier.Across` in `Openings.cs`, which would change `Cad2BimOpeningsTests`. Should it move to the engine (a separate task)?
+3. **Double doors.** Two swings meeting in the middle are read as two single doors, or merged into one leaf-width door. Is detecting them as one double door in scope? (Until then each leaf is turned to its own arc.)
+4. **Wall type step.** Keep 5 mm (exact to the drawing) or snap to a standard list?
+5. ~~Door hand and facing from the swing.~~ Done (see "Door swing"). Still open: should the convention follow the family, for example a per-family setting, if the team's own door families swing the other way?
+6. ~~Showing the new report fields in the pane.~~ Done: Review WARNINGS (see "In the four-step flow").
+7. **A picked type is used as it is.** Picking `Generic - 200mm` for 125 mm walls builds them 200 mm thick (centred on the traced centreline). Should a pick instead mean "copy this type at the drawn width"?
+8. **Undo this build keeps new types.** Fine, or should it delete those no other element uses?

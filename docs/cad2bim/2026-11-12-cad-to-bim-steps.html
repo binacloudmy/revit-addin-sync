@@ -1,0 +1,292 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>CAD to BIM steps</title>
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;background:#fff;font-family:"Segoe UI",Arial,sans-serif;color:#1d2330}
+  .wrap{padding:22px 24px 18px}
+  h1{font-size:19px;margin:0 0 3px}
+  .sub{font-size:12.5px;color:#4a5263;margin:0 0 14px}
+  .pane{width:900px;height:640px;border:1px solid #b9bec8;border-radius:8px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 2px 10px rgba(0,0,0,.08)}
+  .title{height:30px;background:#2b3038;color:#e8eaee;font-size:12px;display:flex;align-items:center;padding:0 10px;gap:8px}
+  .title b{font-weight:600}
+  .main{flex:1;display:flex;min-height:0}
+  .vp{flex:1;background:#1e2228;position:relative;display:flex;flex-direction:column}
+  .tools{height:32px;display:flex;gap:4px;padding:5px 8px;background:#262b33;border-bottom:1px solid #353b45}
+  .tool{font-size:11.5px;color:#cfd3da;border:1px solid #47505d;border-radius:4px;padding:2px 9px;background:#2e343d}
+  .tool.on{background:#3B6FD8;border-color:#3B6FD8;color:#fff}
+  .vp svg{flex:1}
+  .status{height:26px;background:#262b33;border-top:1px solid #353b45;color:#cfd3da;font-size:11.5px;display:flex;align-items:center;padding:0 10px;gap:6px}
+  .col{width:262px;background:#f7f8fa;border-left:1px solid #c9ced6;display:flex;flex-direction:column;font-size:12px}
+  .steps{display:flex;border-bottom:1px solid #d5d9e0;background:#fff}
+  .st{flex:1;text-align:center;font-size:11px;padding:7px 0 6px;color:#6b7280;border-bottom:3px solid transparent}
+  .st.on{color:#1d2330;font-weight:700;border-bottom-color:#3B6FD8}
+  .st.done{color:#2F8F4E}
+  .body{flex:1;overflow:hidden}
+  .sec{padding:8px 10px;border-bottom:1px solid #e1e4ea}
+  .sh{font-size:10.5px;font-weight:700;letter-spacing:.6px;color:#6b7280;display:flex;justify-content:space-between;align-items:center;margin-bottom:5px}
+  .sh span{letter-spacing:0;font-weight:600}
+  .row{display:flex;align-items:center;gap:6px;margin:3px 0}
+  .muted{color:#6b7280;font-size:11px}
+  .why{color:#6b7280;font-size:10.5px;margin:-2px 0 4px 20px}
+  .cb{width:12px;height:12px;border:1.5px solid #7b8494;border-radius:2px;flex:none;position:relative}
+  .cb.on{background:#3B6FD8;border-color:#3B6FD8}
+  .cb.on:after{content:"";position:absolute;left:3px;top:0;width:3px;height:7px;border:solid #fff;border-width:0 1.6px 1.6px 0;transform:rotate(45deg)}
+  .ln{flex:1;font-weight:600;font-size:11.5px;white-space:nowrap;overflow:hidden}
+  .n{width:30px;text-align:right;color:#6b7280;font-size:11px}
+  .dd{border:1px solid #b9bec8;border-radius:4px;background:#fff;font-size:11px;padding:1px 16px 1px 6px;position:relative;min-width:76px}
+  .dd:after{content:"";position:absolute;right:5px;top:6px;border:4px solid transparent;border-top-color:#6b7280}
+  .dd.w{min-width:118px}
+  .dd.bad{border-color:#D0473F;color:#D0473F}
+  .flag{width:14px;height:14px;border-radius:7px;background:#E8890C;color:#fff;font-size:10px;font-weight:700;text-align:center;line-height:14px;flex:none}
+  .new{display:inline-block;background:#E8890C;color:#fff;font-size:9px;font-weight:700;border-radius:7px;padding:0 5px;margin-left:4px;letter-spacing:.4px;vertical-align:1px}
+  .btn{border:1px solid #b9bec8;background:#fff;border-radius:5px;padding:5px 10px;font-size:11.5px;text-align:center}
+  .btn.p{background:#3B6FD8;border-color:#3B6FD8;color:#fff;font-weight:600}
+  .btn.d{border-color:#D0473F;color:#D0473F}
+  .foot{padding:8px 10px;display:flex;gap:6px;justify-content:space-between;border-top:1px solid #d5d9e0;background:#fff}
+  .grid{display:grid;grid-template-columns:1fr auto;gap:2px 8px;font-size:11.5px}
+  .grid b{text-align:right}
+  .radio{width:11px;height:11px;border:1.5px solid #7b8494;border-radius:50%;flex:none;position:relative}
+  .radio.on{border-color:#3B6FD8}.radio.on:after{content:"";position:absolute;inset:2px;border-radius:50%;background:#3B6FD8}
+  .skip{display:flex;gap:6px;font-size:11.5px;margin:3px 0}
+  .skip .c{width:62px;font-weight:600;color:#D0473F}
+  .warn{color:#9a5b00;font-size:11.5px;margin:2px 0}
+  .ok{color:#2F8F4E;font-weight:700}
+  .notes{width:900px;margin-top:12px;font-size:12px;color:#384050;display:flex;gap:18px;flex-wrap:wrap}
+  .notes div{flex:1;min-width:260px}
+  .notes b{color:#1d2330}
+  .page{display:none}
+</style></head><body>
+
+<!-- ============ shared plan drawing ============ -->
+<template id="plan">
+<svg viewBox="0 0 638 552" xmlns="http://www.w3.org/2000/svg">
+  <g id="G" transform="translate(40,40)" fill="none" stroke-linecap="square"></g>
+</svg>
+</template>
+
+<div class="wrap page" id="p1">
+  <h1>Step 1 · Layers: check each layer's role</h1>
+  <div class="sub">Every layer gets a role from a dropdown, with the reason for the guess. Layers that look wrong are flagged and sorted to the top. Numbers are examples.</div>
+  <div class="pane">
+    <div class="title"><b>BINA CAD to BIM</b> · L1-PLAN.dwg</div>
+    <div class="main">
+      <div class="vp"><div class="tools"><span class="tool on">Pan</span><span class="tool">Erase</span><span class="tool">Brush</span><span class="tool">Pick</span></div><div class="draw" data-mode="raw"></div>
+        <div class="status">Showing layer colours. Click a layer name to see only that layer.</div></div>
+      <div class="col">
+        <div class="steps"><div class="st on">1 Layers</div><div class="st">2 Preview</div><div class="st">3 Build</div><div class="st">4 Review</div></div>
+        <div class="body">
+          <div class="sec"><div class="sh">DRAWING <span style="color:#3B6FD8">Change…</span></div>
+            <div style="font-weight:600">L1-PLAN.dwg</div>
+            <div class="muted">1 unit = 1 mm · from header</div>
+            <div class="muted">0.84 s · 21,406 entities</div></div>
+          <div class="sec"><div class="sh">LAYERS <span style="color:#9a5b00">18 · 2 need a look</span></div>
+            <div class="row"><div class="cb on"></div><div class="ln">0</div><div class="n">903</div><div class="dd">Other</div><div class="flag">!</div></div>
+            <div class="why">903 lines, no name hint matched</div>
+            <div class="row"><div class="cb on"></div><div class="ln">A-WALL-EXT</div><div class="n">0</div><div class="dd">Wall</div><div class="flag">!</div></div>
+            <div class="why">wall layer, but no walls found</div>
+            <div class="row"><div class="cb on"></div><div class="ln">A-WALL</div><div class="n">412</div><div class="dd">Wall</div></div>
+            <div class="why">name has "wall"</div>
+            <div class="row"><div class="cb on"></div><div class="ln">A-DOOR</div><div class="n">38</div><div class="dd">Door</div></div>
+            <div class="why">name has "door" · 36 swings</div>
+            <div class="row"><div class="cb on"></div><div class="ln">A-GLAZ</div><div class="n">54</div><div class="dd">Window</div></div>
+            <div class="why">name has "glaz"</div>
+            <div class="row"><div class="cb on"></div><div class="ln">E-LIGHT</div><div class="n">120</div><div class="dd">Electrical</div></div>
+            <div class="why">name has "light" · 120 blocks <span class="new">NEW</span></div>
+            <div class="row"><div class="cb"></div><div class="ln">FURN</div><div class="n">77</div><div class="dd">Skip</div></div>
+            <div class="why">excluded by FURN*</div>
+            <div class="row"><div class="cb on"></div><div class="ln">A-TEXT</div><div class="n">64</div><div class="dd">Other</div></div>
+            <div class="why">text only · still names rooms</div>
+          </div>
+        </div>
+        <div class="foot"><span></span><div class="btn p">Next: Preview ›</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="notes">
+    <div><b>Changed from today:</b> a dropdown replaces the chip you click through four roles. One change, one re-detect. The reason line shows why each role was picked.</div>
+    <div><b>New:</b> Door, Window and Electrical roles; "need a look" flags; your choices are remembered for this drawing.</div>
+  </div>
+</div>
+
+<div class="wrap page" id="p2">
+  <h1>Step 2 · Preview: fix the drawing</h1>
+  <div class="sub">Walls, doors, windows and electrical points are drawn as they will be built. Erase, Brush and Pick fix what detection got wrong. Numbers are examples.</div>
+  <div class="pane">
+    <div class="title"><b>BINA CAD to BIM</b> · L1-PLAN.dwg</div>
+    <div class="main">
+      <div class="vp"><div class="tools"><span class="tool">Pan</span><span class="tool on">Erase</span><span class="tool">Brush</span><span class="tool">Pick <span class="new">NEW</span></span></div><div class="draw" data-mode="detect"></div>
+        <div class="status"><span style="color:#f0b44c">!</span> 6 wall-layer lines not paired. Use Brush to make walls from them.</div></div>
+      <div class="col">
+        <div class="steps"><div class="st done">1 Layers ✓</div><div class="st on">2 Preview</div><div class="st">3 Build</div><div class="st">4 Review</div></div>
+        <div class="body">
+          <div class="sec"><div class="sh">WILL BE BUILT</div>
+            <div class="grid"><span>Walls</span><b>212</b><span>Doors</span><b>36</b><span>Windows</span><b>54</b><span>Rooms</span><b>14</b><span>Lights · Power · Switches</span><b>86 · 40 · 22</b><span class="muted">Erased · Brushed</span><b class="muted">3 · 5</b></div></div>
+          <div class="sec"><div class="sh">ELECTRICAL BLOCKS <span class="new">NEW</span><span>4 names</span></div>
+            <div class="row"><div class="ln">LIGHT-DL</div><div class="n">86</div><div class="dd w">Downlight 600</div></div>
+            <div class="row"><div class="ln">SSO-13A</div><div class="n">40</div><div class="dd w">Twin socket 13A</div></div>
+            <div class="row"><div class="ln">SW-1G</div><div class="n">22</div><div class="dd w">1 gang switch</div></div>
+            <div class="row"><div class="ln">DB-MAIN</div><div class="n">1</div><div class="dd w bad">Not mapped</div></div>
+            <div class="muted" style="margin-top:5px;color:#9a5b00">1 block name is not mapped. It is listed, not guessed, and not built. Pick a family to include it.</div>
+            <div class="muted" style="margin-top:4px">Mapping is by block name, so one change fixes every insert.</div>
+          </div>
+          <div class="sec"><div class="sh">TOOLS</div>
+            <div class="muted"><b>Erase</b> a wall that should not be built.<br><b>Brush</b> over lines to make a wall.<br><b>Pick</b> a door, window or point to leave it out. <span class="new">NEW</span></div></div>
+        </div>
+        <div class="foot"><div class="btn">‹ Back</div><div class="btn p">Next: Build ›</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="notes">
+    <div><b>Same as today:</b> the viewport, Erase and Brush.</div>
+    <div><b>New:</b> the "will be built" counts, the electrical block → family table (AI-346), and Pick to leave out single doors, windows or points.</div>
+  </div>
+</div>
+
+<div class="wrap page" id="p3">
+  <h1>Step 3 · Build: choose types and where it goes</h1>
+  <div class="sub">Today's thickness, height, storey and target controls move here, with new type choices from AI-345. Numbers are examples.</div>
+  <div class="pane">
+    <div class="title"><b>BINA CAD to BIM</b> · L1-PLAN.dwg</div>
+    <div class="main">
+      <div class="vp"><div class="tools"><span class="tool on">Pan</span><span class="tool">Erase</span><span class="tool">Brush</span><span class="tool">Pick</span></div><div class="draw" data-mode="detect"></div>
+        <div class="status">Ready to build 212 walls, 36 doors, 54 windows, 14 rooms, 148 electrical points.</div></div>
+      <div class="col">
+        <div class="steps"><div class="st done">1 Layers ✓</div><div class="st done">2 Preview ✓</div><div class="st on">3 Build</div><div class="st">4 Review</div></div>
+        <div class="body">
+          <div class="sec"><div class="sh">WALLS</div>
+            <div class="row"><span style="width:70px">Thickness</span><div class="dd" style="min-width:50px">50</div><span>–</span><div class="dd" style="min-width:50px">400</div><span class="muted">mm</span></div>
+            <div class="row"><span style="width:70px">Height</span><div class="dd" style="min-width:60px">3000</div><span class="muted">mm</span></div></div>
+          <div class="sec"><div class="sh">TYPES <span class="new">NEW · AI-345</span></div>
+            <div class="row"><span style="width:76px">100–150 mm</span><div class="dd w">Generic 125 mm</div></div>
+            <div class="row"><span style="width:76px">200–250 mm</span><div class="dd w">Brick 230 mm</div></div>
+            <div class="row"><span style="width:76px">Door 900</span><div class="dd w">Single 900×2100</div></div>
+            <div class="row"><span style="width:76px">Window 1200</span><div class="dd w">Fixed 1200×1200</div></div>
+            <div class="muted">Missing sizes are made as new types.</div></div>
+          <div class="sec"><div class="sh">PLANS ON SHEET <span>2 found</span></div>
+            <div class="row"><div class="radio on"></div>Stack as storeys (Level 1, 2…)</div>
+            <div class="row"><div class="radio"></div>Keep drawing position, one level</div></div>
+          <div class="sec"><div class="sh">PUT THE RESULT</div>
+            <div class="row"><div class="radio on"></div>Add to this project</div>
+            <div class="row" style="margin-left:17px"><div class="dd w">Level 1</div></div>
+            <div class="row"><div class="radio"></div>Save as new .rvt beside the DWG</div>
+            <div class="warn">! Will create 1 new level: CAD Level 2 <span class="new">NEW</span></div></div>
+        </div>
+        <div class="foot"><div class="btn">‹ Back</div><div class="btn p">Build 212 walls + 252 more</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="notes">
+    <div><b>Same as today:</b> thickness, height, storeys and target. One build = one undo step in Revit.</div>
+    <div><b>New:</b> wall, door and window types matched to the drawing (AI-345), and a warning before new levels are made.</div>
+  </div>
+</div>
+
+<div class="wrap page" id="p4">
+  <h1>Step 4 · Review: see what was made</h1>
+  <div class="sub">Replaces today's one-line status message. Skipped items show the real reason and can be found in the drawing. Numbers are examples.</div>
+  <div class="pane">
+    <div class="title"><b>BINA CAD to BIM</b> · L1-PLAN.dwg</div>
+    <div class="main">
+      <div class="vp"><div class="tools"><span class="tool on">Pan</span><span class="tool">Erase</span><span class="tool">Brush</span><span class="tool">Pick</span></div><div class="draw" data-mode="built"></div>
+        <div class="status"><span style="color:#ff7b72">●</span> Showing 2 doors skipped: host wall not built.</div></div>
+      <div class="col">
+        <div class="steps"><div class="st done">1 Layers ✓</div><div class="st done">2 Preview ✓</div><div class="st done">3 Build ✓</div><div class="st on">4 Review</div></div>
+        <div class="body">
+          <div class="sec"><div class="ok">✓ Built in 4.2 s on Level 1, CAD Level 2</div></div>
+          <div class="sec"><div class="sh">CREATED <span style="color:#3B6FD8">Select in model</span></div>
+            <div class="grid"><span>Walls</span><b>210</b><span>Doors</span><b>33</b><span>Windows</span><b>52</b><span>Rooms</span><b>8</b><span>Lights · Power · Switches</span><b>86 · 40 · 22</b></div></div>
+          <div class="sec"><div class="sh">SKIPPED (13) <span>click to find</span></div>
+            <div class="skip"><span class="c">2 walls</span>centreline too short</div>
+            <div class="skip" style="background:#fdeeee;margin:3px -10px;padding:2px 10px"><span class="c">› 2 doors</span>host wall not built</div>
+            <div class="skip"><span class="c">1 door</span>narrower than 300 mm</div>
+            <div class="skip"><span class="c">2 windows</span>Revit would not place</div>
+            <div class="skip"><span class="c">6 rooms</span>Level 2 has no plan view</div>
+            <div class="skip"><span class="c">1 DB</span>DB-MAIN not mapped</div></div>
+          <div class="sec"><div class="sh">WARNINGS (2)</div>
+            <div class="warn">! New level made: CAD Level 2</div>
+            <div class="warn">! 3 walls erased in preview</div></div>
+          <div class="sec"><div class="sh">UNDO <span class="new">NEW</span></div>
+            <div class="btn d" style="margin-bottom:4px">Undo this build</div>
+            <div class="muted">or press Ctrl+Z once in Revit</div></div>
+        </div>
+        <div class="foot"><div class="btn">Build more</div><div class="btn p">Done</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="notes">
+    <div><b>Today:</b> one status line with counts. Every skipped door or window says "no door/window family", whatever the real reason.</div>
+    <div><b>New:</b> the whole Review step. Select in model, real skip reasons, click to find, warnings, Undo this build.</div>
+  </div>
+</div>
+
+<script>
+const step = (location.hash||'#1').slice(1);
+document.getElementById('p'+step).style.display='block';
+
+// Plan geometry (drawing units, viewport ~560x470)
+const W=[[0,0,500,0],[500,0,500,400],[500,400,0,400],[0,400,0,0],
+         [250,0,250,200],[0,200,180,200],[310,200,500,200],[250,200,250,400]];
+const doors=[ // hinge, leaf end, arc end
+  {h:[180,200],l:[180,140],e:[240,200]},
+  {h:[310,200],l:[310,140],e:[250,200]},
+  {h:[360,400],l:[360,340],e:[420,400]}];
+const wins=[[60,0,170,0],[320,0,440,0],[500,60,500,150],[0,260,0,350]];
+const lights=[[125,100],[375,100],[125,300],[375,300]];
+const sockets=[[14,150],[486,330],[236,60]];
+const switches=[[165,215],[328,215]];
+const rooms=[["BEDROOM 1",125,70],["LIVING",375,70],["KITCHEN",125,270],["BEDROOM 2",375,270]];
+const NS='http://www.w3.org/2000/svg';
+function el(g,n,a){const e=document.createElementNS(NS,n);for(const k in a)e.setAttribute(k,a[k]);g.appendChild(e);return e}
+function off(s,d){const[x1,y1,x2,y2]=s,L=Math.hypot(x2-x1,y2-y1),nx=-(y2-y1)/L*d,ny=(x2-x1)/L*d;return[x1+nx,y1+ny,x2+nx,y2+ny]}
+
+document.querySelectorAll('.page').forEach(p=>{if(p.style.display!=='block')return;
+ p.querySelectorAll('.draw').forEach(d=>{
+  const mode=d.dataset.mode;
+  d.style.flex='1';d.style.display='flex';
+  d.appendChild(document.getElementById('plan').content.cloneNode(true));
+  const svg=d.querySelector('svg');svg.style.width='100%';svg.style.height='100%';
+  const g=svg.querySelector('#G');
+  const raw=mode==='raw';
+  const wallC=raw?'#e8e8e8':'#3fb950', doorC=raw?'#f2cc60':'#58a6ff', winC=raw?'#79c0ff':'#58a6ff', elC=raw?'#ffa657':'#f0b44c';
+  // walls
+  W.forEach((s,i)=>{
+    if(mode==='built' && i===7) return;
+    const erased = mode==='detect' && i===7;
+    const skipped = false;
+    if(raw){ [off(s,6),off(s,-6)].forEach(o=>el(g,'line',{x1:o[0],y1:o[1],x2:o[2],y2:o[3],stroke:wallC,'stroke-width':1.2})) }
+    else if(erased){ el(g,'line',{x1:s[0],y1:s[1],x2:s[2],y2:s[3],stroke:'#ff7b72','stroke-width':12,'stroke-opacity':.35,'stroke-dasharray':'8 6'}) }
+    else el(g,'line',{x1:s[0],y1:s[1],x2:s[2],y2:s[3],stroke:wallC,'stroke-width':12,'stroke-opacity':mode==='built'?1:.85});
+  });
+  // brushed wall (detect): extra wall made by brush
+  if(mode==='detect'){ el(g,'line',{x1:250,y1:260,x2:250,y2:400,stroke:'#ff7b72','stroke-width':1,'stroke-dasharray':'3 3'});
+    el(g,'text',{x:262,y:340,fill:'#ff7b72','font-size':11,'font-family':'Segoe UI'}).textContent='erased'; }
+  // windows
+  wins.forEach(s=>{ if(raw){[off(s,6),off(s,0),off(s,-6)].forEach(o=>el(g,'line',{x1:o[0],y1:o[1],x2:o[2],y2:o[3],stroke:winC,'stroke-width':1}))}
+    else el(g,'line',{x1:s[0],y1:s[1],x2:s[2],y2:s[3],stroke:'#1e2228','stroke-width':8}),el(g,'line',{x1:s[0],y1:s[1],x2:s[2],y2:s[3],stroke:winC,'stroke-width':4}); });
+  // doors
+  doors.forEach((d,i)=>{
+    const sk = mode==='built' && (i===1||i===2);
+    const c = sk?'#ff7b72':doorC;
+    if(!raw){ // gap
+    }
+    el(g,'line',{x1:d.h[0],y1:d.h[1],x2:d.l[0],y2:d.l[1],stroke:c,'stroke-width':raw?1.2:2.4});
+    el(g,'path',{d:`M${d.l[0]} ${d.l[1]} A60 60 0 0 ${i===0||i===2?1:0} ${d.e[0]} ${d.e[1]}`,stroke:c,'stroke-width':raw?1:1.6,'stroke-dasharray':raw?'':'4 3'});
+    if(sk){ const cx=(d.l[0]+d.e[0])/2, cy=(d.l[1]+d.e[1])/2; el(g,'circle',{cx:cx,cy:cy,r:22,stroke:'#ff7b72','stroke-width':2});
+      el(g,'circle',{cx:cx+20,cy:cy-20,r:9,fill:'#ff7b72',stroke:'none'}); el(g,'text',{x:cx+20,y:cy-16,'text-anchor':'middle',fill:'#fff','font-size':11,'font-weight':700,'font-family':'Segoe UI'}).textContent=i===1?'1':'2'; }
+  });
+  // electrical
+  lights.forEach(([x,y])=>{ el(g,'circle',{cx:x,cy:y,r:9,stroke:elC,'stroke-width':1.5}); el(g,'path',{d:`M${x-6} ${y-6} L${x+6} ${y+6} M${x+6} ${y-6} L${x-6} ${y+6}`,stroke:elC,'stroke-width':1.3});});
+  sockets.forEach(([x,y])=>{ el(g,'rect',{x:x-6,y:y-5,width:12,height:10,stroke:elC,'stroke-width':1.4}); el(g,'line',{x1:x-3,y1:y,x2:x+3,y2:y,stroke:elC,'stroke-width':1.4});});
+  switches.forEach(([x,y])=>{ el(g,'text',{x:x,y:y+4,'text-anchor':'middle',fill:elC,'font-size':12,'font-weight':700,'font-family':'Segoe UI'}).textContent='S';});
+  if(mode==='detect'){ el(g,'rect',{x:430,y:215,width:40,height:22,stroke:'#f0b44c','stroke-width':1.5,'stroke-dasharray':'3 2'});
+    el(g,'text',{x:450,y:230,'text-anchor':'middle',fill:'#f0b44c','font-size':9,'font-family':'Segoe UI'}).textContent='DB ?'; }
+  // furniture only shown in raw if layer visible (FURN unchecked → hidden)
+  // rooms
+  rooms.forEach(([t,x,y])=>{ el(g,'text',{x:x,y:y,'text-anchor':'middle',fill:raw?'#c9d1d9':'#8b949e','font-size':11,'font-family':'Segoe UI','letter-spacing':.5}).textContent=t; });
+  // legend in viewport
+  if(!raw){ const L=[['#3fb950','wall'],['#58a6ff','door / window'],['#f0b44c','electrical']]; if(mode==='built')L.push(['#ff7b72','skipped']); if(mode==='detect')L.push(['#ff7b72','erased']);
+    L.forEach(([c,t],i)=>{ el(g,'rect',{x:i*120,y:440,width:12,height:12,fill:c,stroke:'none'}); el(g,'text',{x:i*120+18,y:450,fill:'#c9d1d9','font-size':11,'font-family':'Segoe UI'}).textContent=t; }); }
+ });
+});
+</script>
+</body></html>

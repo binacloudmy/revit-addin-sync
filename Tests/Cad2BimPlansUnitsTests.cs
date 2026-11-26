@@ -147,6 +147,103 @@ namespace Tests
             Assert.Equal(1000.0, Units.Resolve(DocWithUnits(UnitsType.Unitless), segments));
         }
 
+        private static Arc A(double cx, double cy, double r, double startDeg, double endDeg) => new()
+        {
+            Center = new Point(cx, cy), Radius = r,
+            StartAngle = startDeg * Math.PI / 180, EndAngle = endDeg * Math.PI / 180,
+        };
+
+        private static List<Segment> Rectangle(double width, double height) => new()
+        {
+            S(0, 0, width, 0), S(width, 0, width, height), S(width, height, 0, height), S(0, height, 0, 0),
+        };
+
+        [Fact]
+        public void Resolve_overrides_a_mm_header_on_a_metre_drawing()
+        {
+            // Small-apto: 18 x 18 units declaring millimetres is a 25 mm sheet. Disbelieved,
+            // and the size guess puts it at 18 m.
+            Assert.Equal(1000.0, Units.Resolve(DocWithUnits(UnitsType.Millimeters), Rectangle(18, 18)));
+        }
+
+        [Fact]
+        public void Resolve_keeps_a_header_its_door_swings_confirm_despite_strays()
+        {
+            // Two-Bedrooms: a 17 x 13 m plan in metres plus one stray line 1.6 km away. The
+            // stray makes metres look 1.6 km wide (out of band, and the size guess would pick
+            // inches), but four door swings of 0.68..0.85 m agree with the header.
+            var segments = Rectangle(17, 13);
+            segments.Add(S(-1600, 5, -1599, 5));
+            var arcs = new List<Arc> { A(1, 1, 0.68, 0, 90), A(5, 1, 0.765, 90, 180), A(9, 1, 0.765, 180, 270), A(13, 1, 0.85, 270, 360) };
+
+            Assert.Equal(1000.0, Units.Resolve(DocWithUnits(UnitsType.Meters), segments, arcs));
+        }
+
+        [Fact]
+        public void Resolve_does_not_let_fillets_outvote_an_in_band_header()
+        {
+            // A 20 x 20 m millimetre plan with ten r30 fillets: at inches those are 762 mm
+            // "door swings", but the header puts the plan at a believable size, so it stands.
+            var arcs = Enumerable.Range(0, 10).Select(i => A(1000 * i, 500, 30, 0, 90)).ToList();
+
+            Assert.Equal(1.0, Units.Resolve(DocWithUnits(UnitsType.Millimeters), Rectangle(20000, 20000), arcs));
+        }
+
+        [Fact]
+        public void Resolve_ignores_a_one_percent_outlier()
+        {
+            // 300 segments across a 20 m millimetre plan, two strays 5 km out. The raw extents
+            // say 5 km (out of band); the 1st..99th percentile ones say 20 m.
+            var segments = Enumerable.Range(0, 300)
+                .Select(i => S(i * 66.0, (i % 30) * 660.0, (i * 66.0) + 50, (i % 30) * 660.0))
+                .ToList();
+            segments.Add(S(5e6, 5e6, 5e6 + 10, 5e6));
+            segments.Add(S(5e6, 5e6 + 10, 5e6 + 10, 5e6 + 10));
+
+            Assert.Equal(1.0, Units.Resolve(DocWithUnits(UnitsType.Millimeters), segments));
+        }
+
+        [Fact]
+        public void Describe_says_header_inferred_or_overruled()
+        {
+            Assert.Equal("1 unit = 1 mm · header", Units.Describe(DocWithUnits(UnitsType.Millimeters), 1.0));
+            Assert.Equal("1 unit = 1000 mm · inferred", Units.Describe(DocWithUnits(UnitsType.Unitless), 1000.0));
+            Assert.Equal("1 unit = 1000 mm (metres) · header said Millimeters, geometry says otherwise",
+                         Units.Describe(DocWithUnits(UnitsType.Millimeters), 1000.0));
+
+            Assert.False(Units.HeaderDisbelieved(DocWithUnits(UnitsType.Unitless), 1000.0));
+            Assert.False(Units.HeaderDisbelieved(DocWithUnits(UnitsType.Inches), 25.4));
+            Assert.True(Units.HeaderDisbelieved(DocWithUnits(UnitsType.Millimeters), 1000.0));
+        }
+
+        [Fact]
+        public void Resolve_keeps_genuine_inches()
+        {
+            var arcs = Enumerable.Range(0, 7).Select(i => A(50 * i, 20, 28 + (i * 4 / 3.0), 0, 90)).ToList();
+
+            Assert.Equal(25.4, Units.Resolve(DocWithUnits(UnitsType.Inches), Rectangle(472, 394), arcs));
+        }
+
+        [Fact]
+        public void Resolve_drops_an_implausible_header_whose_few_swings_are_outvoted()
+        {
+            // elec.dwg: inches make a 64 m plan 1.6 km wide. Three r30 arcs are swings at
+            // inches, but eight r800 arcs are swings at mm, so the header must not win.
+            var arcs = Enumerable.Range(0, 3).Select(i => A(100 * i, 20, 30, 0, 90))
+                .Concat(Enumerable.Range(0, 8).Select(i => A(2000 * i, 500, 800, 0, 90))).ToList();
+
+            Assert.Equal(1.0, Units.Resolve(DocWithUnits(UnitsType.Inches), Rectangle(50000, 40000), arcs));
+        }
+
+        [Fact]
+        public void Resolve_keeps_an_implausible_header_whose_swings_clearly_win()
+        {
+            var arcs = Enumerable.Range(0, 7).Select(i => A(100 * i, 20, 30, 0, 90))
+                .Append(A(2000, 500, 800, 0, 90)).ToList();
+
+            Assert.Equal(25.4, Units.Resolve(DocWithUnits(UnitsType.Inches), Rectangle(50000, 40000), arcs));
+        }
+
         // ── Units.Normalize ──────────────────────────────────────────────
 
         [Fact]
