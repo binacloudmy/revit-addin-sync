@@ -86,7 +86,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     }
                     var tool = _pendingTool;
                     ClearPendingTool();
-                    SlashToolSubmitted?.Invoke(tool, text, cmdArgs);
+                    // The picked @ mentions and the attached images/files belong to this turn; a local tool ignores attachments, so they stay in the strip.
+                    var slashPayload = ComposePayload(text, shown, mentions, !tool.Local) as RevitWebAppSync.UI.Copilot.Model.PromptPayload
+                        ?? new RevitWebAppSync.UI.Copilot.Model.PromptPayload { Text = text };
+                    SlashToolSubmitted?.Invoke(tool, text, cmdArgs, slashPayload);
                     return;
                 }
                 // With screenshots and/or files attached, submit a composed payload
@@ -98,61 +101,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 // re-embeds them in CopilotViewModel.BuildRouteText).
                 // A picked chip sends its full form ("Pintu Tunggal: PTh300a (door type)")
                 // while the thread shows the message as the drafter wrote it.
-                string display = shown != text ? shown : null;
-                object payload = text;
-                var picked = mentions != null && mentions.Count > 0 ? mentions : null;   // r17: the mentions travel with the turn
-                if ((display != null || picked != null) && _images.Count == 0 && _files.Count == 0)
-                    payload = new RevitWebAppSync.UI.Copilot.Model.PromptPayload { Text = text, DisplayText = display, Mentions = picked };
-                if (_images.Count > 0 || _files.Count > 0)
-                {
-                    var pp = new RevitWebAppSync.UI.Copilot.Model.PromptPayload { Text = text, DisplayText = display, Mentions = picked };
-                    if (_images.Count > 0)
-                    {
-                        var encoded = new System.Collections.Generic.List<string>();
-                        foreach (var img in _images)
-                        {
-                            var b64 = EncodePng(img);
-                            if (!string.IsNullOrEmpty(b64)) encoded.Add(b64);
-                        }
-                        if (encoded.Count > 0) pp.ImagesBase64 = encoded;
-                        _images.Clear();
-                    }
-                    if (_files.Count > 0)
-                    {
-                        var files = new System.Collections.Generic.List<RevitWebAppSync.UI.Copilot.Model.FileAttachment>();
-                        foreach (var (fname, fcontent, fpath, fkind, ferror) in _files)
-                        {
-                            // A rejected file still travels — as a "could not be
-                            // read" block. RouteText renders it, so the agent tells
-                            // the drafter their file was not used instead of
-                            // answering as though it never existed.
-                            if (ferror != null)
-                            {
-                                files.Add(new RevitWebAppSync.UI.Copilot.Model.FileAttachment
-                                {
-                                    Name = fname, Kind = fkind, ReadError = ferror,
-                                });
-                                continue;
-                            }
-                            switch (fkind)
-                            {
-                                case RevitWebAppSync.UI.Copilot.Model.AttachmentKind.Dwg:
-                                    files.Add(RevitWebAppSync.UI.Copilot.Model.FileAttachment.ForDrawing(fname, fpath));
-                                    break;
-                                case RevitWebAppSync.UI.Copilot.Model.AttachmentKind.Pdf:
-                                    files.Add(RevitWebAppSync.UI.Copilot.Model.FileAttachment.ForDocument(fname, fpath));
-                                    break;
-                                default:
-                                    files.Add(new RevitWebAppSync.UI.Copilot.Model.FileAttachment(fname, fcontent) { Path = fpath });
-                                    break;
-                            }
-                        }
-                        pp.Files = files;
-                        _files.Clear();
-                    }
-                    payload = pp;
-                    RebuildThumbStrip();
-                }
+                var payload = ComposePayload(text, shown, mentions, true);
                 if (SubmitCommand != null && SubmitCommand.CanExecute(payload))
                     SubmitCommand.Execute(payload);
             };
@@ -205,6 +154,69 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             };
         }
 
+        /// <summary>The message as the view model takes it: plain text, or a PromptPayload carrying the display text,
+        /// the picked mentions and (withAttachments) the pending images/files, which it clears from the strip.
+        /// A slash command turn uses the same composition as a normal send.</summary>
+        private object ComposePayload(string text, string shown, System.Collections.Generic.List<RevitWebAppSync.UI.Copilot.Model.Mention> mentions, bool withAttachments)
+        {
+            string display = shown != text ? shown : null;
+            object payload = text;
+            var picked = mentions != null && mentions.Count > 0 ? mentions : null;   // r17: the mentions travel with the turn
+            if ((display != null || picked != null) && (!withAttachments || (_images.Count == 0 && _files.Count == 0)))
+                payload = new RevitWebAppSync.UI.Copilot.Model.PromptPayload { Text = text, DisplayText = display, Mentions = picked };
+            if (withAttachments && (_images.Count > 0 || _files.Count > 0))
+            {
+                var pp = new RevitWebAppSync.UI.Copilot.Model.PromptPayload { Text = text, DisplayText = display, Mentions = picked };
+                if (_images.Count > 0)
+                {
+                    var encoded = new System.Collections.Generic.List<string>();
+                    foreach (var img in _images)
+                    {
+                        var b64 = EncodePng(img);
+                        if (!string.IsNullOrEmpty(b64)) encoded.Add(b64);
+                    }
+                    if (encoded.Count > 0) pp.ImagesBase64 = encoded;
+                    _images.Clear();
+                }
+                if (_files.Count > 0)
+                {
+                    var files = new System.Collections.Generic.List<RevitWebAppSync.UI.Copilot.Model.FileAttachment>();
+                    foreach (var (fname, fcontent, fpath, fkind, ferror) in _files)
+                    {
+                        // A rejected file still travels — as a "could not be
+                        // read" block. RouteText renders it, so the agent tells
+                        // the drafter their file was not used instead of
+                        // answering as though it never existed.
+                        if (ferror != null)
+                        {
+                            files.Add(new RevitWebAppSync.UI.Copilot.Model.FileAttachment
+                            {
+                                Name = fname, Kind = fkind, ReadError = ferror,
+                            });
+                            continue;
+                        }
+                        switch (fkind)
+                        {
+                            case RevitWebAppSync.UI.Copilot.Model.AttachmentKind.Dwg:
+                                files.Add(RevitWebAppSync.UI.Copilot.Model.FileAttachment.ForDrawing(fname, fpath));
+                                break;
+                            case RevitWebAppSync.UI.Copilot.Model.AttachmentKind.Pdf:
+                                files.Add(RevitWebAppSync.UI.Copilot.Model.FileAttachment.ForDocument(fname, fpath));
+                                break;
+                            default:
+                                files.Add(new RevitWebAppSync.UI.Copilot.Model.FileAttachment(fname, fcontent) { Path = fpath });
+                                break;
+                        }
+                    }
+                    pp.Files = files;
+                    _files.Clear();
+                }
+                payload = pp;
+                RebuildThumbStrip();
+            }
+            return payload;
+        }
+
         /// <summary>The line under the input while a question card is open; empty hides it.</summary>
         public void SetAskHint(string text)
         {
@@ -215,7 +227,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         // ─── Slash command (pending, sent as the next turn) ──────────────────
         /// <summary>Raised when a message is sent with a slash command active —
         /// the picked tool plus any typed args. UI-only for now.</summary>
-        public event System.Action<Model.SlashTool, string, System.Collections.Generic.Dictionary<string, object>> SlashToolSubmitted;
+        public event System.Action<Model.SlashTool, string, System.Collections.Generic.Dictionary<string, object>, Model.PromptPayload> SlashToolSubmitted;
 
         private Model.SlashTool _pendingTool;
         // Saved Commands J1: one inline chip per typed input of the pending

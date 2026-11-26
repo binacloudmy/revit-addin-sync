@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using BinaVibe.Copilot.Contracts;
+using RevitWebAppSync.Tests;
 using RevitWebAppSync.UI.Copilot.Model;
 using Xunit;
 
@@ -58,6 +59,52 @@ namespace RevitAddinSync.Tests
             Assert.Contains("uidoc.RequestViewChange(target)", code);
             Assert.DoesNotContain("Transaction", code);
             Assert.False(string.IsNullOrEmpty(c.Call.Args.GetProperty("intent").GetString()));
+        }
+
+        private static string OpenCode(IDictionary<string, object?> values)
+        {
+            var c = VettedCalls.Build("open_view", values, null, out _)!;
+            return c.Call.Args.GetProperty("code").GetString()!;
+        }
+
+        [Fact]
+        public void OpenView_WithAPickedId_OpensThatElementAndStillPassesTheCodePolicy()
+        {
+            var v = V(("view", "A101 - Ground Floor"));
+            v["viewId"] = 4242L;
+            var code = OpenCode(v);
+
+            Assert.Contains("doc.GetElement(new ElementId(4242L)) as View", code);
+            Assert.Contains("uidoc.RequestViewChange(target)", code);
+            var a = CodeTestSupport.AnalyzeProduction(code);
+            Assert.True(a.Allowed, CodeTestSupport.Describe(a) + "\n" + code);
+        }
+
+        [Fact]
+        public void OpenView_WithoutAnId_MatchesASheetByItsChipText()
+        {
+            var code = OpenCode(V(("view", "A101 - Ground Floor")));
+
+            Assert.Contains("View target = null;", code);
+            Assert.DoesNotContain("GetElement", code);
+            Assert.Contains("x.SheetNumber + \" - \" + x.Name", code);
+            var a = CodeTestSupport.AnalyzeProduction(code);
+            Assert.True(a.Allowed, CodeTestSupport.Describe(a) + "\n" + code);
+        }
+
+        [Fact]
+        public void PickedViewId_TakesTheFirstViewOrSheetChipWithAnId()
+        {
+            var picked = new List<Mention>
+            {
+                new Mention("level", "Level 1", 1),
+                new Mention("view", "Plans", null),
+                new Mention("sheet", "A101 - Ground Floor", 77),
+                new Mention("view", "Other", 88),
+            };
+            Assert.Equal(77L, VettedCalls.PickedViewId(picked));
+            Assert.Null(VettedCalls.PickedViewId(null));
+            Assert.Null(VettedCalls.PickedViewId(new List<Mention> { new Mention("category", "Doors", 5) }));
         }
 
         [Fact]

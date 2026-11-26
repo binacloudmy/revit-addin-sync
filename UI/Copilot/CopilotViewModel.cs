@@ -1106,18 +1106,21 @@ namespace RevitWebAppSync.UI.Copilot
         /// filled with the typed inputs here (SlashPromptText) and sent as a normal prompt, with the command's chip on the
         /// user bubble. A command saved on this PC runs the same way, though the backend has never heard of it. Local tools
         /// (open-view) never leave the addin: they reuse the Tier-1 vetted executor snippet.</summary>
+        /// <param name="payload">What the composer attached to this turn (picked @ mentions, images, files, display text),
+        /// forwarded to ChatSend exactly as a normal send forwards it. Null: none.</param>
         public void ChatSendSlashCommand(SlashTool tool, string args,
-            Dictionary<string, object> inputs = null)
+            Dictionary<string, object> inputs = null, PromptPayload payload = null)
         {
             if (tool == null) return;
-            if (tool.Local) { RunLocalSlash(tool, (args ?? "").Trim()); return; }
+            if (tool.Local) { RunLocalSlash(tool, (args ?? "").Trim(), payload?.Mentions); return; }
             // ChatSend does the routing; the chip rides the user bubble and the typed input
             // values are expanded into the prompt just before RouteAsync.
             CountSavedRun(tool);
-            ChatSend((args ?? "").Trim(), slashChip: tool, commandArgs: inputs);
+            ChatSend((args ?? "").Trim(), payload?.ImagesBase64, payload?.Files, tool, inputs,
+                displayText: payload?.DisplayText, mentions: payload?.Mentions);
         }
 
-        private void RunLocalSlash(SlashTool tool, string args)
+        private void RunLocalSlash(SlashTool tool, string args, List<Mention> mentions = null)
         {
             Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = args, SlashCommand = tool, Time = System.DateTime.Now.ToString("h:mm tt") });
 
@@ -1137,6 +1140,9 @@ namespace RevitWebAppSync.UI.Copilot
             }
 
             var values = new Dictionary<string, object> { ["view"] = args };
+            // A view or sheet picked with @ carries its element id: open that exact one (a name can be shared).
+            var pickedId = VettedCalls.PickedViewId(mentions);
+            if (pickedId != null) values["viewId"] = pickedId.Value;
             Executor.Run(def, values, null, outcome =>
             {
                 // Same thread contract as the chat codegen Done callback — the
