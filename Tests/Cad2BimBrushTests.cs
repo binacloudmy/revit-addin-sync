@@ -45,7 +45,7 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(1, r.Paired);
             Assert.Equal(0, r.SingleLine);
             Assert.Equal(0, r.Cloud);
-            Assert.Equal("1 walls paired, 0 single-line, 0 cloud", r.Note);
+            Assert.Equal("1 wall paired, 0 single-line, 0 cloud", r.Note);
         }
 
         [Fact]
@@ -69,7 +69,7 @@ namespace RevitWebAppSync.Tests
 
             Assert.Empty(r.Walls);
             Assert.Contains("no wall shape", r.Note);
-            Assert.Contains("1 lines", r.Note);
+            Assert.Contains("1 line in box", r.Note);
         }
 
         [Fact]

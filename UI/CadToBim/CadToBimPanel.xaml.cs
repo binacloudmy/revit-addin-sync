@@ -14,8 +14,8 @@ using RevitWebAppSync.UI.Copilot;
 namespace RevitWebAppSync.UI.CadToBim
 {
     /// <summary>
-    /// The CAD to BIM dockable-pane body: CadOverlayViewport on the left, the six-section sidebar
-    /// on the right. All decisions live in CadToBimViewModel; this file wires mouse events,
+    /// The CAD to BIM dockable-pane body: CadOverlayViewport on the left, the four-step column
+    /// (Layers, Preview, Build, Review) on the right. All decisions live in CadToBimViewModel; this file wires mouse events,
     /// dialogs (file picker, overwrite, big-brush confirm, settings) and the theme dictionaries.
     /// </summary>
     public partial class CadToBimPanel : UserControl
@@ -40,6 +40,7 @@ namespace RevitWebAppSync.UI.CadToBim
             _vm = new CadToBimViewModel(handler, new ExternalEventRaiser(buildEvent));
             InitializeComponent();
             DataContext = _vm;
+            StepColumn.Width = new GridLength(_vm.StepColumnWidth);
 
             // Same trick as CopilotPanel: theme brushes mounted on THIS element's resources and
             // swapped on ThemeChanged, because app-scope changes do not re-invalidate
@@ -63,6 +64,7 @@ namespace RevitWebAppSync.UI.CadToBim
             };
 
             Viewport.WallClicked += wall => _vm.ToggleErase(wall);
+            Viewport.OpeningClicked += opening => _vm.TogglePick(opening);
             Viewport.BoxDragged += box => { var _ = _vm.BrushAsync(box); };
             Viewport.CursorMoved += (x, y) =>
                 Coords.Text = string.Format(CultureInfo.InvariantCulture, "x {0:0} · y {1:0} mm", x, y);
@@ -83,6 +85,9 @@ namespace RevitWebAppSync.UI.CadToBim
         /// Document, so call it from a valid API context (OpenCadToBimCommand does, before OpenAsync).</summary>
         public void RefreshLevels(Document doc)
         {
+            // The TYPES section in the Build step offers the same types the builder picks from.
+            _vm.SetTypeCatalog(Cad2BimBuilder.ReadTypes(doc));
+
             if (doc == null)
             {
                 _vm.SetLevels(new List<LevelChoice>());
@@ -113,6 +118,7 @@ namespace RevitWebAppSync.UI.CadToBim
             {
                 case nameof(CadToBimViewModel.Overlay):
                     OverlaySnapshot o = _vm.Overlay;
+                    Viewport.SetMarks(o.PickedOut, o.Highlights);
                     Viewport.SetOverlay(o.Active, o.Erased, o.Openings, o.Spaces, o.Boxes);
                     break;
 
@@ -140,6 +146,7 @@ namespace RevitWebAppSync.UI.CadToBim
             {
                 case ViewportMode.Erase: hint = "Click a green wall to leave it out. Click again to restore."; break;
                 case ViewportMode.Brush: hint = "Drag a box over linework the classifier skipped. Walls inside are forced in."; break;
+                case ViewportMode.Pick: hint = "Click a door or window to leave it out. Click again to bring it back."; break;
                 default: hint = null; break;
             }
             ModeHintText.Text = hint ?? "";
@@ -164,6 +171,14 @@ namespace RevitWebAppSync.UI.CadToBim
             current = next;
         }
 
+        // ───────── step column width ─────────
+
+        private void OnBodySizeChanged(object sender, SizeChangedEventArgs e) =>
+            StepColumn.MaxWidth = StepColumnLayout.MaxWidth(Body.ActualWidth);
+
+        private void OnSplitterDragCompleted(object sender, System.Windows.Controls.Primitives.DragCompletedEventArgs e) =>
+            _vm.RememberStepColumnWidth(StepColumn.ActualWidth);
+
         // ───────── clicks ─────────
 
         private void OnChangeClick(object sender, RoutedEventArgs e)
@@ -179,10 +194,53 @@ namespace RevitWebAppSync.UI.CadToBim
 
         private void OnConfirmClick(object sender, RoutedEventArgs e) => _vm.Confirm();
 
-        private void OnRoleClick(object sender, RoutedEventArgs e)
+        private void OnStepClick(object sender, RoutedEventArgs e)
         {
-            if ((sender as FrameworkElement)?.DataContext is CadLayerViewModel layer) _vm.CycleRole(layer);
+            if ((sender as FrameworkElement)?.DataContext is StepTab tab) _vm.GoTo(tab.Step);
         }
+
+        private void OnNextClick(object sender, RoutedEventArgs e) => _vm.Next();
+
+        private void OnBackClick(object sender, RoutedEventArgs e) => _vm.Back();
+
+        private void OnMoreTypesClick(object sender, RoutedEventArgs e) => _vm.ShowAllTypes = !_vm.ShowAllTypes;
+
+        private void OnSelectAllClick(object sender, RoutedEventArgs e) => _vm.SelectCreated(null);
+
+        private void OnSelectRowClick(object sender, RoutedEventArgs e)
+        {
+            if ((sender as FrameworkElement)?.DataContext is CreatedRow row) _vm.SelectCreated(row.Category);
+        }
+
+        private void OnSkipGroupClick(object sender, RoutedEventArgs e)
+        {
+            if ((sender as FrameworkElement)?.DataContext is SkipGroup group) _vm.ShowSkipGroup(group);
+        }
+
+        private void OnUndoClick(object sender, RoutedEventArgs e)
+        {
+            BuildReport build = _vm.LastBuild;
+            if (build == null) return;
+
+            if (_vm.LastBuildWasNewFile)
+            {
+                // Default decision 4: nothing to delete in this project; say how to discard the file.
+                _vm.UndoBuild();
+                Tell("Undo this build",
+                     "This build was saved as " + System.IO.Path.GetFileName(build.OutputPath) +
+                     ". To discard it, close it in Revit and delete the file:\n" + build.OutputPath);
+                return;
+            }
+
+            if (Ask("Undo this build?", UndoSummary.ConfirmText(build)))
+            {
+                _vm.UndoBuild();
+            }
+        }
+
+        private void OnBuildMoreClick(object sender, RoutedEventArgs e) => _vm.BuildMore();
+
+        private void OnDoneClick(object sender, RoutedEventArgs e) => _vm.Done();
 
         private void OnGearClick(object sender, RoutedEventArgs e)
         {
@@ -190,6 +248,18 @@ namespace RevitWebAppSync.UI.CadToBim
             var window = new CadToBimSettingsWindow(settings);
             RevitWindowOwner.SetOwner(window, App.UiApp);
             if (window.ShowDialog() == true) _vm.ApplySettings(settings);
+        }
+
+        private static void Tell(string instruction, string content)
+        {
+            try
+            {
+                new TaskDialog("BINA CAD to BIM") { MainInstruction = instruction, MainContent = content }.Show();
+            }
+            catch
+            {
+                MessageBox.Show(content, instruction, MessageBoxButton.OK, MessageBoxImage.Information);
+            }
         }
 
         // Revit's TaskDialog when hosted in Revit; MessageBox when it is not available (UiHarness).

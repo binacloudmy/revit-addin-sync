@@ -19,7 +19,11 @@ namespace RevitWebAppSync.Services.CadToBim
             if (_event == null) return false;
             try
             {
-                return _event.Raise() == ExternalEventRequest.Accepted;
+                // Pending = already raised and not run yet. The handler has one request slot and
+                // reads it when it runs, so the request just set is the one that runs (a queued
+                // background CheckBuilt replaced by a build, AI-344).
+                ExternalEventRequest result = _event.Raise();
+                return result == ExternalEventRequest.Accepted || result == ExternalEventRequest.Pending;
             }
             catch
             {
