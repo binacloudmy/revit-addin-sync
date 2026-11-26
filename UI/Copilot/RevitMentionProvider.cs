@@ -98,6 +98,7 @@ namespace RevitWebAppSync.UI.Copilot
                     Id(() => BrowserOrganization.GetCurrentBrowserOrganizationForViews(doc)?.Id),
                     Id(() => BrowserOrganization.GetCurrentBrowserOrganizationForSheets(doc)?.Id),
                     Id(() => BrowserOrganization.GetCurrentBrowserOrganizationForSchedules(doc)?.Id),
+                    Id(() => PanelScheduleOrganization(doc)?.Id),
                 };
                 return MentionTreeCache.Stamp(BinaVibe.Copilot.Read.SnapshotService.IsAttached, active != null && InTemporaryMode(active),
                     BinaVibe.Copilot.Read.SnapshotService.SessionNonceOf(doc), BinaVibe.Copilot.Read.SnapshotService.ModelEventSeq,

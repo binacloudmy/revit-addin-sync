@@ -74,7 +74,8 @@ namespace RevitAddinSync.Tests
             v["viewId"] = 4242L;
             var code = OpenCode(v);
 
-            Assert.Contains("doc.GetElement(new ElementId(4242L)) as View", code);
+            Assert.Contains("x.Id.ToString() == \"4242\"", code);
+            Assert.DoesNotContain("new ElementId(", code);   // no ElementId constructor: it differs by Revit year
             Assert.Contains("uidoc.RequestViewChange(target)", code);
             var a = CodeTestSupport.AnalyzeProduction(code);
             Assert.True(a.Allowed, CodeTestSupport.Describe(a) + "\n" + code);

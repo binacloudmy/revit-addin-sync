@@ -174,14 +174,13 @@ namespace RevitWebAppSync.UI.Copilot.Model
         {
             var sb = new StringBuilder();
             sb.AppendLine("var name = " + Literal(viewName) + ";");
+            // By id through the collector and Id.ToString(): new ElementId(long) does not exist in Revit 2023 (int only) and new ElementId(int) is gone in 2026+.
+            sb.AppendLine("var views = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>().Where(x => !x.IsTemplate).ToList();");
+            sb.AppendLine("View target = null;");
             if (viewId != null)
-                sb.AppendLine("View target = doc.GetElement(new ElementId(" + viewId.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) + "L)) as View;");
-            else
-                sb.AppendLine("View target = null;");
-            sb.AppendLine("if (target != null && target.IsTemplate) target = null;");
+                sb.AppendLine("target = views.FirstOrDefault(x => x.Id.ToString() == \"" + viewId.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) + "\");");
             sb.AppendLine("if (target == null)");
             sb.AppendLine("{");
-            sb.AppendLine("    var views = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>().Where(x => !x.IsTemplate).ToList();");
             sb.AppendLine("    target = views.FirstOrDefault(x => string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase))");
             sb.AppendLine("        ?? views.OfType<ViewSheet>().FirstOrDefault(x => string.Equals(x.SheetNumber + \" - \" + x.Name, name, StringComparison.OrdinalIgnoreCase))");
             sb.AppendLine("        ?? views.FirstOrDefault(x => x.Name.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0);");

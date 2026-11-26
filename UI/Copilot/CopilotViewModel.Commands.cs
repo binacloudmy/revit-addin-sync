@@ -48,9 +48,12 @@ namespace RevitWebAppSync.UI.Copilot
         {
             if (t == null || !t.Editable) return true;
             // Quiet on purpose: the row disappears from the list; no chat message (it replaced the pane's home screen with a lone bubble).
-            LocalCommandStore.Default.Delete(t.Id);
+            var store = LocalCommandStore.Default;
+            store.Delete(t.Id);
+            if (store.Unreadable) return false;   // the file is in use: nothing changed, the caller says so
             await RefreshCommandCatalogAsync(force: true);
-            return !LocalCommandStore.Default.ToTools().Any(x => string.Equals(x.Id, t.Id, System.StringComparison.Ordinal));
+            var still = store.ToTools().Any(x => string.Equals(x.Id, t.Id, System.StringComparison.Ordinal));
+            return !still && !store.Unreadable;
         }
 
         /// <summary>Save (or update, when the draft carries EditingId) on this PC — returns
@@ -83,7 +86,9 @@ namespace RevitWebAppSync.UI.Copilot
         {
             try
             {
-                ToolCatalog.MergeMine(LocalCommandStore.Default.ToTools());
+                var saved = LocalCommandStore.Default.ToTools();
+                if (LocalCommandStore.Default.Unreadable) return System.Threading.Tasks.Task.CompletedTask;   // file in use: keep the list as it is, never blank it
+                ToolCatalog.MergeMine(saved);
                 DropCachedBackendMine();
                 PaletteInvalidated?.Invoke();
                 _ = RefreshCuratedCatalogAsync();   // r17: the curated tier from the backend's catalogue (CopilotViewModel.Catalog.cs)

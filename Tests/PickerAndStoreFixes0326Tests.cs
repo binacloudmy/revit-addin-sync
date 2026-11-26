@@ -69,5 +69,25 @@ namespace Tests
             }
             finally { try { Directory.Delete(_dir, true); } catch { /* best effort */ } }
         }
+        [Fact]
+        public void A_locked_file_reads_as_unreadable_and_is_not_marked_corrupt()
+        {
+            Directory.CreateDirectory(_dir);
+            try
+            {
+                var path = Path.Combine(_dir, LocalCommandStore.FileName);
+                var store = new LocalCommandStore(path);
+                Assert.Null(store.Add(new SavedCommandDraft { Name = "One", Template = "Do one", ToolsCalled = new System.Collections.Generic.List<string> { "find_elements" } }).Error);
+                using (new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None))
+                {
+                    Assert.Empty(store.ToTools());
+                    Assert.True(store.Unreadable);
+                    Assert.False(File.Exists(path + ".bad"));
+                }
+                Assert.Single(store.ToTools());
+                Assert.False(store.Unreadable);
+            }
+            finally { try { Directory.Delete(_dir, true); } catch { /* best effort */ } }
+        }
     }
 }

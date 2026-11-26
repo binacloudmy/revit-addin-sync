@@ -57,6 +57,9 @@ namespace RevitWebAppSync.UI.Copilot.Model
         // The file exists but could not be read (locked by another process): writing now would replace it with a list built from nothing.
         private bool _unreadable;
 
+        /// <summary>True when the last read failed because the file is in use (not because it is corrupt): the list from that read is empty by accident.</summary>
+        public bool Unreadable => _unreadable;
+
         /// <param name="path">The JSON file.</param>
         /// <param name="reservedIds">Ids a saved command may not take (the curated tier's, as the palette knows them).</param>
         public LocalCommandStore(string path, Func<IEnumerable<string>>? reservedIds = null)
@@ -255,7 +258,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
             {
                 System.Diagnostics.Debug.WriteLine("[BINA] saved commands unreadable: " + ex.Message);
                 _unreadable = ex is IOException || ex is UnauthorizedAccessException;
-                KeepCorrupt();
+                if (!_unreadable) KeepCorrupt();   // a locked file is not a corrupt one: do not overwrite the .bad copy
                 return new List<LocalCommand>();
             }
         }
