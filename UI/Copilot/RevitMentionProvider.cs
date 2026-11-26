@@ -93,13 +93,12 @@ namespace RevitWebAppSync.UI.Copilot
 
                 var types = new FilteredElementCollector(doc).WhereElementIsElementType()
                     .Cast<ElementType>()
-                    .Where(t => t.Category != null
-                                && t.Category.CategoryType == CategoryType.Model
-                                && !string.IsNullOrEmpty(t.FamilyName))
+                    .Where(t => t.Category != null && !string.IsNullOrEmpty(t.FamilyName)
+                                && BrowserFamilies.Listed(CategoryKey(t.Category) ?? "", t.Category.CategoryType.ToString(), t.GetType().Name))
                     .ToList();
 
                 if (MentionTreeDump.Enabled) DumpSkipped(doc, types);
-                var catIds = types.Select(t => t.Category.Id).Distinct().ToList();
+                var catIds = types.Where(t => t.Category.CategoryType == CategoryType.Model).Select(t => t.Category.Id).Distinct().ToList();   // instance counts are for model categories
                 string docKey = string.IsNullOrEmpty(doc.PathName) ? doc.Title : doc.PathName;
                 var inModel = CountByType(doc, null, catIds, docKey, _tooBigToCount, ModelCountBudgetMs);
                 var inView = active != null && IsCountableView(active)
@@ -107,10 +106,10 @@ namespace RevitWebAppSync.UI.Copilot
                     : null;
 
                 roots.Add(MentionNode.Group("Families",
-                    types.GroupBy(t => t.Category.Name).OrderBy(g => g.Key)
+                    types.GroupBy(t => BrowserFamilies.CategoryLabel(t.Category.Name, t.Category.CategoryType.ToString())).OrderBy(g => g.Key)
                         .Select(g =>
                         {
-                            string catKey = CategoryKey(g.First().Category);
+                            string catKey = g.Key == BrowserFamilies.AnnotationLabel ? null : CategoryKey(g.First().Category);
                             return new MentionNode("category", g.Key,
                                 g.GroupBy(t => t.FamilyName).OrderBy(f => f.Key)
                                     .Select(f => new MentionNode("family", f.Key,
