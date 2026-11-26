@@ -38,10 +38,4 @@ behaviour we want.
 
 ## Big sheets and timing
 
-- elec has 1.64M segments over about 34 km of extents, and its header says Inches for a mm drawing.
-  The units guard catches this (`needs_confirmation: true`, read at 1 mm per unit).
-- One read through `DwgPlanReader` takes about 4 s on ASWARA and 5-6 s on elec (file load included,
-  measured in the test run).
-- `Cad2Bim.Headless` on elec times out at 300 s. Do not use it on elec.
-- `sheet_m` spans every cluster, including stray hatch fragments. ASWARA reports 795.8 x 169.8 m, while its 8
-  listed plans span about 450 m across.
+- elec.dwg is a large sheet: Cad2Bim.Headless takes ~270 s on it (read_dwg_plan reads it in ~6 s); sheet_m counts stray hatch fragments (796 m on ASWARA).
