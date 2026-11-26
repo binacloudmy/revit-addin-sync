@@ -51,7 +51,8 @@ namespace RevitWebAppSync.UI.Copilot
 
                 var active = doc.ActiveView;
                 var activeName = active?.Name;
-                if (!string.IsNullOrEmpty(activeName))
+                // The Project Browser pseudo-view ("Project View") is the active view after a click in the browser: not a view to mention.
+                if (!string.IsNullOrEmpty(activeName) && (active is ViewSheet || BrowserViews.Place(active.ViewType.ToString()) != null))
                     roots.Add(new MentionNode("view", activeName) { IsActive = true, ElementId = active.Id.Value });
 
                 roots.Add(MentionNode.Group("Levels",
@@ -59,16 +60,26 @@ namespace RevitWebAppSync.UI.Copilot
                         .OrderBy(l => l.Elevation)
                         .Select(l => new MentionNode("level", l.Name) { ElementId = l.Id.Value })));
 
-                var views = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>()
-                    .Where(v => !v.IsTemplate && !(v is ViewSheet)).ToList();
-                roots.Add(MentionNode.Group("Views",
-                    views.GroupBy(v => ViewTypeLabel(v.ViewType)).OrderBy(g => g.Key)
-                        .Select(g => MentionNode.Group(g.Key,
-                            g.GroupBy(v => v.Name).OrderBy(n => n.Key)
-                                .Select(n => new MentionNode("view", n.Key) { IsActive = n.Key == activeName, ElementId = n.Count() == 1 ? n.First().Id.Value : (long?)null })))));
+                // Only what the Project Browser lists (BrowserViews), in its branches and its order.
+                var placed = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>()
+                    .Where(v => !v.IsTemplate && !(v is ViewSheet) && !IsHiddenSchedule(v))
+                    .Select(v => (View: v, Place: BrowserViews.Place(v.ViewType.ToString())))
+                    .Where(x => x.Place != null).Select(x => (x.View, Place: x.Place.Value)).ToList();
+                MentionNode ViewNode(IGrouping<string, View> n) =>
+                    new MentionNode("view", n.Key) { IsActive = n.Key == activeName, ElementId = n.Count() == 1 ? n.First().Id.Value : (long?)null };
+                IEnumerable<MentionNode> ViewsIn(IEnumerable<(View View, (string Branch, string Group, int Rank) Place)> rows) =>
+                    rows.Select(x => x.View).GroupBy(v => v.Name).OrderBy(n => n.Key, StringComparer.CurrentCultureIgnoreCase).Select(ViewNode);
+
+                roots.Add(MentionNode.Group(BrowserViews.ViewsBranch,
+                    placed.Where(x => x.Place.Branch == BrowserViews.ViewsBranch)
+                        .GroupBy(x => (x.Place.Group, x.Place.Rank)).OrderBy(g => g.Key.Rank)
+                        .Select(g => MentionNode.Group(g.Key.Group, ViewsIn(g)))));
+                roots.Add(MentionNode.Group(BrowserViews.LegendsBranch, ViewsIn(placed.Where(x => x.Place.Branch == BrowserViews.LegendsBranch))));
+                roots.Add(MentionNode.Group(BrowserViews.SchedulesBranch, ViewsIn(placed.Where(x => x.Place.Branch == BrowserViews.SchedulesBranch))));
 
                 roots.Add(MentionNode.Group("Sheets",
                     new FilteredElementCollector(doc).OfClass(typeof(ViewSheet)).Cast<ViewSheet>()
+                        .Where(s => !IsPlaceholder(s))
                         .OrderBy(s => s.SheetNumber)
                         .Select(s => new MentionNode("sheet", $"{s.SheetNumber} - {s.Name}") { ElementId = s.Id.Value })));
 
@@ -206,23 +217,17 @@ namespace RevitWebAppSync.UI.Copilot
             return new MentionSelection(groups.Values);
         }
 
-        private static string ViewTypeLabel(ViewType t)
+        // The browser does not list the title block's revision schedule or the internal keynote schedule.
+        private static bool IsHiddenSchedule(View v)
         {
-            switch (t)
-            {
-                case ViewType.FloorPlan: return "Floor Plans";
-                case ViewType.CeilingPlan: return "Ceiling Plans";
-                case ViewType.ThreeD: return "3D Views";
-                case ViewType.Elevation: return "Elevations";
-                case ViewType.Section: return "Sections";
-                case ViewType.Detail: return "Detail Views";
-                case ViewType.DraftingView: return "Drafting Views";
-                case ViewType.Legend: return "Legends";
-                case ViewType.Schedule: return "Schedules";
-                case ViewType.AreaPlan: return "Area Plans";
-                case ViewType.EngineeringPlan: return "Structural Plans";
-                default: return "Other Views";
-            }
+            try { return v is ViewSchedule vs && (vs.IsTitleblockRevisionSchedule || vs.IsInternalKeynoteSchedule); }
+            catch { return false; }
+        }
+
+        private static bool IsPlaceholder(ViewSheet s)
+        {
+            try { return s.IsPlaceholder; }
+            catch { return false; }
         }
     }
 }
