@@ -20,6 +20,8 @@ namespace Tests
         public void The_browser_lists(string key, string type, string cls) => Assert.True(BrowserFamilies.Listed(key, type, cls));
 
         [Theory]
+        [InlineData("OST_RailingSupport", "Model", "FamilySymbol")]
+        [InlineData("", "Model", "ElementType")]
         [InlineData("OST_Fluids", "Model", "FluidType")]
         [InlineData("OST_PipeMaterials", "Model", "ElementType")]
         [InlineData("OST_WireInsulations", "Model", "ElementType")]

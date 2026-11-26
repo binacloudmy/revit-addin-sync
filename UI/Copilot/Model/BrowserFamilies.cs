@@ -19,7 +19,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
             "OST_Fascia", "OST_Fluids", "OST_Gutter", "OST_RailingHandRail", "OST_StairsLandings", "OST_MassFloorsAll", "OST_MassOpening", "OST_MassRoof",
             "OST_MassShade", "OST_MassWallsAll", "OST_MassGlazingAll", "OST_MechanicalEquipmentSet", "OST_PipeConnections", "OST_PipeMaterials",
             "OST_PipeSchedules", "OST_SiteProperty", "OST_RvtLinks", "OST_RasterImages", "OST_Reveals", "OST_RoofSoffit", "OST_StairsRuns", "OST_EdgeSlab",
-            "OST_StackedWalls", "OST_StairsStringerCarriage", "OST_RailingTopRail", "OST_ElectricalVoltage", "OST_Cornices", "OST_WireInsulations",
+            "OST_StackedWalls", "OST_StairsStringerCarriage", "OST_RailingSupport", "OST_RailingTopRail", "OST_ElectricalVoltage", "OST_Cornices", "OST_WireInsulations",
             "OST_WireMaterials", "OST_WireTemperatureRatings",
         };
 
@@ -33,7 +33,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>True when the browser lists a type of this category and class under Families.</summary>
         public static bool Listed(string categoryKey, string categoryType, string className)
         {
-            if (DeniedClasses.Contains(className ?? "") || DeniedKeys.Contains(categoryKey ?? "")) return false;
+            // A category with no built-in key is an import (a linked DWG's "Import Symbol"), not a family category.
+            if (string.IsNullOrEmpty(categoryKey) || DeniedClasses.Contains(className ?? "") || DeniedKeys.Contains(categoryKey)) return false;
             if (categoryType == "Model" || ExtraKeys.Contains(categoryKey ?? "")) return true;
             return categoryType == "Annotation" && AnnotationClasses.Contains(className ?? "");
         }
