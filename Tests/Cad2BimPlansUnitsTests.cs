@@ -224,6 +224,26 @@ namespace Tests
             Assert.Equal(25.4, Units.Resolve(DocWithUnits(UnitsType.Inches), Rectangle(472, 394), arcs));
         }
 
+        [Fact]
+        public void Resolve_drops_an_implausible_header_whose_few_swings_are_outvoted()
+        {
+            // elec.dwg: inches make a 64 m plan 1.6 km wide. Three r30 arcs are swings at
+            // inches, but eight r800 arcs are swings at mm, so the header must not win.
+            var arcs = Enumerable.Range(0, 3).Select(i => A(100 * i, 20, 30, 0, 90))
+                .Concat(Enumerable.Range(0, 8).Select(i => A(2000 * i, 500, 800, 0, 90))).ToList();
+
+            Assert.Equal(1.0, Units.Resolve(DocWithUnits(UnitsType.Inches), Rectangle(50000, 40000), arcs));
+        }
+
+        [Fact]
+        public void Resolve_keeps_an_implausible_header_whose_swings_clearly_win()
+        {
+            var arcs = Enumerable.Range(0, 7).Select(i => A(100 * i, 20, 30, 0, 90))
+                .Append(A(2000, 500, 800, 0, 90)).ToList();
+
+            Assert.Equal(25.4, Units.Resolve(DocWithUnits(UnitsType.Inches), Rectangle(50000, 40000), arcs));
+        }
+
         // ── Units.Normalize ──────────────────────────────────────────────
 
         [Fact]

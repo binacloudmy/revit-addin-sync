@@ -136,7 +136,7 @@ namespace Cad2Bim {
         /// 2. Header makes the drawing building-sized: keep it, unless no swing agrees with it,
         ///    another scale wins the swings clearly, and only that scale puts the drawing in the
         ///    common 5..200 m band.
-        /// 3. Header does not: keep it if at least three swings agree with it, otherwise the
+        /// 3. Header does not: keep it if it is the clear door-swing winner, otherwise the
         ///    clear swing winner if that makes the drawing building-sized, otherwise the size
         ///    guess.
         /// </summary>
@@ -162,7 +162,9 @@ namespace Cad2Bim {
                 return header;
             }
 
-            if (headerVotes >= DoorVotesNeeded) return header;
+            // Only as the clear swing winner: three fillets at the header's scale must not beat more swings at another.
+            // shortcut: a header outside PlausibleScales (yards, dm) can no longer be kept by swings here, add it to the vote if one turns up.
+            if (winner == header) return header;
             if (winner is double clear && InBand(diagonal * clear, SmallestPlanMm, LargestPlanMm)) return clear;
             return InferScale(segments);
         }
