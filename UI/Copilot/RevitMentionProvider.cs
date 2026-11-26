@@ -139,7 +139,7 @@ namespace RevitWebAppSync.UI.Copilot
             catch { /* no Type Mark on this type */ }
             return new MentionNode("type", name)
             {
-                Family = family, Category = category, CategoryKey = catKey,
+                ClassName = same[0].GetType().Name, Family = family, Category = category, CategoryKey = catKey,
                 TypeMark = string.IsNullOrWhiteSpace(mark) ? null : mark.Trim(),
                 Count = inModel == null ? (int?)null : same.Sum(t => inModel.TryGetValue(t.Id, out var c) ? c : 0),
                 InView = inView == null ? (int?)null : same.Sum(t => inView.TryGetValue(t.Id, out var c) ? c : 0),

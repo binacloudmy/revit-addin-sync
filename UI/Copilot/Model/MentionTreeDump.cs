@@ -21,6 +21,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 var o = new JObject { ["kind"] = n.Kind, ["name"] = n.Name };
                 if (n.ElementId.HasValue) o["id"] = n.ElementId.Value;
                 if (n.IsActive) o["active"] = true;
+                if (!string.IsNullOrEmpty(n.ClassName)) o["class"] = n.ClassName;
                 if (n.Children.Count > 0) o["children"] = ToJson(n.Children);
                 return (JToken)o;
             }));

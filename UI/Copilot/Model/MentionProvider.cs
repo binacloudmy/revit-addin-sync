@@ -27,6 +27,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public int? InView;       // type: instances in the active view; null = not counted
         public bool IsActive;     // view: the active view
         public MentionSelection Selection;   // selection: what is selected, by type
+        public string ClassName;  // type: the Revit class of the type (WallType, FamilySymbol ...), written to the test dump only
         public long? ElementId;   // level / view / sheet: the Revit element id, sent with the turn (r17); null when unknown or ambiguous
 
         public MentionNode(string kind, string name, bool pickable = true)
