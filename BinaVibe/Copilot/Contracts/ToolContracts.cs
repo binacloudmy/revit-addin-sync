@@ -13,7 +13,7 @@ using System.Threading.Tasks;
 
 namespace BinaVibe.Copilot.Contracts
 {
-    /// <summary>The 12 model-facing tools (spec §11, AI-529, AI-530), in tools.json order.</summary>
+    /// <summary>The 13 model-facing tools (spec §11, AI-529, AI-530; read_dwg_plan: AI-605), in tools.json order.</summary>
     public static class ToolNames
     {
         public const string ModelOverview = "model_overview";
@@ -25,6 +25,7 @@ namespace BinaVibe.Copilot.Contracts
         public const string RunRevitCode = "run_revit_code";
         public const string LoadLink = "load_link";
         public const string BindParameters = "bind_parameters";
+        public const string ReadDwgPlan = "read_dwg_plan";
         public const string Lookup = "lookup";
         public const string AskUser = "ask_user";
         public const string Report = "report";
@@ -33,19 +34,19 @@ namespace BinaVibe.Copilot.Contracts
 
         public static IReadOnlyList<string> All { get; } = new[]
         {
-            ModelOverview, FindElements, Inspect, Check, SetParameters, Look, RunRevitCode, LoadLink, BindParameters, Lookup, AskUser, Report,
+            ModelOverview, FindElements, Inspect, Check, SetParameters, Look, RunRevitCode, LoadLink, BindParameters, ReadDwgPlan, Lookup, AskUser, Report,
         };
 
-        /// <summary>The 9 tools the add-in runs (lookup and report run in the cloud, ask_user in the pane).</summary>
+        /// <summary>The 10 tools the add-in runs (lookup and report run in the cloud, ask_user in the pane).</summary>
         public static IReadOnlyList<string> AddIn { get; } = new[]
         {
-            ModelOverview, FindElements, Inspect, Check, SetParameters, Look, RunRevitCode, LoadLink, BindParameters,
+            ModelOverview, FindElements, Inspect, Check, SetParameters, Look, RunRevitCode, LoadLink, BindParameters, ReadDwgPlan,
         };
 
         /// <summary>The tools.json kind: read | write | code | server | pane; null for any other name.</summary>
         public static string? KindOf(string? name) => name switch
         {
-            ModelOverview or FindElements or Inspect or Check or Look => "read",
+            ModelOverview or FindElements or Inspect or Check or Look or ReadDwgPlan => "read",
             SetParameters or LoadLink or BindParameters => "write",
             RunRevitCode => "code",
             Lookup or Report => "server",

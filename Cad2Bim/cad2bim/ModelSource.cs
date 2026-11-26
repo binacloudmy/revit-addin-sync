@@ -249,8 +249,9 @@ namespace Cad2Bim {
                     if (c == '\\' && i + 1 < value.Length) {
                         char code = value[i + 1];
 
-                        // \P and \p are line breaks; the rest run to a semicolon.
-                        if (code is 'P' or 'p' or '~') { text.Append(' '); i++; continue; }
+                        // \P is a line break; the rest run to a semicolon, \p too (\pxi-3,l4;
+                        // is paragraph indent, and read as a break it left "xi-3,l4;" in notes).
+                        if (code is 'P' or '~') { text.Append(' '); i++; continue; }
                         if (code is '\\' or '{' or '}') { text.Append(code); i++; continue; }
 
                         int end = value.IndexOf(';', i);
@@ -262,9 +263,13 @@ namespace Cad2Bim {
                     text.Append(c);
                 }
 
+                // TEXT control codes: %%U / %%O toggle under- and overline, %%D %%C %%P are symbols.
+                string plain = System.Text.RegularExpressions.Regex.Replace(text.ToString(), "%%([UuOoDdCcPp%])", m =>
+                    char.ToUpperInvariant(m.Groups[1].Value[0]) switch { 'D' => "°", 'C' => "Ø", 'P' => "±", '%' => "%", _ => "" });
+
                 // A paragraph break becomes a space, so "BILIK\PPERBINCANGAN" would otherwise
                 // come back double-spaced where the drawing shows one word per line.
-                return string.Join(" ", text.ToString()
+                return string.Join(" ", plain
                     .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
             }
 

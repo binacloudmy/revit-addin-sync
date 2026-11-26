@@ -483,14 +483,7 @@ namespace Cad2Bim.Services {
 
             var mapped = MapAll(xform, points);
 
-            ArcParams? parameters = null;
-            if (xform.TryConformal(out double scale, out double rotation, out bool mirrored)) {
-                var (mappedCenterX, mappedCenterY) = xform.Apply(centerX, centerY);
-                var (start, end) = Xform.MapAngles(startAngle, endAngle, rotation, mirrored);
-                parameters = new ArcParams(mappedCenterX, mappedCenterY, radius * scale, start, end);
-            }
-
-            sink.Arc(mapped, parameters, layer, source);
+            sink.Arc(mapped, MapArc(xform, centerX, centerY, radius, startAngle, endAngle), layer, source);
         }
 
         /// <summary>Circumcircle of three 2D points (Z dropped, same as everywhere else in this
@@ -683,14 +676,22 @@ namespace Cad2Bim.Services {
         private static void EmitArc(ICadSink sink, Xform xform, CadArc arc, string layer, CadSource source) {
             var points = MapAll(xform, Flat(arc.PolygonalVertexes(CurvePoints(arc.Sweep))));
 
-            ArcParams? parameters = null;
-            if (xform.TryConformal(out double scale, out double rotation, out bool mirrored)) {
-                var (centerX, centerY) = xform.Apply(arc.Center.X, arc.Center.Y);
-                var (start, end) = Xform.MapAngles(arc.StartAngle, arc.EndAngle, rotation, mirrored);
-                parameters = new ArcParams(centerX, centerY, arc.Radius * scale, start, end);
-            }
+            sink.Arc(points, MapArc(xform, arc.Center.X, arc.Center.Y, arc.Radius, arc.StartAngle, arc.EndAngle), layer, source);
+        }
 
-            sink.Arc(points, parameters, layer, source);
+        /// <summary>
+        /// The arc after the transform, or null when it is no longer a circle (a squashed or
+        /// sheared insert). A mirrored insert with a uniform scale is still a circle (door
+        /// blocks are flipped to hinge the other way far more often than not); see
+        /// <see cref="Xform.MapAngles"/> for how its ends swap.
+        /// </summary>
+        internal static ArcParams? MapArc(Xform xform, double centerX, double centerY, double radius,
+                                          double startAngle, double endAngle) {
+            if (!xform.TryConformal(out double scale, out double rotation, out bool mirrored)) return null;
+
+            var (mappedX, mappedY) = xform.Apply(centerX, centerY);
+            var (start, end) = Xform.MapAngles(startAngle, endAngle, rotation, mirrored);
+            return new ArcParams(mappedX, mappedY, radius * scale, start, end);
         }
 
         private static void EmitText(ICadSink sink, Xform xform, double x, double y,
