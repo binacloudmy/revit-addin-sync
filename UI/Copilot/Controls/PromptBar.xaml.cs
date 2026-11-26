@@ -601,7 +601,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             button.Click += (_, __) =>
             {
                 if (!RevitWebAppSync.UI.CadToBim.CadToBimLauncher.Open(path))
-                    MessageBox.Show("Could not open the CAD to BIM pane. Use the CAD to BIM button on the ribbon instead.",
+                    System.Windows.MessageBox.Show("Could not open the CAD to BIM pane. Use the CAD to BIM button on the ribbon instead.",
                                     "BINA CAD to BIM", MessageBoxButton.OK, MessageBoxImage.Information);
             };
             return button;
