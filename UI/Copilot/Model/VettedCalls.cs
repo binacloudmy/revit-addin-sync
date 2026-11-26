@@ -49,7 +49,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 {
                     var view = S(v, "view");
                     if (view.Length == 0) { error = "Name a view to open."; return null; }
-                    return Code("Open view " + view, OpenViewCode(view), write: true);
+                    long? viewId = v.TryGetValue("viewId", out var vid) && vid != null ? Convert.ToInt64(vid, System.Globalization.CultureInfo.InvariantCulture) : (long?)null;
+                    return Code("Open view " + view, OpenViewCode(view, viewId), write: true);
                 }
                 case "select_elements":
                 {
@@ -163,13 +164,28 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 ["intent"] = intent.Length <= 120 ? intent : intent.Substring(0, 119) + "…",
             });
 
-        internal static string OpenViewCode(string viewName)
+        /// <summary>The element id of the first view or sheet the drafter picked with @, or null.</summary>
+        public static long? PickedViewId(IEnumerable<Mention>? mentions) =>
+            mentions?.FirstOrDefault(m => m != null && m.Id != null && (m.Kind == "view" || m.Kind == "sheet"))?.Id;
+
+        /// <summary>Opens a view or sheet. With an id (from an @ chip) it opens exactly that view; without one, or when the id no
+        /// longer resolves, it matches by name, and a sheet also by its chip text "SheetNumber - Name".</summary>
+        internal static string OpenViewCode(string viewName, long? viewId = null)
         {
             var sb = new StringBuilder();
             sb.AppendLine("var name = " + Literal(viewName) + ";");
-            sb.AppendLine("var views = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>().Where(x => !x.IsTemplate).ToList();");
-            sb.AppendLine("var target = views.FirstOrDefault(x => string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase))");
-            sb.AppendLine("    ?? views.FirstOrDefault(x => x.Name.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0);");
+            if (viewId != null)
+                sb.AppendLine("View target = doc.GetElement(new ElementId(" + viewId.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) + "L)) as View;");
+            else
+                sb.AppendLine("View target = null;");
+            sb.AppendLine("if (target != null && target.IsTemplate) target = null;");
+            sb.AppendLine("if (target == null)");
+            sb.AppendLine("{");
+            sb.AppendLine("    var views = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>().Where(x => !x.IsTemplate).ToList();");
+            sb.AppendLine("    target = views.FirstOrDefault(x => string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase))");
+            sb.AppendLine("        ?? views.OfType<ViewSheet>().FirstOrDefault(x => string.Equals(x.SheetNumber + \" - \" + x.Name, name, StringComparison.OrdinalIgnoreCase))");
+            sb.AppendLine("        ?? views.FirstOrDefault(x => x.Name.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0);");
+            sb.AppendLine("}");
             sb.AppendLine("if (target == null) Print(\"No view named '\" + name + \"'.\");");
             sb.AppendLine("else { uidoc.RequestViewChange(target); Print(\"Opened \" + target.Name); }");
             return sb.ToString();
