@@ -244,6 +244,7 @@ namespace RevitWebAppSync.UI.Copilot
                 {
                     lib.PromptChosen += StartPromptInChat;
                     lib.CommandRun += RunSavedCommand;
+                    lib.CommandDeleteRequested += t => DeleteSavedCommand(lib, t);
                 }
             }
             return cache;
@@ -287,6 +288,17 @@ namespace RevitWebAppSync.UI.Copilot
 
         // Commands tab / Home "Run": land on Chat, then run the saved command
         // (no required inputs: sends; else it is picked so its chips can be filled).
+        // Commands tab trash button: same confirm and delete as the slash menu's Delete (OnDeleteCommandAsync), then redraw the list.
+        private async void DeleteSavedCommand(Screens.LibraryView lib, SlashTool tool)
+        {
+            if (tool == null || !tool.Editable) return;
+            var yes = MessageBox.Show($"Delete /{tool.Id}? This cannot be undone.", "Delete command",
+                MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes;
+            if (!yes) return;
+            await _vm.OnDeleteCommandAsync(tool);
+            lib.RefreshSaved();
+        }
+
         private void RunSavedCommand(SlashTool tool)
         {
             _vm.GoTab(CpTab.Chat);

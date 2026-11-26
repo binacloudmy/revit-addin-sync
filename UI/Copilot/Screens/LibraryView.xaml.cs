@@ -25,6 +25,9 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         /// switches to Chat and runs it.</summary>
         public event Action<SlashTool> CommandRun;
 
+        /// <summary>Raised when a saved command's trash button is tapped; the panel confirms, deletes, then calls <see cref="RefreshSaved"/>.</summary>
+        public event Action<SlashTool> CommandDeleteRequested;
+
         public LibraryView()
         {
             InitializeComponent();
@@ -37,8 +40,11 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         private void BuildSaved()
         {
             SavedHost.Children.Clear();
-            SavedHost.Children.Add(HomeParts.SavedCommandsSection(t => CommandRun?.Invoke(t)));
+            SavedHost.Children.Add(HomeParts.SavedCommandsSection(t => CommandRun?.Invoke(t), t => CommandDeleteRequested?.Invoke(t)));
         }
+
+        /// <summary>Redraw the saved-commands list (after a delete).</summary>
+        public void RefreshSaved() => BuildSaved();
 
         private bool _loading;
         private System.Threading.CancellationTokenSource _cts;

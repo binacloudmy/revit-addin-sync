@@ -108,7 +108,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
         /// <summary>"Your commands": one row per saved command with a Run pill.
         /// With none saved, a one-line hint instead of an empty card.</summary>
-        public static FrameworkElement SavedCommandsSection(Action<SlashTool> run)
+        public static FrameworkElement SavedCommandsSection(Action<SlashTool> run, Action<SlashTool> delete = null)
         {
             var section = new StackPanel { Margin = new Thickness(0, 0, 0, 18) };
             section.Children.Add(SectionHeader("Your commands"));
@@ -135,7 +135,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                     hair.SetResourceReference(Border.BackgroundProperty, "Cp.LineSoft");
                     rows.Children.Add(hair);
                 }
-                rows.Children.Add(CommandRow(mine[i], run));
+                rows.Children.Add(CommandRow(mine[i], run, delete));
             }
             var card = new Border { CornerRadius = new CornerRadius(12), BorderThickness = new Thickness(1), Child = rows, ClipToBounds = true };
             card.SetResourceReference(Border.BackgroundProperty, "Cp.Bg");
@@ -144,11 +144,12 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             return section;
         }
 
-        private static FrameworkElement CommandRow(SlashTool tool, Action<SlashTool> run)
+        private static FrameworkElement CommandRow(SlashTool tool, Action<SlashTool> run, Action<SlashTool> delete = null)
         {
             var g = new Grid { Margin = new Thickness(12, 10, 10, 10) };
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
             var tile = new Border
@@ -193,6 +194,28 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             ((TextBlock)pill.Child).SetResourceReference(TextBlock.ForegroundProperty, "Cp.Ink");
             Grid.SetColumn(pill, 2);
             g.Children.Add(pill);
+
+            // Saved (Mine) commands can be removed here; the click never runs the command.
+            if (delete != null && tool.Editable)
+            {
+                var trash = new Path
+                {
+                    Width = 14, Height = 14, Stretch = Stretch.Uniform, StrokeThickness = 1.6,
+                    StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round, StrokeLineJoin = PenLineJoin.Round,
+                    Data = ToolCatalog.Icon("ti-trash"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
+                };
+                trash.SetResourceReference(Shape.StrokeProperty, "Cp.Faint");
+                var del = new Border
+                {
+                    Width = 28, Height = 28, CornerRadius = new CornerRadius(7), Margin = new Thickness(6, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center,
+                    Background = Brushes.Transparent, Cursor = System.Windows.Input.Cursors.Hand, Child = trash, ToolTip = "Delete /" + tool.Id,
+                };
+                del.MouseEnter += (_, __) => del.Background = CopilotColors.Tint("Cp.Brand", 0x17);
+                del.MouseLeave += (_, __) => del.Background = Brushes.Transparent;
+                del.MouseLeftButtonUp += (_, e) => { e.Handled = true; delete(tool); };
+                Grid.SetColumn(del, 3);
+                g.Children.Add(del);
+            }
 
             var row = new Border { Background = Brushes.Transparent, Cursor = System.Windows.Input.Cursors.Hand, Child = g, ToolTip = "Run /" + tool.Id };
             row.MouseEnter += (_, __) => row.Background = CopilotColors.Tint("Cp.Brand", 0x0D);

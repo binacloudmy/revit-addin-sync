@@ -81,7 +81,8 @@ namespace RevitWebAppSync.UI.Copilot
                         .GroupBy(x => (x.Place.Group, x.Place.Rank)).OrderBy(g => g.Key.Rank)
                         .Select(g => MentionNode.Group(g.Key.Group, ViewsIn(g))).ToList()));
                 roots.Add(MentionNode.Group(BrowserViews.LegendsBranch, ViewsIn(placed.Where(x => x.Place.Branch == BrowserViews.LegendsBranch))));
-                roots.Add(MentionNode.Group(BrowserViews.SchedulesBranch, ViewsIn(placed.Where(x => x.Place.Branch == BrowserViews.SchedulesBranch))));
+                roots.Add(ScheduleBranch(BrowserViews.SchedulesBranch, placed, activeName, () => BrowserOrganization.GetCurrentBrowserOrganizationForSchedules(doc)));
+                roots.Add(ScheduleBranch(BrowserViews.PanelSchedulesBranch, placed, activeName, () => BrowserOrganization.GetCurrentBrowserOrganizationForPanelSchedules(doc)));
 
                 var sheets = new FilteredElementCollector(doc).OfClass(typeof(ViewSheet)).Cast<ViewSheet>().Where(s => !IsPlaceholder(s)).ToList();
                 MentionNode SheetNode(ViewSheet s) => new MentionNode("sheet", $"{s.SheetNumber} - {s.Name}") { ElementId = s.Id.Value };
@@ -223,6 +224,18 @@ namespace RevitWebAppSync.UI.Copilot
                 g.Count++;
             }
             return new MentionSelection(groups.Values);
+        }
+
+        // One schedule branch: the browser organization's filters and folders when it can be read, else the plain name list.
+        private static MentionNode ScheduleBranch(string branch, List<(View View, (string Branch, string Group, int Rank) Place)> placed, string activeName,
+                                                  Func<BrowserOrganization> getOrg)
+        {
+            var views = placed.Where(x => x.Place.Branch == branch).Select(x => x.View).ToList();
+            MentionNode Node(View v) => new MentionNode("view", v.Name) { IsActive = v.Name == activeName, ElementId = v.Id.Value };
+            var org = Organization(getOrg);
+            var rows = org == null ? null : OrganizedRows(org, views, Node);
+            return MentionNode.Group(branch, rows != null ? BrowserTree.Nest(rows)
+                : views.OrderBy(v => v.Name, StringComparer.CurrentCultureIgnoreCase).Select(Node).ToList());
         }
 
         private static BrowserOrganization Organization(Func<BrowserOrganization> get)

@@ -23,8 +23,9 @@ namespace Tests
         public void Legends_and_schedules_are_their_own_branches()
         {
             Assert.Equal("Legends", BrowserViews.Place("Legend").Value.Branch);
-            foreach (var t in new[] { "Schedule", "ColumnSchedule", "PanelSchedule" })
+            foreach (var t in new[] { "Schedule", "ColumnSchedule" })
                 Assert.Equal("Schedules/Quantities", BrowserViews.Place(t).Value.Branch);
+            Assert.Equal("Panel Schedules", BrowserViews.Place("PanelSchedule").Value.Branch);
         }
     }
 }
