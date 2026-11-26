@@ -10,6 +10,17 @@ namespace RevitWebAppSync.UI.Copilot.Model
     {
         public const string ViewsBranch = "Views", LegendsBranch = "Legends", SchedulesBranch = "Schedules/Quantities", PanelSchedulesBranch = "Panel Schedules";
 
+        /// <summary>The browser's position of a view-type folder by its name ("Floor Plans" 1, "Ceiling Plans" 2, "3D Views" 5 ...), 0 when the name is not a view-type folder.</summary>
+        public static int GroupRank(string folder)
+        {
+            foreach (var t in new[] { "FloorPlan", "CeilingPlan", "EngineeringPlan", "AreaPlan", "ThreeD", "Elevation", "Section", "Detail", "DraftingView", "Walkthrough", "Rendering" })
+            {
+                var p = Place(t);
+                if (p.HasValue && string.Equals(p.Value.Group, folder, System.StringComparison.OrdinalIgnoreCase)) return p.Value.Rank;
+            }
+            return 0;
+        }
+
         /// <summary>The branch and the group (null for a branch listed flat) the Project Browser puts a view of this type in, with the
         /// group's order in the browser; null when the browser does not list it.</summary>
         public static (string Branch, string Group, int Rank)? Place(string viewType)

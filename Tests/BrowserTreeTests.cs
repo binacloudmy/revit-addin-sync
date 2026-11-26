@@ -21,6 +21,14 @@ namespace Tests
         }
 
         [Fact]
+        public void View_type_folders_keep_the_browsers_order_and_the_empty_value_folder_is_last()
+        {
+            var tree = BrowserTree.Nest(new[] { Row("a", "???"), Row("b", "07d", "Sections"), Row("c", "07d", "Floor Plans"), Row("d", "07d", "3D Views"), Row("e", "07d", "Elevations"), Row("f", "01w"), Row("g", "07d", "Ceiling Plans") });
+            Assert.Equal(new[] { "01w", "07d", "???" }, tree.Select(n => n.Name).Where(n => n != "f"));
+            Assert.Equal(new[] { "Floor Plans", "Ceiling Plans", "3D Views", "Elevations", "Sections" }, tree.Single(n => n.Name == "07d").Children.Select(n => n.Name));
+        }
+
+        [Fact]
         public void Same_name_in_two_folders_keeps_both_with_their_own_ids()
         {
             var tree = BrowserTree.Nest(new[] { Row("Aras 01", "a"), Row("Aras 01", "b") });

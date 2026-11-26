@@ -76,7 +76,7 @@ namespace RevitWebAppSync.UI.Copilot
                 var viewRows = viewOrg == null ? null : OrganizedRows(viewOrg,
                     placed.Where(x => x.Place.Branch == BrowserViews.ViewsBranch).Select(x => x.View).ToList(),
                     v => new MentionNode("view", v.Name) { IsActive = v.Id == active?.Id, ElementId = v.Id.Value });
-                roots.Add(MentionNode.Group(BrowserViews.ViewsBranch, viewRows != null ? BrowserTree.Nest(viewRows) :
+                roots.Add(MentionNode.Group(Labelled(BrowserViews.ViewsBranch, viewOrg), viewRows != null ? BrowserTree.Nest(viewRows) :
                     placed.Where(x => x.Place.Branch == BrowserViews.ViewsBranch)
                         .GroupBy(x => (x.Place.Group, x.Place.Rank)).OrderBy(g => g.Key.Rank)
                         .Select(g => MentionNode.Group(g.Key.Group, ViewsIn(g))).ToList()));
@@ -88,7 +88,7 @@ namespace RevitWebAppSync.UI.Copilot
                 MentionNode SheetNode(ViewSheet s) => new MentionNode("sheet", $"{s.SheetNumber} - {s.Name}") { ElementId = s.Id.Value };
                 var sheetOrg = Organization(() => BrowserOrganization.GetCurrentBrowserOrganizationForSheets(doc));
                 var sheetRows = sheetOrg == null ? null : OrganizedRows(sheetOrg, sheets, SheetNode);
-                roots.Add(MentionNode.Group("Sheets", sheetRows != null ? BrowserTree.Nest(sheetRows)
+                roots.Add(MentionNode.Group(Labelled("Sheets", sheetOrg), sheetRows != null ? BrowserTree.Nest(sheetRows)
                     : sheets.OrderBy(s => s.SheetNumber).Select(SheetNode).ToList()));
 
                 var types = new FilteredElementCollector(doc).WhereElementIsElementType()
@@ -234,8 +234,15 @@ namespace RevitWebAppSync.UI.Copilot
             MentionNode Node(View v) => new MentionNode("view", v.Name) { IsActive = v.Name == activeName, ElementId = v.Id.Value };
             var org = Organization(getOrg);
             var rows = org == null ? null : OrganizedRows(org, views, Node);
-            return MentionNode.Group(branch, rows != null ? BrowserTree.Nest(rows)
+            return MentionNode.Group(Labelled(branch, org), rows != null ? BrowserTree.Nest(rows)
                 : views.OrderBy(v => v.Name, StringComparer.CurrentCultureIgnoreCase).Select(Node).ToList());
+        }
+
+        // The browser shows its organization's name after the branch: "Views (00a_All)", "Sheets (00a_All)", "Schedules/Quantities (all)".
+        private static string Labelled(string branch, BrowserOrganization org)
+        {
+            try { return org == null || string.IsNullOrWhiteSpace(org.Name) ? branch : branch + " (" + org.Name + ")"; }
+            catch { return branch; }
         }
 
         private static BrowserOrganization Organization(Func<BrowserOrganization> get)
