@@ -362,10 +362,11 @@ namespace RevitAddinSync.Tests
             var commands = File.ReadAllText(Path.Combine(Root(), "UI/Copilot/CopilotViewModel.Commands.cs"));
             foreach (var call in new[] { "AIService", ".SaveCommandAsync", ".UpdateCommandAsync", ".DeleteCommandAsync(", ".GetCommandsAsync", "HttpClient", "SavedCommandsEtag = svc" })
                 Assert.DoesNotContain(call, commands);
-            Assert.Contains("LocalCommandStore.Default.Delete(", commands);
+            Assert.Contains("store.Delete(t.Id)", commands);   // the local store, no backend call
             Assert.Contains("store.Add(d)", commands);
             Assert.Contains("store.Update(d.EditingId, d)", commands);
-            Assert.Contains("ToolCatalog.MergeMine(LocalCommandStore.Default.ToTools())", commands);
+            Assert.Contains("ToolCatalog.MergeMine(saved)", commands);   // saved = LocalCommandStore.Default.ToTools()
+            Assert.Contains("LocalCommandStore.Default.ToTools()", commands);
 
             // Running expands the template in the add-in and sends it as a normal prompt. r17: only a curated command sends its id
             // (ToolCatalog.WireCommandId); a command saved on this PC sends none (SlashCommandR17Tests).
