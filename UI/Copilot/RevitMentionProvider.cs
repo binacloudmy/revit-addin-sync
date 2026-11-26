@@ -70,18 +70,25 @@ namespace RevitWebAppSync.UI.Copilot
                 IEnumerable<MentionNode> ViewsIn(IEnumerable<(View View, (string Branch, string Group, int Rank) Place)> rows) =>
                     rows.Select(x => x.View).GroupBy(v => v.Name).OrderBy(n => n.Key, StringComparer.CurrentCultureIgnoreCase).Select(ViewNode);
 
-                roots.Add(MentionNode.Group(BrowserViews.ViewsBranch,
+                // Views and sheets follow the project's own Browser Organization: only what its filters let through, in its folders.
+                // No organization (or a failure reading it): the view-type groups, the browser's default.
+                var viewOrg = Organization(() => BrowserOrganization.GetCurrentBrowserOrganizationForViews(doc));
+                var viewRows = viewOrg == null ? null : OrganizedRows(viewOrg,
+                    placed.Where(x => x.Place.Branch == BrowserViews.ViewsBranch).Select(x => x.View).ToList(),
+                    v => new MentionNode("view", v.Name) { IsActive = v.Id == active?.Id, ElementId = v.Id.Value });
+                roots.Add(MentionNode.Group(BrowserViews.ViewsBranch, viewRows != null ? BrowserTree.Nest(viewRows) :
                     placed.Where(x => x.Place.Branch == BrowserViews.ViewsBranch)
                         .GroupBy(x => (x.Place.Group, x.Place.Rank)).OrderBy(g => g.Key.Rank)
-                        .Select(g => MentionNode.Group(g.Key.Group, ViewsIn(g)))));
+                        .Select(g => MentionNode.Group(g.Key.Group, ViewsIn(g))).ToList()));
                 roots.Add(MentionNode.Group(BrowserViews.LegendsBranch, ViewsIn(placed.Where(x => x.Place.Branch == BrowserViews.LegendsBranch))));
                 roots.Add(MentionNode.Group(BrowserViews.SchedulesBranch, ViewsIn(placed.Where(x => x.Place.Branch == BrowserViews.SchedulesBranch))));
 
-                roots.Add(MentionNode.Group("Sheets",
-                    new FilteredElementCollector(doc).OfClass(typeof(ViewSheet)).Cast<ViewSheet>()
-                        .Where(s => !IsPlaceholder(s))
-                        .OrderBy(s => s.SheetNumber)
-                        .Select(s => new MentionNode("sheet", $"{s.SheetNumber} - {s.Name}") { ElementId = s.Id.Value })));
+                var sheets = new FilteredElementCollector(doc).OfClass(typeof(ViewSheet)).Cast<ViewSheet>().Where(s => !IsPlaceholder(s)).ToList();
+                MentionNode SheetNode(ViewSheet s) => new MentionNode("sheet", $"{s.SheetNumber} - {s.Name}") { ElementId = s.Id.Value };
+                var sheetOrg = Organization(() => BrowserOrganization.GetCurrentBrowserOrganizationForSheets(doc));
+                var sheetRows = sheetOrg == null ? null : OrganizedRows(sheetOrg, sheets, SheetNode);
+                roots.Add(MentionNode.Group("Sheets", sheetRows != null ? BrowserTree.Nest(sheetRows)
+                    : sheets.OrderBy(s => s.SheetNumber).Select(SheetNode).ToList()));
 
                 var types = new FilteredElementCollector(doc).WhereElementIsElementType()
                     .Cast<ElementType>()
@@ -216,6 +223,31 @@ namespace RevitWebAppSync.UI.Copilot
                 g.Count++;
             }
             return new MentionSelection(groups.Values);
+        }
+
+        private static BrowserOrganization Organization(Func<BrowserOrganization> get)
+        {
+            try { return get(); }
+            catch { return null; }
+        }
+
+        // Each element the browser's filters let through, with its folders (outermost first). Null when the organization cannot be read,
+        // so the caller falls back to the default grouping.
+        private static List<(IList<string> Path, MentionNode Leaf)> OrganizedRows<T>(BrowserOrganization org, IEnumerable<T> items, Func<T, MentionNode> node)
+            where T : Element
+        {
+            try
+            {
+                var rows = new List<(IList<string>, MentionNode)>();
+                foreach (var item in items)
+                {
+                    if (!org.AreFiltersSatisfied(item.Id)) continue;
+                    var path = org.GetFolderItems(item.Id).Select(f => f.Name).Where(n => !string.IsNullOrEmpty(n)).ToList();
+                    rows.Add((path, node(item)));
+                }
+                return rows;
+            }
+            catch { return null; }
         }
 
         // The browser does not list the title block's revision schedule or the internal keynote schedule.
