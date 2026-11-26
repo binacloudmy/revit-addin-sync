@@ -10,32 +10,30 @@ namespace RevitWebAppSync.UI.Copilot
     // summary on the existing Ya/Tidak gate card, and on Ya the #272 builder for that one plan (DwgShow3d).
     public partial class CopilotViewModel
     {
-        private const string Dwg3dAskId = "local-dwg3d";
-        private BuildRequest _dwg3dPending;
+        private const string Dwg3dAskPrefix = "local-dwg3d-";
+        // One request per card (RequestId -> request): Ya on an older card builds that card's plan.
+        private readonly Dictionary<string, BuildRequest> _dwg3dPending = new Dictionary<string, BuildRequest>();
+        private int _dwg3dCards;
         private bool _dwg3dHooked;
 
         /// <summary>ChatSend's hook: true when the text was a "tunjuk 3D" answered here (user bubble added).</summary>
         private bool DwgShow3dAsk(string text, string shown, List<string> images, List<FileAttachment> files, SlashTool slashChip)
         {
-            if (slashChip != null || !DwgShow3d.IsAsk(text)) return false;
-            Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = shown, ImagesBase64 = images, Files = files, Time = System.DateTime.Now.ToString("h:mm tt") });
-            return TryDwg3d(text);
-        }
-
-        private bool TryDwg3d(string text)
-        {
+            if (slashChip != null) return false;
             var (path, sheet) = DwgPlanReader.LastRead;
-            DwgPlan plan = DwgShow3d.Pick(sheet, text, out string problem);
+            if (!DwgShow3d.Intercepts(sheet, text, out DwgPlan plan, out string problem)) return false;
+            Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = shown, ImagesBase64 = images, Files = files, Time = System.DateTime.Now.ToString("h:mm tt") });
             if (plan == null)
             {
                 Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.AiReply, Text = problem, Time = System.DateTime.Now.ToString("h:mm tt") });
                 return true;
             }
 
-            _dwg3dPending = DwgShow3d.Request(path, plan, CadToBimSettings.Load());
+            string id = Dwg3dAskPrefix + (++_dwg3dCards);
+            _dwg3dPending[id] = DwgShow3d.Request(path, plan, CadToBimSettings.Load());
             var ask = new AskDto
             {
-                RequestId = Dwg3dAskId,
+                RequestId = id,
                 Question = DwgShow3d.Summary(plan),
                 // The gate's ids: the one pair the ask card keeps for approval-like labels (AskCardModel.From).
                 Options = new List<AskOptionDto>
@@ -52,14 +50,15 @@ namespace RevitWebAppSync.UI.Copilot
         /// <summary>Ya / Tidak on the local card. True when the card was ours.</summary>
         private bool TrySubmitDwg3d(ChatMessage m, AnswerDto answer, string summary)
         {
-            if (m?.Ask?.RequestId != Dwg3dAskId) return false;
+            string id = m?.Ask?.RequestId;
+            if (id == null || !id.StartsWith(Dwg3dAskPrefix, System.StringComparison.Ordinal)) return false;
             if (m.Ask.AnsweredSummary != null || answer == null) return true;
             m.Ask.AnsweredSummary = string.IsNullOrWhiteSpace(summary) ? "✓" : summary;
             int i = Thread.IndexOf(m);
             if (i >= 0) Thread[i] = Thread[i];
 
-            BuildRequest request = _dwg3dPending;
-            _dwg3dPending = null;
+            _dwg3dPending.TryGetValue(id, out BuildRequest request);
+            _dwg3dPending.Remove(id);
             if (request == null || !answer.Values.ContainsKey(WideWriteModel.WriteAllId))
             {
                 Reply("Baik, tiada apa dibina.");

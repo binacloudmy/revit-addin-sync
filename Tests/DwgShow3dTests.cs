@@ -26,28 +26,38 @@ namespace Tests
             return s;
         }
 
-        [Fact]
-        public void Asks_are_recognised_and_other_text_is_not()
+        private static DwgPlan Pick(DwgPlanSheet sheet, string text)
         {
-            Assert.True(DwgShow3d.IsAsk("tunjuk 3D"));
-            Assert.True(DwgShow3d.IsAsk("Tunjuk 3d pelan 2"));
-            Assert.True(DwgShow3d.IsAsk("show 3D 1"));
-            Assert.False(DwgShow3d.IsAsk("apa itu 3D?"));
-            Assert.False(DwgShow3d.IsAsk(""));
+            Assert.True(DwgShow3d.Intercepts(sheet, text, out DwgPlan plan, out _), text);
+            return plan;
         }
 
         [Fact]
-        public void Picks_by_number_by_title_or_the_only_plan()
+        public void Only_a_bare_ask_a_number_or_a_plan_title_is_answered_locally()
         {
             var sheet = Sheet(Plan(1, "PELAN ARAS 1", 5), Plan(2, "PELAN BUMBUNG", 6), Plan(3, null, 2));
-            Assert.Equal(2, DwgShow3d.Pick(sheet, "tunjuk 3D 2", out _).N);
-            Assert.Equal(2, DwgShow3d.Pick(sheet, "tunjuk 3D bumbung", out _).N);
-            Assert.Null(DwgShow3d.Pick(sheet, "tunjuk 3D", out string which));
+            Assert.False(DwgShow3d.Intercepts(sheet, "show 3D view of the roof", out _, out _));
+            Assert.False(DwgShow3d.Intercepts(sheet, "apa itu 3D?", out _, out _));
+            Assert.False(DwgShow3d.Intercepts(sheet, "", out _, out _));
+            // No sheet read yet: every "tunjuk 3D" goes to the engine.
+            Assert.False(DwgShow3d.Intercepts(null, "tunjuk 3D", out _, out _));
+            Assert.False(DwgShow3d.Intercepts(null, "show me 3d", out _, out _));
+            Assert.False(DwgShow3d.Intercepts(Sheet(Plan(3, null, 2)), "tunjuk 3D", out _, out _));
+        }
+
+        [Fact]
+        public void Picks_by_title_first_then_a_whole_number_then_the_only_plan()
+        {
+            var sheet = Sheet(Plan(1, "ARAS 2", 5), Plan(2, "ARAS 1", 6), Plan(3, "PELAN BUMBUNG", 7), Plan(4, null, 2));
+            Assert.Equal(2, Pick(sheet, "tunjuk 3D aras 1").N);   // the title, not plan n=1
+            Assert.Equal(3, Pick(sheet, "Tunjuk 3d bumbung").N);
+            Assert.Equal(1, Pick(sheet, "tunjuk 3D 1").N);
+            Assert.Equal(3, Pick(sheet, "show 3D pelan 3").N);
+            Assert.Null(Pick(sheet, "tunjuk 3D 4"));                // a fragment is not listed: asks which
+            Assert.True(DwgShow3d.Intercepts(sheet, "tunjuk 3D", out DwgPlan none, out string which));
+            Assert.Null(none);
             Assert.Contains("tunjuk 3D 1", which);
-            Assert.Null(DwgShow3d.Pick(sheet, "tunjuk 3D 3", out _));   // a fragment is not listed
-            Assert.Equal(1, DwgShow3d.Pick(Sheet(Plan(1, "PELAN ARAS 1", 5)), "tunjuk 3D", out _).N);
-            Assert.Null(DwgShow3d.Pick(null, "tunjuk 3D", out string none));
-            Assert.Contains("DWG", none);
+            Assert.Equal(1, Pick(Sheet(Plan(1, "PELAN ARAS 1", 5)), "tunjuk 3D").N);
         }
 
         [Fact]
