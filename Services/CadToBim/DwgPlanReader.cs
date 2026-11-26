@@ -90,6 +90,13 @@ namespace RevitWebAppSync.Services.CadToBim
         private static readonly object CacheLock = new object();
         private static string _cacheKey;
         private static DwgPlanSheet _cacheSheet;
+        private static string _cachePath;
+
+        /// <summary>The file and sheet read_dwg_plan read last (the Copilot's "tunjuk 3D" builds from it). null = none yet.</summary>
+        public static (string Path, DwgPlanSheet Sheet) LastRead
+        {
+            get { lock (CacheLock) return (_cachePath, _cacheSheet); }
+        }
 
         /// <summary>Read the file (cached by path and write time).</summary>
         public static DwgPlanSheet ReadFile(string path, CadToBimSettings settings)
@@ -108,6 +115,7 @@ namespace RevitWebAppSync.Services.CadToBim
             {
                 _cacheKey = key;
                 _cacheSheet = sheet;
+                _cachePath = path;
             }
             return sheet;
         }

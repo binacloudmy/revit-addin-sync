@@ -736,6 +736,9 @@ namespace RevitWebAppSync.UI.Copilot
             Screen = CpScreen.Home;
             ToolId = null;
 
+            // AI-605 demo: "tunjuk 3D" is answered here, never sent (CopilotViewModel.Dwg3d.cs).
+            if (DwgShow3dAsk(text, shown, images, files, slashChip)) { RevitWebAppSync.Services.ForcedConfirm.EndTurn(); return; }
+
             // A typed message while the turn is parked on the assistant's
             // question answers it (the router posts it as the "text" answer);
             // the question card collapses into the record.
@@ -1317,6 +1320,7 @@ namespace RevitWebAppSync.UI.Copilot
         /// note). The card collapses into a record and the turn continues.</summary>
         public async void SubmitAsk(ChatMessage m, BinaVibe.Copilot.Contracts.AnswerDto answer, string summary)
         {
+            if (TrySubmitDwg3d(m, answer, summary)) return;   // AI-605 demo: the local Ya/Tidak card
             var router = TurnRouter;
             if (m?.Ask == null || router == null || m.Ask.AnsweredSummary != null || answer == null) return;
             m.Ask.AnsweredSummary = string.IsNullOrWhiteSpace(summary) ? "✓" : summary;
