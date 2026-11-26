@@ -60,23 +60,50 @@ namespace RevitWebAppSync.UI.Copilot
         {
             var bubble = UserBubble(shown, images, files);
             var note = new ChatMessage { Role = "ai", Kind = CpMsgKind.AiReply, Text = "Membaca " + System.IO.Path.GetFileName(dwg) + "…", Time = System.DateTime.Now.ToString("h:mm tt") };
-            Thread.Add(bubble);
-            Thread.Add(note);
-            DwgPlanSheet sheet = null;
-            var settings = CadToBimSettings.Load();
-            try { sheet = await System.Threading.Tasks.Task.Run(() => DwgPlanReader.ReadFile(dwg, settings)); }
-            catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] tunjuk 3D read failed: " + ex.Message); }
-            Thread.Remove(note);
-            if (DwgShow3d.Intercepts(sheet, text, out DwgPlan plan, out string problem))
+            // async void: nothing may escape onto the dispatcher, so every failure ends in the hand-off below.
+            bool answered = false;
+            IsSending = true;   // a message typed during the read queues behind it (ChatSend's busy check)
+            try
             {
-                Answer(dwg, plan, problem);
-                return;
+                Thread.Add(bubble);
+                Thread.Add(note);
+                var settings = CadToBimSettings.Load();
+                DwgPlanSheet sheet = await System.Threading.Tasks.Task.Run(() => DwgPlanReader.ReadFile(dwg, settings));
+                Thread.Remove(note);
+                if (DwgShow3d.Intercepts(sheet, text, out DwgPlan plan, out string problem))
+                {
+                    Answer(dwg, plan, problem);
+                    answered = true;
+                }
             }
-            // Not a plan this sheet can show (or unreadable): the server answers, as it did before.
-            Thread.Remove(bubble);
-            _dwg3dHandOn = true;
-            try { ChatSend(text, images, files, displayText: shown); }
-            finally { _dwg3dHandOn = false; }
+            catch (System.Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine("[BINA copilot] tunjuk 3D read/answer failed: " + ex);
+            }
+            finally
+            {
+                IsSending = false;
+            }
+            try
+            {
+                if (answered)
+                {
+                    var q = _queued;   // nothing else sends it: no server turn ran
+                    _queued = null;
+                    if (q != null) ChatSend(q.Text, q.ImagesBase64, q.Files, displayText: q.DisplayText);
+                    return;
+                }
+                // Not a plan this sheet can show (or unreadable, or failed): the server answers, as it did before.
+                Thread.Remove(note);
+                Thread.Remove(bubble);
+                _dwg3dHandOn = true;
+                try { ChatSend(text, images, files, displayText: shown); }
+                finally { _dwg3dHandOn = false; }
+            }
+            catch (System.Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine("[BINA copilot] tunjuk 3D hand-off failed: " + ex);
+            }
         }
 
         private void Answer(string path, DwgPlan plan, string problem)
