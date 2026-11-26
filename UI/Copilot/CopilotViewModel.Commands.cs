@@ -46,13 +46,9 @@ namespace RevitWebAppSync.UI.Copilot
         public async System.Threading.Tasks.Task OnDeleteCommandAsync(SlashTool t)
         {
             if (t == null || !t.Editable) return;
-            var ok = LocalCommandStore.Default.Delete(t.Id);
+            // Quiet on purpose: the row disappears from the list; no chat message (it replaced the pane's home screen with a lone bubble).
+            LocalCommandStore.Default.Delete(t.Id);
             await RefreshCommandCatalogAsync(force: true);
-            Thread.Add(new ChatMessage
-            {
-                Role = "ai", Kind = CpMsgKind.AiReply,
-                Text = ok ? $"Deleted `/{t.Id}`." : $"`/{t.Id}` was already gone.",
-            });
         }
 
         /// <summary>Save (or update, when the draft carries EditingId) on this PC — returns
