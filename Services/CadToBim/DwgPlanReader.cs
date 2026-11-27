@@ -420,6 +420,19 @@ namespace RevitWebAppSync.Services.CadToBim
             return modelOpen ? null : NoModelMessage;
         }
 
+        /// <summary>An "att:" ref: a DWG attached in the pane (DwgScratchCache.IsAttachmentRef calls this).</summary>
+        public static bool IsAttachmentRef(string dwgRef) =>
+            !string.IsNullOrEmpty(dwgRef) && dwgRef.StartsWith("att:", StringComparison.Ordinal);
+
+        /// <summary>True when the call's dwg_ref resolves in the open model (model:&lt;id&gt; or any other non-"att:" string),
+        /// so the open-document and same-document checks apply. No ref, a non-string ref or an "att:" ref never reads the model.</summary>
+        public static bool NeedsOpenModel(JsonElement args) =>
+            args.ValueKind == JsonValueKind.Object
+            && args.TryGetProperty("dwg_ref", out var r)
+            && r.ValueKind == JsonValueKind.String
+            && !string.IsNullOrEmpty(r.GetString())
+            && !IsAttachmentRef(r.GetString());
+
         public static Envelope NoDwg() => ReadEnvelope.Fail(ErrorCodes.NotFound, NoDwgMessage, Array.Empty<string>());
 
         /// <summary>The answer: with no plans picked, the sheet listing; with plans, their detail.</summary>

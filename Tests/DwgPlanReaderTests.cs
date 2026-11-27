@@ -454,6 +454,18 @@ namespace Tests
             Assert.StartsWith("dwg_ref must be", DwgPlanReader.ModelRefProblem("drawing.dwg", modelOpen: true, out _));
         }
 
+        // ReadExecutor skips the open-document and same-document checks only when this is false (FRIDAY, 75c3ea15).
+        [Theory]
+        [InlineData(null, false)]
+        [InlineData("{\"plans\":[1]}", false)]
+        [InlineData("{\"dwg_ref\":5}", false)]
+        [InlineData("{\"dwg_ref\":\"\"}", false)]
+        [InlineData("{\"dwg_ref\":\"att:3f2504e0-4f89-11d3-9a0c-0305e82c3301\"}", false)]
+        [InlineData("{\"dwg_ref\":\"model:1\"}", true)]
+        [InlineData("{\"dwg_ref\":\"123\"}", true)]
+        public void Only_a_model_ref_needs_the_open_model(string json, bool expected) =>
+            Assert.Equal(expected, DwgPlanReader.NeedsOpenModel(json == null ? default : JsonDocument.Parse(json).RootElement));
+
         [Theory]
         [InlineData("{\"plans\":[1,2,3,4]}")]
         [InlineData("{\"plans\":[0]}")]

@@ -131,7 +131,7 @@ namespace BinaVibe.Mcp.Tools
         }
 
         public static bool IsAttachmentRef(string dwgRef) =>
-            !string.IsNullOrEmpty(dwgRef) && dwgRef.StartsWith("att:", StringComparison.Ordinal);
+            RevitWebAppSync.Services.CadToBim.DwgPlanReader.IsAttachmentRef(dwgRef);
 
         /// <summary>Get ACadSharp extraction data for an attachment — block names,
         /// text content, attributes. Returns null if ACadSharp failed or the ref
