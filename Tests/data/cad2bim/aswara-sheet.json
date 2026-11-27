@@ -11504,5 +11504,9 @@
     }
   ],
   "DetailsSkipped": 15,
-  "ModelSpaceEntities": 19826
+  "ModelSpaceEntities": 19826,
+  "ExtMinX": -6929.270308600506,
+  "ExtMinY": -130540.48869067116,
+  "ExtMaxX": 463628.14479934983,
+  "ExtMaxY": 34596.65569303429
 }
