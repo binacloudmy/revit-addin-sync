@@ -26,15 +26,16 @@ namespace UiHarness
             Directory.CreateDirectory(dir);
             foreach (var (file, steps) in Screens) Shot(dir, file + "-light-125.png", dark: false, steps, 1.25);
             foreach (double s in new[] { 1.0, 1.25, 1.5 }) Shot(dir, "w06-questions-dark-" + (int)(s * 100) + ".png", dark: true, 4, s);
+            Shot(dir, "w02-preflight-workshared-light-125.png", dark: false, 0, 1.25, workshared: true);   // the "Preview not shown" line + file row
         }
 
-        private static void Shot(string dir, string file, bool dark, int steps, double scale)
+        private static void Shot(string dir, string file, bool dark, int steps, double scale, bool workshared = false)
         {
             CopilotTheme.SetDark(dark);
             string data = Path.Combine(AppContext.BaseDirectory, "cad2bim");
             var vm = new CheckViewModel(_ => null, null, EngineShortcuts.FromJson(File.ReadAllText(Path.Combine(data, "aswara-engine-shortcuts.json"))));
             vm.Show(SheetSnapshot.FromJson(File.ReadAllText(Path.Combine(data, "aswara-sheet.json"))),
-                    new TargetInfo { DocTitle = "ASWARA_ARCH", Levels = { new LevelInfo { Name = "Level 1" } } });
+                    new TargetInfo { DocTitle = "ASWARA_ARCH", Workshared = workshared, Levels = { new LevelInfo { Name = "Level 1" } } });
             for (int i = 0; i < steps; i++) vm.Next();
             if (steps == 4) vm.Answer(vm.Questions[0], vm.Questions[0].Options[0]);     // W06: card 1 answered, card 2 focused
             if (steps == 4) vm.Focus(vm.Questions[1]);

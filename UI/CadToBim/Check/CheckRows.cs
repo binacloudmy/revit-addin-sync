@@ -135,7 +135,13 @@ namespace RevitWebAppSync.UI.CadToBim.Check
             {
                 var p = m.Plan;
                 var row = new CheckRow { Bold = p.Title ?? "Untitled plan " + p.N, Post = m.Built ? " → " + m.TargetLevel : " · not built until mapped", Map = m };
-                if (p.Level == null)
+                bool byStorey = p.Level != null && CheckState.Storey(p.Level) != null && CheckState.Storey(p.Level) == CheckState.Storey(s.BuildLevel);
+                if (m.IsMain && !byStorey)
+                {
+                    row.Mark = "swatch-a"; row.Source = Src.AiGuess; row.Badge = "main plan: first on the sheet";
+                    row.Evidence = "No plan names " + s.BuildLevel + "; the first plan on the sheet is built";
+                }
+                else if (p.Level == null)
                 {
                     row.Mark = "swatch-a"; row.Source = Src.AiGuess; row.Badge = "Same level";
                     row.Evidence = "No storey title: default is same level" + (p.Elevation != null ? " · " + p.Elevation : "");
@@ -151,7 +157,7 @@ namespace RevitWebAppSync.UI.CadToBim.Check
                     row.Evidence = "Drawing says " + p.Level + (p.Elevation != null ? " (" + p.Elevation + ")" : "") + " · same level until confirmed";
                 }
                 return row;
-            }).OrderBy(r => r.Mark == "swatch-g" ? 0 : 1).ToList();   // the main-level plan first (stable sort keeps sheet order)
+            }).OrderBy(r => r.Map.IsMain ? 0 : 1).ToList();   // the main plan first (stable sort keeps sheet order)
             if (s.Sheet.DetailsSkipped > 0)
                 rows.Add(new CheckRow { Mark = "swatch-n", Text = s.Sheet.DetailsSkipped + " details · skipped", Source = Src.Drawing, Evidence = "Untitled and small: details, stairs, elevations" });
             rows.Add(s.Engine.LegendRow != null

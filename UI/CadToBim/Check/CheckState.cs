@@ -191,6 +191,8 @@ namespace RevitWebAppSync.UI.CadToBim.Check
         public double WallHeightMm { get; set; } = 3000;
         /// <summary>Set when the Revit preview (underlay link / zoom) failed; shown as one line on screen 2.</summary>
         public string PreviewError { get; set; }
+        /// <summary>The preview link was made (the bridge said so).</summary>
+        public bool Linked { get; set; }
 
         public List<Question> Questions => Engine.Questions ?? new List<Question>();
         public string BuildLevel => Target.MainLevel ?? "Level 1";
@@ -232,7 +234,7 @@ namespace RevitWebAppSync.UI.CadToBim.Check
             s.Plans = sheet.Plans.Select(p => new PlanMap { Plan = p, TargetLevel = s.BuildLevel }).ToList();
             // the main plan: the one whose storey names the main level (ARAS 1 → Level 1); else the first plan on the sheet
             string main = Storey(s.BuildLevel);
-            PlanMap first = s.Plans.FirstOrDefault(m => m.Plan.Level != null && Storey(m.Plan.Level) == main) ?? s.Plans.FirstOrDefault();
+            PlanMap first = s.Plans.FirstOrDefault(m => main != null && Storey(m.Plan.Level) == main) ?? s.Plans.FirstOrDefault();
             if (first != null) first.IsMain = true;
             s.Gate2 = sheet.UnitsPlausible && !sheet.UnitsNeedConfirmation ? GateState.Pending : GateState.Blocked;
             return s;

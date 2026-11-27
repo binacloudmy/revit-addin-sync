@@ -19,6 +19,8 @@ namespace RevitWebAppSync.UI.CadToBim.Check
         void RemoveUnderlay();
         /// <summary>A preview call failed (already logged); the text is shown as one line on screen 2.</summary>
         event Action<string> Failed;
+        /// <summary>The DWG preview link was made.</summary>
+        event Action Linked;
     }
 
     /// <summary>One question card as shown: its number, focus and the plan its crop comes from.</summary>
@@ -57,7 +59,11 @@ namespace RevitWebAppSync.UI.CadToBim.Check
             _wallHeightMm = wallHeightMm;
             _read = read;
             _view = view;
-            if (_view != null) _view.Failed += message => { State.PreviewError = message; Changed(); };
+            if (_view != null)
+            {
+                _view.Failed += message => { State.PreviewError = message; State.Linked = false; Changed(); };
+                _view.Linked += () => { State.Linked = true; State.PreviewError = null; Changed(); };
+            }
             _shortcuts = shortcuts;
         }
 
@@ -66,6 +72,10 @@ namespace RevitWebAppSync.UI.CadToBim.Check
         public string Error => State.Error;
         public string FileName => State.Sheet?.File ?? "";
         public string Engine => State.Sheet?.Engine ?? "";
+        /// <summary>File row: "linked underlay" only after a successful link.</summary>
+        public string UnderlayText => State.Target.Workshared ? "not linked (workshared)"
+            : State.PreviewError != null ? "preview failed"
+            : State.Linked ? "linked underlay" : "not linked yet";
         public string ConsultantChip => State.Engine.Consultant?.Name ?? "Consultant pending";
         public bool ConsultantPending => State.Engine.Consultant == null;
         public ConsultantInfo Consultant => State.Engine.Consultant;

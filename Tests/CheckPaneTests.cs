@@ -36,6 +36,8 @@ namespace Tests
             public void ShowUnderlay(string dwgPath, double mmPerUnit, IReadOnlyList<BoxMm> plans) => Calls.Add("link " + mmPerUnit + " " + plans.Count);
             public void RemoveUnderlay() => Calls.Add("unlink");
             public event Action<string>? Failed;
+            public event Action? Linked;
+            public void Link() => Linked?.Invoke();
             public void Fail(string message) => Failed?.Invoke(message);
         }
 
@@ -197,6 +199,33 @@ namespace Tests
             vm.Next(); vm.Next();
             vm.ZoomTo(vm.State.Plans[0]);
             Assert.Equal("zoom", view.Calls.Last());
+        }
+
+        [Fact]
+        public void A_level_naming_no_storey_builds_the_first_plan_and_says_so()
+        {
+            var vm = Vm(target: Target("L1"));
+            Assert.True(vm.State.Plans[0].IsMain);                                       // ARAS 2 (ASRAMA213 ORG), first on the sheet
+            CheckRow first = vm.Gate1Rows[0];
+            Assert.Same(vm.State.Plans[0], first.Map);
+            Assert.Equal("main plan: first on the sheet", first.BadgeText);
+            Assert.Equal("a", first.Tone);
+            Assert.Equal("Build L1 · 351 walls · 26 doors", vm.BuildLabel);
+        }
+
+        [Fact]
+        public void The_file_row_says_linked_only_after_the_link_succeeds()
+        {
+            var view = new FakeView();
+            var vm = Vm(view: view);
+            Assert.Equal("not linked yet", vm.UnderlayText);
+            view.Link();
+            Assert.Equal("linked underlay", vm.UnderlayText);
+            view.Fail("Revit did not link x.dwg");
+            Assert.Equal("preview failed", vm.UnderlayText);
+
+            TargetInfo ws = Target(); ws.Workshared = true;
+            Assert.Equal("not linked (workshared)", Vm(target: ws).UnderlayText);
         }
 
         [Fact]

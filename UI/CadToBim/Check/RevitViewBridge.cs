@@ -28,6 +28,7 @@ namespace RevitWebAppSync.UI.CadToBim.Check
         private Autodesk.Revit.ApplicationServices.Application _hooked;
 
         public event Action<string> Failed;
+        public event Action Linked;
 
         /// <summary>Create in a valid API context (App.OnStartup builds the pane host).</summary>
         public RevitViewBridge() => _event = ExternalEvent.Create(this);
@@ -61,7 +62,7 @@ namespace RevitWebAppSync.UI.CadToBim.Check
             using (var t = new Transaction(doc, "BINA: DWG preview underlay"))
             {
                 t.Start();
-                if (doc.Link(_last.Path, options, view, out ElementId id)) { _link = id; _linkDoc = doc; t.Commit(); }
+                if (doc.Link(_last.Path, options, view, out ElementId id)) { _link = id; _linkDoc = doc; t.Commit(); Linked?.Invoke(); }
                 else { t.RollBack(); Fail("Revit did not link " + Path.GetFileName(_last.Path)); }
             }
         }
