@@ -24,6 +24,8 @@ namespace RevitWebAppSync.UI.CadToBim.Check
         event Action Linked;
         /// <summary>A one-line note for screen 2 (e.g. a leftover preview was removed).</summary>
         event Action<string> Notice;
+        /// <summary>The main plan lies outside the view's crop; the value is the distance in metres.</summary>
+        event Action<double> OutsideCrop;
     }
 
     /// <summary>One question card as shown: its number, focus and the plan its crop comes from.</summary>
@@ -67,6 +69,7 @@ namespace RevitWebAppSync.UI.CadToBim.Check
                 _view.Failed += message => { State.PreviewError = message; State.Linked = false; Changed(); };
                 _view.Linked += () => { State.Linked = true; State.PreviewError = null; Changed(); };
                 _view.Notice += message => { State.PreviewNotice = message; Changed(); };
+                _view.OutsideCrop += metres => { State.OutsideCropMetres = metres; Changed(); };
             }
             _shortcuts = shortcuts;
         }

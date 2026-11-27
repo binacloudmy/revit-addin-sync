@@ -104,9 +104,9 @@ namespace RevitWebAppSync.UI.CadToBim.Check
 
         public void ZoomTo(BoxMm box) => Queue(app => Zoom(app, box));
 
-        // Reader mm -> model ft, derived from the link itself, plus the move that placed the preview.
-        private XYZ _readerToModel;   // model = reader / 304.8 + _readerToModel (null until a link is placed)
-        private XYZ _moved;           // the placement move, re-applied when the link is re-made after a save
+        // Reader mm -> model ft. Origin-to-origin keeps the DWG's WCS, so this is mm / 304.8 plus a near-zero
+        // offset checked against the link itself (ASWARA: header vs link extents agree to 0.01 ft).
+        private XYZ _readerToModel;
 
         public void ShowUnderlay(string dwgPath, double mmPerUnit, BoxMm mainPlan, BoxMm? drawingExtents) => Queue(app =>
         {
@@ -118,65 +118,57 @@ namespace RevitWebAppSync.UI.CadToBim.Check
             Hook(app.Application);   // idempotent; normally already hooked from the constructor
             Guard(() => RemoveLeftovers(doc), "removing a leftover preview");   // before a new link: same tag, same rule
             _last = (dwgPath, mmPerUnit, view.Id);
-            _moved = null; _readerToModel = null;
+            _readerToModel = null;
             Link(doc, view);
-            if (_link != ElementId.InvalidElementId) Guard(() => PlaceAndZoom(app, doc, view, mainPlan, drawingExtents), "placing the preview");
+            if (_link != ElementId.InvalidElementId) Guard(() => ZoomToPreview(app, doc, view, mainPlan, drawingExtents), "zooming to the preview");
         });
 
-        /// <summary>Tie reader coordinates to the link (header extents vs the link's real extents, not an assumed
-        /// origin), move the temporary link so the main plan sits at the centre of the view's crop (or of what is
-        /// on screen when the crop is off), then zoom to the main plan. The crop and the user's elements are never touched.</summary>
-        private void PlaceAndZoom(UIApplication app, Document doc, View view, BoxMm main, BoxMm? extents)
+        /// <summary>The DWG header extents must match the link's own extents in width (±1 %) before reader boxes
+        /// are trusted in model space; then zoom to the main plan. Otherwise zoom to the whole link and say why.
+        /// Nothing is moved and the crop is never changed: a main plan outside the crop gets one pane line.</summary>
+        private void ZoomToPreview(UIApplication app, Document doc, View view, BoxMm main, BoxMm? extents)
         {
             var link = (ImportInstance)doc.GetElement(_link);
             BoundingBoxXYZ bb = link.get_BoundingBox(null);
             var (lo, hi) = Bounds(bb.Transform, Corners(bb.Min, bb.Max));
-            if (extents is BoxMm e)
-            {
-                _readerToModel = new XYZ(lo.X - e.MinX / MmPerFoot, lo.Y - e.MinY / MmPerFoot, 0);
-                double ratio = (hi.X - lo.X) / (e.Width / MmPerFoot);
-                Log(Invariant($"preview: reader->model offset X {_readerToModel.X:0.##} Y {_readerToModel.Y:0.##} ft (header extents vs link extents; width ratio {ratio:0.###})"));
-            }
-            else
-            {
-                XYZ o = link.GetTotalTransform().Origin;
-                _readerToModel = new XYZ(o.X, o.Y, 0);
-                Log("preview: no header extents; reader->model from the link transform origin");
-            }
-
             UIView ui = app.ActiveUIDocument?.GetOpenUIViews().FirstOrDefault(w => w.ViewId == view.Id);
-            XYZ target;
-            if (view.CropBoxActive)
+            if (ui == null) { Log("preview: not zoomed: " + view.Name + " is not the open view"); return; }
+
+            double ratio = extents is BoxMm e0 && e0.Width > 0 ? (hi.X - lo.X) / (e0.Width / MmPerFoot) : double.NaN;
+            if (!(extents is BoxMm e) || Math.Abs(ratio - 1) > 0.01)
             {
-                BoundingBoxXYZ crop = view.CropBox;
-                target = crop.Transform.OfPoint((crop.Min + crop.Max) / 2);
+                Log(double.IsNaN(ratio)
+                    ? "preview: no header extents to check the frame; zoomed to the whole link"
+                    : Invariant($"preview: header vs link width ratio {ratio:0.###} is outside 1 ± 1%; zoomed to the whole link"));
+                XYZ pad0 = (hi - lo) * 0.05;
+                ui.ZoomAndCenterRectangle(lo - pad0, hi + pad0);
+                return;
             }
-            else if (ui != null)
-            {
-                IList<XYZ> c = ui.GetZoomCorners();
-                target = (c[0] + c[1]) / 2;
-            }
-            else { Log("preview: not placed: " + view.Name + " is not the open view"); return; }
+            _readerToModel = new XYZ(lo.X - e.MinX / MmPerFoot, lo.Y - e.MinY / MmPerFoot, 0);
+            Log(Invariant($"preview: reader->model offset X {_readerToModel.X:0.##} Y {_readerToModel.Y:0.##} ft, width ratio {ratio:0.###}"));
 
             var (mMin, mMax) = Model(main);
-            XYZ centre = (mMin + mMax) / 2;
-            XYZ delta = new XYZ(target.X - centre.X, target.Y - centre.Y, 0);
-            using (var t = new Transaction(doc, "BINA: place DWG preview"))
-            {
-                t.Start();
-                ElementTransformUtils.MoveElement(doc, _link, delta);   // only our temporary link moves
-                t.Commit();
-            }
-            _moved = delta;
-            _readerToModel += delta;
-            (mMin, mMax) = Model(main);
-            Log(Invariant($"preview: moved the preview by X {delta.X:0.##} Y {delta.Y:0.##} ft; main plan now ") + Fmt((mMin, mMax)));
-
-            if (ui == null) { Log("preview: not zoomed: " + view.Name + " is not the open view"); return; }
             XYZ pad = (mMax - mMin) * 0.05;   // a small margin around the main plan
             ui.ZoomAndCenterRectangle(mMin - pad, mMax + pad);
-            bool inside = !view.CropBoxActive || Overlaps(view.CropBox, mMin, mMax);
-            Log("preview: zoomed to the main plan in " + view.Name + (inside ? "; it is inside the view's crop" : "; still outside the view's crop (the crop was left as is)"));
+            Log("preview: zoomed to the main plan " + Fmt((mMin, mMax)) + " in " + view.Name);
+
+            if (view.CropBoxActive && !Overlaps(view.CropBox, mMin, mMax))
+            {
+                double metres = Math.Round(DistanceToCrop(view.CropBox, (mMin + mMax) / 2) * MmPerFoot / 1000);
+                Log(Invariant($"preview: main plan is outside the view's crop ({metres} m); the crop was left as is"));
+                OutsideCrop?.Invoke(metres);
+            }
+        }
+
+        public event Action<double> OutsideCrop;
+
+        /// <summary>Plan distance (ft) from a point to the crop box, measured in the crop's own space.</summary>
+        private static double DistanceToCrop(BoundingBoxXYZ crop, XYZ point)
+        {
+            XYZ p = crop.Transform.Inverse.OfPoint(point);
+            double dx = Math.Max(Math.Max(crop.Min.X - p.X, 0), p.X - crop.Max.X);
+            double dy = Math.Max(Math.Max(crop.Min.Y - p.Y, 0), p.Y - crop.Max.Y);
+            return Math.Sqrt(dx * dx + dy * dy);
         }
 
         /// <summary>A reader box (mm) in model feet, through the derived offset; null offset = straight mm/304.8.</summary>
@@ -208,7 +200,7 @@ namespace RevitWebAppSync.UI.CadToBim.Check
             return lo.X <= crop.Max.X && hi.X >= crop.Min.X && lo.Y <= crop.Max.Y && hi.Y >= crop.Min.Y;
         }
 
-        public void RemoveUnderlay() => Queue(_ => { Unlink(); _last = default; _moved = null; _readerToModel = null; });
+        public void RemoveUnderlay() => Queue(_ => { Unlink(); _last = default; _readerToModel = null; });
 
         private void Link(Document doc, View view)
         {
@@ -226,7 +218,6 @@ namespace RevitWebAppSync.UI.CadToBim.Check
                     var tag = new Entity(PreviewSchema());
                     tag.Set(PreviewField, _last.Path);
                     doc.GetElement(id).SetEntity(tag);   // so a leftover can be told apart from the user's own links
-                    if (_moved != null) ElementTransformUtils.MoveElement(doc, id, _moved);   // after a save re-link: same place as before
                     _link = id; _linkDoc = doc; t.Commit();
                     Log("preview: linked " + Path.GetFileName(_last.Path) + " into " + doc.Title);
                     Linked?.Invoke();

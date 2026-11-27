@@ -39,6 +39,8 @@ namespace Tests
             public event Action<string>? Failed;
             public event Action? Linked;
             public event Action<string>? Notice;
+            public event Action<double>? OutsideCrop;
+            public void Outside(double metres) => OutsideCrop?.Invoke(metres);
             public void Note(string message) => Notice?.Invoke(message);
             public void Link() => Linked?.Invoke();
             public void Fail(string message) => Failed?.Invoke(message);
@@ -265,6 +267,24 @@ namespace Tests
 
             TargetInfo ws = Target(); ws.Workshared = true;
             Assert.Equal("not linked (workshared)", Vm(target: ws).UnderlayText);
+        }
+
+        [Fact]
+        public void A_main_plan_outside_the_crop_shows_one_amber_line()
+        {
+            var view = new FakeView();
+            var vm = Vm(view: view);
+            view.Outside(412);
+            Assert.Contains(vm.PreflightRows, r => r.Text == "The drawing sits outside this view's crop (412 m from the model). Widen the crop to see it." && r.Tone == "a");
+        }
+
+        [Theory]
+        [InlineData(1e20, -1e20)] [InlineData(0, 0)]
+        public void Unset_header_extents_give_no_extents(double min, double max)
+        {
+            var s = new SheetSnapshot { ExtMinX = min, ExtMinY = min, ExtMaxX = max, ExtMaxY = max };
+            Assert.Null(s.Extents);
+            Assert.NotNull(new SheetSnapshot { ExtMinX = -6929.27, ExtMinY = -130540.49, ExtMaxX = 463628.14, ExtMaxY = 34596.66 }.Extents);   // ASWARA
         }
 
         [Fact]
