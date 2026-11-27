@@ -115,34 +115,59 @@ namespace RevitWebAppSync.UI.CadToBim.Check
             Guard(() => RemoveLeftovers(doc), "removing a leftover preview");   // before a new link: same tag, same rule
             _last = (dwgPath, mmPerUnit, view.Id);
             Link(doc, view);
-            if (_link != ElementId.InvalidElementId) ZoomToPreview(app, doc, view);
+            if (_link != ElementId.InvalidElementId) ZoomToPreview(app, doc, view, plans);
         });
 
-        /// <summary>Zoom the active view to the linked DWG itself (its far coordinates can put it off-screen).
+        /// <summary>Zoom the active view to the drawing's plans: the union of the reader's plan boxes (mm, drawing
+        /// coordinates) mapped through the link's transform. The DWG header extents can hold far-off outliers
+        /// (ASWARA: X -6.9..463.6 m), so the link's own bounding box is only the fallback when there are no plans.
         /// The view's crop is never changed; if it hides the preview, that is logged.</summary>
-        private void ZoomToPreview(UIApplication app, Document doc, View view)
+        private void ZoomToPreview(UIApplication app, Document doc, View view, IReadOnlyList<BoxMm> plans)
         {
             try
             {
-                BoundingBoxXYZ box = doc.GetElement(_link)?.get_BoundingBox(view) ?? doc.GetElement(_link)?.get_BoundingBox(null);
-                if (box == null) { Log("preview: not zoomed: the link has no extents in " + view.Name); return; }
-                XYZ pad = (box.Max - box.Min) * 0.05;   // a small margin around the drawing
-                UIView ui = app.ActiveUIDocument?.GetOpenUIViews().FirstOrDefault(v => v.ViewId == view.Id);
+                var link = doc.GetElement(_link) as ImportInstance;
+                BoundingBoxXYZ whole = link?.get_BoundingBox(view) ?? link?.get_BoundingBox(null);
+                (XYZ Min, XYZ Max)? wholeModel = whole == null ? ((XYZ, XYZ)?)null : Bounds(whole.Transform, Corners(whole.Min, whole.Max));
+                (XYZ Min, XYZ Max)? target = null;
+                if (link != null && plans.Count > 0)
+                {
+                    var u = new XYZ(plans.Min(b => b.MinX) / MmPerFoot, plans.Min(b => b.MinY) / MmPerFoot, 0);
+                    var v = new XYZ(plans.Max(b => b.MaxX) / MmPerFoot, plans.Max(b => b.MaxY) / MmPerFoot, 0);
+                    target = Bounds(link.GetTotalTransform(), Corners(u, v));
+                }
+                Log("preview: plan boxes " + Fmt(target) + " · link extents " + Fmt(wholeModel) + " (ft, model)");
+                target ??= wholeModel;
+                if (target == null) { Log("preview: not zoomed: no plan boxes and the link has no extents in " + view.Name); return; }
+                XYZ pad = (target.Value.Max - target.Value.Min) * 0.05;   // a small margin around the plans
+                UIView ui = app.ActiveUIDocument?.GetOpenUIViews().FirstOrDefault(w => w.ViewId == view.Id);
                 if (ui == null) { Log("preview: not zoomed: " + view.Name + " is not the open view"); return; }
-                ui.ZoomAndCenterRectangle(box.Min - pad, box.Max + pad);
+                ui.ZoomAndCenterRectangle(target.Value.Min - pad, target.Value.Max + pad);
                 Log("preview: zoomed to the preview in " + view.Name);
-                if (view.CropBoxActive && !Overlaps(view.CropBox, box))
+                if (view.CropBoxActive && !Overlaps(view.CropBox, target.Value.Min, target.Value.Max))
                     Log("preview: preview outside the view's crop in " + view.Name + "; the crop was left as is");
             }
             catch (Exception ex) { Log("preview: not zoomed: " + ex.Message); }
         }
 
-        /// <summary>Plan-view XY overlap of a crop box (with its transform) and a model-space box.</summary>
-        private static bool Overlaps(BoundingBoxXYZ crop, BoundingBoxXYZ box)
+        private static XYZ[] Corners(XYZ a, XYZ b) =>
+            new[] { new XYZ(a.X, a.Y, a.Z), new XYZ(b.X, a.Y, a.Z), new XYZ(a.X, b.Y, b.Z), new XYZ(b.X, b.Y, b.Z) };
+
+        /// <summary>Axis-aligned bounds of the points after a transform (handles rotated links and boxes).</summary>
+        private static (XYZ Min, XYZ Max) Bounds(Transform t, IEnumerable<XYZ> points)
         {
-            XYZ a = crop.Transform.OfPoint(crop.Min), b = crop.Transform.OfPoint(crop.Max);
-            double minX = Math.Min(a.X, b.X), maxX = Math.Max(a.X, b.X), minY = Math.Min(a.Y, b.Y), maxY = Math.Max(a.Y, b.Y);
-            return box.Min.X <= maxX && box.Max.X >= minX && box.Min.Y <= maxY && box.Max.Y >= minY;
+            var q = points.Select(t.OfPoint).ToList();
+            return (new XYZ(q.Min(p => p.X), q.Min(p => p.Y), q.Min(p => p.Z)), new XYZ(q.Max(p => p.X), q.Max(p => p.Y), q.Max(p => p.Z)));
+        }
+
+        private static string Fmt((XYZ Min, XYZ Max)? b) => b == null ? "none"
+            : string.Format(System.Globalization.CultureInfo.InvariantCulture, "X {0:0.#}..{1:0.#} Y {2:0.#}..{3:0.#}", b.Value.Min.X, b.Value.Max.X, b.Value.Min.Y, b.Value.Max.Y);
+
+        /// <summary>XY overlap tested in the crop box's own space, so rotated plan views are right.</summary>
+        private static bool Overlaps(BoundingBoxXYZ crop, XYZ min, XYZ max)
+        {
+            var (lo, hi) = Bounds(crop.Transform.Inverse, Corners(min, max));
+            return lo.X <= crop.Max.X && hi.X >= crop.Min.X && lo.Y <= crop.Max.Y && hi.Y >= crop.Min.Y;
         }
 
         public void RemoveUnderlay() => Queue(_ => { Unlink(); _last = default; });
