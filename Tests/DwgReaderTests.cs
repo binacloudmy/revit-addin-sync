@@ -46,6 +46,17 @@ namespace RevitWebAppSync.Tests
             Assert.Empty(d.Notes);
         }
 
+        // Owner decision B: v1 ships on ACadSharp; ODA only when config says auto or oda.
+        [Fact]
+        public void Default_IsAcadSharp_EvenWithOdaInstalled()
+        {
+            var oda = new Fake("oda");
+            Assert.Equal("acadsharp", new CadToBimSettings().DwgReader);
+            Assert.Equal("acadsharp", DwgReaders.Read("x.dwg", null, true, () => oda, new Fake("acadsharp"), Plenty).Engine);
+            Assert.Equal("acadsharp", DwgReaders.Read("x.dwg", new CadToBimSettings().DwgReader, true, () => oda, new Fake("acadsharp"), Plenty).Engine);
+            Assert.Equal(0, oda.Reads);
+        }
+
         [Fact]
         public void Auto_OdaNotInstalled_IsSilentAcadSharp()
         {
@@ -58,7 +69,7 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void Auto_OdaInstalled_ReadsWithOda()
         {
-            var d = DwgReaders.Read("x.dwg", null, true, () => new Fake("oda"), new Fake("acadsharp"), Plenty);
+            var d = DwgReaders.Read("x.dwg", "auto", true, () => new Fake("oda"), new Fake("acadsharp"), Plenty);
             Assert.Equal("oda", d.Engine);
         }
 

@@ -42,6 +42,8 @@ param(
     # AI-647: ship ODA Drawings.NET 27.10 for Revit 2027. -OdaRuntimeDir is the ODA runtime
     # folder (native + OdSwig_*_Net5); -OdaKeyFile is the licence FILE's path (copied as-is,
     # its contents never pass through this script or a command line). Both or neither.
+    # OFF by default (owner decision B): a normal build ships no ODA runtime and no key, and
+    # even with them installed the add-in reads with ACadSharp unless config dwgReader is auto/oda.
     [string]$OdaRuntimeDir = "",
     [string]$OdaKeyFile = ""
 )

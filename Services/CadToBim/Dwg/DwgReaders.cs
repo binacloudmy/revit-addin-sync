@@ -1,8 +1,8 @@
 // AI-647: which engine reads a DWG. dwgReader (config.json "cadToBim" section):
-//   auto      ODA when it is installed, else ACadSharp. Not installed = silent, identical output.
+//   acadsharp the DEFAULT (owner decision B, 2026-11-27): v1 ships on the built-in reader; never touches ODA.
+//   auto      opt-in: ODA when it is installed, else ACadSharp. Not installed = silent, identical output.
 //             Installed but broken, or too little memory = ACadSharp plus one note.
 //   oda       ODA or an error, never a silent fallback.
-//   acadsharp never touches ODA.
 // ODA lives outside the OTA versions folder: %LocalAppData%\Bina\RevitSync\oda\27.10\{bin\, oda.key},
 // overridable with odaDir / odaKeyFile.
 
@@ -48,7 +48,7 @@ namespace RevitWebAppSync.Services.CadToBim.Dwg
         internal static DwgDrawing Read(string path, string mode, bool odaPresent, Func<IDwgReader> oda,
                                         IDwgReader acadSharp, Func<long> freeBytes, bool odaWarm = false)
         {
-            mode = (mode ?? "auto").Trim().ToLowerInvariant();
+            mode = (mode ?? "acadsharp").Trim().ToLowerInvariant();
             if (mode == "acadsharp") return acadSharp.Read(path);
             bool forced = mode == "oda";
 

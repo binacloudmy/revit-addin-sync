@@ -188,19 +188,21 @@ CAD-to-BIM conversion. The attachment path extracts everything.
 
 ## DWG engine: ODA Drawings.NET with an ACadSharp fallback (AI-647)
 
-Detection reads DWG through `IDwgReader` (`Services/CadToBim/Dwg/`). On Revit 2027 with ODA
-installed, the reader is ODA Drawings.NET 27.10. Everywhere else it is ACadSharp. Both hand the
+Detection reads DWG through `IDwgReader` (`Services/CadToBim/Dwg/`). **v1 ships on ACadSharp**: ODA
+Drawings.NET 27.10 is in the code (Revit 2027 builds with HAS_ODA) but OFF by default, because
+the in-process memory and time numbers failed the go/no-go table (AI-647-plan.md, "ODA status"). Either engine hands the
 detector the same in-memory ACadSharp document, so the downstream code is identical.
 
 - **Where ODA lives:** `%LocalAppData%\Bina\RevitSync\oda\27.10\` holds `bin\` (the runtime,
-  with no DWF modules) and `oda.key` (the licence). The installer puts them there. It is not
+  with no DWF modules) and `oda.key` (the licence). An opt-in installer build puts them there. It is not
   the OTA `versions\` folder, so updates do not re-ship the runtime.
 - **Config** (the `cadToBim` section of `%APPDATA%\RevitWebAppSync\config.json`):
-  `dwgReader` is `auto` (the default: ODA when installed), `oda` (ODA or an error) or
-  `acadsharp`. `odaDir` / `odaKeyFile` override the folder and the key.
+  `dwgReader` is `acadsharp` (the default), `auto` (opt-in: ODA when installed) or `oda` (ODA or
+  an error). A normal installer build ships no ODA runtime or key (`-OdaRuntimeDir` / `-OdaKeyFile`
+  opt in). `odaDir` / `odaKeyFile` override the folder and the key.
 - **Fallback:** ODA not installed means ACadSharp, silently, with identical output. ODA
-  installed but failing (missing DLL, activation, another add-in's ODA, too little memory)
-  means ACadSharp plus one note: "Read with the built-in reader: ODA isn't set up correctly
+  installed but failing (missing DLL, activation, another add-in's ODA) means ACadSharp plus one
+  note (too little memory falls back silently, as if ODA were not installed): "Read with the built-in reader: ODA isn't set up correctly
   (…)". A failed ODA init is not retried until Revit restarts.
 - **Default load context:** BinaLoader loads the plugin into Revit's default
   AssemblyLoadContext, so the `OdSwig_*` assemblies land there as well. If another add-in has
