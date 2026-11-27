@@ -135,11 +135,15 @@ namespace RevitWebAppSync.UI.CadToBim.Check
             {
                 var p = m.Plan;
                 var row = new CheckRow { Bold = p.Title ?? "Untitled plan " + p.N, Post = m.Built ? " → " + m.TargetLevel : " · not built until mapped", Map = m };
-                bool byStorey = p.Level != null && CheckState.Storey(p.Level) != null && CheckState.Storey(p.Level) == CheckState.Storey(s.BuildLevel);
-                if (m.IsMain && !byStorey)
+                if (m.IsMain && m.MainBy == "first")
                 {
                     row.Mark = "swatch-a"; row.Source = Src.AiGuess; row.Badge = "main plan: first on the sheet";
-                    row.Evidence = "No plan names " + s.BuildLevel + "; the first plan on the sheet is built";
+                    row.Evidence = "No plan names " + s.BuildLevel + " or storey 1; the first plan on the sheet is built";
+                }
+                else if (m.IsMain && m.MainBy == "title")
+                {
+                    row.Mark = "swatch-a"; row.Source = Src.AiGuess; row.Badge = "main plan: storey 1 by its title";
+                    row.Evidence = "No plan names " + s.BuildLevel + "; this plan's title says storey 1, so it is built";
                 }
                 else if (p.Level == null)
                 {

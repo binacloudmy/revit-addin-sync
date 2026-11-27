@@ -170,6 +170,8 @@ namespace RevitWebAppSync.UI.CadToBim.Check
         public string TargetLevel { get; set; }
         /// <summary>The main plan (its storey names the main level): the only one built by default (owner, 2026-11-27).</summary>
         public bool IsMain { get; set; }
+        /// <summary>Why it is the main plan: "level" (its storey names the build level), "title" (its title says storey 1), "first" (first on the sheet).</summary>
+        public string MainBy { get; set; }
         /// <summary>The user mapped it in Gate 1 (Edit mapping); only then is a non-main plan built.</summary>
         public bool Mapped { get; set; }
         public bool Built => IsMain || Mapped;
@@ -221,21 +223,38 @@ namespace RevitWebAppSync.UI.CadToBim.Check
         private static readonly System.Text.RegularExpressions.Regex StoreyRx =
             new System.Text.RegularExpressions.Regex(@"(?:ARAS|LEVEL|LANTAI|TINGKAT)\s*([0-9A-Z]+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
-        /// <summary>"ARAS 1" / "Level 1" → "1"; "ARAS 1A" → "1A"; null when the text names no storey.</summary>
+        // Compact Revit level names: L1, L01, L-1, LV1, LVL 1.
+        private static readonly System.Text.RegularExpressions.Regex CompactRx =
+            new System.Text.RegularExpressions.Regex(@"^\s*(?:LVL|LV|L)\s*[-_]?\s*0*(\d+[A-Z]?)\s*$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        // Ground words on the Revit side. Rule: ground = storey "1", because on JKR sheets "ARAS 1" is the ground floor
+        // (ASWARA). "ARAS BAWAH" (lower ground, SEK.DAIF) stays its own storey "BAWAH" through StoreyRx.
+        private static readonly System.Text.RegularExpressions.Regex GroundRx =
+            new System.Text.RegularExpressions.Regex(@"^\s*(?:GF|G|GROUND(?:\s+FLOOR)?|GRADE)\s*$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+        /// <summary>"ARAS 1" / "Level 1" / "L01" / "LVL 1" / "Ground" → "1"; "ARAS 1A" → "1A"; null when the text names no storey.</summary>
         public static string Storey(string text)
         {
-            var m = StoreyRx.Match(text ?? "");
-            return m.Success ? m.Groups[1].Value.ToUpperInvariant() : null;
+            text ??= "";
+            if (GroundRx.IsMatch(text)) return "1";
+            var m = StoreyRx.Match(text);
+            if (!m.Success) m = CompactRx.Match(text);
+            if (!m.Success) return null;
+            string v = m.Groups[1].Value.ToUpperInvariant().TrimStart('0');   // L01 → 1
+            return v.Length == 0 ? "0" : v;
         }
 
         public static CheckState For(SheetSnapshot sheet, TargetInfo target, EngineShortcuts engine)
         {
             var s = new CheckState { Sheet = sheet, Target = target ?? new TargetInfo(), Engine = engine ?? new EngineShortcuts(), Screen = CheckScreen.Preflight };
             s.Plans = sheet.Plans.Select(p => new PlanMap { Plan = p, TargetLevel = s.BuildLevel }).ToList();
-            // the main plan: the one whose storey names the main level (ARAS 1 → Level 1); else the first plan on the sheet
+            // the main plan: its storey names the build level (ARAS 1 → L1); else the plan whose title says storey 1;
+            // else the first plan on the sheet
             string main = Storey(s.BuildLevel);
-            PlanMap first = s.Plans.FirstOrDefault(m => main != null && Storey(m.Plan.Level) == main) ?? s.Plans.FirstOrDefault();
-            if (first != null) first.IsMain = true;
+            PlanMap pick = main == null ? null : s.Plans.FirstOrDefault(m => Storey(m.Plan.Level) == main);
+            string by = "level";
+            if (pick == null) { pick = s.Plans.FirstOrDefault(m => (Storey(m.Plan.Level) ?? Storey(m.Plan.Title)) == "1"); by = "title"; }
+            if (pick == null) { pick = s.Plans.FirstOrDefault(); by = "first"; }
+            if (pick != null) { pick.IsMain = true; pick.MainBy = by; }
             s.Gate2 = sheet.UnitsPlausible && !sheet.UnitsNeedConfirmation ? GateState.Pending : GateState.Blocked;
             return s;
         }

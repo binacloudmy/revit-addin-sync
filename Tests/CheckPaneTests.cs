@@ -202,15 +202,51 @@ namespace Tests
         }
 
         [Fact]
-        public void A_level_naming_no_storey_builds_the_first_plan_and_says_so()
+        public void A_sheet_with_no_storey_1_builds_the_first_plan_and_says_so()
         {
-            var vm = Vm(target: Target("L1"));
+            SheetSnapshot sheet = Aswara();
+            PlanSnap aras1 = sheet.Plans.Single(p => p.Level == "ARAS 1");
+            aras1.Level = null; aras1.Title = "BLOK B";                                 // no plan says storey 1 any more
+            var vm = Vm(sheet: sheet, target: Target("Roof"));
             Assert.True(vm.State.Plans[0].IsMain);                                       // ARAS 2 (ASRAMA213 ORG), first on the sheet
             CheckRow first = vm.Gate1Rows[0];
             Assert.Same(vm.State.Plans[0], first.Map);
             Assert.Equal("main plan: first on the sheet", first.BadgeText);
             Assert.Equal("a", first.Tone);
-            Assert.Equal("Build L1 · 351 walls · 26 doors", vm.BuildLabel);
+            Assert.Equal("Build Roof · 351 walls · 26 doors", vm.BuildLabel);
+        }
+
+        [Theory]
+        [InlineData("L1", "1")] [InlineData("L01", "1")] [InlineData("L-1", "1")] [InlineData("LV1", "1")] [InlineData("LVL 1", "1")]
+        [InlineData("Level 2", "2")] [InlineData("ARAS 1A", "1A")] [InlineData("Grade", "1")] [InlineData("GF", "1")] [InlineData("Ground", "1")]
+        [InlineData("ARAS BAWAH", "BAWAH")] [InlineData("Roof", null)] [InlineData("Turret - Tall", null)] [InlineData("PELAN BUMBUNG", null)]
+        public void Storey_reads_jkr_and_compact_revit_level_names(string name, string? storey) => Assert.Equal(storey, CheckState.Storey(name));
+
+        [Fact]
+        public void Owner_levels_Grade_L1_Roof_build_ARAS_1()
+        {
+            var vm = Vm(target: Target("Grade", "L1", "Roof"));                         // lowest = Grade = ground = storey 1
+            Assert.Equal("ARAS 1", vm.State.Plans.Single(p => p.IsMain).Plan.Level);
+            Assert.Equal("level", vm.State.Plans.Single(p => p.IsMain).MainBy);
+            Assert.Equal("Build Grade · 277 walls · 21 doors", vm.BuildLabel);
+            Assert.Equal("g", vm.Gate1Rows[0].Tone);
+        }
+
+        [Fact]
+        public void A_level_named_L1_builds_ARAS_1()
+        {
+            var vm = Vm(target: Target("L1"));
+            Assert.Equal("Build L1 · 277 walls · 21 doors", vm.BuildLabel);
+            Assert.Equal("ARAS 1", vm.Gate1Rows[0].Map!.Plan.Level);
+        }
+
+        [Fact]
+        public void A_level_naming_no_storey_builds_the_storey_1_plan_by_its_title()
+        {
+            var vm = Vm(target: Target("Roof"));
+            Assert.Equal("Build Roof · 277 walls · 21 doors", vm.BuildLabel);
+            Assert.Equal("main plan: storey 1 by its title", vm.Gate1Rows[0].BadgeText);
+            Assert.Equal("a", vm.Gate1Rows[0].Tone);
         }
 
         [Fact]
