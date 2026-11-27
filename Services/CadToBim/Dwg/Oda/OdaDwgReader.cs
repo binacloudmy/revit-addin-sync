@@ -50,6 +50,8 @@ namespace RevitWebAppSync.Services.CadToBim.Dwg
         private readonly Dictionary<string, BlockRecord> _blocks = new Dictionary<string, BlockRecord>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, int> _proxies = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, int> _census = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> _visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);   // block records the walk already counted
+        private readonly Dictionary<string, double> _timings = new Dictionary<string, double>();
         private int _anonymous;
 
         private OdaTranslator(OdDbDatabase db, string path)
@@ -65,8 +67,10 @@ namespace RevitWebAppSync.Services.CadToBim.Dwg
             try
             {
                 OdaSession.HostWarnings.Clear();
+                var clock = System.Diagnostics.Stopwatch.StartNew();
                 OdDbDatabase db = OdaSession.Host.readFile(path, true, false, Oda_FileShareMode.kShareDenyNo, "");
                 var t = new OdaTranslator(db, path);
+                t._timings["readFile"] = clock.Elapsed.TotalSeconds;
                 DwgDrawing drawing = t.Translate();
                 return drawing;
             }
@@ -80,12 +84,19 @@ namespace RevitWebAppSync.Services.CadToBim.Dwg
         {
             _doc.Header.InsUnits = (ACadSharp.Types.Units.UnitsType)(int)_db.getINSUNITS();   // both use the DXF INSUNITS codes
 
+            var clock = System.Diagnostics.Stopwatch.StartNew();
             var modelSpace = (OdDbBlockTableRecord)_db.getModelSpaceId().safeOpenObject();
+            _visited.Add(_db.getModelSpaceId().getHandle().ascii());
             CopyEntities(modelSpace, e => _doc.Entities.Add(e), 0);
+            Lap("translate", clock);
 
             var warnings = new List<DwgWarning>();
             CensusAndXrefs(warnings);
+            Lap("census", clock);
             Images(warnings);
+            Lap("images", clock);
+            var classes = Classes();
+            Lap("classes", clock);
             warnings.AddRange(DwgDrawing.ProxyWarnings(_proxies));
             warnings.AddRange(DwgDrawing.HostWarnings(OdaSession.HostWarnings));
 
@@ -93,8 +104,9 @@ namespace RevitWebAppSync.Services.CadToBim.Dwg
             {
                 Document = _doc,
                 Engine = "oda",
-                Classes = Classes(),
+                Classes = classes,
                 Warnings = warnings,
+                Timings = _timings,
             };
         }
 
@@ -108,6 +120,7 @@ namespace RevitWebAppSync.Services.CadToBim.Dwg
                 if (entity == null) continue;
                 try
                 {
+                    Count(entity);   // one pass: the census rides on the walk for every block record it visits
                     foreach (Entity copy in Translate(entity, depth))
                         add(copy);
                 }
@@ -336,6 +349,7 @@ namespace RevitWebAppSync.Services.CadToBim.Dwg
             var copy = new BlockRecord(name);
             copy.BlockEntity.BasePoint = P(record.origin());
             _doc.BlockRecords.Add(copy);
+            _visited.Add(key);
             _blocks[key] = copy;   // before the contents: a self-referencing block stops at MaxDepth, not here
             CopyEntities(record, e => copy.Entities.Add(e), depth + 1);
             return copy;
@@ -419,17 +433,30 @@ namespace RevitWebAppSync.Services.CadToBim.Dwg
                     else if (!DwgDrawing.FileFound(stored, folder))
                         warnings.Add(new DwgWarning { Kind = "xref_missing", Name = record.getName(), Detail = Path.GetFileName(stored) });
                 }
+                if (_visited.Contains(bt.getRecordId().getHandle().ascii())) continue;   // counted during the walk
                 for (OdDbObjectIterator it = record.newIterator(); !it.done(); it.step())
                 {
                     OdDbEntity entity = OdDbEntity.cast(it.objectId().openObject());
                     if (entity == null) continue;
-                    string dxf = entity is OdDbProxyEntity proxy ? proxy.originalDxfName() : _db.classDxfName(entity.isA());
+                    Count(entity);
                     entity.Dispose();
-                    if (string.IsNullOrEmpty(dxf)) continue;
-                    _census.TryGetValue(dxf, out int n);
-                    _census[dxf] = n + 1;
                 }
             }
+        }
+
+        /// <summary>One instance under its DXF name; a proxy under its original DXF name, as ACadSharp's CLASSES section has it.</summary>
+        private void Count(OdDbEntity entity)
+        {
+            string dxf = entity is OdDbProxyEntity proxy ? proxy.originalDxfName() : _db.classDxfName(entity.isA());
+            if (string.IsNullOrEmpty(dxf)) return;
+            _census.TryGetValue(dxf, out int n);
+            _census[dxf] = n + 1;
+        }
+
+        private void Lap(string phase, System.Diagnostics.Stopwatch clock)
+        {
+            _timings[phase] = clock.Elapsed.TotalSeconds;
+            clock.Restart();
         }
 
         /// <summary>

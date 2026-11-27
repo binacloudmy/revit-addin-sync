@@ -6,7 +6,8 @@
 //   BINA_KIMIA_DWG    KIMIA (the large sheet)
 //   BINA_ODA_REPORT   where the findings go (JSON lines), outside the repo
 //   BINA_DWG_SCAN_DIR optional: folder searched for a drawing CadSourceVerdict refuses today
-//   BINA_MEM_FILE / BINA_MEM_ENGINE optional: limit the memory test to one file (ASWARA/KIMIA) / engine (acadsharp/oda)
+//   BINA_MEM_FILE / BINA_MEM_ENGINE optional: limit memory / leak / parity export to one file (ASWARA/KIMIA) / engine (acadsharp/oda)
+//   BINA_PARITY_LABEL / BINA_PARITY_PATH optional: which drawing Parity_Export / Parity_Compare use
 // Run alone: dotnet test --filter FullyQualifiedName~OdaParityTests (memory figures are per process).
 
 #if HAS_ODA
@@ -116,39 +117,64 @@ namespace RevitWebAppSync.Tests
             catch (System.NotSupportedException) { return "refused"; }
         }
 
-        private static void Compare(string label, string path)
+        // Parity runs one engine per process (both documents plus the ODA runtime in one process
+        // was what the watchdog killed): Parity_Export writes this engine's result, Parity_Compare
+        // reads both. BINA_PARITY_LABEL names the file (ASWARA / KIMIA / AEC), BINA_PARITY_PATH
+        // overrides its path, BINA_MEM_ENGINE picks the engine.
+        private static string ParityPath(string label, string engine) =>
+            Path.Combine(Path.GetDirectoryName(Env("BINA_ODA_REPORT"))!,
+                         "AI-647-parity-" + string.Concat(label.Select(c => char.IsLetterOrDigit(c) ? c : '_')) + "-" + engine + ".json");
+
+        private static string LabelPath(string label) =>
+            !string.IsNullOrEmpty(Env("BINA_PARITY_PATH")) ? Env("BINA_PARITY_PATH")
+            : label == "KIMIA" ? Env("BINA_KIMIA_DWG") : Env("BINA_ASWARA_DWG");
+
+        [OdaFact]
+        public void Parity_Export()
         {
-            DwgDrawing a = Acad.Read(path);
-            DwgDrawing o = Oda.Read(path);
-            var (va, ja) = PlanAnswer(a);
-            var (vo, jo) = PlanAnswer(o);
+            string label = Env("BINA_PARITY_LABEL") ?? "ASWARA";
+            string engine = Env("BINA_MEM_ENGINE") ?? "acadsharp";
+            string path = LabelPath(label);
+            DwgDrawing d = engine == "oda" ? Oda.Read(path) : Acad.Read(path);
+            var (verdict, json) = PlanAnswer(d);
+            var result = new Dictionary<string, object>
+            {
+                ["census"] = Census(d),
+                ["verdictInputs"] = VerdictInputs(d),
+                ["verdict"] = verdict,
+                ["detection"] = Detection(d, path),
+                ["readDwgPlan"] = json,
+                ["warnings"] = d.Warnings.Select(w => w.ToString()).ToArray(),
+                ["timings"] = d.Timings,
+            };
+            File.WriteAllText(ParityPath(label, engine), JsonSerializer.Serialize(result));
+        }
+
+        [OdaFact]
+        public void Parity_Compare()
+        {
+            string label = Env("BINA_PARITY_LABEL") ?? "ASWARA";
+            JsonElement a = JsonDocument.Parse(File.ReadAllText(ParityPath(label, "acadsharp"))).RootElement;
+            JsonElement o = JsonDocument.Parse(File.ReadAllText(ParityPath(label, "oda"))).RootElement;
+            string J(JsonElement e, string k) => e.GetProperty(k).GetRawText();
+            bool planSame = a.GetProperty("readDwgPlan").GetString() == o.GetProperty("readDwgPlan").GetString();
             Report("parity", new
             {
                 file = label,
-                census = new { acadsharp = Census(a), oda = Census(o) },
-                verdictInputs = new { acadsharp = VerdictInputs(a), oda = VerdictInputs(o) },
-                verdict = new { acadsharp = va, oda = vo },
-                detection = new { acadsharp = Detection(a, path), oda = Detection(o, path) },
-                readDwgPlanIdentical = ja == jo,
-                readDwgPlan = ja == jo ? null : new { acadsharp = ja, oda = jo },
-                warnings = new { acadsharp = a.Warnings.Select(w => w.ToString()), oda = o.Warnings.Select(w => w.ToString()) },
+                census = new { acadsharp = J(a, "census"), oda = J(o, "census") },
+                verdictInputs = new { acadsharp = J(a, "verdictInputs"), oda = J(o, "verdictInputs") },
+                verdict = new { acadsharp = J(a, "verdict"), oda = J(o, "verdict") },
+                detection = new { acadsharp = J(a, "detection"), oda = J(o, "detection") },
+                readDwgPlanIdentical = planSame,
+                readDwgPlan = planSame ? null : new { acadsharp = a.GetProperty("readDwgPlan").GetString(), oda = o.GetProperty("readDwgPlan").GetString() },
+                warnings = new { acadsharp = J(a, "warnings"), oda = J(o, "warnings") },
             });
-            Assert.Equal(va, vo);   // the AEC refusal must not depend on the engine
+            Assert.Equal(J(a, "verdict"), J(o, "verdict"));   // the AEC refusal must not depend on the engine
         }
 
+        /// <summary>Finds a drawing CadSourceVerdict refuses with ACadSharp today (export/compare it next with BINA_PARITY_PATH).</summary>
         [OdaFact]
-        public void Parity_Aswara() => Compare("ASWARA", Env("BINA_ASWARA_DWG"));
-
-        [OdaFact]
-        public void Parity_Kimia()
-        {
-            if (string.IsNullOrEmpty(Env("BINA_KIMIA_DWG"))) return;
-            Compare("KIMIA", Env("BINA_KIMIA_DWG"));
-        }
-
-        /// <summary>Finds a drawing CadSourceVerdict refuses with ACadSharp today, then checks ODA refuses it too.</summary>
-        [OdaFact]
-        public void Parity_AecRefusal()
+        public void Parity_AecScan()
         {
             string dir = Env("BINA_DWG_SCAN_DIR");
             if (string.IsNullOrEmpty(dir)) return;
@@ -159,17 +185,16 @@ namespace RevitWebAppSync.Tests
                 string verdict;
                 try { verdict = PlanAnswer(Acad.Read(f)).Verdict; } catch (System.Exception ex) { verdict = "error " + ex.GetType().Name; }
                 scanned.Add(new { file = Path.GetFileName(f), verdict });
-                if (verdict != "refused") continue;
-                Report("aec-scan", scanned);
-                Compare("AEC:" + Path.GetFileName(f), f);
-                return;
+                System.GC.Collect();
+                if (verdict == "refused") { Report("aec-scan", new { found = f, scanned }); return; }
             }
-            Report("aec-scan", new { found = false, scanned });
+            Report("aec-scan", new { found = (string)null, scanned });
         }
 
         // ── RAM + time (condition 2, FRIDAY 3) ──
 
-        private static (double Seconds, long BeforeFree, long MinFree, long BeforePrivate, long PeakPrivate) Measure(System.Action read)
+        private static (double Seconds, long BeforeFree, long MinFree, long BeforePrivate, long PeakPrivate, Dictionary<string, double> Timings)
+            Measure(System.Func<DwgDrawing> read)
         {
             System.GC.Collect(); System.GC.WaitForPendingFinalizers(); System.GC.Collect();
             var proc = Process.GetCurrentProcess();
@@ -188,46 +213,87 @@ namespace RevitWebAppSync.Tests
                 }
             });
             var clock = Stopwatch.StartNew();
-            read();
+            var timings = read().Timings;
             clock.Stop();
             stop.Cancel();
             sampler.Wait();
-            return (clock.Elapsed.TotalSeconds, beforeFree, minFree, beforePrivate, peakPrivate);
+            return (clock.Elapsed.TotalSeconds, beforeFree, minFree, beforePrivate, peakPrivate, timings);
+        }
+
+        private static IEnumerable<(string Label, string Path)> Files() =>
+            new[] { ("ASWARA", Env("BINA_ASWARA_DWG")), ("KIMIA", Env("BINA_KIMIA_DWG")) }
+                .Where(f => !string.IsNullOrEmpty(f.Item2) && (string.IsNullOrEmpty(Env("BINA_MEM_FILE")) || Env("BINA_MEM_FILE") == f.Item1));
+
+        private static IEnumerable<(string Engine, IDwgReader Reader)> Engines() =>
+            new (string, IDwgReader)[] { ("acadsharp", Acad), ("oda", Oda) }
+                .Where(e => string.IsNullOrEmpty(Env("BINA_MEM_ENGINE")) || Env("BINA_MEM_ENGINE") == e.Item1);
+
+        /// <summary>ODA files this process loaded from the runtime folder: the installer allowlist candidate.</summary>
+        private static object OdaModules()
+        {
+            string bin = Path.GetFullPath(Env("BINA_ODA_BIN")).TrimEnd('\\');
+            bool InBin(string file) => string.Equals(Path.GetDirectoryName(file), bin, System.StringComparison.OrdinalIgnoreCase);
+            var native = Process.GetCurrentProcess().Modules.Cast<ProcessModule>().Select(m => m.FileName).Where(InBin);
+            var managed = System.AppDomain.CurrentDomain.GetAssemblies()
+                .Where(a => !a.IsDynamic && !string.IsNullOrEmpty(a.Location) && InBin(a.Location)).Select(a => a.Location);
+            var all = native.Concat(managed).Distinct(System.StringComparer.OrdinalIgnoreCase).ToList();
+            return new { count = all.Count, mb = System.Math.Round(all.Sum(f => new FileInfo(f).Length) / 1048576.0, 1), files = all.Select(Path.GetFileName).OrderBy(n => n) };
         }
 
         [OdaFact]
         public void Memory_And_Time_BothEngines()
         {
-            var files = new[] { ("ASWARA", Env("BINA_ASWARA_DWG")), ("KIMIA", Env("BINA_KIMIA_DWG")) }.Where(f => !string.IsNullOrEmpty(f.Item2));
-            foreach (var (label, path) in files)
+            foreach (var (label, path) in Files())
             {
-                if (!string.IsNullOrEmpty(Env("BINA_MEM_FILE")) && Env("BINA_MEM_FILE") != label) continue;
-                foreach (var (engine, reader) in new (string, IDwgReader)[] { ("acadsharp", Acad), ("oda", Oda) })
+                foreach (var (engine, reader) in Engines())
                 {
-                    if (!string.IsNullOrEmpty(Env("BINA_MEM_ENGINE")) && Env("BINA_MEM_ENGINE") != engine) continue;
                     // Peak during an ODA read = ODA db + the ACadSharp document it is being translated into, both alive.
                     var runs = Enumerable.Range(0, 3).Select(_ => Measure(() => reader.Read(path))).ToList();
+                    // Managed size of one held document (GC heap only): what a session keeps per drawing.
+                    long heapBefore = System.GC.GetTotalMemory(true);
+                    DwgDrawing held = reader.Read(path);
+                    long documentMb = (System.GC.GetTotalMemory(true) - heapBefore) >> 20;
+                    System.GC.KeepAlive(held);
+                    held = null;
                     System.GC.Collect(); System.GC.WaitForPendingFinalizers(); System.GC.Collect();
                     var proc = Process.GetCurrentProcess(); proc.Refresh();
-                    // Retained = what the session holds afterwards (the document only; the ODA db is already freed).
-                    long baseline = proc.PrivateMemorySize64;
-                    DwgDrawing held = reader.Read(path);
-                    System.GC.Collect(); System.GC.WaitForPendingFinalizers(); System.GC.Collect();
-                    proc.Refresh();
-                    long retainedMb = (proc.PrivateMemorySize64 - baseline) >> 20;
-                    System.GC.KeepAlive(held);
                     Report("memory", new
                     {
                         file = label,
                         engine,
                         secondsMedian = runs.Select(r => r.Seconds).OrderBy(s => s).ElementAt(1),
                         seconds = runs.Select(r => System.Math.Round(r.Seconds, 2)),
+                        phases = runs.Select(r => r.Timings.ToDictionary(kv => kv.Key, kv => System.Math.Round(kv.Value, 2))),
                         privateCostMb = runs.Select(r => (r.PeakPrivate - r.BeforePrivate) >> 20),
-                        retainedDocumentMb = retainedMb,
                         freeDropMb = runs.Select(r => (r.BeforeFree - r.MinFree) >> 20),
                         beforeFreeMb = runs.Select(r => r.BeforeFree >> 20),
+                        documentHeapMb = documentMb,
                         privateAfterGcMb = proc.PrivateMemorySize64 >> 20,
+                        odaModules = engine == "oda" ? OdaModules() : null,
                     });
+                }
+            }
+        }
+
+        /// <summary>Ten reads, private bytes after each (GC + 1 s settle): flat = no leak, rising = leak.</summary>
+        [OdaFact]
+        public void Leak_TenReads()
+        {
+            foreach (var (label, path) in Files())
+            {
+                foreach (var (engine, reader) in Engines())
+                {
+                    var proc = Process.GetCurrentProcess();
+                    var after = new List<long>();
+                    for (int i = 0; i < 10; i++)
+                    {
+                        reader.Read(path);
+                        System.GC.Collect(); System.GC.WaitForPendingFinalizers(); System.GC.Collect();
+                        Thread.Sleep(1000);
+                        proc.Refresh();
+                        after.Add(proc.PrivateMemorySize64 >> 20);
+                    }
+                    Report("leak", new { file = label, engine, privateAfterEachReadMb = after, growthReads2To10Mb = after[9] - after[1] });
                 }
             }
         }

@@ -30,7 +30,14 @@ namespace RevitWebAppSync.Services.CadToBim.Dwg
         private static Thread _thread;
         private static string _binDir;
         private static Exception _initFailure;
-        private static bool _initialized;
+        private static volatile bool _initialized;
+        private static bool _shutDown;
+
+        /// <summary>A read waiting longer than this gives up (the ODA thread keeps the read; the caller falls back).</summary>
+        internal static TimeSpan ReadTimeout = TimeSpan.FromSeconds(120);
+
+        /// <summary>True once odInitialize succeeded this session (DwgReaders picks the later-read memory need).</summary>
+        internal static bool IsInitialized => _initialized;
 
         /// <summary>Thread the ODA work runs on (the harness checks it stays the same).</summary>
         internal static int ThreadId => _thread?.ManagedThreadId ?? -1;
@@ -41,6 +48,8 @@ namespace RevitWebAppSync.Services.CadToBim.Dwg
             BlockingCollection<Action> queue;
             lock (Gate)
             {
+                // Never a second odInitialize: after Shutdown the session is over for ODA.
+                if (_shutDown) throw new InvalidOperationException("ODA was shut down for this Revit session");
                 if (_queue == null)
                 {
                     _queue = new BlockingCollection<Action>();
@@ -60,6 +69,8 @@ namespace RevitWebAppSync.Services.CadToBim.Dwg
                 }
                 catch (Exception ex) { done.SetException(ex); }
             });
+            if (Task.WhenAny(done.Task, Task.Delay(ReadTimeout)).GetAwaiter().GetResult() != done.Task)   // Wait() would wrap the work's exception
+                throw new TimeoutException("ODA did not finish within " + (int)ReadTimeout.TotalSeconds + " s");
             return done.Task.GetAwaiter().GetResult();
         }
 
@@ -73,6 +84,7 @@ namespace RevitWebAppSync.Services.CadToBim.Dwg
                 queue = _queue;
                 thread = _thread;
                 _queue = null;
+                _shutDown = true;
             }
             if (queue == null) return;
             queue.Add(() =>
@@ -99,8 +111,10 @@ namespace RevitWebAppSync.Services.CadToBim.Dwg
                 if (!Directory.Exists(binDir)) throw new DirectoryNotFoundException("no ODA bin folder");
                 if (!File.Exists(keyFile)) throw new FileNotFoundException("no ODA key file");
 
+                // A dynamic or from-bytes assembly has no Location (Location throws or is ""): counted as foreign.
                 Assembly foreign = AppDomain.CurrentDomain.GetAssemblies().FirstOrDefault(a => IsOda(a.GetName().Name)
-                    && !string.Equals(Path.GetDirectoryName(a.Location), Path.GetFullPath(binDir), StringComparison.OrdinalIgnoreCase));
+                    && (a.IsDynamic || string.IsNullOrEmpty(a.Location)
+                        || !string.Equals(Path.GetDirectoryName(a.Location), Path.GetFullPath(binDir).TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase)));
                 if (foreign != null)
                     throw new InvalidOperationException("another add-in already loaded ODA " + foreign.GetName().Version);
 

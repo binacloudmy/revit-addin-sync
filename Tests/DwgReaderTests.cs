@@ -84,17 +84,23 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void LowMemory_FallsBackWhenAcadSharpFits_RefusesWhenNeitherDoes()
+        public void LowMemory_AutoIsAsIfNotInstalled_ForcedRefuses_WarmNeedsLess()
         {
-            long between = (DwgReaders.OdaNeedBytes + DwgReaders.AcadSharpNeedBytes) / 2;
+            long between = (DwgReaders.OdaFirstNeedBytes + DwgReaders.OdaLaterNeedBytes) / 2;
             var oda = new Fake("oda");
-            var d = DwgReaders.Read("x.dwg", "auto", true, () => oda, new Fake("acadsharp"), () => between);
+
+            // First use, too little for ODA: ACadSharp, no note, no refusal (even with almost nothing free).
+            var d = DwgReaders.Read("x.dwg", "auto", true, () => oda, new Fake("acadsharp"), () => 1);
             Assert.Equal("acadsharp", d.Engine);
+            Assert.Empty(d.Notes);
             Assert.Equal(0, oda.Reads);
-            Assert.Contains("memory", Assert.Single(d.Notes));
 
             Assert.Throws<System.InsufficientMemoryException>(() =>
-                DwgReaders.Read("x.dwg", "auto", true, () => oda, new Fake("acadsharp"), () => DwgReaders.AcadSharpNeedBytes - 1));
+                DwgReaders.Read("x.dwg", "oda", true, () => oda, new Fake("acadsharp"), () => between));
+
+            // Runtime already started: the later-read need applies.
+            Assert.Equal("acadsharp", DwgReaders.Read("x.dwg", "auto", true, () => oda, new Fake("acadsharp"), () => between, odaWarm: false).Engine);
+            Assert.Equal("oda", DwgReaders.Read("x.dwg", "auto", true, () => oda, new Fake("acadsharp"), () => between, odaWarm: true).Engine);
         }
 
         // ── D6: "not installed" proven by a config pointing at a missing ODA folder ──

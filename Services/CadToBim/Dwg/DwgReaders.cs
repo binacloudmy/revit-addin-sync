@@ -19,9 +19,11 @@ namespace RevitWebAppSync.Services.CadToBim.Dwg
         public static string DefaultOdaDir => Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Bina", "RevitSync", "oda", "27.10");
 
-        // shortcut: provisional until the AI-647 harness measures (peak - before) x 1.5 per engine; replace with the measured figures.
-        internal static long OdaNeedBytes = 1536L << 20;
-        internal static long AcadSharpNeedBytes = 1024L << 20;
+        // Free memory ODA needs, (peak - before) x 1.5 from the AI-647 harness (ASWARA, 2026-11-27):
+        // the first read also starts the runtime (+1.72 GB), later reads cost ~0.23 GB.
+        // shortcut: ASWARA figures only; re-set from KIMIA once the harness has measured it.
+        internal static long OdaFirstNeedBytes = 2662L << 20;
+        internal static long OdaLaterNeedBytes = 358L << 20;
 
         private static readonly AcadSharpDwgReader AcadSharp = new AcadSharpDwgReader();
 
@@ -33,16 +35,18 @@ namespace RevitWebAppSync.Services.CadToBim.Dwg
             bool present = Directory.Exists(Path.Combine(dir, "bin")) && File.Exists(key);
 #if HAS_ODA
             Func<IDwgReader> oda = () => new OdaDwgReader(Path.Combine(dir, "bin"), key);
+            bool warm = OdaRuntime.IsInitialized;
 #else
             Func<IDwgReader> oda = null;
             present = false;
+            bool warm = false;
 #endif
-            return Read(path, settings.DwgReader, present, oda, AcadSharp, FreeBytes);
+            return Read(path, settings.DwgReader, present, oda, AcadSharp, FreeBytes, warm);
         }
 
         /// <summary>The selection itself, with every dependency passed in (tests drive it with fakes).</summary>
         internal static DwgDrawing Read(string path, string mode, bool odaPresent, Func<IDwgReader> oda,
-                                        IDwgReader acadSharp, Func<long> freeBytes)
+                                        IDwgReader acadSharp, Func<long> freeBytes, bool odaWarm = false)
         {
             mode = (mode ?? "auto").Trim().ToLowerInvariant();
             if (mode == "acadsharp") return acadSharp.Read(path);
@@ -56,14 +60,16 @@ namespace RevitWebAppSync.Services.CadToBim.Dwg
                 return acadSharp.Read(path);
             }
 
+            // Too little memory for ODA: auto reads with ACadSharp exactly as if ODA were not installed
+            // (no guard, no note); only a forced "oda" refuses.
+            long need = odaWarm ? OdaLaterNeedBytes : OdaFirstNeedBytes;
             long free = freeBytes();
-            if (free < OdaNeedBytes)
+            if (free < need)
             {
-                string memory = "only " + Gb(free) + " GB of memory free, ODA needs " + Gb(OdaNeedBytes) + " GB";
-                if (forced || free < AcadSharpNeedBytes)
-                    throw new InsufficientMemoryException("Not enough free memory to read this drawing (" + Gb(free)
-                        + " GB free). Close other programs and try again.");
-                return Fallback(acadSharp, path, memory);
+                if (forced)
+                    throw new InsufficientMemoryException("Not enough free memory to read this drawing with ODA (" + Gb(free)
+                        + " GB free, " + Gb(need) + " GB needed). Close other programs and try again.");
+                return acadSharp.Read(path);
             }
 
             try

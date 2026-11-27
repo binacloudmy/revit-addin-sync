@@ -47,6 +47,9 @@ namespace RevitWebAppSync.Services.CadToBim.Dwg
         /// <summary>User-facing lines about how the file was read (e.g. the ODA fallback). Empty on a normal read.</summary>
         public List<string> Notes = new List<string>();
 
+        /// <summary>Seconds per read phase (ODA: readFile, translate, census, images, classes); empty for ACadSharp.</summary>
+        public Dictionary<string, double> Timings = new Dictionary<string, double>();
+
         /// <summary>An in-memory document (tests, and the ACadSharp path).</summary>
         public static DwgDrawing FromDocument(CadDocument document, string path = null, List<string> notifications = null)
         {
