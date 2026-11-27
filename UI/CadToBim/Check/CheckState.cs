@@ -69,6 +69,15 @@ namespace RevitWebAppSync.UI.CadToBim.Check
         public int DetailsSkipped { get; set; }
         /// <summary>Entities in model space (what the pre-flight row counts).</summary>
         public int ModelSpaceEntities { get; set; }
+        /// <summary>The DWG header's model-space extents in mm (EXTMIN/EXTMAX x the resolved unit). The Revit
+        /// link's bounding box covers the same geometry, so the two tie reader coordinates to the model.</summary>
+        public double ExtMinX { get; set; }
+        public double ExtMinY { get; set; }
+        public double ExtMaxX { get; set; }
+        public double ExtMaxY { get; set; }
+        // an unset header holds +-1e20 sentinels: treated as no extents
+        [JsonIgnore] public BoxMm? Extents => ExtMaxX > ExtMinX && ExtMaxY > ExtMinY && Math.Abs(ExtMinX) < 1e12 && Math.Abs(ExtMaxX) < 1e12
+            && Math.Abs(ExtMinY) < 1e12 && Math.Abs(ExtMaxY) < 1e12 ? new BoxMm(ExtMinX, ExtMinY, ExtMaxX, ExtMaxY) : (BoxMm?)null;
 
 
         /// <summary>The only adapter from the reader. Same plan filter as read_dwg_plan's listing.</summary>
@@ -119,6 +128,9 @@ namespace RevitWebAppSync.UI.CadToBim.Check
             sheet.File = Path.GetFileName(path);
             SheetSnapshot snap = From(sheet, new FileInfo(path).Length);
             snap.ModelSpaceEntities = document.Entities.Count();
+            double k = sheet.UsedMmPerUnit;
+            (snap.ExtMinX, snap.ExtMinY) = (document.Header.ModelSpaceExtMin.X * k, document.Header.ModelSpaceExtMin.Y * k);
+            (snap.ExtMaxX, snap.ExtMaxY) = (document.Header.ModelSpaceExtMax.X * k, document.Header.ModelSpaceExtMax.Y * k);
             return snap;
         }
 

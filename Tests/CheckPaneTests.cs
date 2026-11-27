@@ -33,7 +33,8 @@ namespace Tests
         {
             public readonly List<string> Calls = new List<string>();
             public void ZoomTo(BoxMm box) => Calls.Add("zoom");
-            public void ShowUnderlay(string dwgPath, double mmPerUnit, IReadOnlyList<BoxMm> plans) => Calls.Add("link " + mmPerUnit + " " + plans.Count);
+            public BoxMm? Main;
+            public void ShowUnderlay(string dwgPath, double mmPerUnit, BoxMm mainPlan, BoxMm? drawingExtents) { Main = mainPlan; Calls.Add("link " + mmPerUnit); }
             public void RemoveUnderlay() => Calls.Add("unlink");
             public event Action<string>? Failed;
             public event Action? Linked;
@@ -363,7 +364,8 @@ namespace Tests
             await open;
             Assert.NotEqual(caller, reader);
             Assert.Equal(CheckScreen.Preflight, vm.Screen);
-            Assert.Equal(new[] { "unlink", "link 1 8" }, view.Calls);   // old preview gone, new one at the reader's unit
+            Assert.Equal(new[] { "unlink", "link 1" }, view.Calls);   // old preview gone, new one at the reader's unit
+            Assert.Equal(vm.State.Plans.Single(p => p.IsMain).Plan.Box, view.Main);   // placed and zoomed on the main plan (ARAS 1)
 
             vm.Close();
             Assert.Equal("unlink", view.Calls.Last());

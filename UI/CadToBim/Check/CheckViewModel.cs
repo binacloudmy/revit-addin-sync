@@ -15,7 +15,8 @@ namespace RevitWebAppSync.UI.CadToBim.Check
     public interface IRevitView
     {
         void ZoomTo(BoxMm box);
-        void ShowUnderlay(string dwgPath, double mmPerUnit, IReadOnlyList<BoxMm> plans);
+        /// <summary>Link the DWG, place it so the main plan sits in the view, zoom to that plan.</summary>
+        void ShowUnderlay(string dwgPath, double mmPerUnit, BoxMm mainPlan, BoxMm? drawingExtents);
         void RemoveUnderlay();
         /// <summary>A preview call failed (already logged); the text is shown as one line on screen 2.</summary>
         event Action<string> Failed;
@@ -133,7 +134,10 @@ namespace RevitWebAppSync.UI.CadToBim.Check
                 State = CheckState.For(sheet, target, _shortcuts);
                 State.WallHeightMm = _wallHeightMm;
                 if (!State.Target.Workshared)   // no preview link in a workshared model (owner, 2026-11-27)
-                    _view?.ShowUnderlay(path, sheet.UsedMmPerUnit, sheet.Plans.Select(p => p.Box).ToList());
+                {
+                    PlanMap main = State.Plans.FirstOrDefault(p => p.IsMain);
+                    if (main != null) _view?.ShowUnderlay(path, sheet.UsedMmPerUnit, main.Plan.Box, sheet.Extents);
+                }
             }
             catch (Exception ex)
             {

@@ -104,7 +104,11 @@ namespace RevitWebAppSync.UI.CadToBim.Check
 
         public void ZoomTo(BoxMm box) => Queue(app => Zoom(app, box));
 
-        public void ShowUnderlay(string dwgPath, double mmPerUnit, IReadOnlyList<BoxMm> plans) => Queue(app =>
+        // Reader mm -> model ft, derived from the link itself, plus the move that placed the preview.
+        private XYZ _readerToModel;   // model = reader / 304.8 + _readerToModel (null until a link is placed)
+        private XYZ _moved;           // the placement move, re-applied when the link is re-made after a save
+
+        public void ShowUnderlay(string dwgPath, double mmPerUnit, BoxMm mainPlan, BoxMm? drawingExtents) => Queue(app =>
         {
             Document doc = app.ActiveUIDocument?.Document;
             if (doc == null || doc.IsFamilyDocument) { Fail("no project is open"); return; }
@@ -114,41 +118,75 @@ namespace RevitWebAppSync.UI.CadToBim.Check
             Hook(app.Application);   // idempotent; normally already hooked from the constructor
             Guard(() => RemoveLeftovers(doc), "removing a leftover preview");   // before a new link: same tag, same rule
             _last = (dwgPath, mmPerUnit, view.Id);
+            _moved = null; _readerToModel = null;
             Link(doc, view);
-            if (_link != ElementId.InvalidElementId) ZoomToPreview(app, doc, view, plans);
+            if (_link != ElementId.InvalidElementId) Guard(() => PlaceAndZoom(app, doc, view, mainPlan, drawingExtents), "placing the preview");
         });
 
-        /// <summary>Zoom the active view to the drawing's plans: the union of the reader's plan boxes (mm, drawing
-        /// coordinates) mapped through the link's transform. The DWG header extents can hold far-off outliers
-        /// (ASWARA: X -6.9..463.6 m), so the link's own bounding box is only the fallback when there are no plans.
-        /// The view's crop is never changed; if it hides the preview, that is logged.</summary>
-        private void ZoomToPreview(UIApplication app, Document doc, View view, IReadOnlyList<BoxMm> plans)
+        /// <summary>Tie reader coordinates to the link (header extents vs the link's real extents, not an assumed
+        /// origin), move the temporary link so the main plan sits at the centre of the view's crop (or of what is
+        /// on screen when the crop is off), then zoom to the main plan. The crop and the user's elements are never touched.</summary>
+        private void PlaceAndZoom(UIApplication app, Document doc, View view, BoxMm main, BoxMm? extents)
         {
-            try
+            var link = (ImportInstance)doc.GetElement(_link);
+            BoundingBoxXYZ bb = link.get_BoundingBox(null);
+            var (lo, hi) = Bounds(bb.Transform, Corners(bb.Min, bb.Max));
+            if (extents is BoxMm e)
             {
-                var link = doc.GetElement(_link) as ImportInstance;
-                BoundingBoxXYZ whole = link?.get_BoundingBox(view) ?? link?.get_BoundingBox(null);
-                (XYZ Min, XYZ Max)? wholeModel = whole == null ? ((XYZ, XYZ)?)null : Bounds(whole.Transform, Corners(whole.Min, whole.Max));
-                (XYZ Min, XYZ Max)? target = null;
-                if (link != null && plans.Count > 0)
-                {
-                    var u = new XYZ(plans.Min(b => b.MinX) / MmPerFoot, plans.Min(b => b.MinY) / MmPerFoot, 0);
-                    var v = new XYZ(plans.Max(b => b.MaxX) / MmPerFoot, plans.Max(b => b.MaxY) / MmPerFoot, 0);
-                    target = Bounds(link.GetTotalTransform(), Corners(u, v));
-                }
-                Log("preview: plan boxes " + Fmt(target) + " · link extents " + Fmt(wholeModel) + " (ft, model)");
-                target ??= wholeModel;
-                if (target == null) { Log("preview: not zoomed: no plan boxes and the link has no extents in " + view.Name); return; }
-                XYZ pad = (target.Value.Max - target.Value.Min) * 0.05;   // a small margin around the plans
-                UIView ui = app.ActiveUIDocument?.GetOpenUIViews().FirstOrDefault(w => w.ViewId == view.Id);
-                if (ui == null) { Log("preview: not zoomed: " + view.Name + " is not the open view"); return; }
-                ui.ZoomAndCenterRectangle(target.Value.Min - pad, target.Value.Max + pad);
-                Log("preview: zoomed to the preview in " + view.Name);
-                if (view.CropBoxActive && !Overlaps(view.CropBox, target.Value.Min, target.Value.Max))
-                    Log("preview: preview outside the view's crop in " + view.Name + "; the crop was left as is");
+                _readerToModel = new XYZ(lo.X - e.MinX / MmPerFoot, lo.Y - e.MinY / MmPerFoot, 0);
+                double ratio = (hi.X - lo.X) / (e.Width / MmPerFoot);
+                Log(Invariant($"preview: reader->model offset X {_readerToModel.X:0.##} Y {_readerToModel.Y:0.##} ft (header extents vs link extents; width ratio {ratio:0.###})"));
             }
-            catch (Exception ex) { Log("preview: not zoomed: " + ex.Message); }
+            else
+            {
+                XYZ o = link.GetTotalTransform().Origin;
+                _readerToModel = new XYZ(o.X, o.Y, 0);
+                Log("preview: no header extents; reader->model from the link transform origin");
+            }
+
+            UIView ui = app.ActiveUIDocument?.GetOpenUIViews().FirstOrDefault(w => w.ViewId == view.Id);
+            XYZ target;
+            if (view.CropBoxActive)
+            {
+                BoundingBoxXYZ crop = view.CropBox;
+                target = crop.Transform.OfPoint((crop.Min + crop.Max) / 2);
+            }
+            else if (ui != null)
+            {
+                IList<XYZ> c = ui.GetZoomCorners();
+                target = (c[0] + c[1]) / 2;
+            }
+            else { Log("preview: not placed: " + view.Name + " is not the open view"); return; }
+
+            var (mMin, mMax) = Model(main);
+            XYZ centre = (mMin + mMax) / 2;
+            XYZ delta = new XYZ(target.X - centre.X, target.Y - centre.Y, 0);
+            using (var t = new Transaction(doc, "BINA: place DWG preview"))
+            {
+                t.Start();
+                ElementTransformUtils.MoveElement(doc, _link, delta);   // only our temporary link moves
+                t.Commit();
+            }
+            _moved = delta;
+            _readerToModel += delta;
+            (mMin, mMax) = Model(main);
+            Log(Invariant($"preview: moved the preview by X {delta.X:0.##} Y {delta.Y:0.##} ft; main plan now ") + Fmt((mMin, mMax)));
+
+            if (ui == null) { Log("preview: not zoomed: " + view.Name + " is not the open view"); return; }
+            XYZ pad = (mMax - mMin) * 0.05;   // a small margin around the main plan
+            ui.ZoomAndCenterRectangle(mMin - pad, mMax + pad);
+            bool inside = !view.CropBoxActive || Overlaps(view.CropBox, mMin, mMax);
+            Log("preview: zoomed to the main plan in " + view.Name + (inside ? "; it is inside the view's crop" : "; still outside the view's crop (the crop was left as is)"));
         }
+
+        /// <summary>A reader box (mm) in model feet, through the derived offset; null offset = straight mm/304.8.</summary>
+        private (XYZ Min, XYZ Max) Model(BoxMm b)
+        {
+            XYZ o = _readerToModel ?? XYZ.Zero;
+            return (new XYZ(b.MinX / MmPerFoot + o.X, b.MinY / MmPerFoot + o.Y, 0), new XYZ(b.MaxX / MmPerFoot + o.X, b.MaxY / MmPerFoot + o.Y, 0));
+        }
+
+        private static string Invariant(FormattableString s) => FormattableString.Invariant(s);
 
         private static XYZ[] Corners(XYZ a, XYZ b) =>
             new[] { new XYZ(a.X, a.Y, a.Z), new XYZ(b.X, a.Y, a.Z), new XYZ(a.X, b.Y, b.Z), new XYZ(b.X, b.Y, b.Z) };
@@ -170,7 +208,7 @@ namespace RevitWebAppSync.UI.CadToBim.Check
             return lo.X <= crop.Max.X && hi.X >= crop.Min.X && lo.Y <= crop.Max.Y && hi.Y >= crop.Min.Y;
         }
 
-        public void RemoveUnderlay() => Queue(_ => { Unlink(); _last = default; });
+        public void RemoveUnderlay() => Queue(_ => { Unlink(); _last = default; _moved = null; _readerToModel = null; });
 
         private void Link(Document doc, View view)
         {
@@ -188,6 +226,7 @@ namespace RevitWebAppSync.UI.CadToBim.Check
                     var tag = new Entity(PreviewSchema());
                     tag.Set(PreviewField, _last.Path);
                     doc.GetElement(id).SetEntity(tag);   // so a leftover can be told apart from the user's own links
+                    if (_moved != null) ElementTransformUtils.MoveElement(doc, id, _moved);   // after a save re-link: same place as before
                     _link = id; _linkDoc = doc; t.Commit();
                     Log("preview: linked " + Path.GetFileName(_last.Path) + " into " + doc.Title);
                     Linked?.Invoke();
@@ -255,11 +294,12 @@ namespace RevitWebAppSync.UI.CadToBim.Check
 
         // ── helpers ──
 
-        private static void Zoom(UIApplication app, BoxMm box)
+        private void Zoom(UIApplication app, BoxMm box)
         {
             UIDocument uidoc = app.ActiveUIDocument;
             UIView ui = uidoc?.GetOpenUIViews().FirstOrDefault(v => v.ViewId == uidoc.ActiveView.Id);
-            ui?.ZoomAndCenterRectangle(new XYZ(box.MinX / MmPerFoot, box.MinY / MmPerFoot, 0), new XYZ(box.MaxX / MmPerFoot, box.MaxY / MmPerFoot, 0));
+            var (min, max) = Model(box);   // same mapping + placement move as the preview
+            ui?.ZoomAndCenterRectangle(min, max);
         }
 
         private static ImportUnit UnitFor(double mmPerUnit)
