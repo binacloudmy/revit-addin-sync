@@ -133,8 +133,11 @@
                                         <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="6"/><ColumnDefinition/></Grid.ColumnDefinitions>
                                         <Button Style="{StaticResource Cbs.BtnP}" Height="28" Content="That's right" Click="OnNext"/>
                                         <Button Grid.Column="2" Style="{StaticResource Cbs.Btn}" Height="28" HorizontalContentAlignment="Center" Content="Change"
-                                                IsEnabled="False" ToolTip="Changing the consultant comes with the rule store (AI-634)"/>
+                                                IsEnabled="False" ToolTipService.ShowOnDisabled="True"
+                                                ToolTip="Changing the consultant arrives with the rule store (AI-634)"/>
                                     </Grid>
+                                    <TextBlock Text="Changing the consultant arrives with the rule store (AI-634)." FontSize="11"
+                                               Foreground="{DynamicResource Cb.Fg3}" Margin="0,0,0,4"/>
                                     <TextBlock Text="{Binding Consultant.Rules}" FontSize="11" Foreground="{DynamicResource Cb.Fg3}"/>
                                 </StackPanel>
                             </Grid>

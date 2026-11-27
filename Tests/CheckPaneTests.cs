@@ -81,7 +81,8 @@ namespace Tests
             Assert.Equal("g", rows.Single(r => r.Map!.Plan.Level == "ARAS 1").Tone);
             Assert.Equal("ARAS 1", rows[0].Map!.Plan.Level);                           // the main-level plan first
             Assert.StartsWith("Elevations, sections", vm.Gate1Rows.Last().Text);
-            Assert.False(vm.Gate1Rows.Last().HasBadge);
+            Assert.Equal("not read", vm.Gate1Rows.Last().BadgeText);
+            Assert.All(vm.Gate1Rows, r => Assert.True(r.HasBadge));                    // every row has a badge
             Assert.Equal("a", rows.Single(r => r.Map!.Plan.Level == "ARAS 1A").Tone);   // 1A is not 1
         }
 
@@ -170,6 +171,10 @@ namespace Tests
             Assert.Equal("DWG header only · dimension check not built yet", vm.Gate2Verdict);
             Assert.DoesNotContain("confirmed", vm.Gate2Verdict);
             Assert.Equal(new[] { "ok", "warn" }, vm.Gate2Rows.Select(r => r.Mark));
+            Assert.Empty(vm.State.Assumptions);
+            vm.Next();                                                                    // passes on one source...
+            Assert.Equal(GateState.Passed, vm.State.Gate2);
+            Assert.Contains(vm.State.Assumptions, a => a.StartsWith("Scale from the DWG header only", StringComparison.Ordinal));   // ...as a named assumption
         }
 
         [Fact]

@@ -164,7 +164,8 @@ namespace RevitWebAppSync.UI.CadToBim.Check
                 ? new CheckRow { Mark = "swatch-g", Text = s.Engine.LegendRow, Source = Src.Drawing, Badge = "Legend · read" }
                 : new CheckRow { Mark = "swatch-n", Text = "Legend and schedule: not read yet", Source = Src.Pending, Evidence = "Legend reader (pending #8)" });
             // the plan reader does not look for elevations/sections yet, so this says so rather than "none found"
-            rows.Add(new CheckRow { Mark = "swatch-n", Text = "Elevations, sections · not read (floor plans only)", Badge = "" });
+            rows.Add(new CheckRow { Mark = "swatch-n", Text = "Elevations, sections · not read (floor plans only)", Source = Src.Pending, Badge = "not read",
+                                     Evidence = "The plan reader finds floor plans only" });
             return rows;
         }
 

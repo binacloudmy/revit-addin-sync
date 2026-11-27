@@ -194,6 +194,18 @@ namespace RevitWebAppSync.UI.CadToBim.Check
         public int Answered => Questions.Count(q => q.Answer != null);
         public bool CanBuild => Gate1 == GateState.Passed && Gate2 == GateState.Passed && Answered == Questions.Count;
 
+        /// <summary>What passed on an assumption (amber), for Review's named-assumptions list (AI-642). Derived, never stored.</summary>
+        public List<string> Assumptions
+        {
+            get
+            {
+                var list = new List<string>();
+                if (Gate2 == GateState.Passed && Engine.DimensionRow == null)
+                    list.Add("Scale from the DWG header only (" + Sheet?.HeaderUnit + "); the dimension check is not built yet");
+                return list;
+            }
+        }
+
         /// <summary>Every plan on the existing main level; the drawing's level name is evidence only.</summary>
         public static CheckState For(SheetSnapshot sheet, TargetInfo target, EngineShortcuts engine)
         {
