@@ -93,8 +93,9 @@ namespace BinaVibe.Copilot.Read
 
         private Envelope RunOne(UIApplication app, UIDocument? uidoc, Document? doc, string live, string turnId, ToolCallDto call, SnapshotModel snapshot)
         {
-            // read_dwg_plan reads a file on disk, never the model: it needs no open or matching document (AI-607).
-            var needsDoc = call.Tool != ToolNames.ReadDwgPlan;
+            // read_dwg_plan on an "att:" ref (or with no ref) reads a file on disk, never the model, so it needs no open
+            // or matching document (AI-607). A "model:<id>" ref resolves the id in the open model, so it keeps both checks.
+            var needsDoc = call.Tool != ToolNames.ReadDwgPlan || !NoModelDwgRef(call.Args);
             if (needsDoc && (doc == null || uidoc == null))
                 return snapshot?.Doc != null
                     ? ReadEnvelope.Fail(ErrorCodes.DocChanged, "The document this turn was about is no longer open. Ask the drafter to open it and resend.")
@@ -153,6 +154,14 @@ namespace BinaVibe.Copilot.Read
                     tool.Name + " failed in the add-in (" + ex.GetType().Name + ": " + BinaVibe.Copilot.Writes.DialogRedaction.RedactPaths(ex.Message) + "). Nothing was changed.");
             }
         }
+
+        /// <summary>True when read_dwg_plan's dwg_ref is missing or an "att:" attachment, so the call never reads the model.</summary>
+        private static bool NoModelDwgRef(System.Text.Json.JsonElement args) =>
+            args.ValueKind != System.Text.Json.JsonValueKind.Object
+            || !args.TryGetProperty("dwg_ref", out var r)
+            || r.ValueKind != System.Text.Json.JsonValueKind.String
+            || string.IsNullOrEmpty(r.GetString())
+            || BinaVibe.Mcp.Tools.DwgScratchCache.IsAttachmentRef(r.GetString()!);
 
         // run_revit_code classifies itself and owns its scope (W4).
         private static IDisposable? ScopeFor(Document doc, string tool) => tool switch
