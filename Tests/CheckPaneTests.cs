@@ -275,7 +275,7 @@ namespace Tests
             var view = new FakeView();
             var vm = Vm(view: view);
             view.Outside(412);
-            Assert.Contains(vm.PreflightRows, r => r.Text == "The drawing sits outside this view's crop (412 m from the model). Widen the crop to see it." && r.Tone == "a");
+            Assert.Contains(vm.PreflightRows, r => r.Text == "The drawing sits outside this view's crop (412 m beyond the cropped area). Widen the crop to see it." && r.Tone == "a");
         }
 
         [Theory]
@@ -285,6 +285,15 @@ namespace Tests
             var s = new SheetSnapshot { ExtMinX = min, ExtMinY = min, ExtMaxX = max, ExtMaxY = max };
             Assert.Null(s.Extents);
             Assert.NotNull(new SheetSnapshot { ExtMinX = -6929.27, ExtMinY = -130540.49, ExtMaxX = 463628.14, ExtMaxY = 34596.66 }.Extents);   // ASWARA
+        }
+
+        [Fact]
+        public void The_frame_gate_passes_on_the_real_ASWARA_extents()
+        {
+            SheetSnapshot s = Aswara();                            // captured header EXTMIN/EXTMAX
+            Assert.NotNull(s.Extents);
+            Assert.True(s.FrameMatches(1543.8));                    // the owner's Revit link width (ft), 07:12 log
+            Assert.False(s.FrameMatches(1543.8 * 1.02));            // 2 % off: zoom falls back to the whole link
         }
 
         [Fact]

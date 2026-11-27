@@ -134,6 +134,11 @@ namespace RevitWebAppSync.UI.CadToBim.Check
             return snap;
         }
 
+        /// <summary>Header width (mm) vs the Revit link's width (ft) within ±1 %: only then are reader boxes
+        /// trusted in model space (origin-to-origin keeps the DWG's WCS).</summary>
+        public bool FrameMatches(double linkWidthFt) =>
+            Extents is BoxMm e && e.Width > 0 && Math.Abs(linkWidthFt / (e.Width / 304.8) - 1) <= 0.01;
+
         public string ToJson() => JsonConvert.SerializeObject(this, Formatting.Indented);
         public static SheetSnapshot FromJson(string json) => JsonConvert.DeserializeObject<SheetSnapshot>(json);
     }

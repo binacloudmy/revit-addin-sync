@@ -135,7 +135,7 @@ namespace RevitWebAppSync.UI.CadToBim.Check
             if (ui == null) { Log("preview: not zoomed: " + view.Name + " is not the open view"); return; }
 
             double ratio = extents is BoxMm e0 && e0.Width > 0 ? (hi.X - lo.X) / (e0.Width / MmPerFoot) : double.NaN;
-            if (!(extents is BoxMm e) || Math.Abs(ratio - 1) > 0.01)
+            if (!(extents is BoxMm e) || !new SheetSnapshot { ExtMinX = e.MinX, ExtMinY = e.MinY, ExtMaxX = e.MaxX, ExtMaxY = e.MaxY }.FrameMatches(hi.X - lo.X))
             {
                 Log(double.IsNaN(ratio)
                     ? "preview: no header extents to check the frame; zoomed to the whole link"
@@ -148,16 +148,17 @@ namespace RevitWebAppSync.UI.CadToBim.Check
             Log(Invariant($"preview: reader->model offset X {_readerToModel.X:0.##} Y {_readerToModel.Y:0.##} ft, width ratio {ratio:0.###}"));
 
             var (mMin, mMax) = Model(main);
+            if (view.CropBoxActive && !Overlaps(view.CropBox, mMin, mMax))
+            {
+                // zooming there would only show empty space: leave the view, the pane's amber line explains
+                double metres = Math.Round(DistanceToCrop(view.CropBox, (mMin + mMax) / 2) * MmPerFoot / 1000);
+                Log(Invariant($"preview: not zoomed: main plan outside the crop ({metres} m beyond it); the crop was left as is"));
+                OutsideCrop?.Invoke(metres);
+                return;
+            }
             XYZ pad = (mMax - mMin) * 0.05;   // a small margin around the main plan
             ui.ZoomAndCenterRectangle(mMin - pad, mMax + pad);
             Log("preview: zoomed to the main plan " + Fmt((mMin, mMax)) + " in " + view.Name);
-
-            if (view.CropBoxActive && !Overlaps(view.CropBox, mMin, mMax))
-            {
-                double metres = Math.Round(DistanceToCrop(view.CropBox, (mMin + mMax) / 2) * MmPerFoot / 1000);
-                Log(Invariant($"preview: main plan is outside the view's crop ({metres} m); the crop was left as is"));
-                OutsideCrop?.Invoke(metres);
-            }
         }
 
         public event Action<double> OutsideCrop;
