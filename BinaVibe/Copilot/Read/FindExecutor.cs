@@ -683,6 +683,8 @@ namespace BinaVibe.Copilot.Read
                     var type = RevitValues.TypeOf(doc, el);
                     p = type == null ? null : FindParameter(type, name);
                 }
+                if ((p == null || !p.HasValue) && string.Equals(name, "Length", StringComparison.OrdinalIgnoreCase))
+                    p = el.get_Parameter(BuiltInParameter.CURVE_ELEM_LENGTH) ?? el.get_Parameter(BuiltInParameter.STRUCTURAL_FRAME_CUT_LENGTH); // AI-612: a beam's Length by name is missing or empty
                 if (RevitValues.IsUncomputedRoomVolume(el, p))
                 {
                     outcome.RoomVolumesOff = true;
