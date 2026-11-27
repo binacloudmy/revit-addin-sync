@@ -115,9 +115,35 @@ namespace RevitWebAppSync.UI.CadToBim.Check
             Guard(() => RemoveLeftovers(doc), "removing a leftover preview");   // before a new link: same tag, same rule
             _last = (dwgPath, mmPerUnit, view.Id);
             Link(doc, view);
-            if (plans.Count > 0)
-                Zoom(app, new BoxMm(plans.Min(b => b.MinX), plans.Min(b => b.MinY), plans.Max(b => b.MaxX), plans.Max(b => b.MaxY)));
+            if (_link != ElementId.InvalidElementId) ZoomToPreview(app, doc, view);
         });
+
+        /// <summary>Zoom the active view to the linked DWG itself (its far coordinates can put it off-screen).
+        /// The view's crop is never changed; if it hides the preview, that is logged.</summary>
+        private void ZoomToPreview(UIApplication app, Document doc, View view)
+        {
+            try
+            {
+                BoundingBoxXYZ box = doc.GetElement(_link)?.get_BoundingBox(view) ?? doc.GetElement(_link)?.get_BoundingBox(null);
+                if (box == null) { Log("preview: not zoomed: the link has no extents in " + view.Name); return; }
+                XYZ pad = (box.Max - box.Min) * 0.05;   // a small margin around the drawing
+                UIView ui = app.ActiveUIDocument?.GetOpenUIViews().FirstOrDefault(v => v.ViewId == view.Id);
+                if (ui == null) { Log("preview: not zoomed: " + view.Name + " is not the open view"); return; }
+                ui.ZoomAndCenterRectangle(box.Min - pad, box.Max + pad);
+                Log("preview: zoomed to the preview in " + view.Name);
+                if (view.CropBoxActive && !Overlaps(view.CropBox, box))
+                    Log("preview: preview outside the view's crop in " + view.Name + "; the crop was left as is");
+            }
+            catch (Exception ex) { Log("preview: not zoomed: " + ex.Message); }
+        }
+
+        /// <summary>Plan-view XY overlap of a crop box (with its transform) and a model-space box.</summary>
+        private static bool Overlaps(BoundingBoxXYZ crop, BoundingBoxXYZ box)
+        {
+            XYZ a = crop.Transform.OfPoint(crop.Min), b = crop.Transform.OfPoint(crop.Max);
+            double minX = Math.Min(a.X, b.X), maxX = Math.Max(a.X, b.X), minY = Math.Min(a.Y, b.Y), maxY = Math.Max(a.Y, b.Y);
+            return box.Min.X <= maxX && box.Max.X >= minX && box.Min.Y <= maxY && box.Max.Y >= minY;
+        }
 
         public void RemoveUnderlay() => Queue(_ => { Unlink(); _last = default; });
 
