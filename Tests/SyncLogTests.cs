@@ -169,8 +169,7 @@ namespace RevitAddinSync.Tests
                 .ToList();
 
             // Discovery guard: a new logging service is picked up automatically,
-            // and these two must always be covered.
-            Assert.Contains("AutodeskApiService.cs", loggingFiles);
+            // and this one must always be covered (the Autodesk APS upload service is gone: "Federate and Sync: remove the Autodesk APS upload everywhere").
             Assert.Contains("BinaApiService.cs", loggingFiles);
 
             // Fields whose presence inside a log call is off-limits. NOTE: prose
