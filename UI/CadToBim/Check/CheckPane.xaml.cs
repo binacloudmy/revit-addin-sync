@@ -80,7 +80,7 @@ namespace RevitWebAppSync.UI.CadToBim.Check
 
         private void OnLevelPicked(object sender, SelectionChangedEventArgs e)
         {
-            if (sender is ComboBox box && box.DataContext is CheckRow row && box.SelectedItem is string level && level != row.Map?.TargetLevel)
+            if (sender is ComboBox box && box.DataContext is CheckRow row && box.SelectedItem is string level && level != row.Map?.PickedLevel)
                 ViewModel.Map(row.Map, level);
         }
 

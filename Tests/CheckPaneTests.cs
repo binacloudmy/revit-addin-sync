@@ -90,15 +90,22 @@ namespace Tests
         public void Mapping_accepts_only_an_existing_level_and_the_build_count_follows()
         {
             var vm = Vm(target: Target("Level 1", "Level 2"));
-            Assert.Equal(1819, vm.State.Walls);
-            Assert.Equal("Build Level 1 · 1,819 walls · 119 doors", vm.BuildLabel);
+            // owner 2026-11-27: only the main plan (ARAS 1) is built; the rest wait for a mapping
+            Assert.Equal("Build Level 1 · 277 walls · 21 doors", vm.BuildLabel);
+            Assert.Equal(7, vm.State.NotBuilt);
+            Assert.Contains(vm.Rows, r => r.Text == "7 other plans · not built until mapped");
+            Assert.Equal(" · not built until mapped", vm.Gate1Rows.Single(r => r.Map?.Plan.Level == "ARAS 2").Post);
+            Assert.Equal(" → Level 1", vm.Gate1Rows.Single(r => r.Map?.Plan.Level == "ARAS 1").Post);
 
             PlanMap aras2 = vm.State.Plans.Single(p => p.Plan.Level == "ARAS 2");
             vm.Map(aras2, "Level 9");                   // not in the doc: ignored, never created
             Assert.Equal("Level 1", aras2.TargetLevel);
-            vm.Map(aras2, "Level 2");
-            Assert.Equal(1819 - 351, vm.State.Walls);
-            Assert.Equal("Build Level 1 · 1,468 walls · 93 doors", vm.BuildLabel);
+            Assert.False(aras2.Built);
+            vm.Map(aras2, "Level 2");                   // mapped: built, but on Level 2, not in this Level 1 build
+            Assert.True(aras2.Built);
+            Assert.Equal("Build Level 1 · 277 walls · 21 doors", vm.BuildLabel);
+            vm.Map(aras2, "Level 1");
+            Assert.Equal("Build Level 1 · 628 walls · 47 doors", vm.BuildLabel);
         }
 
         // ── pending vs fixture ──
@@ -175,6 +182,21 @@ namespace Tests
             vm.Next();                                                                    // passes on one source...
             Assert.Equal(GateState.Passed, vm.State.Gate2);
             Assert.Contains(vm.State.Assumptions, a => a.StartsWith("Scale from the DWG header only", StringComparison.Ordinal));   // ...as a named assumption
+        }
+
+        [Fact]
+        public async Task A_workshared_model_gets_no_preview_link_but_zoom_still_works()
+        {
+            var view = new FakeView();
+            var vm = new CheckViewModel(_ => Aswara(), view);
+            TargetInfo target = Target();
+            target.Workshared = true;
+            await vm.OpenAsync("x.dwg", target);
+            Assert.DoesNotContain(view.Calls, c => c.StartsWith("link", StringComparison.Ordinal));
+            Assert.Contains(vm.PreflightRows, r => r.Text == "Preview not shown in a workshared model");
+            vm.Next(); vm.Next();
+            vm.ZoomTo(vm.State.Plans[0]);
+            Assert.Equal("zoom", view.Calls.Last());
         }
 
         [Fact]

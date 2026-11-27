@@ -119,7 +119,8 @@ namespace RevitWebAppSync.UI.CadToBim.Check
                 if (seq != _openSeq) return;      // a newer open won (also the same file opened twice)
                 State = CheckState.For(sheet, target, _shortcuts);
                 State.WallHeightMm = _wallHeightMm;
-                _view?.ShowUnderlay(path, sheet.UsedMmPerUnit, sheet.Plans.Select(p => p.Box).ToList());
+                if (!State.Target.Workshared)   // no preview link in a workshared model (owner, 2026-11-27)
+                    _view?.ShowUnderlay(path, sheet.UsedMmPerUnit, sheet.Plans.Select(p => p.Box).ToList());
             }
             catch (Exception ex)
             {
@@ -186,6 +187,7 @@ namespace RevitWebAppSync.UI.CadToBim.Check
         {
             if (map == null || !State.Target.Levels.Any(l => l.Name == level)) return;
             map.TargetLevel = level;
+            map.Mapped = true;          // mapping a plan is what makes a non-main plan build
             Changed(rows: true);
         }
 

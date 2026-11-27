@@ -33,7 +33,7 @@
                                             AutomationProperties.Name="{Binding BadgeName}" Visibility="{Binding HasBadge, Converter={StaticResource Vis}}"/>
                             <ComboBox x:Name="pick" DockPanel.Dock="Right" Width="110" Height="20" FontSize="11.5" Margin="8,0,0,0" Visibility="Collapsed"
                                       ItemsSource="{Binding DataContext.Levels, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                      SelectedItem="{Binding Map.TargetLevel, Mode=OneWay}" SelectionChanged="OnLevelPicked"/>
+                                      SelectedItem="{Binding Map.PickedLevel, Mode=OneWay}" SelectionChanged="OnLevelPicked"/>
                             <TextBlock TextTrimming="CharacterEllipsis" VerticalAlignment="Center" FontSize="12" LineHeight="16"
                                        ToolTip="{Binding Evidence}"><Run Text="{Binding Text, Mode=OneWay}"/><Run Text="{Binding Bold, Mode=OneWay}" FontWeight="SemiBold"/><Run Text="{Binding Post, Mode=OneWay}"/></TextBlock>
                         </DockPanel>

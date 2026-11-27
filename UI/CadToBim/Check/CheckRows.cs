@@ -111,6 +111,9 @@ namespace RevitWebAppSync.UI.CadToBim.Check
                 };
                 rows.Add(new CheckRow { Mark = "warn", Text = text, Source = Src.Drawing, Evidence = string.Join("; ", g.Select(w => w.Detail ?? w.Name)) });
             }
+            if (s.Target.Workshared)
+                rows.Add(new CheckRow { Mark = "warn", Text = "Preview not shown in a workshared model", Source = Src.Pending, Badge = "Revit view",
+                                        Evidence = "The DWG is not linked into a workshared model; zoom still works" });
             if (s.PreviewError != null)
                 rows.Add(new CheckRow { Mark = "warn", Text = "Preview couldn't be shown: " + s.PreviewError, Source = Src.DrawingSays, Badge = "Revit view", Evidence = "Details in cad-to-bim.log" });
             rows.Add(new CheckRow
@@ -126,27 +129,18 @@ namespace RevitWebAppSync.UI.CadToBim.Check
         public static string Mb(long bytes) => (bytes / 1048576.0).ToString(bytes < 10 * 1048576L ? "0.0" : "0", CultureInfo.InvariantCulture) + " MB";
 
         // ── screen 4 ──
-        private static readonly Regex StoreyRx = new Regex(@"(?:ARAS|LEVEL|LANTAI|TINGKAT)\s*([0-9A-Z]+)", RegexOptions.IgnoreCase);
-
-        private static string Storey(string text)
-        {
-            var m = StoreyRx.Match(text ?? "");
-            return m.Success ? m.Groups[1].Value.ToUpperInvariant() : null;
-        }
-
         public static List<CheckRow> Gate1(CheckState s)
         {
-            string main = Storey(s.BuildLevel);
             var rows = s.Plans.Select(m =>
             {
                 var p = m.Plan;
-                var row = new CheckRow { Bold = p.Title ?? "Untitled plan " + p.N, Post = " → " + m.TargetLevel, Map = m };
+                var row = new CheckRow { Bold = p.Title ?? "Untitled plan " + p.N, Post = m.Built ? " → " + m.TargetLevel : " · not built until mapped", Map = m };
                 if (p.Level == null)
                 {
                     row.Mark = "swatch-a"; row.Source = Src.AiGuess; row.Badge = "Same level";
                     row.Evidence = "No storey title: default is same level" + (p.Elevation != null ? " · " + p.Elevation : "");
                 }
-                else if (Storey(p.Level) == main && m.TargetLevel == s.BuildLevel)
+                else if (m.IsMain && m.TargetLevel == s.BuildLevel)
                 {
                     row.Mark = "swatch-g"; row.Source = Src.Drawing;
                     row.Evidence = "Title " + p.Title + (p.Elevation != null ? " + " + p.Elevation : "");
@@ -210,7 +204,7 @@ namespace RevitWebAppSync.UI.CadToBim.Check
             var sh = s.Sheet;
             var roles = sh.Layers.Where(l => l.Role != "other").GroupBy(l => l.Role).ToList();
             var other = sh.Layers.Where(l => l.Role == "other").ToList();
-            var widths = s.Plans.Where(p => p.TargetLevel == s.BuildLevel)
+            var widths = s.BuiltPlans
                 .SelectMany(p => p.Plan.WidthsMm).GroupBy(kv => kv.Key).Select(g => (Mm: g.Key, Count: g.Sum(kv => kv.Value)))
                 .OrderByDescending(w => w.Count).ToList();
             var rows = new List<CheckRow>
@@ -238,6 +232,13 @@ namespace RevitWebAppSync.UI.CadToBim.Check
                 },
                 new CheckRow { Text = "Slab " + JkrSlabMm, Source = Src.JkrDefault, Evidence = "Never read from a plan" },
             };
+            if (s.NotBuilt > 0)
+                rows.Add(new CheckRow
+                {
+                    Text = s.NotBuilt + " other plan" + (s.NotBuilt == 1 ? "" : "s") + " · not built until mapped", Source = Src.AiGuess, Badge = "not built",
+                    Evidence = "Only the main plan is built; map another plan in Gate 1 to build it",
+                    Detail = string.Join(" · ", s.Plans.Where(p => !p.Built).Select(p => p.Plan.Title ?? "Untitled plan " + p.Plan.N)),
+                });
             if (sh.OpeningBlocks.Count > 0)
                 rows.Add(new CheckRow
                 {

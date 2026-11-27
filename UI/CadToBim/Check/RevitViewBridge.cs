@@ -38,6 +38,7 @@ namespace RevitWebAppSync.UI.CadToBim.Check
         {
             Document doc = app.ActiveUIDocument?.Document;
             if (doc == null || doc.IsFamilyDocument) { Fail("no project is open"); return; }
+            if (doc.IsWorkshared) return;   // never linked into a workshared model (the pane says so on screen 2)
             if (!(doc.ActiveView is ViewPlan view)) { Fail("open a floor plan view, then open the drawing again"); return; }
             Unlink();
             Hook(app.Application);

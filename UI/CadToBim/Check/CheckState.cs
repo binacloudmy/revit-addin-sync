@@ -168,6 +168,13 @@ namespace RevitWebAppSync.UI.CadToBim.Check
     {
         public PlanSnap Plan { get; set; }
         public string TargetLevel { get; set; }
+        /// <summary>The main plan (its storey names the main level): the only one built by default (owner, 2026-11-27).</summary>
+        public bool IsMain { get; set; }
+        /// <summary>The user mapped it in Gate 1 (Edit mapping); only then is a non-main plan built.</summary>
+        public bool Mapped { get; set; }
+        public bool Built => IsMain || Mapped;
+        /// <summary>What the Gate 1 level picker shows: empty until mapped, so picking the same level still counts.</summary>
+        public string PickedLevel => Mapped || IsMain ? TargetLevel : null;
     }
 
     public sealed class CheckState
@@ -189,8 +196,10 @@ namespace RevitWebAppSync.UI.CadToBim.Check
         public string BuildLevel => Target.MainLevel ?? "Level 1";
 
         // derived, never stored
-        public int Walls => Plans.Where(p => p.TargetLevel == BuildLevel).Sum(p => p.Plan.Walls);
-        public int Doors => Plans.Where(p => p.TargetLevel == BuildLevel).Sum(p => p.Plan.Doors);
+        public IEnumerable<PlanMap> BuiltPlans => Plans.Where(p => p.Built && p.TargetLevel == BuildLevel);
+        public int Walls => BuiltPlans.Sum(p => p.Plan.Walls);
+        public int Doors => BuiltPlans.Sum(p => p.Plan.Doors);
+        public int NotBuilt => Plans.Count(p => !p.Built);
         public int Answered => Questions.Count(q => q.Answer != null);
         public bool CanBuild => Gate1 == GateState.Passed && Gate2 == GateState.Passed && Answered == Questions.Count;
 
@@ -207,10 +216,24 @@ namespace RevitWebAppSync.UI.CadToBim.Check
         }
 
         /// <summary>Every plan on the existing main level; the drawing's level name is evidence only.</summary>
+        private static readonly System.Text.RegularExpressions.Regex StoreyRx =
+            new System.Text.RegularExpressions.Regex(@"(?:ARAS|LEVEL|LANTAI|TINGKAT)\s*([0-9A-Z]+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+        /// <summary>"ARAS 1" / "Level 1" → "1"; "ARAS 1A" → "1A"; null when the text names no storey.</summary>
+        public static string Storey(string text)
+        {
+            var m = StoreyRx.Match(text ?? "");
+            return m.Success ? m.Groups[1].Value.ToUpperInvariant() : null;
+        }
+
         public static CheckState For(SheetSnapshot sheet, TargetInfo target, EngineShortcuts engine)
         {
             var s = new CheckState { Sheet = sheet, Target = target ?? new TargetInfo(), Engine = engine ?? new EngineShortcuts(), Screen = CheckScreen.Preflight };
             s.Plans = sheet.Plans.Select(p => new PlanMap { Plan = p, TargetLevel = s.BuildLevel }).ToList();
+            // the main plan: the one whose storey names the main level (ARAS 1 → Level 1); else the first plan on the sheet
+            string main = Storey(s.BuildLevel);
+            PlanMap first = s.Plans.FirstOrDefault(m => m.Plan.Level != null && Storey(m.Plan.Level) == main) ?? s.Plans.FirstOrDefault();
+            if (first != null) first.IsMain = true;
             s.Gate2 = sheet.UnitsPlausible && !sheet.UnitsNeedConfirmation ? GateState.Pending : GateState.Blocked;
             return s;
         }
