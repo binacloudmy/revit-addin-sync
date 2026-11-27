@@ -1,0 +1,166 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!-- AI-638 Check pane: the v6 canvas CSS classes as WPF styles (.card .mrow .src .badge .btn .btn-p
+         .chip .kbd .sec .sw). Colours are Cb.* (CadToBimTheme, light/dark), always DynamicResource. -->
+
+    <Style x:Key="Cb.Card" TargetType="Border">
+        <Setter Property="Background" Value="{DynamicResource Cb.Pane}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource Cb.Line}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="CornerRadius" Value="3"/>
+    </Style>
+
+    <Style x:Key="Cb.Sec" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="10.5"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="Foreground" Value="{DynamicResource Cb.Fg2}"/>
+    </Style>
+
+    <Style x:Key="Cb.Dim" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="11.5"/>
+        <Setter Property="LineHeight" Value="15"/>
+        <Setter Property="TextWrapping" Value="Wrap"/>
+        <Setter Property="Foreground" Value="{DynamicResource Cb.Fg2}"/>
+    </Style>
+
+    <!-- .badge (+ .bg-g/.bg-b via Tag) -->
+    <Style x:Key="Cb.Badge" TargetType="Border">
+        <Setter Property="Height" Value="17"/>
+        <Setter Property="Padding" Value="5,0"/>
+        <Setter Property="CornerRadius" Value="2"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource Cb.Line}"/>
+        <Setter Property="Background" Value="{DynamicResource Cb.Pane2}"/>
+        <Setter Property="TextElement.Foreground" Value="{DynamicResource Cb.Fg2}"/>
+        <Setter Property="TextElement.FontSize" Value="10.5"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Style.Triggers>
+            <Trigger Property="Tag" Value="g">
+                <Setter Property="Background" Value="{DynamicResource Cb.GS}"/>
+                <Setter Property="BorderBrush" Value="Transparent"/>
+                <Setter Property="TextElement.Foreground" Value="{DynamicResource Cb.GT}"/>
+            </Trigger>
+            <Trigger Property="Tag" Value="a">
+                <Setter Property="Background" Value="{DynamicResource Cb.AS}"/>
+                <Setter Property="BorderBrush" Value="Transparent"/>
+                <Setter Property="TextElement.Foreground" Value="{DynamicResource Cb.AT}"/>
+            </Trigger>
+            <Trigger Property="Tag" Value="b">
+                <Setter Property="Background" Value="{DynamicResource Cb.BS}"/>
+                <Setter Property="BorderBrush" Value="Transparent"/>
+                <Setter Property="TextElement.Foreground" Value="{DynamicResource Cb.BT}"/>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- .src source badge: pill with a dot; Tag = g | a | r | n (n = neutral pending) -->
+    <Style x:Key="Cb.Src" TargetType="ContentControl">
+        <Setter Property="Focusable" Value="False"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="Foreground" Value="{DynamicResource Cb.Fg3}"/>
+        <Setter Property="Background" Value="{DynamicResource Cb.Pane2}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ContentControl">
+                    <Border Height="17" Padding="6,0" CornerRadius="9" Background="{TemplateBinding Background}">
+                        <StackPanel Orientation="Horizontal">
+                            <Ellipse Width="6" Height="6" Fill="{TemplateBinding Foreground}" Margin="0,0,4,0" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding Content, RelativeSource={RelativeSource TemplatedParent}}" FontSize="10.5" FontWeight="SemiBold" Foreground="{TemplateBinding Foreground}" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+        <Style.Triggers>
+            <Trigger Property="Tag" Value="g"><Setter Property="Background" Value="{DynamicResource Cb.GS}"/><Setter Property="Foreground" Value="{DynamicResource Cb.GT}"/></Trigger>
+            <Trigger Property="Tag" Value="a"><Setter Property="Background" Value="{DynamicResource Cb.AS}"/><Setter Property="Foreground" Value="{DynamicResource Cb.AT}"/></Trigger>
+            <Trigger Property="Tag" Value="r"><Setter Property="Background" Value="{DynamicResource Cb.RS}"/><Setter Property="Foreground" Value="{DynamicResource Cb.RT}"/></Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <Style x:Key="Cb.Btn" TargetType="Button">
+        <Setter Property="Foreground" Value="{DynamicResource Cb.Fg}"/>
+        <Setter Property="Background" Value="{DynamicResource Cb.Btn}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource Cb.BtnB}"/>
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="Height" Value="24"/>
+        <Setter Property="Padding" Value="10,0"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="bd" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="1" CornerRadius="2" Padding="{TemplateBinding Padding}">
+                        <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource Cb.Focus}"/></Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource Cb.Focus}"/></Trigger>
+                        <Trigger Property="IsEnabled" Value="False"><Setter TargetName="bd" Property="Opacity" Value="0.42"/></Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="Cb.BtnP" TargetType="Button" BasedOn="{StaticResource Cb.Btn}">
+        <Setter Property="Foreground" Value="{DynamicResource Cb.PriFg}"/>
+        <Setter Property="Background" Value="{DynamicResource Cb.Pri}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource Cb.Pri}"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="Height" Value="30"/>
+        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+    </Style>
+
+    <!-- .chip (answer options, consultant chip) -->
+    <Style x:Key="Cb.Chip" TargetType="Button" BasedOn="{StaticResource Cb.Btn}">
+        <Setter Property="Height" Value="22"/>
+        <Setter Property="Padding" Value="9,0"/>
+        <Setter Property="FontSize" Value="11"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="bd" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="1" CornerRadius="11" Padding="{TemplateBinding Padding}">
+                        <ContentPresenter VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource Cb.Focus}"/></Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource Cb.Focus}"/></Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="Cb.Kbd" TargetType="Border">
+        <Setter Property="MinWidth" Value="17"/>
+        <Setter Property="Height" Value="17"/>
+        <Setter Property="Padding" Value="4,0"/>
+        <Setter Property="BorderThickness" Value="1,1,1,2"/>
+        <Setter Property="CornerRadius" Value="2"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource Cb.BtnB}"/>
+        <Setter Property="Background" Value="{DynamicResource Cb.Pane2}"/>
+        <Setter Property="TextElement.FontFamily" Value="Consolas"/>
+        <Setter Property="TextElement.FontSize" Value="10.5"/>
+        <Setter Property="VerticalAlignment" Value="Top"/>
+    </Style>
+
+    <!-- .sw swatch, Tag = swatch-g | swatch-a (hatched, never colour alone) | swatch-n -->
+    <Style x:Key="Cb.Sw" TargetType="Border">
+        <Setter Property="Width" Value="9"/>
+        <Setter Property="Height" Value="9"/>
+        <Setter Property="CornerRadius" Value="1"/>
+        <Setter Property="Background" Value="{DynamicResource Cb.Line}"/>
+        <Style.Triggers>
+            <Trigger Property="Tag" Value="swatch-g"><Setter Property="Background" Value="{DynamicResource Cb.G}"/></Trigger>
+            <!-- canvas hatches amber so it never relies on colour alone; here: amber outline on the soft fill -->
+            <Trigger Property="Tag" Value="swatch-a">
+                <Setter Property="Background" Value="{DynamicResource Cb.AS}"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource Cb.A}"/>
+                <Setter Property="BorderThickness" Value="1.5"/>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+</ResourceDictionary>

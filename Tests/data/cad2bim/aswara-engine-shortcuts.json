@@ -1,0 +1,33 @@
+{
+  "_shortcut": "fixture engine output for UiHarness and tests only, never loaded by the product unless cadToBim.uiFixtures is set",
+  "Consultant": {
+    "_shortcut": "AI-625's real answer for ASWARA, replaced by AI-634 (title-block reader)",
+    "Name": "JKR Cawangan Arkitek · in-house",
+    "Note": "JKR is the standard here and the author. JKR values show as amber defaults.",
+    "Rules": "Rules you teach are saved to this project."
+  },
+  "Questions": [
+    {
+      "_shortcut": "question list, ranking and evidence replaced by AI-632 / AI-629 / AI-630",
+      "Title": "Main level: ARAS 1 (A.L 43.200) → Level 1",
+      "Evidence": "Title PELAN ARAS 1 with A.L:43.200 under the plan.",
+      "Options": ["Level 1 = A.L 43.200", "Pick another level"],
+      "PlanN": 2
+    },
+    {
+      "Title": "What does red mean on this drawing?",
+      "Evidence": "Red lines on 3 layers. Asked once, saved to this project.",
+      "Options": ["New work", "Demolish", "Existing", "Just a pen colour"],
+      "PlanN": 1
+    },
+    {
+      "Title": "Walls at 175 mm, no matching type",
+      "Evidence": "Measured from double lines on n_wall.",
+      "Options": ["Use Wall 200", "Create Wall 175", "Ignore"],
+      "PlanN": 3
+    }
+  ],
+  "CandidateCount": 7,
+  "LegendRow": null,
+  "DimensionRow": null
+}

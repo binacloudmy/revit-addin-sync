@@ -22,10 +22,23 @@ namespace RevitWebAppSync.UI.CadToBim
             {
                 Copilot.CopilotTheme.EnsureLoaded();
                 CadToBimTheme.EnsureLoaded();
-                _panel = new CadToBimPanel();
+                // AI-638: cadToBim.ui = "check" shows the Check pane; anything else (the default) keeps the legacy panel.
+                var (check, fixtures) = Check.CheckUiConfig.Read(RevitWebAppSync.Services.CadToBim.CadToBimSettings.DefaultConfigPath);
+                object body;
+                if (check)
+                {
+                    var settings = RevitWebAppSync.Services.CadToBim.CadToBimSettings.Load();
+                    // shortcut: dev flag only; cadToBim.uiFixtures names an engine-shortcuts JSON (Tests/data/cad2bim), off by default.
+                    var shortcuts = string.IsNullOrEmpty(fixtures) || !System.IO.File.Exists(fixtures)
+                        ? null : Check.EngineShortcuts.FromJson(System.IO.File.ReadAllText(fixtures));
+                    body = CheckPane = new Check.CheckPane(new Check.CheckViewModel(
+                        path => Check.SheetSnapshot.From(RevitWebAppSync.Services.CadToBim.DwgPlanReader.ReadFile(path, settings), new System.IO.FileInfo(path).Length),
+                        new Check.RevitViewBridge(), shortcuts, settings.WallHeightMm));   // built in OnStartup: ExternalEvent.Create is legal here
+                }
+                else body = _panel = new CadToBimPanel();
                 this.Content = UpdateGateOverlay.Wrap(new Frame
                 {
-                    Content = _panel,
+                    Content = body,
                     NavigationUIVisibility = System.Windows.Navigation.NavigationUIVisibility.Hidden
                 });
             }
@@ -60,8 +73,11 @@ namespace RevitWebAppSync.UI.CadToBim
             }
         }
 
-        /// <summary>Null when construction failed (the pane then shows the error text).</summary>
+        /// <summary>Null when construction failed (the pane then shows the error text), or in check mode.</summary>
         public CadToBimPanel Panel => _panel;
+
+        /// <summary>The Check pane (AI-638) when cadToBim.ui = "check"; null otherwise.</summary>
+        public Check.CheckPane CheckPane { get; private set; }
 
         /// <summary>Innermost exception (type + message) if the panel failed to build; null when healthy.</summary>
         public string InitError { get; private set; }
@@ -76,6 +92,8 @@ namespace RevitWebAppSync.UI.CadToBim
             {
                 DockPosition = DockPosition.Right
             };
+            // v6 canvas: the Check pane lives in the Properties slot, tabbed with Properties. Legacy keeps the right dock.
+            if (CheckPane != null) data.InitialState.TabBehind = DockablePanes.BuiltInDockablePanes.PropertiesPalette;
             data.VisibleByDefault = false;
         }
     }

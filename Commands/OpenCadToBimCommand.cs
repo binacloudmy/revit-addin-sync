@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
@@ -44,6 +45,8 @@ namespace RevitWebAppSync.Commands
                 }
 
                 CadToBimPaneHost host = App.CadToBimPaneHost;
+                if (host?.CheckPane != null) return OpenInCheckPane(uiApp, pane, host);   // AI-638, cadToBim.ui = "check"
+
                 CadToBimViewModel viewModel = host?.Panel?.ViewModel;
                 if (viewModel == null)
                 {
@@ -98,6 +101,23 @@ namespace RevitWebAppSync.Commands
                 TaskDialog.Show(Title + " — Error", $"Failed to open CAD to BIM: {ex.Message}");
                 return Result.Failed;
             }
+        }
+
+        /// <summary>The Check pane path: the document is read here (valid API context), the DWG on the thread pool.</summary>
+        private static Result OpenInCheckPane(UIApplication uiApp, DockablePane pane, CadToBimPaneHost host)
+        {
+            if (!pane.IsShown()) pane.Show();
+            string path = PickDrawing();
+            if (path == null) return Result.Cancelled;
+
+            Document doc = uiApp.ActiveUIDocument?.Document;
+            var target = new UI.CadToBim.Check.TargetInfo { DocTitle = doc?.Title, Workshared = doc?.IsWorkshared ?? false };
+            if (doc != null && !doc.IsFamilyDocument)
+                foreach (Level level in new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>())
+                    target.Levels.Add(new UI.CadToBim.Check.LevelInfo { Name = level.Name, ElevationMm = level.Elevation * 304.8 });
+
+            _ = host.CheckPane.ViewModel.OpenAsync(path, target);   // the view model shows read failures itself
+            return Result.Succeeded;
         }
 
         private static string PickDrawing()

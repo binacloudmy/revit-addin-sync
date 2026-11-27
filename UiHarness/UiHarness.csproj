@@ -26,4 +26,9 @@
     <None Include="RevitApiStubs\*.dll" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" Visible="false" />
   </ItemGroup>
 
+  <!-- AI-638 --shot-check: the committed ASWARA snapshot + engine-shortcut fixture (harness/tests only). -->
+  <ItemGroup>
+    <None Include="..\Tests\data\cad2bim\*.json" Link="cad2bim\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+  </ItemGroup>
+
 </Project>

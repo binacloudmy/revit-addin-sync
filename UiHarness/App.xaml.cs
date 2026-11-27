@@ -64,6 +64,16 @@ namespace UiHarness
                 return;
             }
 
+            // AI-638: `UiHarness --shot-check <dir>` renders the CAD to BIM Check pane (screens 2-7)
+            // from the committed ASWARA snapshot and exits.
+            if (e.Args.Length >= 1 && e.Args[0] == "--shot-check")
+            {
+                ShutdownMode = ShutdownMode.OnExplicitShutdown;
+                CheckShots.Capture(e.Args.Length >= 2 ? e.Args[1] : System.AppContext.BaseDirectory);
+                Shutdown();
+                return;
+            }
+
             // And for "Login to CDE": `UiHarness --shot-signin <dir>` walks the
             // sign-in window through every step against the stub backend
             // (refusal, the emailed-code step, a wrong code, resend, both ways
