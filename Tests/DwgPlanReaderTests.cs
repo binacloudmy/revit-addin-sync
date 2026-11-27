@@ -185,6 +185,12 @@ namespace Tests
             inches.House(60000, 0);
             var flagged = Data(Read(inches, 1)).GetProperty("assumptions")[0].GetString();
             Assert.Contains("not confirmed", flagged);
+
+            // read_dwg_plan step 4: a read hands out no build question (storey height, "before building")
+            Assert.DoesNotContain(ok, a => a!.Contains("Storey"));
+            var detail = Read(inches, 1);
+            Assert.DoesNotContain("building", detail.Next ?? "");
+            Assert.DoesNotContain("building", Data(detail).GetRawText());
         }
 
         [Fact]

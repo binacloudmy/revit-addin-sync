@@ -372,8 +372,8 @@ namespace RevitWebAppSync.Services.CadToBim
             if (!plausible)
                 v["note"] = headerMmPerUnit.HasValue
                     ? "The header says " + headerUnit + " (" + Num(headerMmPerUnit.Value) + " mm per unit), which makes the sheet an impossible size; "
-                      + "sizes below are read at " + Num(usedMmPerUnit) + " mm per unit instead. Ask the user to confirm the unit before building."
-                    : "The header gives no unit; sizes below are read at " + Num(usedMmPerUnit) + " mm per unit, guessed from the drawing's size. Ask the user to confirm the unit before building.";
+                      + "sizes below are read at " + Num(usedMmPerUnit) + " mm per unit instead. Ask the user to confirm the unit."
+                    : "The header gives no unit; sizes below are read at " + Num(usedMmPerUnit) + " mm per unit, guessed from the drawing's size. Ask the user to confirm the unit.";
             return NoNulls(v);
         }
 
@@ -483,7 +483,7 @@ namespace RevitWebAppSync.Services.CadToBim
 
             var details = picked.Select(n => Detail(sheet.Plans.First(p => p.N == n))).ToList();
             data["plans"] = details;
-            var assumptions = new List<string> { "Door height 2100 mm", "Window height 1200 mm", "Window sill 900 mm", "Storey height to be asked (default 3000 mm)" };
+            var assumptions = new List<string> { "Door height 2100 mm", "Window height 1200 mm", "Window sill 900 mm" };
             if (!unitsOk) assumptions.Insert(0, "Sizes read at " + Num(sheet.UsedMmPerUnit) + " mm per drawing unit, not confirmed by the user");
             data["assumptions"] = assumptions;
             var chosen = picked.Select(n => sheet.Plans.First(p => p.N == n)).ToList();
@@ -491,7 +491,7 @@ namespace RevitWebAppSync.Services.CadToBim
                 + chosen.Sum(p => p.Cluster.Walls.Count) + " walls, " + chosen.Sum(p => p.Doors.Count) + " doors, "
                 + chosen.Sum(p => p.Windows.Count) + " windows" + (unitsOk ? "." : "; units need confirming.");
             return ReadEnvelope.Done(detailSummary, data,
-                next: unitsOk ? null : "Ask the user to confirm the drawing unit before building.");
+                next: unitsOk ? null : "Ask the user to confirm the drawing unit.");
         }
 
         private static Dictionary<string, object> Row(DwgPlan p) => NoNulls(new Dictionary<string, object>

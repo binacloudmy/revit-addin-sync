@@ -520,7 +520,7 @@
   {
     "name": "read_dwg_plan",
     "kind": "read",
-    "description": "Read the attached DWG, read-only. No plans: list the floor plans by n, with layer roles and units. plans (1-3 n): walls, doors, windows and rooms per plan. If units.needs_confirmation, ask the user before building.",
+    "description": "Read the attached DWG, read-only. No plans: list the floor plans by n, with layer roles and units. plans (1-3 n): walls, doors, windows and rooms per plan. If units.needs_confirmation, ask the user to confirm the unit. Answer from this result only: never ask layer, level, wall type or height, never offer to create a level from a DWG label; building happens in the CAD to BIM pane, not in chat.",
     "parameters": {
       "type": "object",
       "additionalProperties": false,
