@@ -470,8 +470,8 @@ namespace RevitWebAppSync.Services.CadToBim
                     : sheet.File + ": " + real.Count + " plan" + (real.Count == 1 ? "" : "s") + " on the sheet"
                       + (unitsOk ? "" : "; units need confirming") + ".";
                 string next = real.Count == 0 ? null
-                    : unitsOk ? "Answer with this list. Read a plan's walls, doors and windows (plans: 1-3 n) only when the user asks for them."
-                    : "Answer with this list and say the sizes assume " + Num(sheet.UsedMmPerUnit) + " mm per unit, unconfirmed.";
+                    : unitsOk ? "The plans above are the answer: reply with all of them by n; ask nothing."
+                    : "The plans above are the answer: reply with all of them by n; ask nothing. Say the sizes assume " + Num(sheet.UsedMmPerUnit) + " mm per unit, unconfirmed.";
                 return ReadEnvelope.Done(summary, data, next: next);
             }
 

@@ -131,6 +131,7 @@ namespace Tests
             Assert.Contains("confirm", units.GetProperty("note").GetString());
             Assert.Contains("units need confirming", e.Summary);
             Assert.Contains("1 mm per unit, unconfirmed", e.Next);  // stated, not asked (read_dwg_plan step 3)
+            Assert.StartsWith("The plans above are the answer: reply with all of them by n; ask nothing.", e.Next);
             Assert.DoesNotContain("Ask the user", e.Next);
             Assert.DoesNotContain("Ask the user", units.GetProperty("note").GetString());
         }
@@ -143,7 +144,7 @@ namespace Tests
             Envelope e = Read(d);
             Assert.DoesNotContain("Ask the user", e.Next);
             Assert.DoesNotContain("Pick", e.Summary);
-            Assert.StartsWith("Answer with this list.", e.Next);
+            Assert.Equal("The plans above are the answer: reply with all of them by n; ask nothing.", e.Next);
         }
 
         [Fact]
