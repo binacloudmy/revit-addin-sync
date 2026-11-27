@@ -64,6 +64,10 @@ namespace RevitWebAppSync.Services.CadToBim
         /// <summary>At most this many plans may be detailed in one call (AI-605: the user picks 1-3).</summary>
         public const int MaxPickedPlans = 3;
 
+        /// <summary>The list call's next (read_dwg_plan step 3): the list answers a list question; a question about a plan's content reads it.</summary>
+        public const string ListNext = "The plans above answer a list question: reply with all of them by n; ask nothing. "
+            + "If the user asked what is in a plan, call read_dwg_plan with plans.";
+
         /// <summary>A cluster with fewer walls is a title block, a detail or a stray fragment, not a floor plan.</summary>
         public const int MinPlanWalls = 4;   // a one-room hut is still a plan
 
@@ -470,8 +474,8 @@ namespace RevitWebAppSync.Services.CadToBim
                     : sheet.File + ": " + real.Count + " plan" + (real.Count == 1 ? "" : "s") + " on the sheet"
                       + (unitsOk ? "" : "; units need confirming") + ".";
                 string next = real.Count == 0 ? null
-                    : unitsOk ? "The plans above are the answer: reply with all of them by n; ask nothing."
-                    : "The plans above are the answer: reply with all of them by n; ask nothing. Say the sizes assume " + Num(sheet.UsedMmPerUnit) + " mm per unit, unconfirmed.";
+                    : unitsOk ? ListNext
+                    : ListNext + " Say the sizes assume " + Num(sheet.UsedMmPerUnit) + " mm per unit, unconfirmed.";
                 return ReadEnvelope.Done(summary, data, next: next);
             }
 
