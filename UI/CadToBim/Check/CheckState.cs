@@ -195,6 +195,8 @@ namespace RevitWebAppSync.UI.CadToBim.Check
         public string PreviewError { get; set; }
         /// <summary>The preview link was made (the bridge said so).</summary>
         public bool Linked { get; set; }
+        /// <summary>A one-line note from the Revit side, shown on screen 2.</summary>
+        public string PreviewNotice { get; set; }
 
         public List<Question> Questions => Engine.Questions ?? new List<Question>();
         public string BuildLevel => Target.MainLevel ?? "Level 1";

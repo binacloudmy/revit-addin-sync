@@ -37,6 +37,8 @@ namespace Tests
             public void RemoveUnderlay() => Calls.Add("unlink");
             public event Action<string>? Failed;
             public event Action? Linked;
+            public event Action<string>? Notice;
+            public void Note(string message) => Notice?.Invoke(message);
             public void Link() => Linked?.Invoke();
             public void Fail(string message) => Failed?.Invoke(message);
         }
@@ -262,6 +264,16 @@ namespace Tests
 
             TargetInfo ws = Target(); ws.Workshared = true;
             Assert.Equal("not linked (workshared)", Vm(target: ws).UnderlayText);
+        }
+
+        [Fact]
+        public void A_removed_leftover_preview_shows_one_line_on_screen_2()
+        {
+            var view = new FakeView();
+            var vm = Vm(view: view);
+            view.Note("Removed a leftover CAD to BIM preview from this model");
+            Assert.Contains(vm.PreflightRows, r => r.Text == "Removed a leftover CAD to BIM preview from this model" && r.Mark == "ok");
+            Assert.Null(vm.State.PreviewError);
         }
 
         [Fact]

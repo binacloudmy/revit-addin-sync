@@ -4,7 +4,8 @@
 // 0 model elements (no walls, doors, levels...), but it IS visible to model: refs and queries.
 // It is never saved into the .rvt: removed on DocumentSaving(As), re-added after Saved(As), and
 // removed when the pane closes. Revit refuses a transaction inside DocumentClosing, so a link that
-// is still there at close is tagged (extensible storage) and removed on the next DocumentOpened;
+// is still there at close is tagged (extensible storage) and removed after the next DocumentOpened
+// (queued on the ExternalEvent);
 // only links carrying that tag are ever deleted, never the user's own DWG links.
 // Failures go to cad-to-bim.log and to the pane (Failed).
 
@@ -33,6 +34,7 @@ namespace RevitWebAppSync.UI.CadToBim.Check
 
         public event Action<string> Failed;
         public event Action Linked;
+        public event Action<string> Notice;
 
         /// <summary>Create in a valid API context (App.OnStartup builds the pane host).</summary>
         public RevitViewBridge()
@@ -51,29 +53,53 @@ namespace RevitWebAppSync.UI.CadToBim.Check
             if (schema != null) return schema;
             var b = new SchemaBuilder(PreviewSchemaId);
             b.SetSchemaName("BinaCadToBimPreview");
+            b.SetDocumentation("Marks a temporary DWG preview link made by the BINA CAD to BIM pane; safe to delete.");
+            b.SetVendorId("BINA_CLOUD");                 // = VendorId in RevitWebAppSync.addin
             b.SetReadAccessLevel(AccessLevel.Public);
-            b.SetWriteAccessLevel(AccessLevel.Public);
+            b.SetWriteAccessLevel(AccessLevel.Vendor);
             b.AddSimpleField(PreviewField, typeof(string));
             return b.Finish();
         }
 
         /// <summary>Delete preview links this add-in left in a document (tagged ones only). Needs a context that allows a transaction.</summary>
-        private void RemoveLeftovers(Document doc)
+        /// <returns>How many tagged links were removed.</returns>
+        private int RemoveLeftovers(Document doc)
         {
-            if (doc == null || doc.IsFamilyDocument || doc.IsReadOnly || doc.IsLinked) return;
+            if (doc == null || !doc.IsValidObject || doc.IsFamilyDocument || doc.IsReadOnly || doc.IsLinked) return 0;
             Schema schema = Schema.Lookup(PreviewSchemaId);
-            if (schema == null) return;   // no document in this session carries the tag
+            if (schema == null) return 0;   // no document in this session carries the tag
             var ours = new FilteredElementCollector(doc).OfClass(typeof(ImportInstance))
-                .Where(e => e.GetEntity(schema).IsValid()).ToList();
-            if (ours.Count == 0) return;
-            var ids = ours.Select(e => e.Id).Concat(ours.Select(e => e.GetTypeId())).Where(i => i != ElementId.InvalidElementId).Distinct().ToList();
+                .Where(e => e.GetEntity(schema).IsValid()).Select(e => e.Id).ToList();
+            if (ours.Count == 0) return 0;
             using (var t = new Transaction(doc, "BINA: remove leftover DWG preview"))
             {
                 t.Start();
-                doc.Delete(ids);
+                doc.Delete(WithUnsharedTypes(doc, ours));
                 t.Commit();
             }
             Log("preview: removed " + ours.Count + " leftover preview link(s) from " + doc.Title);
+            return ours.Count;
+        }
+
+        /// <summary>Our instances, plus each one's CADLinkType only when no other ImportInstance uses it:
+        /// every link of one DWG shares one type, so the drafter's own link of the same file must keep it.</summary>
+        private static List<ElementId> WithUnsharedTypes(Document doc, ICollection<ElementId> ours)
+        {
+            var ids = new List<ElementId>(ours);
+            var all = new FilteredElementCollector(doc).OfClass(typeof(ImportInstance)).ToList();
+            foreach (ElementId type in ours.Select(i => doc.GetElement(i)?.GetTypeId()).Where(t => t != null && t != ElementId.InvalidElementId).Distinct())
+                if (all.All(i => i.GetTypeId() != type || ours.Contains(i.Id))) ids.Add(type);
+            return ids;
+        }
+
+        /// <summary>Open-time clean-up: log only, never the pane's error line; one notice line when something was removed.</summary>
+        private void CleanupAfterOpen(Document doc)
+        {
+            try
+            {
+                if (RemoveLeftovers(doc) > 0) Notice?.Invoke("Removed a leftover CAD to BIM preview from this model");
+            }
+            catch (Exception ex) { Log("preview: open-time clean-up failed: " + ex.Message); }
         }
 
         public void ZoomTo(BoxMm box) => Queue(app => Zoom(app, box));
@@ -86,7 +112,7 @@ namespace RevitWebAppSync.UI.CadToBim.Check
             if (!(doc.ActiveView is ViewPlan view)) { Fail("open a floor plan view, then open the drawing again"); return; }
             Unlink();
             Hook(app.Application);   // idempotent; normally already hooked from the constructor
-            Guard(() => RemoveLeftovers(doc), "removing a leftover preview");
+            Guard(() => RemoveLeftovers(doc), "removing a leftover preview");   // before a new link: same tag, same rule
             _last = (dwgPath, mmPerUnit, view.Id);
             Link(doc, view);
             if (plans.Count > 0)
@@ -125,11 +151,10 @@ namespace RevitWebAppSync.UI.CadToBim.Check
             Element link = _linkDoc.GetElement(_link);
             if (link != null)
             {
-                ElementId type = link.GetTypeId();
                 using (var t = new Transaction(_linkDoc, "BINA: remove DWG preview"))
                 {
                     t.Start();
-                    _linkDoc.Delete(new List<ElementId> { _link, type }.Where(i => i != ElementId.InvalidElementId).ToList());
+                    _linkDoc.Delete(WithUnsharedTypes(_linkDoc, new List<ElementId> { _link }));
                     t.Commit();
                 }
                 Log("preview: removed the link from " + _linkDoc.Title);
@@ -148,7 +173,7 @@ namespace RevitWebAppSync.UI.CadToBim.Check
             app.DocumentSavingAs += (_, e) => BeforeSave(e.Document);
             app.DocumentSaved += (_, e) => AfterSave(e.Document);
             app.DocumentSavedAs += (_, e) => AfterSave(e.Document);
-            app.DocumentOpened += (_, e) => Guard(() => RemoveLeftovers(e.Document), "removing a leftover preview on open");
+            app.DocumentOpened += (_, e) => { Document opened = e.Document; Queue(_ => CleanupAfterOpen(opened)); };   // runs when Revit is idle
             app.DocumentClosing += (_, e) =>
             {
                 if (!Same(e.Document)) return;

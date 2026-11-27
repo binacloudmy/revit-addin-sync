@@ -114,6 +114,8 @@ namespace RevitWebAppSync.UI.CadToBim.Check
             if (s.Target.Workshared)
                 rows.Add(new CheckRow { Mark = "warn", Text = "Preview not shown in a workshared model", Source = Src.Pending, Badge = "Revit view",
                                         Evidence = "The DWG is not linked into a workshared model; zoom still works" });
+            if (s.PreviewNotice != null)
+                rows.Add(new CheckRow { Mark = "ok", Text = s.PreviewNotice, Source = Src.Project, Badge = "Revit view", Evidence = "Details in cad-to-bim.log" });
             if (s.PreviewError != null)
                 rows.Add(new CheckRow { Mark = "warn", Text = "Preview couldn't be shown: " + s.PreviewError, Source = Src.DrawingSays, Badge = "Revit view", Evidence = "Details in cad-to-bim.log" });
             rows.Add(new CheckRow
