@@ -79,6 +79,12 @@
     <Compile Include="..\Services\DesignFileRules.cs" Link="Services\DesignFileRules.cs" />
     <!-- Discipline UI label / API value mapping (Revit-free; DisciplineTypesTests). -->
     <Compile Include="..\Services\DisciplineTypes.cs" Link="Services\DisciplineTypes.cs" />
+    <!-- AI-51: the shared, Desktop-free sync log (System + System.IO only); its
+         cap/rotation and the services' "no Desktop log" rule are pinned by
+         SyncLogTests. -->
+    <Compile Include="..\Services\SyncLog.cs" Link="Services\SyncLog.cs" />
+    <!-- AI-51: one-time removal of the retired sync writers' Desktop log files. -->
+    <Compile Include="..\Services\LegacySyncLogCleanup.cs" Link="Services\LegacySyncLogCleanup.cs" />
   </ItemGroup>
 
   <!-- Cad2Bim engine (CAD to BIM pane): pure geometry, System + Linq + ACadSharp + plain WPF,
@@ -162,6 +168,9 @@
          System.Net + Newtonsoft only (no Revit, no WPF); HttpClient and the
          browser opener are injectable, so the whole round trip runs here. -->
     <Compile Include="..\BinaVibe\Auth\BinaOAuthClient.cs" Link="BinaOAuthClient.cs" />
+    <!-- AI-57: refresh-failure policy (clear the session only on 400/401) — pure,
+         System-only, unit-tested with the OAuth client. -->
+    <Compile Include="..\BinaVibe\Auth\BinaRefreshPolicy.cs" Link="BinaRefreshPolicy.cs" />
     <!-- BinaPasswordSignIn: "Login to CDE" by email + password (+ emailed code).
          Shares BinaTokenSet and SignInPreflight.HostOf with the file above. -->
     <Compile Include="..\BinaVibe\Auth\BinaPasswordSignIn.cs" Link="BinaPasswordSignIn.cs" />
