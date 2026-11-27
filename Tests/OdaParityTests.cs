@@ -6,6 +6,7 @@
 //   BINA_KIMIA_DWG    KIMIA (the large sheet)
 //   BINA_ODA_REPORT   where the findings go (JSON lines), outside the repo
 //   BINA_DWG_SCAN_DIR optional: folder searched for a drawing CadSourceVerdict refuses today
+//   BINA_MEM_FILE / BINA_MEM_ENGINE optional: limit the memory test to one file (ASWARA/KIMIA) / engine (acadsharp/oda)
 // Run alone: dotnet test --filter FullyQualifiedName~OdaParityTests (memory figures are per process).
 
 #if HAS_ODA
@@ -51,11 +52,11 @@ namespace RevitWebAppSync.Tests
         {
             string dwg = Env("BINA_ASWARA_DWG");
             int initThread = 0;
-            var first = Task.Factory.StartNew(() => { initThread = Thread.CurrentThread.ManagedThreadId; return Oda.Read(dwg); },
-                                              TaskCreationOptions.LongRunning).Result;
+            int first = Task.Factory.StartNew(() => { initThread = Thread.CurrentThread.ManagedThreadId; return Oda.Read(dwg).Document.Entities.Count(); },
+                                              TaskCreationOptions.LongRunning).Result;   // counts only: never hold more than one document
             int odaThread = OdaRuntime.ThreadId;
 
-            var reads = new[] { 0, 1 }.Select(_ => Task.Factory.StartNew(() => (Thread.CurrentThread.ManagedThreadId, Oda.Read(dwg)),
+            var reads = new[] { 0, 1 }.Select(_ => Task.Factory.StartNew(() => (Thread.CurrentThread.ManagedThreadId, Oda.Read(dwg).Document.Entities.Count()),
                                                                           TaskCreationOptions.LongRunning)).ToArray();
             Task.WaitAll(reads);
 
@@ -63,9 +64,9 @@ namespace RevitWebAppSync.Tests
             foreach (var r in reads)
             {
                 Assert.NotEqual(initThread, r.Result.Item1);
-                Assert.Equal(first.Document.Entities.Count(), r.Result.Item2.Document.Entities.Count());
+                Assert.Equal(first, r.Result.Item2);
             }
-            Report("threading", new { initThread, odaThread, readThreads = reads.Select(r => r.Result.Item1).ToArray(), entities = first.Document.Entities.Count() });
+            Report("threading", new { initThread, odaThread, readThreads = reads.Select(r => r.Result.Item1).ToArray(), entities = first });
         }
 
         // ── parity ──
@@ -200,8 +201,10 @@ namespace RevitWebAppSync.Tests
             var files = new[] { ("ASWARA", Env("BINA_ASWARA_DWG")), ("KIMIA", Env("BINA_KIMIA_DWG")) }.Where(f => !string.IsNullOrEmpty(f.Item2));
             foreach (var (label, path) in files)
             {
+                if (!string.IsNullOrEmpty(Env("BINA_MEM_FILE")) && Env("BINA_MEM_FILE") != label) continue;
                 foreach (var (engine, reader) in new (string, IDwgReader)[] { ("acadsharp", Acad), ("oda", Oda) })
                 {
+                    if (!string.IsNullOrEmpty(Env("BINA_MEM_ENGINE")) && Env("BINA_MEM_ENGINE") != engine) continue;
                     // Peak during an ODA read = ODA db + the ACadSharp document it is being translated into, both alive.
                     var runs = Enumerable.Range(0, 3).Select(_ => Measure(() => reader.Read(path))).ToList();
                     System.GC.Collect(); System.GC.WaitForPendingFinalizers(); System.GC.Collect();

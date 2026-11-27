@@ -106,8 +106,15 @@ namespace RevitWebAppSync.Services.CadToBim.Dwg
             {
                 OdDbEntity entity = OdDbEntity.cast(it.objectId().openObject());
                 if (entity == null) continue;
-                foreach (Entity copy in Translate(entity, depth))
-                    add(copy);
+                try
+                {
+                    foreach (Entity copy in Translate(entity, depth))
+                        add(copy);
+                }
+                finally
+                {
+                    entity.Dispose();   // close it now, not at StopTransaction: 84k open wrappers otherwise (SWIG Dispose is idempotent)
+                }
             }
         }
 
@@ -417,6 +424,7 @@ namespace RevitWebAppSync.Services.CadToBim.Dwg
                     OdDbEntity entity = OdDbEntity.cast(it.objectId().openObject());
                     if (entity == null) continue;
                     string dxf = entity is OdDbProxyEntity proxy ? proxy.originalDxfName() : _db.classDxfName(entity.isA());
+                    entity.Dispose();
                     if (string.IsNullOrEmpty(dxf)) continue;
                     _census.TryGetValue(dxf, out int n);
                     _census[dxf] = n + 1;
