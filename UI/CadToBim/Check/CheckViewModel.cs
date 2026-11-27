@@ -55,9 +55,9 @@ namespace RevitWebAppSync.UI.CadToBim.Check
         public CheckViewModel(Func<string, SheetSnapshot> read, IRevitView view = null, EngineShortcuts shortcuts = null, double wallHeightMm = 3000)
         {
             _wallHeightMm = wallHeightMm;
-            if (_view != null) _view.Failed += message => { State.PreviewError = message; Changed(); };
             _read = read;
             _view = view;
+            if (_view != null) _view.Failed += message => { State.PreviewError = message; Changed(); };
             _shortcuts = shortcuts;
         }
 
