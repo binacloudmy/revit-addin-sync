@@ -34,7 +34,7 @@ namespace UiHarness
                 // close would trigger OnLastWindowClose shutdown mid-run.
                 ShutdownMode = ShutdownMode.OnExplicitShutdown;
                 var dir = e.Args.Length >= 2 ? e.Args[1] : System.AppContext.BaseDirectory;
-                HarnessShots.Capture(dir);
+                PrefsGuard.Keep(() => HarnessShots.Capture(dir));
                 Shutdown();
                 return;
             }
@@ -69,7 +69,7 @@ namespace UiHarness
             if (e.Args.Length >= 1 && e.Args[0] == "--shot-check")
             {
                 ShutdownMode = ShutdownMode.OnExplicitShutdown;
-                CheckShots.Capture(e.Args.Length >= 2 ? e.Args[1] : System.AppContext.BaseDirectory);
+                PrefsGuard.Keep(() => CheckShots.Capture(e.Args.Length >= 2 ? e.Args[1] : System.AppContext.BaseDirectory));
                 Shutdown();
                 return;
             }

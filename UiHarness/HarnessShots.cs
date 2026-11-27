@@ -23,7 +23,6 @@ namespace UiHarness
         public static void Capture(string dir)
         {
             Directory.CreateDirectory(dir);
-            bool userDark = CopilotPrefs.Load().Dark;   // restore this at the end
 
             // Base states
             Shot(dir, "copilot-light.png", dark: false);
@@ -86,9 +85,7 @@ namespace UiHarness
             Shot(dir, "copilot-blocked-member.png", dark: false,
                 configure: p => SetUsage(p, 100, atLimit: true, isAdmin: false));
 
-            // Undo the persistence side-effect of SetDark so we don't silently
-            // flip the user's Copilot theme just by taking screenshots.
-            CopilotTheme.SetDark(userDark);
+            // The user's prefs (incl. ThemeChosen) are restored byte for byte by PrefsGuard.Keep in App.
         }
 
         // Inject a stub usage snapshot and refresh; returns extra settle time.
