@@ -43,6 +43,25 @@
     <PackageReference Include="ACadSharp" Version="3.6.51" />
   </ItemGroup>
 
+  <!-- AI-647: IDwgReader (always) and the ODA adapter + parity harness (only with -p:OdaSdkDir=..., laptop). -->
+  <ItemGroup>
+    <Compile Include="..\Services\CadToBim\Dwg\DwgDrawing.cs" Link="CadToBim\Dwg\DwgDrawing.cs" />
+    <Compile Include="..\Services\CadToBim\Dwg\DwgReaders.cs" Link="CadToBim\Dwg\DwgReaders.cs" />
+    <Compile Include="..\Services\CadToBim\Dwg\OdaKeyFile.cs" Link="CadToBim\Dwg\OdaKeyFile.cs" />
+    <Compile Include="..\Services\CadToBim\Dwg\Oda\OdaDwgReader.cs" Link="CadToBim\Dwg\Oda\OdaDwgReader.cs" />
+    <Compile Include="..\Services\CadToBim\Dwg\Oda\OdaRuntime.cs" Link="CadToBim\Dwg\Oda\OdaRuntime.cs" />
+    <Compile Include="..\Services\CadToBim\Dwg\Oda\OdaSession.cs" Link="CadToBim\Dwg\Oda\OdaSession.cs" />
+  </ItemGroup>
+  <PropertyGroup Condition="'$(OdaSdkDir)' != '' and Exists('$(OdaSdkDir)\OdSwig_TD_DbCoreIntegrated_Net5.dll')">
+    <HasOda>true</HasOda>
+    <DefineConstants>$(DefineConstants);HAS_ODA</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(HasOda)' == 'true'">
+    <Reference Include="OdSwig_TD_DbCoreIntegrated_Net5"><HintPath>$(OdaSdkDir)\OdSwig_TD_DbCoreIntegrated_Net5.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="OdSwig_TD_RootIntegrated_Net5"><HintPath>$(OdaSdkDir)\OdSwig_TD_RootIntegrated_Net5.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="OdKernelExamplesMgdLib"><HintPath>$(OdaSdkDir)\OdKernelExamplesLib_Net5.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+
   <ItemGroup>
     <!--
       Reference only the source files we need — avoids pulling in Revit SDK.

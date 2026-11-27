@@ -50,6 +50,12 @@ namespace RevitWebAppSync.Services.CadToBim
         // null = app.DefaultProjectTemplate at build time.
         public string TemplatePath;
 
+        // AI-647 DWG engine: "auto" (ODA when installed, else ACadSharp), "oda", or "acadsharp".
+        // OdaDir / OdaKeyFile null = %LocalAppData%\Bina\RevitSync\oda\27.10\ and its oda.key (DwgReaders).
+        public string DwgReader = "auto";
+        public string OdaDir;
+        public string OdaKeyFile;
+
         /// <summary>Tests point this at a temp file. null = the real config.json.</summary>
         internal static string ConfigPathOverride;
 

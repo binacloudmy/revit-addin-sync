@@ -185,3 +185,26 @@ Use `cad_walls_to_centerlines` for walls.
 
 **Recommendation:** Have users attach DWGs in the Copilot pane for full
 CAD-to-BIM conversion. The attachment path extracts everything.
+
+## DWG engine: ODA Drawings.NET with an ACadSharp fallback (AI-647)
+
+Detection reads DWG through `IDwgReader` (`Services/CadToBim/Dwg/`). On Revit 2027 with ODA
+installed, the reader is ODA Drawings.NET 27.10. Everywhere else it is ACadSharp. Both hand the
+detector the same in-memory ACadSharp document, so the downstream code is identical.
+
+- **Where ODA lives:** `%LocalAppData%\Bina\RevitSync\oda\27.10\` holds `bin\` (the runtime,
+  with no DWF modules) and `oda.key` (the licence). The installer puts them there. It is not
+  the OTA `versions\` folder, so updates do not re-ship the runtime.
+- **Config** (the `cadToBim` section of `%APPDATA%\RevitWebAppSync\config.json`):
+  `dwgReader` is `auto` (the default: ODA when installed), `oda` (ODA or an error) or
+  `acadsharp`. `odaDir` / `odaKeyFile` override the folder and the key.
+- **Fallback:** ODA not installed means ACadSharp, silently, with identical output. ODA
+  installed but failing (missing DLL, activation, another add-in's ODA, too little memory)
+  means ACadSharp plus one note: "Read with the built-in reader: ODA isn't set up correctly
+  (…)". A failed ODA init is not retried until Revit restarts.
+- **Default load context:** BinaLoader loads the plugin into Revit's default
+  AssemblyLoadContext, so the `OdSwig_*` assemblies land there as well. If another add-in has
+  already loaded its own ODA/Teigha wrappers, ours would bind to theirs. ODA init detects
+  this and falls back with "another add-in already loaded ODA <version>".
+- **Threads:** all ODA work runs on one dedicated thread, one read at a time.
+- **Not covered by ODA:** `CadFileReader` (the copilot's attachment extract) stays on ACadSharp.

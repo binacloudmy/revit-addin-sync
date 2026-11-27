@@ -74,6 +74,21 @@
     <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" Version="2027.*" />
   </ItemGroup>
 
+  <!-- AI-647: ODA Drawings.NET 27.10 behind IDwgReader, Revit 2027 (net10) only, and only when
+       the build points at the SDK: -p:OdaSdkDir=<folder with the OdSwig_*_Net5 DLLs>. Without it
+       HAS_ODA is unset and the add-in reads with ACadSharp alone. Private=false: the ODA runtime
+       ships in its own folder (Services\CadToBim\Dwg\DwgReaders.cs), never in this output. -->
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net10.0-windows' and '$(OdaSdkDir)' != '' and Exists('$(OdaSdkDir)\OdSwig_TD_DbCoreIntegrated_Net5.dll')">
+    <HasOda>true</HasOda>
+    <DefineConstants>$(DefineConstants);HAS_ODA</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(HasOda)' == 'true'">
+    <Reference Include="OdSwig_TD_DbCoreIntegrated_Net5"><HintPath>$(OdaSdkDir)\OdSwig_TD_DbCoreIntegrated_Net5.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="OdSwig_TD_RootIntegrated_Net5"><HintPath>$(OdaSdkDir)\OdSwig_TD_RootIntegrated_Net5.dll</HintPath><Private>false</Private></Reference>
+    <!-- Assembly name OdKernelExamplesMgdLib (ExHostAppServices); OdaRuntime maps it to this file. -->
+    <Reference Include="OdKernelExamplesMgdLib"><HintPath>$(OdaSdkDir)\OdKernelExamplesLib_Net5.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+
   <ItemGroup>
     <!-- Roslyn compiler for runtime code compilation -->
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.8.0" />

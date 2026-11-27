@@ -38,7 +38,12 @@ param(
     [string]$EngineZip = "",
     [string]$SignCert = "",
     [string]$SignPassword = "",
-    [string]$GatewayUrl = ""
+    [string]$GatewayUrl = "",
+    # AI-647: ship ODA Drawings.NET 27.10 for Revit 2027. -OdaRuntimeDir is the ODA runtime
+    # folder (native + OdSwig_*_Net5); -OdaKeyFile is the licence FILE's path (copied as-is,
+    # its contents never pass through this script or a command line). Both or neither.
+    [string]$OdaRuntimeDir = "",
+    [string]$OdaKeyFile = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -74,8 +79,14 @@ foreach ($tfm in $pluginTargets.Keys) {
     $sub = $pluginTargets[$tfm]
     $out = Join-Path $pluginDir $sub
     Write-Host "==> Publishing plugin $Version ($Configuration, $tfm -> $sub)..." -ForegroundColor Cyan
-    dotnet publish "RevitWebAppSync.csproj" -c $Configuration -f $tfm -o $out -p:Version=$Version
+    $odaArgs = @()
+    if ($OdaRuntimeDir -and $tfm -eq "net10.0-windows") { $odaArgs = @("-p:OdaSdkDir=$OdaRuntimeDir") }
+    dotnet publish "RevitWebAppSync.csproj" -c $Configuration -f $tfm -o $out -p:Version=$Version @odaArgs
     if ($LASTEXITCODE -ne 0) { throw "plugin publish failed for $tfm" }
+    # AI-647: an ODA release whose 2027 build silently lacks HAS_ODA would ship the runtime unused.
+    if ($odaArgs -and -not (Select-String -Path (Join-Path $out "RevitWebAppSync.dll") -Pattern "OdSwig_TD_DbCoreIntegrated_Net5" -SimpleMatch -Quiet)) {
+        throw "net10 plugin was built without HAS_ODA (check -OdaRuntimeDir holds OdSwig_TD_DbCoreIntegrated_Net5.dll)"
+    }
     # Per-payload manifest: what the loader's Instantiate() reads in the dir it loads.
     @{ version = $Version; assembly = 'RevitWebAppSync.dll'; entryType = 'RevitWebAppSync.App' } |
         ConvertTo-Json | Set-Content (Join-Path $out "manifest.json")
@@ -105,6 +116,27 @@ Set-Content (Join-Path $pluginDir ".complete") $Version
 # prune fails here rather than after a cert round-trip.
 Write-Host "==> Pruning payload..." -ForegroundColor Cyan
 & (Join-Path $PSScriptRoot "prune-payload.ps1") -PluginDir $pluginDir
+
+# AI-647: the ODA runtime goes to its own per-user folder (not the OTA versions folder).
+# AI-646 condition 4: no DWF module may ship (Revit's DwfCore/WhipTk 8.0.59 clash with ODA's).
+$odaIscArgs = @()
+if ($OdaRuntimeDir -or $OdaKeyFile) {
+    if (-not ($OdaRuntimeDir -and $OdaKeyFile)) { throw "-OdaRuntimeDir and -OdaKeyFile go together" }
+    if (-not (Test-Path (Join-Path $OdaRuntimeDir "OdSwig_TD_DbCoreIntegrated_Net5.dll"))) { throw "-OdaRuntimeDir has no ODA runtime" }
+    if (-not (Test-Path $OdaKeyFile -PathType Leaf)) { throw "-OdaKeyFile is not a file" }
+    $odaBin = Join-Path $repo "artifacts\oda\bin"
+    Write-Host "==> Staging ODA runtime (no DWF, no exes/pdbs, no .NET Framework wrappers)..." -ForegroundColor Cyan
+    # shortcut: exclusion list, not the run-2 module allowlist; shrink to the allowlist once the payload size is measured.
+    New-Item -ItemType Directory -Force $odaBin | Out-Null
+    Get-ChildItem $OdaRuntimeDir -File |
+        Where-Object { $_.Name -notmatch '(?i)dwf|^w3dtk|^whiptk|\.exe$|\.pdb$|\.manifest$|_Mgd\.dll$' } |
+        Copy-Item -Destination $odaBin
+    $dwf = Get-ChildItem $odaBin -Recurse -File | Where-Object { $_.Name -match '(?i)dwf|^w3dtk|^whiptk' }
+    if ($dwf) { throw "ODA payload contains DWF modules: $($dwf.Name -join ', ')" }
+    $mb = [math]::Round(((Get-ChildItem $odaBin -Recurse -File | Measure-Object Length -Sum).Sum / 1MB), 1)
+    Write-Host "    ODA payload: $mb MB" -ForegroundColor Cyan
+    $odaIscArgs = @("/DOdaBinDir=$odaBin", "/DOdaKeyFile=$OdaKeyFile")
+}
 
 # Retired switches (engine bundle, engine gateway seed): accepted, ignored.
 if ($EngineZip) { Write-Warning "-EngineZip ignored: the Copilot Engine is no longer shipped." }
@@ -195,7 +227,7 @@ if ($yearMap.Contains("2024")) {
 
 Write-Host "==> Building installer EXE..." -ForegroundColor Cyan
 $iscArgs = @($iss, "/DAppVersion=$Version", "/DLoaderNet8Dir=$loaderNet8Dir", "/DPluginDir=$pluginDir") +
-    $net48IscArgs + $signIscArgs + @("/O$repo")
+    $net48IscArgs + $odaIscArgs + $signIscArgs + @("/O$repo")
 & $iscc @iscArgs
 if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
 

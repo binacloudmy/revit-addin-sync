@@ -21,6 +21,7 @@ using ACadSharp.Entities;
 using BinaVibe.Copilot.Contracts;
 using BinaVibe.Copilot.Read;
 using Cad2Bim;
+using RevitWebAppSync.Services.CadToBim.Dwg;
 using RevitWebAppSync.UI.CadToBim;
 
 namespace RevitWebAppSync.Services.CadToBim
@@ -54,6 +55,9 @@ namespace RevitWebAppSync.Services.CadToBim
         public IReadOnlyDictionary<string, int> Census = new Dictionary<string, int>();
         public List<(string Name, int Count)> OpeningBlocks = new List<(string, int)>();
         public List<string> Warnings = new List<string>();
+        /// <summary>Structured xref / proxy / image / host warnings for the pre-flight model (AI-641); not in the answer text yet.</summary>
+        public List<DwgWarning> DwgWarnings = new List<DwgWarning>();
+        public string Engine = "acadsharp";
     }
 
     public static class DwgPlanReader
@@ -104,9 +108,10 @@ namespace RevitWebAppSync.Services.CadToBim
                 if (_cacheKey == key && _cacheSheet != null) return _cacheSheet;
             }
 
-            CadDocument document = Cad2Bim.Services.CadRenderSource.Read(path);
-            DwgPlanSheet sheet = Read(document, settings);
+            DwgDrawing drawing = DwgReaders.Read(path, settings);
+            DwgPlanSheet sheet = Read(drawing, settings);
             sheet.File = Path.GetFileName(path);
+            sheet.Warnings.AddRange(drawing.Notes);   // empty unless ODA is installed but could not read this file
 
             lock (CacheLock)
             {
@@ -117,12 +122,19 @@ namespace RevitWebAppSync.Services.CadToBim
         }
 
         /// <summary>The CadToBimViewModel.Detect pipeline on an in-memory document, kept per plan.</summary>
-        public static DwgPlanSheet Read(CadDocument document, CadToBimSettings settings)
+        public static DwgPlanSheet Read(CadDocument document, CadToBimSettings settings) =>
+            Read(DwgDrawing.FromDocument(document), settings);
+
+        /// <summary>The same pipeline on a drawing from either engine (IDwgReader).</summary>
+        public static DwgPlanSheet Read(DwgDrawing drawing, CadToBimSettings settings)
         {
+            CadDocument document = drawing.Document;
             var sheet = new DwgPlanSheet
             {
                 HeaderUnit = document.Header.InsUnits.ToString(),
                 HeaderMmPerUnit = Units.FromHeader(document),
+                DwgWarnings = drawing.Warnings,
+                Engine = drawing.Engine,
             };
             var noRoles = new Dictionary<string, LayerRole>();
 
@@ -131,8 +143,7 @@ namespace RevitWebAppSync.Services.CadToBim
             sheet.UsedMmPerUnit = survey.Scale;
 
             int readable = survey.Segments.Count + survey.Outlines.Count + survey.Arcs.Count;
-            if (CadSourceVerdict.IsRefused(
-                    document.Classes.Select(c => (c.DxfName, c.IsAnEntity, c.InstanceCount)), readable, out string aecWarning))
+            if (CadSourceVerdict.IsRefused(drawing.Classes, readable, out string aecWarning))
                 throw new NotSupportedException(CadToBimViewModel.UnsupportedSourceMessage);
             if (!string.IsNullOrEmpty(aecWarning)) sheet.Warnings.Add(aecWarning);
             if (readable == 0)

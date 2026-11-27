@@ -20,6 +20,9 @@ namespace RevitWebAppSync.Services.CadToBim
     {
         public string DrawingPath;
 
+        /// <summary>The drawing as read once by Detect (AI-647): a brush reuses it instead of reading the file again.</summary>
+        public RevitWebAppSync.Services.CadToBim.Dwg.DwgDrawing Drawing;
+
         /// <summary>Millimetres per drawing unit, as Units.Resolve decided.</summary>
         public double Scale = 1.0;
 

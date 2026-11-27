@@ -14,6 +14,7 @@ using Cad2Bim.Services;
 using Cad2Bim.ViewModels;
 using Cad2Bim.ViewModels.Shapes;
 using RevitWebAppSync.Services.CadToBim;
+using RevitWebAppSync.Services.CadToBim.Dwg;
 using CadWall = Cad2Bim.Wall;
 using CadSegment = Cad2Bim.Segment;
 
@@ -110,6 +111,10 @@ namespace RevitWebAppSync.UI.CadToBim
         /// refused (CadSourceVerdict.IsRefused). Null when nothing was skipped. Apply() appends
         /// this to Status after the normal "Detected N walls…" text.</summary>
         public string AecWarning;
+        /// <summary>How the file was read when that differs from the normal path (the ODA fallback note); null otherwise.</summary>
+        public string ReadNote;
+        /// <summary>Structured xref / proxy / image / host warnings (AI-641's pre-flight model).</summary>
+        public List<RevitWebAppSync.Services.CadToBim.Dwg.DwgWarning> DwgWarnings = new List<RevitWebAppSync.Services.CadToBim.Dwg.DwgWarning>();
     }
 
     public delegate DetectResult DetectDelegate(string path, CadToBimSettings settings, double sMinMm, double sMaxMm,
@@ -447,6 +452,7 @@ namespace RevitWebAppSync.UI.CadToBim
             Status = "Detected " + fresh.Walls.Count + " walls, " + DoorCount + " doors, " + WindowCount +
                      " windows, " + RoomCount + " rooms in " + result.ReadSeconds.ToString("0.0") + " s.";
             if (!string.IsNullOrEmpty(result.AecWarning)) Status += " · " + result.AecWarning;
+            if (!string.IsNullOrEmpty(result.ReadNote)) Status += " · " + result.ReadNote;
         }
 
         // ───────── correct ─────────
@@ -533,6 +539,7 @@ namespace RevitWebAppSync.UI.CadToBim
             Busy = true;
             Status = "Brushing…";
             string path = _session.DrawingPath;
+            DwgDrawing drawing = _session.Drawing;
             CadToBimSettings settings = _settings;
             double median = _session.MedianThicknessMm;
 
@@ -545,7 +552,9 @@ namespace RevitWebAppSync.UI.CadToBim
                 BrushResult result;
                 try
                 {
-                    result = await Task.Run(() => Cad2BimBrush.Run(path, box, settings, median));
+                    result = await Task.Run(() => drawing != null
+                        ? Cad2BimBrush.Run(drawing, box, settings, median)
+                        : Cad2BimBrush.Run(path, box, settings, median));
                 }
                 finally
                 {
@@ -813,8 +822,15 @@ namespace RevitWebAppSync.UI.CadToBim
         {
             var clock = Stopwatch.StartNew();
             progress?.Report("Reading " + Path.GetFileName(path) + "…");
+            return Detect(DwgReaders.Read(path, settings), path, clock, settings, sMinMm, sMaxMm, roles, progress, ct);
+        }
 
-            ACadSharp.CadDocument document = CadRenderSource.Read(path);
+        /// <summary>The same pipeline on a drawing already read by either engine (the AI-647 parity harness drives this).</summary>
+        internal static DetectResult Detect(DwgDrawing drawing, string path, Stopwatch clock, CadToBimSettings settings,
+                                            double sMinMm, double sMaxMm, IReadOnlyDictionary<string, LayerRole> roles,
+                                            IProgress<string> progress, CancellationToken ct)
+        {
+            ACadSharp.CadDocument document = drawing.Document;
             ct.ThrowIfCancellationRequested();
 
             progress?.Report("Classifying…");
@@ -827,10 +843,7 @@ namespace RevitWebAppSync.UI.CadToBim
             // in this drawing (InstanceCount, IsAnEntity) AND nothing readable came back either;
             // otherwise continue and warn instead of refusing.
             int readableCount = survey.Segments.Count + survey.Outlines.Count + survey.Arcs.Count;
-            bool refused = CadSourceVerdict.IsRefused(
-                document.Classes.Select(c => (c.DxfName, c.IsAnEntity, c.InstanceCount)),
-                readableCount,
-                out string aecWarning);
+            bool refused = CadSourceVerdict.IsRefused(drawing.Classes, readableCount, out string aecWarning);
             if (refused) throw new NotSupportedException(UnsupportedSourceMessage);
 
             List<string> wallLayers = survey.LayerCensus.Keys
@@ -871,6 +884,7 @@ namespace RevitWebAppSync.UI.CadToBim
             var session = new CadToBimSession
             {
                 DrawingPath = path,
+                Drawing = drawing,
                 Scale = model.Scale,
                 Model = model,
             };
@@ -905,6 +919,8 @@ namespace RevitWebAppSync.UI.CadToBim
                 ReadSeconds = clock.Elapsed.TotalSeconds,
                 UnitsText = units,
                 AecWarning = aecWarning,
+                ReadNote = drawing.Notes.Count > 0 ? string.Join(" ", drawing.Notes) : null,
+                DwgWarnings = drawing.Warnings,
             };
         }
 

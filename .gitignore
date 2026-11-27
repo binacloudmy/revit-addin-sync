@@ -18,3 +18,7 @@ config.json
 
 # local git worktrees
 .worktrees/
+
+# AI-647: the ODA licence key and runtime never enter the repo.
+*.key
+*oda*licen*

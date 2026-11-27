@@ -112,6 +112,13 @@ Source: "{#PluginDir}\*"; DestDir: "{localappdata}\Bina\RevitSync\versions\{#App
 ; builds). Pre-trusting it below removes even the one-time "Signed Add-In —
 ; Always Load?" prompt. Unsigned builds have no .cer -> both entries skip.
 Source: "..\artifacts\bina-cloudtech.cer"; DestDir: "{localappdata}\Bina\RevitSync"; Flags: skipifsourcedoesntexist
+; AI-647: ODA Drawings.NET 27.10 runtime + licence file for Revit 2027 (DwgReaders.DefaultOdaDir),
+; outside the OTA versions folder so updates don't re-ship it. %LocalAppData% is per-user
+; (the user, SYSTEM and Administrators only). OdaKeyFile is a path: Inno copies the file.
+#ifdef OdaBinDir
+Source: "{#OdaBinDir}\*"; DestDir: "{localappdata}\Bina\RevitSync\oda\27.10\bin"; Flags: ignoreversion recursesubdirs
+Source: "{#OdaKeyFile}"; DestDir: "{localappdata}\Bina\RevitSync\oda\27.10"; DestName: "oda.key"; Flags: ignoreversion
+#endif
 
 [Run]
 ; Per-user TrustedPublisher store (no admin) — Revit checks it before showing

@@ -538,6 +538,11 @@ namespace RevitWebAppSync
             // hold a file lock and show up in Revit's window list. Attached-PDF
             // text goes with them (whole spec documents held as strings).
             try { BinaVibe.Mcp.Tools.DwgScratchCache.CloseAll(); } catch { }
+
+#if HAS_ODA
+            // AI-647: odUninitialize once, on the ODA thread, only if a DWG read ever started ODA.
+            try { Services.CadToBim.Dwg.OdaRuntime.Shutdown(); } catch { }
+#endif
             try { BinaVibe.Mcp.Tools.PdfAttachmentCache.CloseAll(); } catch { }
 
             // 'clean' shutdown marker: a session with 'started' but neither

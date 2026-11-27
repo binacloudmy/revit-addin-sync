@@ -48,10 +48,15 @@ namespace RevitWebAppSync.Services.CadToBim
         /// walls), then runs the box.
         /// </summary>
         public static BrushResult Run(string drawingPath, BoxMm box, CadToBimSettings settings,
+                                      double medianThicknessMm) =>
+            Run(Dwg.DwgReaders.Read(drawingPath, settings), box, settings, medianThicknessMm);
+
+        /// <summary>The same, on the drawing Detect already read (AI-647: no second file read).</summary>
+        public static BrushResult Run(Dwg.DwgDrawing drawing, BoxMm box, CadToBimSettings settings,
                                       double medianThicknessMm)
         {
             LayerFilter filter = (settings ?? new CadToBimSettings()).ToLayerFilter();
-            CadModel model = ModelSource.Read(CadRenderSource.Read(drawingPath), filter);
+            CadModel model = ModelSource.Read(drawing.Document, filter);
             return RunOnModel(model, box, medianThicknessMm);
         }
 
