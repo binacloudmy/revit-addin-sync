@@ -3,20 +3,20 @@
     <!-- AI-638 Check pane: the v6 canvas CSS classes as WPF styles (.card .mrow .src .badge .btn .btn-p
          .chip .kbd .sec .sw). Colours are Cb.* (CadToBimTheme, light/dark), always DynamicResource. -->
 
-    <Style x:Key="Cb.Card" TargetType="Border">
+    <Style x:Key="Cbs.Card" TargetType="Border">
         <Setter Property="Background" Value="{DynamicResource Cb.Pane}"/>
         <Setter Property="BorderBrush" Value="{DynamicResource Cb.Line}"/>
         <Setter Property="BorderThickness" Value="1"/>
         <Setter Property="CornerRadius" Value="3"/>
     </Style>
 
-    <Style x:Key="Cb.Sec" TargetType="TextBlock">
+    <Style x:Key="Cbs.Sec" TargetType="TextBlock">
         <Setter Property="FontSize" Value="10.5"/>
         <Setter Property="FontWeight" Value="SemiBold"/>
         <Setter Property="Foreground" Value="{DynamicResource Cb.Fg2}"/>
     </Style>
 
-    <Style x:Key="Cb.Dim" TargetType="TextBlock">
+    <Style x:Key="Cbs.Dim" TargetType="TextBlock">
         <Setter Property="FontSize" Value="11.5"/>
         <Setter Property="LineHeight" Value="15"/>
         <Setter Property="TextWrapping" Value="Wrap"/>
@@ -24,7 +24,7 @@
     </Style>
 
     <!-- .badge (+ .bg-g/.bg-b via Tag) -->
-    <Style x:Key="Cb.Badge" TargetType="Border">
+    <Style x:Key="Cbs.Badge" TargetType="Border">
         <Setter Property="Height" Value="17"/>
         <Setter Property="Padding" Value="5,0"/>
         <Setter Property="CornerRadius" Value="2"/>
@@ -54,7 +54,7 @@
     </Style>
 
     <!-- .src source badge: pill with a dot; Tag = g | a | r | n (n = neutral pending) -->
-    <Style x:Key="Cb.Src" TargetType="ContentControl">
+    <Style x:Key="Cbs.Src" TargetType="ContentControl">
         <Setter Property="Focusable" Value="False"/>
         <Setter Property="VerticalAlignment" Value="Center"/>
         <Setter Property="Foreground" Value="{DynamicResource Cb.Fg3}"/>
@@ -78,7 +78,7 @@
         </Style.Triggers>
     </Style>
 
-    <Style x:Key="Cb.Btn" TargetType="Button">
+    <Style x:Key="Cbs.Btn" TargetType="Button">
         <Setter Property="Foreground" Value="{DynamicResource Cb.Fg}"/>
         <Setter Property="Background" Value="{DynamicResource Cb.Btn}"/>
         <Setter Property="BorderBrush" Value="{DynamicResource Cb.BtnB}"/>
@@ -104,7 +104,7 @@
         </Setter>
     </Style>
 
-    <Style x:Key="Cb.BtnP" TargetType="Button" BasedOn="{StaticResource Cb.Btn}">
+    <Style x:Key="Cbs.BtnP" TargetType="Button" BasedOn="{StaticResource Cbs.Btn}">
         <Setter Property="Foreground" Value="{DynamicResource Cb.PriFg}"/>
         <Setter Property="Background" Value="{DynamicResource Cb.Pri}"/>
         <Setter Property="BorderBrush" Value="{DynamicResource Cb.Pri}"/>
@@ -114,7 +114,7 @@
     </Style>
 
     <!-- .chip (answer options, consultant chip) -->
-    <Style x:Key="Cb.Chip" TargetType="Button" BasedOn="{StaticResource Cb.Btn}">
+    <Style x:Key="Cbs.Chip" TargetType="Button" BasedOn="{StaticResource Cbs.Btn}">
         <Setter Property="Height" Value="22"/>
         <Setter Property="Padding" Value="9,0"/>
         <Setter Property="FontSize" Value="11"/>
@@ -134,7 +134,7 @@
         </Setter>
     </Style>
 
-    <Style x:Key="Cb.Kbd" TargetType="Border">
+    <Style x:Key="Cbs.Kbd" TargetType="Border">
         <Setter Property="MinWidth" Value="17"/>
         <Setter Property="Height" Value="17"/>
         <Setter Property="Padding" Value="4,0"/>
@@ -148,7 +148,7 @@
     </Style>
 
     <!-- .sw swatch, Tag = swatch-g | swatch-a (hatched, never colour alone) | swatch-n -->
-    <Style x:Key="Cb.Sw" TargetType="Border">
+    <Style x:Key="Cbs.Sw" TargetType="Border">
         <Setter Property="Width" Value="9"/>
         <Setter Property="Height" Value="9"/>
         <Setter Property="CornerRadius" Value="1"/>

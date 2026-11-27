@@ -24,8 +24,8 @@
                             <TextBlock DockPanel.Dock="Left" Text="{Binding Caret}" Width="14" Foreground="{DynamicResource Cb.Fg3}" VerticalAlignment="Center"
                                        Visibility="{Binding HasDetail, Converter={StaticResource Vis}}"/>
                             <TextBlock x:Name="mark" DockPanel.Dock="Left" Width="14" Margin="0,0,8,0" VerticalAlignment="Center" FontWeight="Bold" FontSize="12"/>
-                            <Border x:Name="sw" DockPanel.Dock="Left" Style="{StaticResource Cb.Sw}" Tag="{Binding Mark}" Margin="0,0,8,0" Visibility="Collapsed"/>
-                            <ContentControl DockPanel.Dock="Right" Style="{StaticResource Cb.Src}" Content="{Binding BadgeText}" Tag="{Binding Tone}"
+                            <Border x:Name="sw" DockPanel.Dock="Left" Style="{StaticResource Cbs.Sw}" Tag="{Binding Mark}" Margin="0,0,8,0" Visibility="Collapsed"/>
+                            <ContentControl DockPanel.Dock="Right" Style="{StaticResource Cbs.Src}" Content="{Binding BadgeText}" Tag="{Binding Tone}"
                                             ToolTip="{Binding Evidence}" Margin="8,0,0,0"/>
                             <ComboBox x:Name="pick" DockPanel.Dock="Right" Width="110" Height="20" FontSize="11.5" Margin="8,0,0,0" Visibility="Collapsed"
                                       ItemsSource="{Binding DataContext.Levels, RelativeSource={RelativeSource AncestorType=UserControl}}"
@@ -70,11 +70,11 @@
             <!-- ═══ 2 · Pre-flight (W02) ═══ -->
             <DataTemplate x:Key="Preflight">
                 <DockPanel>
-                    <Button DockPanel.Dock="Bottom" Style="{StaticResource Cb.BtnP}" Content="Next: consultant" Click="OnNext"/>
+                    <Button DockPanel.Dock="Bottom" Style="{StaticResource Cbs.BtnP}" Content="Next: consultant" Click="OnNext"/>
                     <StackPanel>
-                        <Border Style="{StaticResource Cb.Card}" Padding="11,9" Margin="0,0,0,9">
+                        <Border Style="{StaticResource Cbs.Card}" Padding="11,9" Margin="0,0,0,9">
                             <StackPanel>
-                                <TextBlock Style="{StaticResource Cb.Sec}" Text="READ" Margin="0,0,0,6"/>
+                                <TextBlock Style="{StaticResource Cbs.Sec}" Text="READ" Margin="0,0,0,6"/>
                                 <StackPanel Orientation="Horizontal">
                                     <TextBlock Text="✓ " Foreground="{DynamicResource Cb.GT}" FontWeight="Bold"/><TextBlock Text="Opened"/>
                                     <TextBlock Text="  →  " Foreground="{DynamicResource Cb.Fg3}"/>
@@ -82,13 +82,13 @@
                                 </StackPanel>
                             </StackPanel>
                         </Border>
-                        <TextBlock Style="{StaticResource Cb.Sec}" Text="PRE-FLIGHT" Margin="0,0,0,9"/>
-                        <Border Style="{StaticResource Cb.Card}" Margin="0,0,0,9">
+                        <TextBlock Style="{StaticResource Cbs.Sec}" Text="PRE-FLIGHT" Margin="0,0,0,9"/>
+                        <Border Style="{StaticResource Cbs.Card}" Margin="0,0,0,9">
                             <ItemsControl Style="{StaticResource RowList}" ItemsSource="{Binding PreflightRows}"/>
                         </Border>
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="✓ " Foreground="{DynamicResource Cb.GT}" FontWeight="Bold"/>
-                            <TextBlock Style="{StaticResource Cb.Dim}" Text="Read once. Edits from now on are instant."/>
+                            <TextBlock Style="{StaticResource Cbs.Dim}" Text="Read once. Edits from now on are instant."/>
                         </StackPanel>
                     </StackPanel>
                 </DockPanel>
@@ -97,15 +97,15 @@
             <!-- ═══ 3 · Consultant (W03) ═══ -->
             <DataTemplate x:Key="Consultant">
                 <DockPanel>
-                    <Button DockPanel.Dock="Bottom" Style="{StaticResource Cb.BtnP}" Content="Next: Gate 1" Click="OnNext"
+                    <Button DockPanel.Dock="Bottom" Style="{StaticResource Cbs.BtnP}" Content="Next: Gate 1" Click="OnNext"
                             Visibility="{Binding ConsultantPending, Converter={StaticResource Vis}}"/>
                     <StackPanel>
-                        <TextBlock Style="{StaticResource Cb.Sec}" Text="CONSULTANT" Margin="0,0,0,9"/>
-                        <Border Style="{StaticResource Cb.Card}" Padding="12">
+                        <TextBlock Style="{StaticResource Cbs.Sec}" Text="CONSULTANT" Margin="0,0,0,9"/>
+                        <Border Style="{StaticResource Cbs.Card}" Padding="12">
                             <Grid>
                                 <DockPanel Visibility="{Binding ConsultantPending, Converter={StaticResource Vis}}">
-                                    <ContentControl DockPanel.Dock="Right" Style="{StaticResource Cb.Src}" Content="pending" Tag="n" ToolTip="Title-block reader (AI-634)"/>
-                                    <TextBlock Style="{StaticResource Cb.Dim}" Text="Consultant: not read yet (title-block reader)"/>
+                                    <ContentControl DockPanel.Dock="Right" Style="{StaticResource Cbs.Src}" Content="pending" Tag="n" ToolTip="Title-block reader (AI-634)"/>
+                                    <TextBlock Style="{StaticResource Cbs.Dim}" Text="Consultant: not read yet (title-block reader)"/>
                                 </DockPanel>
                                 <StackPanel Visibility="{Binding ConsultantPending, Converter={StaticResource Vis}, ConverterParameter=Invert}">
                                     <DockPanel Margin="0,0,0,9">
@@ -116,21 +116,21 @@
                                         <StackPanel VerticalAlignment="Center">
                                             <TextBlock Text="{Binding Consultant.Name}" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap"/>
                                             <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                                                <ContentControl Style="{StaticResource Cb.Src}" Content="Title block" Tag="g" Margin="0,0,6,0"/>
-                                                <TextBlock Style="{StaticResource Cb.Dim}" Text="0 saved rules"/>
+                                                <ContentControl Style="{StaticResource Cbs.Src}" Content="Title block" Tag="g" Margin="0,0,6,0"/>
+                                                <TextBlock Style="{StaticResource Cbs.Dim}" Text="0 saved rules"/>
                                             </StackPanel>
                                         </StackPanel>
                                     </DockPanel>
                                     <Border Background="{DynamicResource Cb.Pane2}" CornerRadius="2" Padding="9,7" Margin="0,0,0,9">
                                         <DockPanel>
-                                            <ContentControl DockPanel.Dock="Left" Style="{StaticResource Cb.Src}" Content="JKR default" Tag="a" Margin="0,0,8,0" VerticalAlignment="Top"/>
+                                            <ContentControl DockPanel.Dock="Left" Style="{StaticResource Cbs.Src}" Content="JKR default" Tag="a" Margin="0,0,8,0" VerticalAlignment="Top"/>
                                             <TextBlock Text="{Binding Consultant.Note}" FontSize="11.5" LineHeight="15" TextWrapping="Wrap"/>
                                         </DockPanel>
                                     </Border>
                                     <Grid Margin="0,0,0,9">
                                         <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="6"/><ColumnDefinition/></Grid.ColumnDefinitions>
-                                        <Button Style="{StaticResource Cb.BtnP}" Height="28" Content="That's right" Click="OnNext"/>
-                                        <Button Grid.Column="2" Style="{StaticResource Cb.Btn}" Height="28" HorizontalContentAlignment="Center" Content="Change"
+                                        <Button Style="{StaticResource Cbs.BtnP}" Height="28" Content="That's right" Click="OnNext"/>
+                                        <Button Grid.Column="2" Style="{StaticResource Cbs.Btn}" Height="28" HorizontalContentAlignment="Center" Content="Change"
                                                 IsEnabled="False" ToolTip="Changing the consultant comes with the rule store (AI-634)"/>
                                     </Grid>
                                     <TextBlock Text="{Binding Consultant.Rules}" FontSize="11" Foreground="{DynamicResource Cb.Fg3}"/>
@@ -146,21 +146,21 @@
                 <DockPanel>
                     <Grid DockPanel.Dock="Bottom">
                         <Grid.ColumnDefinitions><ColumnDefinition Width="2*"/><ColumnDefinition Width="6"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                        <Button Style="{StaticResource Cb.BtnP}" Content="Looks right" Click="OnNext"/>
-                        <Button Grid.Column="2" Style="{StaticResource Cb.Btn}" Height="30" HorizontalContentAlignment="Center" Content="Edit mapping" Click="OnEditMapping"
+                        <Button Style="{StaticResource Cbs.BtnP}" Content="Looks right" Click="OnNext"/>
+                        <Button Grid.Column="2" Style="{StaticResource Cbs.Btn}" Height="30" HorizontalContentAlignment="Center" Content="Edit mapping" Click="OnEditMapping"
                                 ToolTip="Move a plan to another existing level. The pane never creates a level."/>
                     </Grid>
                     <StackPanel>
                         <DockPanel Margin="0,0,0,9">
-                            <Border DockPanel.Dock="Left" Style="{StaticResource Cb.Badge}" Tag="b" Margin="0,0,8,0"><TextBlock Text="Gate 1 of 2"/></Border>
+                            <Border DockPanel.Dock="Left" Style="{StaticResource Cbs.Badge}" Tag="b" Margin="0,0,8,0"><TextBlock Text="Gate 1 of 2"/></Border>
                             <TextBlock DockPanel.Dock="Right" Text="can't skip" FontSize="11" Foreground="{DynamicResource Cb.Fg3}" VerticalAlignment="Center"/>
                             <TextBlock Text="Every box labelled · plans mapped to levels" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
                         </DockPanel>
-                        <TextBlock Style="{StaticResource Cb.Dim}" Text="The labels are on the drawing in the view. Click a row to zoom to its box." Margin="0,0,0,9"/>
-                        <Border Style="{StaticResource Cb.Card}" Margin="0,0,0,9">
+                        <TextBlock Style="{StaticResource Cbs.Dim}" Text="The labels are on the drawing in the view. Click a row to zoom to its box." Margin="0,0,0,9"/>
+                        <Border Style="{StaticResource Cbs.Card}" Margin="0,0,0,9">
                             <ItemsControl Style="{StaticResource RowList}" ItemsSource="{Binding Gate1Rows}"/>
                         </Border>
-                        <Border Style="{StaticResource Cb.Card}" Padding="10,8">
+                        <Border Style="{StaticResource Cbs.Card}" Padding="10,8">
                             <TextBlock FontSize="11.5" LineHeight="16" TextWrapping="Wrap"><Run Text="Default is same level." FontWeight="SemiBold"/><Run Text=" A plan only moves to another level when you confirm it."/><LineBreak/><Run Text="The pane never creates a level." Foreground="{DynamicResource Cb.Fg2}"/></TextBlock>
                         </Border>
                     </StackPanel>
@@ -170,16 +170,16 @@
             <!-- ═══ 5 · Gate 2 (W05) + blocked ═══ -->
             <DataTemplate x:Key="Gate2">
                 <DockPanel>
-                    <Button DockPanel.Dock="Bottom" Style="{StaticResource Cb.BtnP}" Content="{Binding Gate2NextLabel}" Click="OnNext"
+                    <Button DockPanel.Dock="Bottom" Style="{StaticResource Cbs.BtnP}" Content="{Binding Gate2NextLabel}" Click="OnNext"
                             IsEnabled="{Binding Gate2Blocked, Converter={x:Static chk:CheckPane.Not}}"/>
                     <StackPanel>
                         <DockPanel Margin="0,0,0,9">
-                            <Border DockPanel.Dock="Left" Style="{StaticResource Cb.Badge}" Tag="g" Margin="0,0,5,0"><TextBlock Text="✓ Gate 1"/></Border>
-                            <Border DockPanel.Dock="Left" Style="{StaticResource Cb.Badge}" Tag="b" Margin="0,0,8,0"><TextBlock Text="Gate 2 of 2"/></Border>
+                            <Border DockPanel.Dock="Left" Style="{StaticResource Cbs.Badge}" Tag="g" Margin="0,0,5,0"><TextBlock Text="✓ Gate 1"/></Border>
+                            <Border DockPanel.Dock="Left" Style="{StaticResource Cbs.Badge}" Tag="b" Margin="0,0,8,0"><TextBlock Text="Gate 2 of 2"/></Border>
                             <TextBlock DockPanel.Dock="Right" Text="can't skip" FontSize="11" Foreground="{DynamicResource Cb.Fg3}" VerticalAlignment="Center"/>
                             <TextBlock Text="Scale, with its source" FontWeight="SemiBold" VerticalAlignment="Center"/>
                         </DockPanel>
-                        <Border Style="{StaticResource Cb.Card}" Margin="0,0,0,9" ClipToBounds="True">
+                        <Border Style="{StaticResource Cbs.Card}" Margin="0,0,0,9" ClipToBounds="True">
                             <StackPanel>
                                 <ItemsControl Style="{StaticResource RowList}" ItemsSource="{Binding Gate2Rows}"/>
                                 <Border x:Name="verdict" Background="{DynamicResource Cb.GS}" Padding="10,8">
@@ -187,9 +187,9 @@
                                 </Border>
                             </StackPanel>
                         </Border>
-                        <Border Style="{StaticResource Cb.Card}" Background="{DynamicResource Cb.Pane2}" Padding="11,9">
+                        <Border Style="{StaticResource Cbs.Card}" Background="{DynamicResource Cb.Pane2}" Padding="11,9">
                             <StackPanel>
-                                <TextBlock Style="{StaticResource Cb.Sec}" Text="IF THEY DISAGREE" Margin="0,0,0,5"/>
+                                <TextBlock Style="{StaticResource Cbs.Sec}" Text="IF THEY DISAGREE" Margin="0,0,0,5"/>
                                 <TextBlock FontSize="11.5" LineHeight="16" TextWrapping="Wrap"><Run Text="You click the two ends of a known dimension in the view and type its value. "/><Run Text="Build stays blocked" FontWeight="SemiBold"/><Run Text=" until the two sources match."/></TextBlock>
                             </StackPanel>
                         </Border>
@@ -206,16 +206,16 @@
             <!-- ═══ 6 · Questions (W06, dark W06QuestionsDark) ═══ -->
             <DataTemplate x:Key="Questions">
                 <DockPanel>
-                    <Button DockPanel.Dock="Bottom" Style="{StaticResource Cb.BtnP}" Content="{Binding ContinueLabel}" Click="OnNext" IsEnabled="{Binding CanContinue}"/>
+                    <Button DockPanel.Dock="Bottom" Style="{StaticResource Cbs.BtnP}" Content="{Binding ContinueLabel}" Click="OnNext" IsEnabled="{Binding CanContinue}"/>
                     <StackPanel>
                         <DockPanel Margin="0,0,0,9">
                             <TextBlock DockPanel.Dock="Right" Text="ranked: uncertainty × items × cost to fix" FontSize="11" Foreground="{DynamicResource Cb.Fg3}"/>
-                            <TextBlock Style="{StaticResource Cb.Sec}"><Run Text="NEEDS YOUR ANSWER · "/><Run Text="{Binding Questions.Count, Mode=OneWay}"/><Run Text=" OF "/><Run Text="{Binding CandidateCount, Mode=OneWay}"/><Run Text=" CANDIDATES"/></TextBlock>
+                            <TextBlock Style="{StaticResource Cbs.Sec}"><Run Text="NEEDS YOUR ANSWER · "/><Run Text="{Binding Questions.Count, Mode=OneWay}"/><Run Text=" OF "/><Run Text="{Binding CandidateCount, Mode=OneWay}"/><Run Text=" CANDIDATES"/></TextBlock>
                         </DockPanel>
                         <ItemsControl ItemsSource="{Binding Cards}" Focusable="False">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate DataType="{x:Type chk:QuestionCard}">
-                                    <Border x:Name="card" Style="{StaticResource Cb.Card}" Padding="10,9" Margin="0,0,0,9" Cursor="Hand" MouseLeftButtonUp="OnCardClick">
+                                    <Border x:Name="card" Style="{StaticResource Cbs.Card}" Padding="10,9" Margin="0,0,0,9" Cursor="Hand" MouseLeftButtonUp="OnCardClick">
                                         <DockPanel>
                                             <Border DockPanel.Dock="Left" Width="96" Height="64" Margin="0,0,10,0" VerticalAlignment="Top"
                                                     Background="{DynamicResource Cb.DwgBg}" BorderBrush="{DynamicResource Cb.Line}" BorderThickness="1" CornerRadius="2">
@@ -223,20 +223,20 @@
                                             </Border>
                                             <StackPanel>
                                                 <DockPanel Margin="0,0,0,5">
-                                                    <Border DockPanel.Dock="Left" Style="{StaticResource Cb.Kbd}" Margin="0,0,6,0"><TextBlock Text="{Binding NumberText}" HorizontalAlignment="Center"/></Border>
+                                                    <Border DockPanel.Dock="Left" Style="{StaticResource Cbs.Kbd}" Margin="0,0,6,0"><TextBlock Text="{Binding NumberText}" HorizontalAlignment="Center"/></Border>
                                                     <TextBlock x:Name="done" DockPanel.Dock="Right" Text="✓ answered" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource Cb.GT}" Visibility="Collapsed"/>
-                                                    <Border x:Name="zoomed" DockPanel.Dock="Right" Style="{StaticResource Cb.Badge}" Tag="b" Visibility="Collapsed"><TextBlock Text="zoomed in the view"/></Border>
+                                                    <Border x:Name="zoomed" DockPanel.Dock="Right" Style="{StaticResource Cbs.Badge}" Tag="b" Visibility="Collapsed"><TextBlock Text="zoomed in the view"/></Border>
                                                     <TextBlock Text="{Binding Q.Title}" FontWeight="SemiBold" LineHeight="16" TextWrapping="Wrap"/>
                                                 </DockPanel>
-                                                <TextBlock Style="{StaticResource Cb.Dim}" Text="{Binding Q.Evidence}" Margin="0,0,0,5"/>
-                                                <Border x:Name="answer" Style="{StaticResource Cb.Badge}" Tag="g" HorizontalAlignment="Left" Height="20" Visibility="Collapsed">
+                                                <TextBlock Style="{StaticResource Cbs.Dim}" Text="{Binding Q.Evidence}" Margin="0,0,0,5"/>
+                                                <Border x:Name="answer" Style="{StaticResource Cbs.Badge}" Tag="g" HorizontalAlignment="Left" Height="20" Visibility="Collapsed">
                                                     <TextBlock Text="{Binding AnsweredText}"/>
                                                 </Border>
                                                 <ItemsControl x:Name="options" ItemsSource="{Binding Q.Options}" Focusable="False">
                                                     <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                                                     <ItemsControl.ItemTemplate>
                                                         <DataTemplate>
-                                                            <Button Style="{StaticResource Cb.Chip}" Content="{Binding}" Margin="0,0,5,5" Click="OnOptionClick"/>
+                                                            <Button Style="{StaticResource Cbs.Chip}" Content="{Binding}" Margin="0,0,5,5" Click="OnOptionClick"/>
                                                         </DataTemplate>
                                                     </ItemsControl.ItemTemplate>
                                                 </ItemsControl>
@@ -260,7 +260,7 @@
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
-                        <TextBlock Style="{StaticResource Cb.Dim}" Visibility="{Binding Overflow, Converter={x:Static chk:CheckPane.Positive}}"><Run Text="{Binding Overflow, Mode=OneWay}"/><Run Text=" lower-impact ones go to Review as named assumptions."/></TextBlock>
+                        <TextBlock Style="{StaticResource Cbs.Dim}" Visibility="{Binding Overflow, Converter={x:Static chk:CheckPane.Positive}}"><Run Text="{Binding Overflow, Mode=OneWay}"/><Run Text=" lower-impact ones go to Review as named assumptions."/></TextBlock>
                     </StackPanel>
                 </DockPanel>
             </DataTemplate>
@@ -268,7 +268,7 @@
             <!-- ═══ 7 · Everything else (W07) ═══ -->
             <DataTemplate x:Key="Rows">
                 <DockPanel>
-                    <Button DockPanel.Dock="Bottom" Style="{StaticResource Cb.BtnP}" Height="32" FontSize="12.5" Content="{Binding BuildLabel}" Click="OnBuild" IsEnabled="{Binding CanBuild}"/>
+                    <Button DockPanel.Dock="Bottom" Style="{StaticResource Cbs.BtnP}" Height="32" FontSize="12.5" Content="{Binding BuildLabel}" Click="OnBuild" IsEnabled="{Binding CanBuild}"/>
                     <StackPanel>
                         <Border Background="{DynamicResource Cb.GS}" CornerRadius="3" Padding="10,7" Margin="0,0,0,9">
                             <DockPanel>
@@ -279,9 +279,9 @@
                         </Border>
                         <DockPanel Margin="0,0,0,9">
                             <TextBlock DockPanel.Dock="Right" Text="hover a badge for the evidence" FontSize="11" Foreground="{DynamicResource Cb.Fg3}"/>
-                            <TextBlock Style="{StaticResource Cb.Sec}" Text="EVERYTHING ELSE"/>
+                            <TextBlock Style="{StaticResource Cbs.Sec}" Text="EVERYTHING ELSE"/>
                         </DockPanel>
-                        <Border Style="{StaticResource Cb.Card}">
+                        <Border Style="{StaticResource Cbs.Card}">
                             <ItemsControl Style="{StaticResource RowList}" ItemsSource="{Binding Rows}"/>
                         </Border>
                     </StackPanel>
@@ -290,29 +290,29 @@
 
             <!-- empty / loading / error -->
             <DataTemplate x:Key="Empty">
-                <TextBlock Style="{StaticResource Cb.Dim}" TextAlignment="Center" VerticalAlignment="Center" MaxWidth="300"
+                <TextBlock Style="{StaticResource Cbs.Dim}" TextAlignment="Center" VerticalAlignment="Center" MaxWidth="300"
                            Text="Open a DWG with CAD to BIM on the BINA ribbon. Nothing is built until you confirm."/>
             </DataTemplate>
             <DataTemplate x:Key="Loading">
                 <StackPanel>
-                    <Border Style="{StaticResource Cb.Card}" Padding="11,9">
+                    <Border Style="{StaticResource Cbs.Card}" Padding="11,9">
                         <StackPanel>
-                            <TextBlock Style="{StaticResource Cb.Sec}" Text="READ" Margin="0,0,0,6"/>
+                            <TextBlock Style="{StaticResource Cbs.Sec}" Text="READ" Margin="0,0,0,6"/>
                             <TextBlock Text="Reading the drawing…"/>
-                            <TextBlock Style="{StaticResource Cb.Dim}" Text="Revit stays usable while this runs." Margin="0,4,0,0"/>
+                            <TextBlock Style="{StaticResource Cbs.Dim}" Text="Revit stays usable while this runs." Margin="0,4,0,0"/>
                         </StackPanel>
                     </Border>
                 </StackPanel>
             </DataTemplate>
             <DataTemplate x:Key="Error">
                 <StackPanel>
-                    <Border Style="{StaticResource Cb.Card}" Background="{DynamicResource Cb.RS}" BorderBrush="Transparent" Padding="11,9" Margin="0,0,0,9">
+                    <Border Style="{StaticResource Cbs.Card}" Background="{DynamicResource Cb.RS}" BorderBrush="Transparent" Padding="11,9" Margin="0,0,0,9">
                         <StackPanel>
                             <TextBlock Text="The drawing could not be read" FontWeight="SemiBold" Foreground="{DynamicResource Cb.RT}"/>
                             <TextBlock Text="{Binding Error}" TextWrapping="Wrap" Margin="0,4,0,0" FontSize="11.5"/>
                         </StackPanel>
                     </Border>
-                    <Button Style="{StaticResource Cb.Btn}" Content="Try again" HorizontalAlignment="Left" Click="OnRetry"/>
+                    <Button Style="{StaticResource Cbs.Btn}" Content="Try again" HorizontalAlignment="Left" Click="OnRetry"/>
                 </StackPanel>
             </DataTemplate>
         </ResourceDictionary>

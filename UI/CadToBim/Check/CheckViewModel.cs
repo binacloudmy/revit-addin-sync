@@ -43,7 +43,7 @@ namespace RevitWebAppSync.UI.CadToBim.Check
         public CheckState State { get; private set; } = new CheckState();
 
         /// <summary>Raised by Build; the Build phase (AI-642 / AI-628) picks it up.</summary>
-        public event Action<CheckState> BuildRequested { get; set; }
+        public event Action<CheckState> BuildRequested;
 
         /// <param name="read">Reads a DWG into a snapshot. Called on the thread pool, never on the UI thread.</param>
         /// <param name="shortcuts">Fixture engine data (harness/tests/dev flag only); null = everything pending.</param>

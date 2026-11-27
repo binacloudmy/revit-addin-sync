@@ -54,8 +54,12 @@ namespace Tests
             Assert.Equal(new[] { 26, 21, 28, 28, 7, 0, 0, 9 }, s.Plans.Select(p => p.Doors));
             Assert.Equal(15, s.DetailsSkipped);
             Assert.True(s.UnitsPlausible);
-            // capped to the crop boxes: every stored segment lies inside its plan
-            Assert.All(s.Plans, p => Assert.All(p.Segs, g => Assert.True(p.Box.Contains(g[0], g[1]) && p.Box.Contains(g[2], g[3]))));
+            // capped to the crop boxes: every stored segment lies inside its plan (1 mm slack: stored rounded to whole mm)
+            Assert.All(s.Plans, p =>
+            {
+                var box = new BoxMm(p.MinX - 1, p.MinY - 1, p.MaxX + 1, p.MaxY + 1);
+                Assert.All(p.Segs, g => Assert.True(box.Contains(g[0], g[1]) && box.Contains(g[2], g[3])));
+            });
         }
 
         // ── levels (AI-631, 2026-11-27) ──
