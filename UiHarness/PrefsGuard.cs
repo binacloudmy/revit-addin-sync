@@ -14,10 +14,11 @@ namespace UiHarness
         public static void Keep(Action shots)
         {
             byte[] before = File.Exists(PrefsFile) ? File.ReadAllBytes(PrefsFile) : null;
+            DateTime stamp = before != null ? File.GetLastWriteTimeUtc(PrefsFile) : default;
             try { shots(); }
             finally
             {
-                if (before != null) File.WriteAllBytes(PrefsFile, before);
+                if (before != null) { File.WriteAllBytes(PrefsFile, before); File.SetLastWriteTimeUtc(PrefsFile, stamp); }
                 else if (File.Exists(PrefsFile)) File.Delete(PrefsFile);
             }
         }
