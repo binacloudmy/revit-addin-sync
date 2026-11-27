@@ -12,7 +12,8 @@
       "Title": "Main level: ARAS 1 (A.L 43.200) → Level 1",
       "Evidence": "Title PELAN ARAS 1 with A.L:43.200 under the plan.",
       "Options": ["Level 1 = A.L 43.200", "Pick another level"],
-      "PlanN": 2
+      "PlanN": 2,
+      "Source": "Drawing"
     },
     {
       "Title": "What does red mean on this drawing?",

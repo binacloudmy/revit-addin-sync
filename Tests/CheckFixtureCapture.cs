@@ -30,8 +30,7 @@ namespace Tests
             string? path = Environment.GetEnvironmentVariable("AI610_ASWARA_DWG");
             if (string.IsNullOrEmpty(path) || !File.Exists(path)) { _out.WriteLine("skipped: AI610_ASWARA_DWG not set or missing"); return; }
 
-            DwgPlanSheet sheet = DwgPlanReader.ReadFile(path, new CadToBimSettings());
-            string json = SheetSnapshot.From(sheet, new FileInfo(path).Length).ToJson();
+            string json = SheetSnapshot.Read(path, new CadToBimSettings()).ToJson();
             string committed = Path.Combine(SourceDataDir(), "aswara-sheet.json");
 
             if (Environment.GetEnvironmentVariable("AI638_CAPTURE") == "1")

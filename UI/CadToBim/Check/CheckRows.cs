@@ -27,6 +27,19 @@ namespace RevitWebAppSync.UI.CadToBim.Check
         public string Tone => CheckRows.Tone(Source);
         public bool HasDetail => !string.IsNullOrEmpty(Detail);
         public bool IsPlan => Map != null;
+        /// <summary>Clickable rows (zoom or expand) are keyboard-focusable too (Enter / Space).</summary>
+        public bool IsActionable => IsPlan || HasDetail;
+        public bool HasBadge => !string.IsNullOrEmpty(BadgeText);
+        public string BadgeName => "Source: " + BadgeText + (string.IsNullOrEmpty(Evidence) ? "" : ". " + Evidence);
+        public string MarkName => Mark switch
+        {
+            "swatch-g" => "From the drawing",
+            "swatch-a" => "Assumed, to confirm",
+            "swatch-n" => "Not used",
+            "ok" => "OK",
+            "warn" => "Warning",
+            _ => "",
+        };
         public string Caret => HasDetail ? (Expanded ? "▾" : "▸") : "";
     }
 
@@ -78,8 +91,8 @@ namespace RevitWebAppSync.UI.CadToBim.Check
                 new CheckRow
                 {
                     Mark = "ok",
-                    Text = (s.Target.Workshared ? "Workshared" : "Not workshared") + " · " + Mb(sh.SizeBytes) + " · ~" + N(sh.Entities) + " lines",
-                    Source = Src.DwgHeader, Evidence = "File size and line count from the read",
+                    Text = (s.Target.Workshared ? "Workshared" : "Not workshared") + " · " + Mb(sh.SizeBytes) + " · ~" + N(sh.ModelSpaceEntities) + " entities",
+                    Source = Src.DwgHeader, Evidence = "File size, and entities in model space",
                 },
             };
             int xrefs = sh.Warnings.Where(w => w.Kind.StartsWith("xref", StringComparison.Ordinal)).Sum(w => w.Count);
@@ -98,6 +111,8 @@ namespace RevitWebAppSync.UI.CadToBim.Check
                 };
                 rows.Add(new CheckRow { Mark = "warn", Text = text, Source = Src.Drawing, Evidence = string.Join("; ", g.Select(w => w.Detail ?? w.Name)) });
             }
+            if (s.PreviewError != null)
+                rows.Add(new CheckRow { Mark = "warn", Text = "Preview couldn't be shown: " + s.PreviewError, Source = Src.DrawingSays, Badge = "Revit view", Evidence = "Details in cad-to-bim.log" });
             rows.Add(new CheckRow
             {
                 Mark = "ok",
@@ -142,12 +157,14 @@ namespace RevitWebAppSync.UI.CadToBim.Check
                     row.Evidence = "Drawing says " + p.Level + (p.Elevation != null ? " (" + p.Elevation + ")" : "") + " · same level until confirmed";
                 }
                 return row;
-            }).ToList();
+            }).OrderBy(r => r.Mark == "swatch-g" ? 0 : 1).ToList();   // the main-level plan first (stable sort keeps sheet order)
             if (s.Sheet.DetailsSkipped > 0)
                 rows.Add(new CheckRow { Mark = "swatch-n", Text = s.Sheet.DetailsSkipped + " details · skipped", Source = Src.Drawing, Evidence = "Untitled and small: details, stairs, elevations" });
             rows.Add(s.Engine.LegendRow != null
                 ? new CheckRow { Mark = "swatch-g", Text = s.Engine.LegendRow, Source = Src.Drawing, Badge = "Legend · read" }
                 : new CheckRow { Mark = "swatch-n", Text = "Legend and schedule: not read yet", Source = Src.Pending, Evidence = "Legend reader (pending #8)" });
+            // the plan reader does not look for elevations/sections yet, so this says so rather than "none found"
+            rows.Add(new CheckRow { Mark = "swatch-n", Text = "Elevations, sections · not read (floor plans only)", Badge = "" });
             return rows;
         }
 
@@ -160,13 +177,13 @@ namespace RevitWebAppSync.UI.CadToBim.Check
                 new CheckRow
                 {
                     Text = "Units: ", Bold = UnitWord(sh.UsedMmPerUnit), Source = Src.DwgHeader,
-                    Mark = s.Gate2 == GateState.Blocked ? "warn" : "",
+                    Mark = s.Gate2 == GateState.Blocked ? "warn" : "ok",
                     Badge = s.Gate2 == GateState.Blocked ? "Header says " + sh.HeaderUnit : null,
                     Evidence = "Header INSUNITS = " + sh.HeaderUnit + (s.Gate2 == GateState.Blocked ? "; it makes the sheet an impossible size, read at " + UnitWord(sh.UsedMmPerUnit) + " instead" : ""),
                 },
                 sh.UnitsPlausible && s.Engine.DimensionRow != null
-                    ? new CheckRow { Text = s.Engine.DimensionRow, Source = Src.Drawing, Evidence = "Dimension text vs measured length" }
-                    : new CheckRow { Text = "Dimension check: not built yet", Source = Src.Pending, Evidence = "Dimension vs measured (AI-631)" },
+                    ? new CheckRow { Mark = "ok", Text = s.Engine.DimensionRow, Source = Src.Drawing, Evidence = "Dimension text vs measured length" }
+                    : new CheckRow { Mark = "warn", Text = "Dimension check: not built yet", Source = Src.Pending, Evidence = "Dimension vs measured (AI-631)" },
             };
         }
 
@@ -181,7 +198,10 @@ namespace RevitWebAppSync.UI.CadToBim.Check
 
         public static string Gate2Verdict(CheckState s) => s.Gate2 == GateState.Blocked
             ? "Blocked: the units need confirming"
-            : s.Engine.DimensionRow != null ? "Scale confirmed from 2 sources" : "Scale confirmed from the DWG header";
+            : s.Engine.DimensionRow != null ? "Scale confirmed from 2 sources" : "DWG header only · dimension check not built yet";
+
+        /// <summary>g = two sources agree, a = one source (header only), r = blocked.</summary>
+        public static string Gate2Tone(CheckState s) => s.Gate2 == GateState.Blocked ? "r" : s.Engine.DimensionRow != null ? "g" : "a";
 
         // ── screen 7 ──
         public static List<CheckRow> Everything(CheckState s)

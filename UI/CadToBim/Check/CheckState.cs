@@ -67,8 +67,9 @@ namespace RevitWebAppSync.UI.CadToBim.Check
         public List<string> OpeningBlocks { get; set; } = new List<string>();
         public List<PlanSnap> Plans { get; set; } = new List<PlanSnap>();
         public int DetailsSkipped { get; set; }
+        /// <summary>Entities in model space (what the pre-flight row counts).</summary>
+        public int ModelSpaceEntities { get; set; }
 
-        [JsonIgnore] public int Entities => Layers.Sum(l => l.Count);
 
         /// <summary>The only adapter from the reader. Same plan filter as read_dwg_plan's listing.</summary>
         public static SheetSnapshot From(DwgPlanSheet sheet, long sizeBytes, string engine = "ACadSharp")
@@ -109,6 +110,18 @@ namespace RevitWebAppSync.UI.CadToBim.Check
             return snap;
         }
 
+        /// <summary>Read a DWG for the Check pane: the read_dwg_plan pipeline plus the model-space entity count.</summary>
+        // shortcut: reads through CadRenderSource like DwgPlanReader.ReadFile (no cache); switch to AI-647's IDwgReader at the rebase.
+        public static SheetSnapshot Read(string path, CadToBimSettings settings)
+        {
+            ACadSharp.CadDocument document = Cad2Bim.Services.CadRenderSource.Read(path);
+            DwgPlanSheet sheet = DwgPlanReader.Read(document, settings);
+            sheet.File = Path.GetFileName(path);
+            SheetSnapshot snap = From(sheet, new FileInfo(path).Length);
+            snap.ModelSpaceEntities = document.Entities.Count();
+            return snap;
+        }
+
         public string ToJson() => JsonConvert.SerializeObject(this, Formatting.Indented);
         public static SheetSnapshot FromJson(string json) => JsonConvert.DeserializeObject<SheetSnapshot>(json);
     }
@@ -132,6 +145,8 @@ namespace RevitWebAppSync.UI.CadToBim.Check
         public List<string> Options { get; set; } = new List<string>();
         public string Answer { get; set; }
         public int PlanN { get; set; }
+        /// <summary>Source badge shown after the answer (e.g. "Drawing").</summary>
+        public string Source { get; set; }
     }
 
     public sealed class ConsultantInfo { public string Name { get; set; } public string Note { get; set; } public string Rules { get; set; } }
@@ -167,6 +182,8 @@ namespace RevitWebAppSync.UI.CadToBim.Check
         public GateState Gate2 { get; set; }
         public bool ConsultantConfirmed { get; set; }
         public double WallHeightMm { get; set; } = 3000;
+        /// <summary>Set when the Revit preview (underlay link / zoom) failed; shown as one line on screen 2.</summary>
+        public string PreviewError { get; set; }
 
         public List<Question> Questions => Engine.Questions ?? new List<Question>();
         public string BuildLevel => Target.MainLevel ?? "Level 1";

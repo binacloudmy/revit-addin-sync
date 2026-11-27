@@ -35,6 +35,8 @@ namespace Tests
             public void ZoomTo(BoxMm box) => Calls.Add("zoom");
             public void ShowUnderlay(string dwgPath, double mmPerUnit, IReadOnlyList<BoxMm> plans) => Calls.Add("link " + mmPerUnit + " " + plans.Count);
             public void RemoveUnderlay() => Calls.Add("unlink");
+            public event Action<string>? Failed;
+            public void Fail(string message) => Failed?.Invoke(message);
         }
 
         private static CheckViewModel Vm(EngineShortcuts? shortcuts = null, SheetSnapshot? sheet = null, TargetInfo? target = null, FakeView? view = null)
@@ -77,6 +79,9 @@ namespace Tests
             Assert.Equal("Drawing says ARAS 2", aras2.BadgeText);
             Assert.Contains("same level until confirmed", aras2.Evidence);
             Assert.Equal("g", rows.Single(r => r.Map!.Plan.Level == "ARAS 1").Tone);
+            Assert.Equal("ARAS 1", rows[0].Map!.Plan.Level);                           // the main-level plan first
+            Assert.StartsWith("Elevations, sections", vm.Gate1Rows.Last().Text);
+            Assert.False(vm.Gate1Rows.Last().HasBadge);
             Assert.Equal("a", rows.Single(r => r.Map!.Plan.Level == "ARAS 1A").Tone);   // 1A is not 1
         }
 
@@ -153,6 +158,63 @@ namespace Tests
             Assert.Equal(CheckScreen.Gate2, vm.Screen);
             Assert.False(vm.CanBuild);
             Assert.Equal("Header says Inches", vm.Gate2Rows[0].BadgeText);
+            Assert.Equal("r", vm.Gate2Tone);
+        }
+
+        [Fact]
+        public void Gate2_from_the_header_alone_is_amber_and_claims_no_confirmation()
+        {
+            var vm = Vm();
+            vm.Next(); vm.Next(); vm.Next();
+            Assert.Equal("a", vm.Gate2Tone);
+            Assert.Equal("DWG header only · dimension check not built yet", vm.Gate2Verdict);
+            Assert.DoesNotContain("confirmed", vm.Gate2Verdict);
+            Assert.Equal(new[] { "ok", "warn" }, vm.Gate2Rows.Select(r => r.Mark));
+        }
+
+        [Fact]
+        public void Keys_1_to_3_focus_a_card_only_on_the_questions_screen()
+        {
+            var vm = Vm(Shortcuts());
+            Assert.False(vm.FocusNumber(1));
+            vm.Next(); vm.Next(); vm.Next(); vm.Next();
+            Assert.True(vm.FocusNumber(3));
+            Assert.Equal(2, vm.FocusedIndex);
+            Assert.False(vm.FocusNumber(4));
+        }
+
+        [Fact]
+        public void A_preview_failure_shows_one_line_on_screen_2()
+        {
+            var view = new FakeView();
+            var vm = Vm(view: view);
+            view.Fail("open a floor plan view, then open the drawing again");
+            Assert.Contains(vm.PreflightRows, r => r.Text == "Preview couldn't be shown: open a floor plan view, then open the drawing again" && r.Mark == "warn");
+        }
+
+        [Fact]
+        public async Task Only_the_latest_open_writes_the_state_even_for_the_same_file()
+        {
+            using var entered = new ManualResetEventSlim();
+            using var release = new ManualResetEventSlim();
+            int calls = 0;
+            SheetSnapshot slow = Aswara(), fast = Aswara();
+            slow.File = "slow"; fast.File = "fast";
+            var vm = new CheckViewModel(_ =>
+            {
+                if (Interlocked.Increment(ref calls) > 1) return fast;
+                entered.Set();
+                release.Wait(5000);
+                return slow;
+            });
+
+            Task a = vm.OpenAsync("same.dwg", Target());
+            Assert.True(entered.Wait(5000));                 // the first read is in flight
+            Task b = vm.OpenAsync("same.dwg", Target());
+            await b;
+            release.Set();
+            await a;
+            Assert.Equal("fast", vm.FileName);
         }
 
         [Fact]
@@ -162,6 +224,7 @@ namespace Tests
             var vm = Vm(sheet: s);
             Assert.Equal("Target: ", vm.PreflightRows[0].Text);
             Assert.Contains(vm.PreflightRows, r => r.Text == "No xrefs");
+            Assert.Contains(vm.PreflightRows, r => r.Text.EndsWith(" entities", StringComparison.Ordinal) && r.Source == Src.DwgHeader);
             Assert.Contains(vm.PreflightRows, r => r.Text.StartsWith("8 plans · ", StringComparison.Ordinal) && r.Text.EndsWith("15 details skipped", StringComparison.Ordinal));
 
             s.Warnings.Add(new SheetWarning { Kind = "xref_missing", Name = "XR_TB", Detail = "tb.dwg" });

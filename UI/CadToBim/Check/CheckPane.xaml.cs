@@ -64,6 +64,20 @@ namespace RevitWebAppSync.UI.CadToBim.Check
             else ViewModel.ToggleRow(row);
         }
 
+        private void OnRowKey(object sender, KeyEventArgs e)
+        {
+            if (e.Key != Key.Enter && e.Key != Key.Space) return;
+            OnRowClick(sender, null);
+            e.Handled = true;
+        }
+
+        /// <summary>Keys 1-3 focus that question card (the kbd hint on each card).</summary>
+        private void OnPaneKey(object sender, KeyEventArgs e)
+        {
+            int n = e.Key >= Key.D1 && e.Key <= Key.D3 ? e.Key - Key.D0 : e.Key >= Key.NumPad1 && e.Key <= Key.NumPad3 ? e.Key - Key.NumPad0 : 0;
+            if (n > 0 && !(e.OriginalSource is TextBox) && ViewModel.FocusNumber(n)) e.Handled = true;
+        }
+
         private void OnLevelPicked(object sender, SelectionChangedEventArgs e)
         {
             if (sender is ComboBox box && box.DataContext is CheckRow row && box.SelectedItem is string level && level != row.Map?.TargetLevel)

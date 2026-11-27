@@ -4,7 +4,7 @@
              xmlns:chk="clr-namespace:RevitWebAppSync.UI.CadToBim.Check"
              xmlns:ctl="clr-namespace:RevitWebAppSync.UI.Copilot.Controls"
              Background="{DynamicResource Cb.Pane}" Foreground="{DynamicResource Cb.Fg}"
-             FontFamily="Segoe UI" FontSize="12" MinWidth="520">
+             FontFamily="Segoe UI" FontSize="12" MinWidth="520" PreviewKeyDown="OnPaneKey">
     <!-- AI-638: CAD to BIM pane, Check phase (v6 canvas screens 2-7: W02..W07). Revit draws the pane
          title bar and the Properties / CAD to BIM tabs; this is the body below them. -->
     <UserControl.Resources>
@@ -18,15 +18,19 @@
             <!-- one-line row (.mrow): mark · text · source badge (hover = evidence) -->
             <DataTemplate x:Key="Row" DataType="{x:Type chk:CheckRow}">
                 <Border BorderBrush="{DynamicResource Cb.Line2}" BorderThickness="0,0,0,1" Padding="6,0" MinHeight="30"
-                        Background="Transparent" MouseLeftButtonUp="OnRowClick" Cursor="Hand">
+                        Background="Transparent" MouseLeftButtonUp="OnRowClick" KeyDown="OnRowKey" Focusable="{Binding IsActionable}"
+                        AutomationProperties.Name="{Binding Evidence}">
                     <StackPanel>
                         <DockPanel MinHeight="30">
                             <TextBlock DockPanel.Dock="Left" Text="{Binding Caret}" Width="14" Foreground="{DynamicResource Cb.Fg3}" VerticalAlignment="Center"
                                        Visibility="{Binding HasDetail, Converter={StaticResource Vis}}"/>
-                            <TextBlock x:Name="mark" DockPanel.Dock="Left" Width="14" Margin="0,0,8,0" VerticalAlignment="Center" FontWeight="Bold" FontSize="12"/>
-                            <Border x:Name="sw" DockPanel.Dock="Left" Style="{StaticResource Cbs.Sw}" Tag="{Binding Mark}" Margin="0,0,8,0" Visibility="Collapsed"/>
+                            <TextBlock x:Name="mark" DockPanel.Dock="Left" Width="14" Margin="0,0,8,0" VerticalAlignment="Center" FontWeight="Bold" FontSize="12"
+                                       AutomationProperties.Name="{Binding MarkName}"/>
+                            <Border x:Name="sw" DockPanel.Dock="Left" Style="{StaticResource Cbs.Sw}" Tag="{Binding Mark}" Margin="0,0,8,0" Visibility="Collapsed"
+                                    AutomationProperties.Name="{Binding MarkName}"/>
                             <ContentControl DockPanel.Dock="Right" Style="{StaticResource Cbs.Src}" Content="{Binding BadgeText}" Tag="{Binding Tone}"
-                                            ToolTip="{Binding Evidence}" Margin="8,0,0,0"/>
+                                            ToolTip="{Binding Evidence}" Margin="8,0,0,0"
+                                            AutomationProperties.Name="{Binding BadgeName}" Visibility="{Binding HasBadge, Converter={StaticResource Vis}}"/>
                             <ComboBox x:Name="pick" DockPanel.Dock="Right" Width="110" Height="20" FontSize="11.5" Margin="8,0,0,0" Visibility="Collapsed"
                                       ItemsSource="{Binding DataContext.Levels, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                       SelectedItem="{Binding Map.TargetLevel, Mode=OneWay}" SelectionChanged="OnLevelPicked"/>
@@ -109,14 +113,12 @@
                                 </DockPanel>
                                 <StackPanel Visibility="{Binding ConsultantPending, Converter={StaticResource Vis}, ConverterParameter=Invert}">
                                     <DockPanel Margin="0,0,0,9">
-                                        <Border DockPanel.Dock="Left" Width="150" Height="64" Background="{DynamicResource Cb.DwgBg}" BorderBrush="{DynamicResource Cb.Line}"
-                                                BorderThickness="1" CornerRadius="2" Margin="0,0,10,0">
-                                            <TextBlock Text="title block" FontSize="10" Foreground="#B4BAC4" VerticalAlignment="Bottom" Margin="6,0,0,4"/>
-                                        </Border>
                                         <StackPanel VerticalAlignment="Center">
                                             <TextBlock Text="{Binding Consultant.Name}" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap"/>
                                             <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                                                <ContentControl Style="{StaticResource Cbs.Src}" Content="Title block" Tag="g" Margin="0,0,6,0"/>
+                                                <!-- shortcut: the consultant only comes from the fixture until AI-634 reads the title block (then "Title block", green, + crop) -->
+                                                <ContentControl Style="{StaticResource Cbs.Src}" Content="fixture" Tag="n" Margin="0,0,6,0"
+                                                                AutomationProperties.Name="Source: fixture, not read from the drawing"/>
                                                 <TextBlock Style="{StaticResource Cbs.Dim}" Text="0 saved rules"/>
                                             </StackPanel>
                                         </StackPanel>
@@ -196,9 +198,13 @@
                     </StackPanel>
                 </DockPanel>
                 <DataTemplate.Triggers>
-                    <DataTrigger Binding="{Binding Gate2Blocked}" Value="True">
+                    <DataTrigger Binding="{Binding Gate2Tone}" Value="r">
                         <Setter TargetName="verdict" Property="Background" Value="{DynamicResource Cb.RS}"/>
                         <Setter TargetName="verdictText" Property="Foreground" Value="{DynamicResource Cb.RT}"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding Gate2Tone}" Value="a">
+                        <Setter TargetName="verdict" Property="Background" Value="{DynamicResource Cb.AS}"/>
+                        <Setter TargetName="verdictText" Property="Foreground" Value="{DynamicResource Cb.AT}"/>
                     </DataTrigger>
                 </DataTemplate.Triggers>
             </DataTemplate>
@@ -229,9 +235,11 @@
                                                     <TextBlock Text="{Binding Q.Title}" FontWeight="SemiBold" LineHeight="16" TextWrapping="Wrap"/>
                                                 </DockPanel>
                                                 <TextBlock Style="{StaticResource Cbs.Dim}" Text="{Binding Q.Evidence}" Margin="0,0,0,5"/>
-                                                <Border x:Name="answer" Style="{StaticResource Cbs.Badge}" Tag="g" HorizontalAlignment="Left" Height="20" Visibility="Collapsed">
-                                                    <TextBlock Text="{Binding AnsweredText}"/>
-                                                </Border>
+                                                <StackPanel x:Name="answer" Orientation="Horizontal" Visibility="Collapsed">
+                                                    <Border Style="{StaticResource Cbs.Badge}" Tag="g" Height="20" Margin="0,0,5,0"><TextBlock Text="{Binding AnsweredText}"/></Border>
+                                                    <ContentControl Style="{StaticResource Cbs.Src}" Content="{Binding Q.Source}" Tag="g" AutomationProperties.Name="{Binding SourceName}"
+                                                                    Visibility="{Binding ShowSource, Converter={StaticResource Vis}}"/>
+                                                </StackPanel>
                                                 <ItemsControl x:Name="options" ItemsSource="{Binding Q.Options}" Focusable="False">
                                                     <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                                                     <ItemsControl.ItemTemplate>
@@ -340,7 +348,11 @@
         <!-- file row -->
         <Border DockPanel.Dock="Top" Height="24" Padding="12,0" BorderBrush="{DynamicResource Cb.Line2}" BorderThickness="0,0,0,1"
                 Visibility="{Binding FileName, Converter={StaticResource HasText}}">
+            <DockPanel>
+            <Path DockPanel.Dock="Left" Width="14" Height="14" Margin="0,0,6,0" Stretch="None" VerticalAlignment="Center" Data="M4,1.5 H9.5 L12.5,4.5 V14.5 H4 Z M9.5,1.5 V4.5 H12.5"
+                  Stroke="{DynamicResource Cb.Fg2}" StrokeThickness="1.3" StrokeLineJoin="Round" AutomationProperties.Name="Drawing file"/>
             <TextBlock VerticalAlignment="Center" FontSize="11" Foreground="{DynamicResource Cb.Fg2}" TextTrimming="CharacterEllipsis"><Run Text="{Binding FileName, Mode=OneWay}" FontWeight="SemiBold" Foreground="{DynamicResource Cb.Fg}"/><Run Text=" · linked underlay · read by "/><Run Text="{Binding Engine, Mode=OneWay}"/></TextBlock>
+            </DockPanel>
         </Border>
         <!-- body: one screen at a time, chosen by State.Screen -->
         <ContentControl Content="{Binding}" Margin="14,12" Focusable="False">

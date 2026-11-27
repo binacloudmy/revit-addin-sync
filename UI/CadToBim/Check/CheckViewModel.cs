@@ -17,6 +17,8 @@ namespace RevitWebAppSync.UI.CadToBim.Check
         void ZoomTo(BoxMm box);
         void ShowUnderlay(string dwgPath, double mmPerUnit, IReadOnlyList<BoxMm> plans);
         void RemoveUnderlay();
+        /// <summary>A preview call failed (already logged); the text is shown as one line on screen 2.</summary>
+        event Action<string> Failed;
     }
 
     /// <summary>One question card as shown: its number, focus and the plan its crop comes from.</summary>
@@ -27,6 +29,8 @@ namespace RevitWebAppSync.UI.CadToBim.Check
         public bool IsFocused { get; set; }
         public PlanSnap Plan { get; set; }
         public bool IsAnswered => Q.Answer != null;
+        public bool ShowSource => IsAnswered && !string.IsNullOrEmpty(Q.Source);
+        public string SourceName => "Source: " + Q.Source;
         public string AnsweredText => "✓ " + Q.Answer;
         public string NumberText => Number.ToString(System.Globalization.CultureInfo.InvariantCulture);
     }
@@ -37,6 +41,7 @@ namespace RevitWebAppSync.UI.CadToBim.Check
         private readonly Func<string, SheetSnapshot> _read;
         private readonly EngineShortcuts _shortcuts;
         private string _path;
+        private int _openSeq;   // only the latest open may write State
         private int _focused = -1;
         private readonly double _wallHeightMm;
 
@@ -50,6 +55,7 @@ namespace RevitWebAppSync.UI.CadToBim.Check
         public CheckViewModel(Func<string, SheetSnapshot> read, IRevitView view = null, EngineShortcuts shortcuts = null, double wallHeightMm = 3000)
         {
             _wallHeightMm = wallHeightMm;
+            if (_view != null) _view.Failed += message => { State.PreviewError = message; Changed(); };
             _read = read;
             _view = view;
             _shortcuts = shortcuts;
@@ -67,6 +73,7 @@ namespace RevitWebAppSync.UI.CadToBim.Check
         public List<CheckRow> Gate1Rows => State.Sheet == null ? new List<CheckRow>() : CheckRows.Gate1(State);
         public List<CheckRow> Gate2Rows => State.Sheet == null ? new List<CheckRow>() : CheckRows.Gate2(State);
         public string Gate2Verdict => CheckRows.Gate2Verdict(State);
+        public string Gate2Tone => CheckRows.Gate2Tone(State);
         public bool Gate2Blocked => State.Gate2 == GateState.Blocked;
         public List<Question> Questions => State.Questions.Take(3).ToList();
         public List<QuestionCard> Cards => Questions.Select((q, i) => new QuestionCard
@@ -103,19 +110,20 @@ namespace RevitWebAppSync.UI.CadToBim.Check
         {
             _view?.RemoveUnderlay();    // another file: the old preview link goes
             _path = path;
+            int seq = ++_openSeq;
             State = new CheckState { Screen = CheckScreen.Loading, Target = target ?? new TargetInfo() };
             Changed(rows: true);
             try
             {
                 SheetSnapshot sheet = await Task.Run(() => _read(path)).ConfigureAwait(true);
-                if (_path != path) return;      // a newer open won
+                if (seq != _openSeq) return;      // a newer open won (also the same file opened twice)
                 State = CheckState.For(sheet, target, _shortcuts);
                 State.WallHeightMm = _wallHeightMm;
                 _view?.ShowUnderlay(path, sheet.UsedMmPerUnit, sheet.Plans.Select(p => p.Box).ToList());
             }
             catch (Exception ex)
             {
-                if (_path != path) return;
+                if (seq != _openSeq) return;
                 var root = ex; while (root.InnerException != null) root = root.InnerException;
                 State = new CheckState { Screen = CheckScreen.Error, Error = root.Message, Target = target ?? new TargetInfo() };
             }
@@ -189,6 +197,14 @@ namespace RevitWebAppSync.UI.CadToBim.Check
             var plan = State.Sheet?.Plans.FirstOrDefault(p => p.N == q?.PlanN);
             if (plan != null) _view?.ZoomTo(plan.Box);
             Changed();
+        }
+
+        /// <summary>Keys 1-3 on the questions screen focus that card (and zoom the view to it).</summary>
+        public bool FocusNumber(int n)
+        {
+            if (State.Screen != CheckScreen.Questions || n < 1 || n > Questions.Count) return false;
+            Focus(Questions[n - 1]);
+            return true;
         }
 
         public void Answer(Question q, string option)

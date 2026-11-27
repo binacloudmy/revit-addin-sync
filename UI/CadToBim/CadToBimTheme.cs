@@ -39,7 +39,7 @@ namespace RevitWebAppSync.UI.CadToBim
                 ["Cb.Hover"]  = ("#EAF1FB", "#33404F"),
                 ["Cb.Sel"]    = ("#DCE9F9", "#2B4465"),
                 ["Cb.Btn"]    = ("#F4F5F7", "#373E48"),
-                ["Cb.BtnB"]   = ("#B3B9C2", "#58616E"),
+                ["Cb.BtnB"]   = ("#8A929E", "#6E7787"),   // one step darker than the canvas: >= 3:1 against the pane
                 ["Cb.Pri"]    = ("#2C333D", "#E5E8EC"),
                 ["Cb.PriFg"]  = ("#FFFFFF", "#1A1E24"),
                 ["Cb.Focus"]  = ("#1F6FD1", "#5BA3F0"),

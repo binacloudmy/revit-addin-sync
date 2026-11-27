@@ -32,7 +32,7 @@ namespace RevitWebAppSync.UI.CadToBim
                     var shortcuts = string.IsNullOrEmpty(fixtures) || !System.IO.File.Exists(fixtures)
                         ? null : Check.EngineShortcuts.FromJson(System.IO.File.ReadAllText(fixtures));
                     body = CheckPane = new Check.CheckPane(new Check.CheckViewModel(
-                        path => Check.SheetSnapshot.From(RevitWebAppSync.Services.CadToBim.DwgPlanReader.ReadFile(path, settings), new System.IO.FileInfo(path).Length),
+                        path => Check.SheetSnapshot.Read(path, settings),
                         new Check.RevitViewBridge(), shortcuts, settings.WallHeightMm));   // built in OnStartup: ExternalEvent.Create is legal here
                 }
                 else body = _panel = new CadToBimPanel();
