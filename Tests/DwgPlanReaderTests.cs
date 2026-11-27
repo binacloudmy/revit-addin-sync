@@ -130,7 +130,20 @@ namespace Tests
             Assert.Equal(1.0, units.GetProperty("used_mm_per_unit").GetDouble());
             Assert.Contains("confirm", units.GetProperty("note").GetString());
             Assert.Contains("units need confirming", e.Summary);
-            Assert.Contains("unit", e.Next);
+            Assert.Contains("1 mm per unit, unconfirmed", e.Next);  // stated, not asked (read_dwg_plan step 3)
+            Assert.DoesNotContain("Ask the user", e.Next);
+            Assert.DoesNotContain("Ask the user", units.GetProperty("note").GetString());
+        }
+
+        [Fact]
+        public void A_list_call_answers_with_the_list_and_asks_nothing()
+        {
+            var d = new Drawing(UnitsType.Millimeters);
+            d.House(0, 0);
+            Envelope e = Read(d);
+            Assert.DoesNotContain("Ask the user", e.Next);
+            Assert.DoesNotContain("Pick", e.Summary);
+            Assert.StartsWith("Answer with this list.", e.Next);
         }
 
         [Fact]
@@ -190,6 +203,8 @@ namespace Tests
             Assert.DoesNotContain(ok, a => a!.Contains("Storey"));
             var detail = Read(inches, 1);
             Assert.DoesNotContain("building", detail.Next ?? "");
+            Assert.DoesNotContain("Ask the user", detail.Next);
+            Assert.Contains("mm per unit, unconfirmed", detail.Next);
             Assert.DoesNotContain("building", Data(detail).GetRawText());
         }
 

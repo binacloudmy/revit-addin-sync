@@ -357,7 +357,7 @@ namespace RevitAddinSync.Tests
             ("set_parameters", "3a03eb49bb8c9934dae7b60a0c71cad8d6ddf0a2eba1b132116deaadb499ec80"),
             ("look", "f45ba7a0b671a17e1f2d3f80257405e4af52208d5bb50dfea1ce74b2fb2eb701"),
             ("run_revit_code", "1f902b3245aef8cd92f4425be20bcf79627bf84817564bb7817216fdb61a23f3"),
-            ("read_dwg_plan", "275bad2b5ccc7f71d81d50880eb748fc7b0a31b156596940fd8e03032d5888f2"),
+            ("read_dwg_plan", "abaca1c2b4fb4879c7cff86a11bd1820a783c22a8d336775fa7802da22969067"),
             ("lookup", "a6f953c7394d76c2fa829142cea7580a85174c7449bab0b1b2bad317ba717745"),
             ("ask_user", "610b6edeb31d573df542dfba745e811d107bf1de7c496e7eede8a60f1c0f2841"),
             ("report", "59670aedb3e09bba8eeaeab58c352df2bbfec84d90f6a06ea40c2438434f0525"),

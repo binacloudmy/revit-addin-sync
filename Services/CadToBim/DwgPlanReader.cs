@@ -372,8 +372,8 @@ namespace RevitWebAppSync.Services.CadToBim
             if (!plausible)
                 v["note"] = headerMmPerUnit.HasValue
                     ? "The header says " + headerUnit + " (" + Num(headerMmPerUnit.Value) + " mm per unit), which makes the sheet an impossible size; "
-                      + "sizes below are read at " + Num(usedMmPerUnit) + " mm per unit instead. Ask the user to confirm the unit."
-                    : "The header gives no unit; sizes below are read at " + Num(usedMmPerUnit) + " mm per unit, guessed from the drawing's size. Ask the user to confirm the unit.";
+                      + "sizes below are read at " + Num(usedMmPerUnit) + " mm per unit instead, unconfirmed."
+                    : "The header gives no unit; sizes below are read at " + Num(usedMmPerUnit) + " mm per unit, guessed from the drawing's size, unconfirmed.";
             return NoNulls(v);
         }
 
@@ -468,10 +468,10 @@ namespace RevitWebAppSync.Services.CadToBim
                 string summary = real.Count == 0
                     ? "No floor plan found in " + sheet.File + " (no wall pairs " + Num(Wall.SMin) + "-" + Num(Wall.SMax) + " mm apart)."
                     : sheet.File + ": " + real.Count + " plan" + (real.Count == 1 ? "" : "s") + " on the sheet"
-                      + (unitsOk ? "" : "; units need confirming") + ". Pick 1-" + MaxPickedPlans + " by n for walls, doors and windows.";
+                      + (unitsOk ? "" : "; units need confirming") + ".";
                 string next = real.Count == 0 ? null
-                    : unitsOk ? "Ask the user which plans (1-3) to use, then call read_dwg_plan with plans."
-                    : "Ask the user to confirm the drawing unit and which plans (1-3) to use.";
+                    : unitsOk ? "Answer with this list. Read a plan's walls, doors and windows (plans: 1-3 n) only when the user asks for them."
+                    : "Answer with this list and say the sizes assume " + Num(sheet.UsedMmPerUnit) + " mm per unit, unconfirmed.";
                 return ReadEnvelope.Done(summary, data, next: next);
             }
 
@@ -491,7 +491,7 @@ namespace RevitWebAppSync.Services.CadToBim
                 + chosen.Sum(p => p.Cluster.Walls.Count) + " walls, " + chosen.Sum(p => p.Doors.Count) + " doors, "
                 + chosen.Sum(p => p.Windows.Count) + " windows" + (unitsOk ? "." : "; units need confirming.");
             return ReadEnvelope.Done(detailSummary, data,
-                next: unitsOk ? null : "Ask the user to confirm the drawing unit.");
+                next: unitsOk ? null : "Answer with these counts and say the sizes assume " + Num(sheet.UsedMmPerUnit) + " mm per unit, unconfirmed.");
         }
 
         private static Dictionary<string, object> Row(DwgPlan p) => NoNulls(new Dictionary<string, object>
