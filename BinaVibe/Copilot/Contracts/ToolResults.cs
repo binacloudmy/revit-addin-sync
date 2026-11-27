@@ -105,11 +105,20 @@ namespace BinaVibe.Copilot.Contracts
         public static RowsResult? Rows(Envelope? env)
         {
             if (Obj(env) is not JsonElement data) return null;
+            var rows = Array_(data, "rows");
+            var columns = Array_(data, "columns");
+            // A schedule read (inspect) is {schedule:{columns, rows:[{kind, cells:[...]}]}}: its body rows are the table, so Export is offered for it.
+            if (rows == null && data.TryGetProperty("schedule", out var sch) && sch.ValueKind == JsonValueKind.Object && Array_(sch, "rows") is { } srows)
+            {
+                columns = Array_(sch, "columns");
+                rows = srows.Where(r => r.ValueKind == JsonValueKind.Object && Str(r, "kind") == "data" && r.TryGetProperty("cells", out var c) && c.ValueKind == JsonValueKind.Array)
+                            .Select(r => r.GetProperty("cells")).ToList();
+            }
             return new RowsResult
             {
-                Rows = Array_(data, "rows") ?? Array.Empty<JsonElement>(),
+                Rows = rows ?? Array.Empty<JsonElement>(),
                 Groups = Array_(data, "groups") ?? Array.Empty<JsonElement>(),
-                Columns = Array_(data, "columns"),
+                Columns = columns,
             };
         }
 

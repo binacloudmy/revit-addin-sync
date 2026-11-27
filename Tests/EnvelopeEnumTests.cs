@@ -137,6 +137,13 @@ namespace RevitAddinSync.Tests
             var schedule = ToolResults.Rows(WithData("{\"columns\":[\"Mark\",\"Width\"],\"rows\":[[\"D1\",900],[\"D2\",1000]]}"))!;
             Assert.True(schedule.IsTabular);
             Assert.Equal(2, schedule.Columns!.Count);
+
+            // inspect of a schedule: {schedule:{columns, rows:[{kind, cells}]}} - the header row is dropped, the data rows are the table (Export button, live 27 Nov prompt 170)
+            var nested = ToolResults.Rows(WithData("{\"schedule\":{\"columns\":[\"Mark\",\"Qty\"],\"rows\":[{\"kind\":\"header\",\"cells\":[\"Mark\",\"Qty\"]},{\"kind\":\"data\",\"cells\":[\"P1\",\"12\"]},{\"kind\":\"data\",\"cells\":[\"P2\",\"2\"]}]}}"))!;
+            Assert.True(nested.IsTabular);
+            Assert.Equal(2, nested.Rows.Count);
+            Assert.Equal(2, nested.Columns!.Count);
+            Assert.Equal("P2", nested.Rows[1][0].GetString());
         }
 
         [Fact]
