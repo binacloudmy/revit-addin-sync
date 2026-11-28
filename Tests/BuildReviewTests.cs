@@ -319,7 +319,7 @@ namespace RevitWebAppSync.Tests
             sink.Fire(r);
             vm.Next();
 
-            Assert.Equal("2 doors not placed · width under 300 mm (0, 210 mm)", vm.IssueRows[0].Text);
+            Assert.Equal("2 doors not placed · width under 300 mm (0-210 mm, 1 at 0)", vm.IssueRows[0].Text);
             Assert.Equal("1 window not placed · Revit refused: Can't cut instance out of its host.", vm.IssueRows[1].Text);
             Assert.True(vm.IssueRows[0].CanShow);
             vm.Show(vm.IssueRows[0]);
@@ -338,7 +338,7 @@ namespace RevitWebAppSync.Tests
             r.Failures.Keep();
             sink.Fire(r);
             vm.Next();
-            Assert.Contains(vm.IssueRows, x => x.Text == "70 wall overlaps (one wall type for all thicknesses)");
+            Assert.Contains(vm.IssueRows, x => x.Text == "70 wall overlaps (mostly: one wall type for all thicknesses)");
             Assert.Single(vm.IssueRows, x => x.Text == "136 walls slightly off axis (drawing noise)");   // one row per FailureDefinitionId
         }
 
@@ -348,7 +348,7 @@ namespace RevitWebAppSync.Tests
             var j = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(Data("aswara-run.real.json")));
             Assert.Equal(new[] { 277, 9, 4, 0, 12 }, new[] { "Walls", "Doors", "Windows", "Rooms", "SkippedOpenings" }.Select(k => (int)j[k]!));
             var groups = j["Failures"]!.Select(g => g.ToObject<FailureGroup>()!).ToList();
-            Assert.Equal(new[] { "136 walls slightly off axis (drawing noise)", "70 wall overlaps (one wall type for all thicknesses)" },
+            Assert.Equal(new[] { "136 walls slightly off axis (drawing noise)", "70 wall overlaps (mostly: one wall type for all thicknesses)" },
                          groups.Select(IssueRow.From).Select(x => x.Text));   // text fallback: this log predates FailureGroup.Kind
         }
 

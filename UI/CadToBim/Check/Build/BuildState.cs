@@ -92,7 +92,7 @@ namespace RevitWebAppSync.UI.CadToBim.Check
             string text = kind switch
             {
                 "offaxis" => g.Count + (g.Count == 1 ? " wall" : " walls") + " slightly off axis (drawing noise)",
-                "overlap" => g.Count + (g.Count == 1 ? " wall overlap" : " wall overlaps") + " (one wall type for all thicknesses)",
+                "overlap" => g.Count + (g.Count == 1 ? " wall overlap" : " wall overlaps") + " (mostly: one wall type for all thicknesses)",
                 "join" => g.Count + (g.Count == 1 ? " wall" : " walls") + " Revit could not join",
                 _ => g.Count + " × " + (string.IsNullOrWhiteSpace(g.Text) ? "Revit warning" : g.Text.Trim()),
             };
@@ -109,6 +109,15 @@ namespace RevitWebAppSync.UI.CadToBim.Check
             t == null ? null : t.StartsWith("Wall is slightly off axis", System.StringComparison.Ordinal) ? "offaxis"
             : t.StartsWith("Highlighted walls overlap", System.StringComparison.Ordinal) ? "overlap" : null;
 
+        /// <summary>"0-290 mm, 7 at 0" / "210 mm": the spread, and how many collapsed to nothing.</summary>
+        private static string WidthRange(List<SkippedOpening> s)
+        {
+            string W(double v) => v.ToString("0", CultureInfo.InvariantCulture);
+            double lo = s.Min(x => x.WidthMm), hi = s.Max(x => x.WidthMm);
+            int zero = s.Count(x => x.WidthMm < 1);
+            return (lo == hi ? W(lo) : W(lo) + "-" + W(hi)) + " mm" + (zero > 0 && lo != hi ? ", " + zero + " at 0" : "");
+        }
+
         public static IssueRow From(string reason, List<SkippedOpening> skipped)
         {
             int doors = skipped.Count(s => s.Door), windows = skipped.Count - doors;
@@ -116,7 +125,7 @@ namespace RevitWebAppSync.UI.CadToBim.Check
                 : doors > 0 ? doors + (doors == 1 ? " door" : " doors") : windows + (windows == 1 ? " window" : " windows");
             string why = reason switch
             {
-                SkippedOpening.TooNarrow => "width under 300 mm (" + string.Join(", ", skipped.Select(s => s.WidthMm.ToString("0", CultureInfo.InvariantCulture)).Distinct().Take(5)) + " mm)",
+                SkippedOpening.TooNarrow => "width under 300 mm (" + WidthRange(skipped) + ")",
                 SkippedOpening.Refused => "Revit refused: " + skipped.Select(s => s.Message).FirstOrDefault(m => !string.IsNullOrEmpty(m)),
                 SkippedOpening.NoType => "the model has no " + (doors > 0 ? "door" : "window") + " family",
                 _ => "its wall was not built",

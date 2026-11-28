@@ -234,13 +234,14 @@ namespace RevitWebAppSync.UI.CadToBim.Check
         {
             _undoneLink = ElementId.InvalidElementId;   // removed on purpose: a later redo is not our link coming back
             if (_linkDoc == null || !_linkDoc.IsValidObject || _link == ElementId.InvalidElementId) { _linkDoc = null; _link = ElementId.InvalidElementId; return; }
-            Element link = _linkDoc.GetElement(_link);
-            if (link != null)
+            ElementId id = _link;
+            _link = ElementId.InvalidElementId;   // before Commit: DocumentChanged must not read our own removal as the user's undo
+            if (_linkDoc.GetElement(id) != null)
             {
                 using (var t = new Transaction(_linkDoc, "BINA: remove DWG preview"))
                 {
                     t.Start();
-                    _linkDoc.Delete(WithUnsharedTypes(_linkDoc, new List<ElementId> { _link }));
+                    _linkDoc.Delete(WithUnsharedTypes(_linkDoc, new List<ElementId> { id }));
                     t.Commit();
                 }
                 Log("preview: removed the link from " + _linkDoc.Title);
