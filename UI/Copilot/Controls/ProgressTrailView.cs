@@ -367,7 +367,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             // #f87171) are lifted for that background; SetResourceReference also
             // means the dots re-colour live when the pane's theme toggles.
             dot.SetResourceReference(Shape.FillProperty,
-                state == StepState.Error ? "Cp.Red" : "Cp.Green");
+                state == StepState.Error ? "Cp.Red" : state == StepState.Rejected ? "Cp.Muted" : "Cp.Green");
             return dot;
         }
 

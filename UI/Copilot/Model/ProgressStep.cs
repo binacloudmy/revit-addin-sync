@@ -6,7 +6,10 @@ using System.Text;
 
 namespace RevitWebAppSync.UI.Copilot.Model
 {
-    public enum StepState { Running, Done, Error }
+    /// <summary>Rejected = the call never ran (the drafter said Tidak on the
+    /// engine write card, or the turn was stopped). It is settled like Done
+    /// and Error, but shows neither a tick nor a cross.</summary>
+    public enum StepState { Running, Done, Error, Rejected }
 
     /// <summary>
     /// One row in the copilot's live progress trail (spinner -> checkmark).
@@ -111,7 +114,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     Detail = detail,
                     State = state,
                 };
-                if (state == StepState.Done || state == StepState.Error)
+                if (ProgressTrail.IsSettled(state))
                 {
                     newStep.EndedUtc = DateTime.UtcNow;
                 }
@@ -129,7 +132,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                     existing.StartedUtc = DateTime.UtcNow;
                     existing.EndedUtc = null;
                 }
-                if ((state == StepState.Done || state == StepState.Error) && existing.EndedUtc == null)
+                if (ProgressTrail.IsSettled(state) && existing.EndedUtc == null)
                 {
                     existing.EndedUtc = DateTime.UtcNow;
                 }
@@ -216,11 +219,18 @@ namespace RevitWebAppSync.UI.Copilot.Model
         {
             if (string.Equals(wireState, "done", StringComparison.OrdinalIgnoreCase)) return StepState.Done;
             if (string.Equals(wireState, "error", StringComparison.OrdinalIgnoreCase)) return StepState.Error;
+            // The engine settles a write declined on the confirmation card as
+            // "rejected" (bina-ai _tool_outcome): it never ran.
+            if (string.Equals(wireState, "rejected", StringComparison.OrdinalIgnoreCase)) return StepState.Rejected;
             return StepState.Running;
         }
 
+        /// <summary>True for a finished row: Done, Error or Rejected.</summary>
+        public static bool IsSettled(StepState st) =>
+            st == StepState.Done || st == StepState.Error || st == StepState.Rejected;
+
         public static string Glyph(StepState st) =>
-            st == StepState.Done ? "✓" : st == StepState.Error ? "✗" : "▶";
+            st == StepState.Done ? "✓" : st == StepState.Error ? "✗" : st == StepState.Rejected ? "–" : "▶";
 
         /// <summary>Display text for one trail row: the rich backend label, or
         /// the raw step id when no label was supplied. Pure — unit-testable.</summary>

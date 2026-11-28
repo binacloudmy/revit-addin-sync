@@ -50,6 +50,7 @@ namespace BinaVibe.Mcp
         private static long _armedTicks;      // when the watchdog was last armed
         private static long _lastIdleTicks;   // last Idling callback
         private static long _lastDialogTicks; // last DialogBoxShowing
+        private static int _draining;         // >0 while DrainOnce is running jobs
         private static Timer _watchdog;
 
         private static double Freq => Stopwatch.Frequency;
@@ -104,7 +105,7 @@ namespace BinaVibe.Mcp
 
             var app = _uiApp;
             if (app != null)
-                _handler.DrainOnce(app);
+                Drain(app);
 
             // Keep Revit raising Idling promptly until the queue empties. Must be
             // called every callback to stay in non-default mode.
@@ -115,7 +116,17 @@ namespace BinaVibe.Mcp
         /// <summary>One-shot drain entry for the ExternalEvent path (gated tunnel).</summary>
         public static void DrainViaExternalEvent(UIApplication app)
         {
-            if (_handler != null && app != null) _handler.DrainOnce(app);
+            if (_handler != null && app != null) Drain(app);
+        }
+
+        // A drain runs queued jobs back to back on the UI thread, and Revit
+        // raises no Idling until it returns. Mark it, so the watchdog does not
+        // take a job queued behind a slow one for "Revit is busy".
+        private static void Drain(UIApplication app)
+        {
+            Interlocked.Increment(ref _draining);
+            try { _handler.DrainOnce(app); }
+            finally { Interlocked.Decrement(ref _draining); }
         }
 
         // ── Watchdog (L3/L4 fast-fail) ───────────────────────────────────────
@@ -134,8 +145,17 @@ namespace BinaVibe.Mcp
         {
             // If an idle fired AFTER we armed, Revit is servicing the queue —
             // slow tools are the runner's per-job timeout's job, not ours.
-            bool idleSinceArm = Volatile.Read(ref _lastIdleTicks) >= Volatile.Read(ref _armedTicks);
-            if (idleSinceArm || _handler == null || _handler.Pending.IsEmpty)
+            if (_handler == null) return;
+            bool draining = Volatile.Read(ref _draining) > 0;
+            if (draining)
+            {
+                // Revit is running the job ahead; this drain reaches the rest.
+                // Check again later in case Revit stalls once it returns.
+                ArmWatchdog();
+                return;
+            }
+            if (!McpJobClock.ShouldFastFail(Volatile.Read(ref _lastIdleTicks), Volatile.Read(ref _armedTicks),
+                                            draining, _handler.Pending.IsEmpty))
                 return;
 
             // No idle since the job was queued → Revit can't process it (busy or a
