@@ -37,6 +37,7 @@ namespace BinaVibe.Mcp.Tools
             string? nameFilter = ArgsHelp.GetString(args, "name_filter");
             string? layerFilter = ArgsHelp.GetString(args, "layer_filter");
             long? importId = ArgsHelp.GetLong(args, "import_id");
+            string? sourcePath = ArgsHelp.GetString(args, "source_path");
 
             // ── 1. collect + group imports by TYPE name ─────────────────────
             var all = new FilteredElementCollector(doc)
@@ -285,103 +286,220 @@ namespace BinaVibe.Mcp.Tools
                 ["truncated"] = truncated,
                 ["skipped_entities"] = skippedEntities,
                 ["import_location"] = ImportLocation(doc, chosen),
-                // TEXT/MTEXT read straight from the linked DXF FILE — the Revit
-                // API cannot expose CAD text (TextNode is dead in 2026), which
-                // blocked DEV-16's per-size beam mapping for the whole campaign.
-                // The source file can: parse it directly.
-                ["text_labels"] = ReadDxfTextLabels(doc, chosen),
+                // TEXT/MTEXT/ATTRIB read straight from the source FILE — the
+                // Revit API cannot expose CAD text (TextNode is dead in 2026),
+                // which blocked DEV-16's per-size beam mapping for the whole
+                // campaign. The source file can: parse it directly.
+                ["text_labels"] = ReadLinkedCadTextLabels(doc, chosen, sourcePath),
                 ["units_note"] = "*_ft fields are FEET (use directly in C# XYZ); start_mm/end_mm/point_mm are MILLIMETER triplets — pass them UNCHANGED as the *_mm args of mm-based tools (create_beam, create_pipe, place_family). NEVER convert units yourself: ft to mm is x304.8 and a x30.48 slip has already shipped 1/10-scale beams.",
             };
         }
 
-        // TEXT/MTEXT entities parsed from the linked DXF's source file. The
-        // Revit API gives no access to CAD text, but the file on disk does.
-        // DXF is code/value line pairs: in ENTITIES, "0/TEXT|MTEXT" starts an
-        // entity, 1 = text (MTEXT continues in 3), 10/20 = insertion X/Y,
-        // 8 = layer. $INSUNITS scales raw units to mm. With Origin-to-Origin
-        // linking these mm coordinates live in the same space as start_mm/
-        // point_mm, so labels can be matched to segments by distance.
-        private static Dictionary<string, object?> ReadDxfTextLabels(Document doc, ImportInstance im)
+        // TEXT/MTEXT/ATTRIB entities parsed from a LINKED or IMPORTED CAD's
+        // source file. The Revit API gives no access to CAD text, but the file on
+        // disk does. Linked CAD has an ExternalFileReference. Imported CAD is
+        // embedded and has none, so we look for the original file next to the
+        // .rvt (or in a known folder), and accept an explicit source_path from
+        // the agent when the user can point at it.
+        //
+        // Label points are converted from file units to feet, then run through
+        // the instance's total transform. That puts them in the same model space
+        // as segment/point *_mm, so a nearest-segment match works for links that
+        // are rotated, scaled, or not at the origin.
+        private static Dictionary<string, object?> ReadLinkedCadTextLabels(
+            Document doc, ImportInstance im, string? sourcePathOverride)
         {
             try
             {
-                string path = null;
-                var extRef = ExternalFileUtils.GetExternalFileReference(doc, im.GetTypeId());
-                if (extRef != null)
-                    path = ModelPathUtils.ConvertModelPathToUserVisiblePath(extRef.GetAbsolutePath());
-                if (string.IsNullOrWhiteSpace(path) || !System.IO.File.Exists(path))
-                    return new Dictionary<string, object?> { ["available"] = false, ["note"] = "source file not found on disk (imported, not linked, or moved)" };
-                if (!path.EndsWith(".dxf", StringComparison.OrdinalIgnoreCase))
-                    return new Dictionary<string, object?> { ["available"] = false, ["note"] = "source is not a DXF (DWG is binary; text not parseable here)" };
+                string path;
+                string sourceKind;
 
-                var lines = System.IO.File.ReadAllLines(path);
-                double unitToMm = 1.0; string unitNote = "assumed mm ($INSUNITS absent)";
+                bool isExternal;
+                try { isExternal = ExternalFileUtils.IsExternalFileReference(doc, im.GetTypeId()); }
+                catch { isExternal = false; }
+
+                if (!string.IsNullOrWhiteSpace(sourcePathOverride))
+                {
+                    if (!System.IO.File.Exists(sourcePathOverride))
+                        return Unavailable(doc, im,
+                            "source_path was not found: " + sourcePathOverride +
+                            ". Point it at the original DWG/DXF, or link the file instead of importing it.");
+                    path = sourcePathOverride;
+                    sourceKind = "source_path";
+                }
+                else if (isExternal)
+                {
+                    path = null;
+                    var extRef = ExternalFileUtils.GetExternalFileReference(doc, im.GetTypeId());
+                    if (extRef != null)
+                        path = ModelPathUtils.ConvertModelPathToUserVisiblePath(extRef.GetAbsolutePath());
+                    if (string.IsNullOrWhiteSpace(path) || !System.IO.File.Exists(path))
+                        return Unavailable(doc, im,
+                            "the linked CAD source file was not found on disk" +
+                            (string.IsNullOrWhiteSpace(path) ? "" : " (" + path + ")") +
+                            ". Re-link it, or call extract_cad_geometry with source_path set to the original DWG/DXF.");
+                    sourceKind = "linked";
+                }
+                else
+                {
+                    path = FindImportedCadFile(doc, im);
+                    if (path == null)
+                        return Unavailable(doc, im,
+                            "labels are not available: this CAD was imported (embedded in the model) and no source file was found next to the .rvt. " +
+                            "Link the DWG instead of importing it, or call extract_cad_geometry with source_path set to the original DWG/DXF.");
+                    sourceKind = "imported (found on disk)";
+                }
+
+                var read = CadFileReader.ReadText(path);
+                if (!read.Ok)
+                    return new Dictionary<string, object?>
+                    {
+                        ["available"] = false,
+                        ["source_file"] = path,
+                        ["source_kind"] = sourceKind,
+                        ["note"] = "could not read the CAD source: " + read.Error +
+                                   ". Link the DWG instead of importing it, or call extract_cad_geometry with source_path set to a readable DWG/DXF.",
+                    };
+
+                Transform? total = null;
+                try { total = im.GetTotalTransform(); } catch { /* file coordinates only */ }
+
                 var labels = new List<Dictionary<string, object?>>();
-                bool inEntities = false; bool truncatedText = false;
-
-                string curType = null, curText = null, curLayer = null;
-                double curX = 0, curY = 0;
-                void Flush()
+                bool truncated = false;
+                foreach (var t in read.Texts)
                 {
-                    if (curType != null && !string.IsNullOrWhiteSpace(curText))
-                    {
-                        if (labels.Count < 200)
-                            labels.Add(new Dictionary<string, object?>
-                            {
-                                ["text"] = curText.Trim(),
-                                ["x_mm"] = Math.Round(curX * unitToMm, 1),
-                                ["y_mm"] = Math.Round(curY * unitToMm, 1),
-                                ["layer"] = curLayer ?? "0",
-                            });
-                        else truncatedText = true;
-                    }
-                    curType = null; curText = null; curLayer = null; curX = 0; curY = 0;
+                    if (string.IsNullOrWhiteSpace(t.Content)) continue;
+                    if (labels.Count >= 200) { truncated = true; break; }
+                    labels.Add(Label(t, read.UnitToMm, total));
                 }
 
-                for (int i = 0; i + 1 < lines.Length; i += 2)
-                {
-                    var code = lines[i].Trim();
-                    var val = lines[i + 1].Trim();
-                    if (code == "9" && val == "$INSUNITS" && i + 3 < lines.Length)
-                    {
-                        var u = lines[i + 3].Trim();
-                        if (u == "1") { unitToMm = 25.4; unitNote = "inches"; }
-                        else if (u == "2") { unitToMm = 304.8; unitNote = "feet"; }
-                        else if (u == "4") { unitToMm = 1.0; unitNote = "millimeters"; }
-                        else if (u == "5") { unitToMm = 10.0; unitNote = "centimeters"; }
-                        else if (u == "6") { unitToMm = 1000.0; unitNote = "meters"; }
-                        continue;
-                    }
-                    if (code == "0")
-                    {
-                        if (val == "SECTION" && i + 3 < lines.Length && lines[i + 3].Trim() == "ENTITIES") inEntities = true;
-                        else if (val == "ENDSEC") { Flush(); inEntities = false; }
-                        else if (inEntities) { Flush(); if (val == "TEXT" || val == "MTEXT") curType = val; }
-                        continue;
-                    }
-                    if (!inEntities || curType == null) continue;
-                    if (code == "1") curText = (curText ?? "") + val;
-                    else if (code == "3") curText = (curText ?? "") + val;   // MTEXT continuation
-                    else if (code == "10") double.TryParse(val, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out curX);
-                    else if (code == "20") double.TryParse(val, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out curY);
-                    else if (code == "8") curLayer = val;
-                }
-                Flush();
+                string unitsText = read.UnitsKnown
+                    ? "header ($INSUNITS) -> " + read.UnitToMm.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) + " mm/unit"
+                    : read.UnitsInferred
+                        ? "inferred from drawing extents -> " + read.UnitToMm.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) + " mm/unit"
+                        : "unknown (assumed mm)";
+
+                var note = "read from the " + sourceKind + " source file (Revit API cannot see CAD text). " +
+                           "Labels include TEXT, MTEXT, ATTRIB and text nested in INSERT blocks. " +
+                           "x_mm/y_mm/z_mm and x_ft/y_ft/z_ft are MODEL coordinates: file units were converted to feet and the CAD instance's total transform was applied, " +
+                           "so each label lines up with the segment/point *_mm fields. Match each label to its nearest segment.";
+                if (read.UnitsInferred)
+                    note = "the file declares no units - the scale was " + unitsText + ". " + note;
+                if (total == null)
+                    note = "could not read the CAD placement transform; x_mm/y_mm are file coordinates, not model coordinates. " + note;
+                if (!string.IsNullOrEmpty(read.SourceWarning))
+                    note = read.SourceWarning + " " + note;
 
                 return new Dictionary<string, object?>
                 {
                     ["available"] = true,
                     ["labels"] = labels,
                     ["count"] = labels.Count,
-                    ["truncated"] = truncatedText,
-                    ["file_units"] = unitNote,
-                    ["note"] = "read from the DXF source file (Revit API cannot see CAD text). x_mm/y_mm are file coordinates in mm - with Origin-to-Origin linking they match the segment/point *_mm space; match each label to its nearest segment.",
+                    ["truncated"] = truncated,
+                    ["source_file"] = path,
+                    ["source_kind"] = sourceKind,
+                    ["file_units"] = unitsText,
+                    ["file_mm_per_unit"] = Math.Round(read.UnitToMm, 6),
+                    ["model_space"] = total != null,
+                    ["note"] = note,
                 };
             }
             catch (Exception ex)
             {
                 return new Dictionary<string, object?> { ["available"] = false, ["note"] = "text parse failed: " + ex.Message };
             }
+        }
+
+        private static Dictionary<string, object?> Label(CadText t, double unitToMm, Transform? total)
+        {
+            double xMm = t.X * unitToMm;
+            double yMm = t.Y * unitToMm;
+            double zMm = t.Z * unitToMm;
+            if (total != null)
+            {
+                var modelFt = total.OfPoint(new XYZ(xMm / 304.8, yMm / 304.8, zMm / 304.8));
+                xMm = modelFt.X * 304.8;
+                yMm = modelFt.Y * 304.8;
+                zMm = modelFt.Z * 304.8;
+            }
+            return new Dictionary<string, object?>
+            {
+                ["text"] = t.Content.Trim(),
+                ["type"] = t.Type,
+                ["x_mm"] = Math.Round(xMm, 1),
+                ["y_mm"] = Math.Round(yMm, 1),
+                ["z_mm"] = Math.Round(zMm, 1),
+                ["x_ft"] = Math.Round(xMm / 304.8, 4),
+                ["y_ft"] = Math.Round(yMm / 304.8, 4),
+                ["z_ft"] = Math.Round(zMm / 304.8, 4),
+                ["layer"] = string.IsNullOrEmpty(t.Layer) ? "0" : t.Layer,
+            };
+        }
+
+        private static Dictionary<string, object?> Unavailable(Document doc, ImportInstance im, string note)
+        {
+            var fileName = SourceFileName(doc, im);
+            return new Dictionary<string, object?>
+            {
+                ["available"] = false,
+                ["source_file_name"] = fileName,
+                ["note"] = note +
+                    (string.IsNullOrWhiteSpace(fileName) ? "" : " (expected file: " + fileName + ")"),
+            };
+        }
+
+        private static string? SourceFileName(Document doc, ImportInstance im)
+        {
+            try { return doc.GetElement(im.GetTypeId())?.Name; }
+            catch { return null; }
+        }
+
+        // Imported CAD keeps the original file name (e.g. "Drawing1.dwg") on
+        // its CADLinkType but has no path. Look for it beside the .rvt and in
+        // the usual user folders. This is a best effort: if the file was moved
+        // or renamed, the caller gets the actionable note from Unavailable.
+        private static string? FindImportedCadFile(Document doc, ImportInstance im)
+        {
+            var fileName = SourceFileName(doc, im);
+            if (string.IsNullOrWhiteSpace(fileName)) return null;
+            fileName = System.IO.Path.GetFileName(fileName);
+
+            var names = new List<string> { fileName };
+            if (string.IsNullOrEmpty(System.IO.Path.GetExtension(fileName)))
+            {
+                names.Add(fileName + ".dwg");
+                names.Add(fileName + ".dxf");
+            }
+
+            var folders = new List<string?>();
+            try
+            {
+                var docPath = doc.PathName;
+                if (!string.IsNullOrWhiteSpace(docPath))
+                    folders.Add(System.IO.Path.GetDirectoryName(docPath));
+            }
+            catch { /* unsaved/cloud model */ }
+            folders.Add(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments));
+            folders.Add(System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads"));
+            folders.Add(System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Desktop"));
+
+            var searched = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var folder in folders)
+            {
+                if (string.IsNullOrWhiteSpace(folder) || !searched.Add(folder)) continue;
+                foreach (var name in names)
+                {
+                    try
+                    {
+                        var candidate = System.IO.Path.Combine(folder, name);
+                        if (System.IO.File.Exists(candidate)) return candidate;
+                    }
+                    catch { /* invalid path segment */ }
+                }
+            }
+            return null;
         }
 
         // Where the chosen CAD instance actually sits — placements land HERE.
