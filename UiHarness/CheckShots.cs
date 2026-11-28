@@ -35,7 +35,7 @@ namespace UiHarness
             string data = Path.Combine(AppContext.BaseDirectory, "cad2bim");
             var vm = new CheckViewModel(_ => null, null, EngineShortcuts.FromJson(File.ReadAllText(Path.Combine(data, "aswara-engine-shortcuts.json"))));
             vm.Show(SheetSnapshot.FromJson(File.ReadAllText(Path.Combine(data, "aswara-sheet.json"))),
-                    new TargetInfo { DocTitle = "ASWARA_ARCH", Workshared = workshared, Levels = { new LevelInfo { Name = "Level 1" } } });
+                    new TargetInfo { DocTitle = "ASWARA_ARCH", Workshared = workshared, Levels = { new LevelInfo { Name = "Level 1", Id = 311 } } });
             for (int i = 0; i < steps; i++) vm.Next();
             if (steps == 4) vm.Answer(vm.Questions[0], vm.Questions[0].Options[0]);     // W06: card 1 answered, card 2 focused
             if (steps == 4) vm.Focus(vm.Questions[1]);

@@ -42,6 +42,7 @@ namespace RevitWebAppSync.UI.CadToBim.Check
             Target.Workshared ? BuildText.WorksharedBlock
             : Building ? BuildText.BuildingBlock
             : Built ? BuildText.BuiltBlock
+            : MainLevelId == null ? BuildText.NoLevelBlock(BuildLevel)
             : OthersOnBuildLevel ? BuildText.OthersBlock(BuildLevel)
             : null;
 
@@ -69,6 +70,7 @@ namespace RevitWebAppSync.UI.CadToBim.Check
                 LevelId = s.MainLevelId,
                 HeightMm = s.WallHeightMm,
                 GroupName = BuildText.GroupName(s.BuildLevel),
+                RequireLevel = true,                 // a missing/renamed level fails with nothing added, never the lowest level
             };
         }
     }
@@ -78,7 +80,7 @@ namespace RevitWebAppSync.UI.CadToBim.Check
     {
         public FailureGroup Group { get; set; }
         public string Text => Group.Count + " × " + (string.IsNullOrWhiteSpace(Group.Text) ? "Revit warning" : Group.Text.Trim());
-        public string Kind => Group.Error ? "resolved error" : Group.Join ? "join warning" : "warning";
+        public string Kind => Group.Error ? (Group.Resolved ? "resolved error" : "error") : Group.Join ? "join warning" : "warning";
         public string Tone => Group.Error ? "r" : "a";
         public bool CanShow => Group.ElementIds.Count > 0;
     }
@@ -95,6 +97,7 @@ namespace RevitWebAppSync.UI.CadToBim.Check
         public const string WorksharedBlock = "Build isn't available in a workshared model yet (needs Remove this run)";
         public const string BuildingBlock = "Building…";
         public const string BuiltBlock = "Built · undo with Ctrl+Z to rebuild";
+        public static string NoLevelBlock(string level) => level + " isn't in this project any more; open the drawing again";
         public static string OthersBlock(string level) => "Only the main plan is built for now: map the other plans off " + level + " to build";
         public const string StopTip = "One level in this run: it is committed as one undo step when it finishes";
         public const string FollowTip = "The view zooms to the plan when the build starts";
@@ -130,6 +133,7 @@ namespace RevitWebAppSync.UI.CadToBim.Check
             if (f.JoinWarnings > 0) list.Add(("Revit raised ", Plural(f.JoinWarnings, "join warning", "join warnings"), " → added to Review, not deleted.", "a"));
             if (f.OtherWarnings > 0) list.Add(("Revit raised ", Plural(f.OtherWarnings, "other warning", "other warnings"), " → added to Review.", "a"));
             if (f.ResolvedErrors > 0) list.Add(("Revit resolved ", Plural(f.ResolvedErrors, "error", "errors"), " its default way, which can remove elements → in Review.", "r"));
+            if (f.OtherErrors > 0) list.Add(("Revit raised ", Plural(f.OtherErrors, "error", "errors"), " it had no fix for → in Review.", "r"));
             int skipped = b.SkippedWalls + b.SkippedOpenings + b.SkippedRooms;
             if (skipped > 0) list.Add(("", Plural(skipped, "item", "items"), " could not be placed (" + N(b.SkippedWalls) + " walls, " + N(b.SkippedOpenings) + " openings, " + N(b.SkippedRooms) + " rooms).", "a"));
             return list;
@@ -145,6 +149,7 @@ namespace RevitWebAppSync.UI.CadToBim.Check
             if (f != null && f.JoinWarnings > 0) parts.Add(Plural(f.JoinWarnings, "join warning", "join warnings"));
             if (f != null && f.OtherWarnings > 0) parts.Add(Plural(f.OtherWarnings, "other warning", "other warnings"));
             if (f != null && f.ResolvedErrors > 0) parts.Add(Plural(f.ResolvedErrors, "resolved error", "resolved errors"));
+            if (f != null && f.OtherErrors > 0) parts.Add(Plural(f.OtherErrors, "other error", "other errors"));
             return parts.Count == 0 ? "Also: nothing else from Check or Revit" : "Also: " + string.Join(" · ", parts);
         }
 

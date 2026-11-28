@@ -45,7 +45,7 @@ namespace UiHarness
             foreach (PlanSnap p in sheet.Plans) sheet.Source.Plans.Add(new DwgPlan { N = p.N, Cluster = new Cad2Bim.PlanCluster() });
 
             var vm = new CheckViewModel(_ => null);
-            vm.Show(sheet, new TargetInfo { DocTitle = "ASWARA_ARCH", Levels = { new LevelInfo { Name = "Level 1" } } });
+            vm.Show(sheet, new TargetInfo { DocTitle = "ASWARA_ARCH", Levels = { new LevelInfo { Name = "Level 1", Id = 311 } } });
             for (int i = 0; i < 4; i++) vm.Next();     // 0 questions: pre-flight → consultant → gate 1 → gate 2 → rows
             var sink = new Sink();
             vm.UseBuilder(sink, new Raiser());

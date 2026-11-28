@@ -109,6 +109,8 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(BuildTarget.AddToProject, r.Target);
             Assert.Equal((long?)311, r.LevelId);                                // the existing main level, by id
             Assert.Equal("CAD to BIM: Level 1", r.GroupName);           // the one undo step
+            Assert.True(r.RequireLevel);                                 // a missing level fails, never the lowest level
+            Assert.False(Cad2BimBuilder.MayFallBackToLowestLevel(r));
             Assert.Equal(vm.State.WallHeightMm, r.HeightMm);
             Assert.Equal(CheckScreen.Building, vm.Screen);
             Assert.Equal("Level 1 · Building · 277 walls, 25 doors & windows", vm.ProgressText);
@@ -129,8 +131,21 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void Legacy_keeps_its_undo_name_and_the_check_pane_names_the_level()
+        public void A_missing_main_level_blocks_build_with_one_line()
         {
+            var (vm, sink, _, _) = Ready();
+            vm.State.Target.Levels.Single(l => l.Name == "Level 1").Id = 0;   // renamed or deleted since the open: no id resolves
+            Assert.False(vm.CanBuild);
+            Assert.Equal("Level 1 isn't in this project any more; open the drawing again", vm.BuildBlockLine);
+            vm.Build();
+            Assert.Null(sink.Request);
+        }
+
+        [Fact]
+        public void Legacy_keeps_its_undo_name_and_its_lowest_level_fallback()
+        {
+            Assert.False(new BuildRequest().RequireLevel);
+            Assert.True(Cad2BimBuilder.MayFallBackToLowestLevel(new BuildRequest()));
             Assert.Null(new BuildRequest().GroupName);
             Assert.Equal("CAD to BIM", Cad2BimBuilder.GroupNameFor(new BuildRequest()));
             Assert.Equal("CAD to BIM: Level 1", Cad2BimBuilder.GroupNameFor(new BuildRequest { GroupName = "CAD to BIM: Level 1" }));
@@ -235,15 +250,21 @@ namespace RevitWebAppSync.Tests
         {
             var log = new FailureLog();
             Guid join = Guid.NewGuid(), overlap = Guid.NewGuid();
-            log.Add(join, "Walls cannot be joined", join: true, error: false, new long[] { 1, 2 });
-            log.Add(join, "Walls cannot be joined", join: true, error: false, new long[] { 2, 3 });
-            log.Add(overlap, "Highlighted walls overlap", join: false, error: false, new long[] { 4 });
-            log.Add(overlap, "Highlighted walls overlap", join: false, error: true, new long[] { 5, 6 });
+            log.Add(join, "Walls cannot be joined", join: true, error: false, resolved: false, new long[] { 1, 2 });
+            log.Add(join, "Walls cannot be joined", join: true, error: false, resolved: false, new long[] { 2, 3 });
+            log.Add(overlap, "Highlighted walls overlap", join: false, error: false, resolved: false, new long[] { 4 });
+            log.Add(overlap, "Highlighted walls overlap", join: false, error: true, resolved: true, new long[] { 5, 6 });
+            log.Add(overlap, "Highlighted walls overlap", join: false, error: true, resolved: false, new long[] { 7 });
+            Assert.Empty(log.Groups);                                    // nothing counts until the transaction committed
+            log.Keep();
+            log.Add(join, "Walls cannot be joined", join: true, error: false, resolved: false, new long[] { 9 });
+            log.Drop();                                                  // a rolled-back transaction: its failures are not in the model
 
-            Assert.Equal(3, log.Groups.Count);
+            Assert.Equal(4, log.Groups.Count);
             Assert.Equal(2, log.JoinWarnings);
             Assert.Equal(1, log.OtherWarnings);
-            Assert.Equal(1, log.ResolvedErrors);
+            Assert.Equal(1, log.ResolvedErrors);                         // only the error Revit had a resolution for
+            Assert.Equal(1, log.OtherErrors);
             Assert.Equal(new long[] { 1, 2, 3 }, log.Groups[0].ElementIds);
             Assert.Equal(new long[] { 5, 6 }, log.ResolvedErrorIds);
         }
@@ -254,9 +275,10 @@ namespace RevitWebAppSync.Tests
             var (vm, sink, _, view) = Ready();
             vm.Build();
             BuildReport r = Report(101, 102);
-            for (int i = 0; i < 14; i++) r.Failures.Add(new Guid("11111111-1111-1111-1111-111111111111"), "Walls cannot be joined", true, false, new long[] { 101 });
-            r.Failures.Add(new Guid("22222222-2222-2222-2222-222222222222"), "Room is not enclosed", false, false, new long[0]);
-            r.Failures.Add(new Guid("33333333-3333-3333-3333-333333333333"), "Wall is too short", false, true, new long[] { 102 });
+            for (int i = 0; i < 14; i++) r.Failures.Add(new Guid("11111111-1111-1111-1111-111111111111"), "Walls cannot be joined", true, false, false, new long[] { 101 });
+            r.Failures.Add(new Guid("22222222-2222-2222-2222-222222222222"), "Room is not enclosed", false, false, false, new long[0]);
+            r.Failures.Add(new Guid("33333333-3333-3333-3333-333333333333"), "Wall is too short", false, true, true, new long[] { 102 });
+            r.Failures.Keep();
             r.SkippedOpenings = 2;
             sink.Fire(r);
 

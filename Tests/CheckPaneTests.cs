@@ -26,7 +26,7 @@ namespace Tests
         private static TargetInfo Target(params string[] levels) => new TargetInfo
         {
             DocTitle = "ASWARA_ARCH",
-            Levels = (levels.Length == 0 ? new[] { "Level 1" } : levels).Select((n, i) => new LevelInfo { Name = n, ElevationMm = i * 3500 }).ToList(),
+            Levels = (levels.Length == 0 ? new[] { "Level 1" } : levels).Select((n, i) => new LevelInfo { Name = n, ElevationMm = i * 3500, Id = 300 + i }).ToList(),
         };
 
         private sealed class FakeView : IRevitView

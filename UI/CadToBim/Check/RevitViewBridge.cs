@@ -278,8 +278,8 @@ namespace RevitWebAppSync.UI.CadToBim.Check
             _watch = new HashSet<long>(elementIds ?? Enumerable.Empty<long>());
             _present.Clear();
             _present.UnionWith(_watch);
-            _watchDoc = null;
-            if (_watch.Count > 0) Queue(app => _watchDoc = app.ActiveUIDocument?.Document);
+            // called on Revit's thread from the build's Completed, so the active document is the one just built into
+            _watchDoc = _watch.Count > 0 ? App.UiApp?.ActiveUIDocument?.Document : null;
         }
 
         private void OnDocumentChanged(object sender, DocumentChangedEventArgs e)

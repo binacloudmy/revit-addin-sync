@@ -38,7 +38,8 @@ namespace RevitWebAppSync.Services.CadToBim
             foreach (FailureMessageAccessor failure in failures)
             {
                 bool warning = failure.GetSeverity() == FailureSeverity.Warning;
-                Record(failure, error: !warning);
+                bool resolvable = !warning && failure.HasResolutions();
+                Record(failure, error: !warning, resolved: resolvable);
 
                 if (warning)
                 {
@@ -46,7 +47,7 @@ namespace RevitWebAppSync.Services.CadToBim
                     continue;
                 }
 
-                if (failure.HasResolutions())
+                if (resolvable)
                 {
                     accessor.ResolveFailure(failure);
                     resolved = true;
@@ -58,13 +59,13 @@ namespace RevitWebAppSync.Services.CadToBim
                 : FailureProcessingResult.Continue;
         }
 
-        private void Record(FailureMessageAccessor failure, bool error)
+        private void Record(FailureMessageAccessor failure, bool error, bool resolved)
         {
             if (_log == null) return;
             try
             {
                 Guid id = failure.GetFailureDefinitionId().Guid;
-                _log.Add(id, failure.GetDescriptionText(), JoinIds.Value.Contains(id), error,
+                _log.Add(id, failure.GetDescriptionText(), JoinIds.Value.Contains(id), error, resolved,
                     failure.GetFailingElementIds().Select(ElementIdCompat.ToLong));
             }
             catch

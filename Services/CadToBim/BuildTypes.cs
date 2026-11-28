@@ -74,5 +74,9 @@ namespace RevitWebAppSync.Services.CadToBim
         /// <summary>The undo step's name (the TransactionGroup). null = "CAD to BIM" (legacy). AI-642's
         /// Check pane builds one level and names it "CAD to BIM: Level 1" (canvas screen 8).</summary>
         public string GroupName { get; set; }
+
+        /// <summary>AI-642: LevelId must resolve, or the build fails with nothing added. false (legacy) =
+        /// fall back to the lowest level.</summary>
+        public bool RequireLevel { get; set; }
     }
 }

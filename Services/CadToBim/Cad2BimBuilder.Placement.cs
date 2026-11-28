@@ -16,6 +16,9 @@ namespace RevitWebAppSync.Services.CadToBim
         internal static string GroupNameFor(BuildRequest req) =>
             string.IsNullOrWhiteSpace(req.GroupName) ? DefaultGroupName : req.GroupName;
 
+        /// <summary>Legacy only: a level id that no longer resolves falls back to the lowest level.</summary>
+        internal static bool MayFallBackToLowestLevel(BuildRequest req) => !req.RequireLevel;
+
         /// <summary>One plan cluster and where it goes: the shift that brings its corner to
         /// the origin (zero in KeepPosition mode) and which storey it is.</summary>
         internal sealed class Placement

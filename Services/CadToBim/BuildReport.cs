@@ -54,29 +54,45 @@ namespace RevitWebAppSync.Services.CadToBim
         public string Text = "";
         /// <summary>A join failure (JoinElements / AutoJoin / WallJoin definitions).</summary>
         public bool Join;
-        /// <summary>An error Revit resolved with its default resolution (which may delete elements), not a warning.</summary>
+        /// <summary>An error, not a warning.</summary>
         public bool Error;
+        /// <summary>An error Revit resolved with its default resolution (which may delete elements).</summary>
+        public bool Resolved;
         public int Count;
         public List<long> ElementIds = new();
     }
 
     /// <summary>What SilenceJoinFailures removed from Revit's dialogs, grouped by FailureDefinitionId.
-    /// Revit-free so the grouping is unit-tested. AI-642: warnings go to Review, not to nowhere.</summary>
+    /// Revit-free so the grouping is unit-tested. AI-642: warnings go to Review, not to nowhere.
+    /// Add records into the open transaction's list; Keep moves it into Groups when that transaction
+    /// committed, Drop discards it when it rolled back (its failures are not in the model).</summary>
     public sealed class FailureLog
     {
         public List<FailureGroup> Groups = new();
+        private readonly List<(Guid Id, string Text, bool Join, bool Error, bool Resolved, long[] Ids)> _open = new();
 
-        public void Add(Guid definitionId, string text, bool join, bool error, IEnumerable<long> elementIds)
+        public void Add(Guid definitionId, string text, bool join, bool error, bool resolved, IEnumerable<long> elementIds) =>
+            _open.Add((definitionId, text ?? "", join, error, error && resolved, (elementIds ?? Array.Empty<long>()).ToArray()));
+
+        public void Keep()
         {
-            FailureGroup g = Groups.Find(x => x.DefinitionId == definitionId && x.Error == error);
-            if (g == null) Groups.Add(g = new FailureGroup { DefinitionId = definitionId, Text = text ?? "", Join = join, Error = error });
-            g.Count++;
-            foreach (long id in elementIds ?? Array.Empty<long>()) if (!g.ElementIds.Contains(id)) g.ElementIds.Add(id);
+            foreach (var f in _open)
+            {
+                FailureGroup g = Groups.Find(x => x.DefinitionId == f.Id && x.Error == f.Error && x.Resolved == f.Resolved);
+                if (g == null) Groups.Add(g = new FailureGroup { DefinitionId = f.Id, Text = f.Text, Join = f.Join, Error = f.Error, Resolved = f.Resolved });
+                g.Count++;
+                foreach (long id in f.Ids) if (!g.ElementIds.Contains(id)) g.ElementIds.Add(id);
+            }
+            _open.Clear();
         }
+
+        public void Drop() => _open.Clear();
 
         public int JoinWarnings => Groups.Where(g => g.Join && !g.Error).Sum(g => g.Count);
         public int OtherWarnings => Groups.Where(g => !g.Join && !g.Error).Sum(g => g.Count);
-        public int ResolvedErrors => Groups.Where(g => g.Error).Sum(g => g.Count);
-        public IEnumerable<long> ResolvedErrorIds => Groups.Where(g => g.Error).SelectMany(g => g.ElementIds).Distinct();
+        public int ResolvedErrors => Groups.Where(g => g.Error && g.Resolved).Sum(g => g.Count);
+        /// <summary>Errors Revit had no resolution for (the transaction still committed).</summary>
+        public int OtherErrors => Groups.Where(g => g.Error && !g.Resolved).Sum(g => g.Count);
+        public IEnumerable<long> ResolvedErrorIds => Groups.Where(g => g.Error && g.Resolved).SelectMany(g => g.ElementIds).Distinct();
     }
 }

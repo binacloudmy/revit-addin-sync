@@ -102,6 +102,7 @@ namespace RevitWebAppSync.Services.CadToBim
                         if (level == null)
                         {
                             tx.RollBack();
+                            report.Failures.Drop();
                             report.SkippedWalls += placement.Plan.Walls.Count(toBuild.Contains);
                             continue;
                         }
@@ -133,7 +134,7 @@ namespace RevitWebAppSync.Services.CadToBim
                             }
                         }
 
-                        tx.Commit();
+                        KeepFailuresIf(tx.Commit(), report.Failures);
                     }
 
                     using (var tx = new Transaction(doc, "CAD to BIM: openings and rooms"))
@@ -154,7 +155,7 @@ namespace RevitWebAppSync.Services.CadToBim
                             .ToList();
                         CreateRooms(doc, rooms, level, placement.OriginX, placement.OriginY, report);
 
-                        tx.Commit();
+                        KeepFailuresIf(tx.Commit(), report.Failures);
                     }
                 }
 
@@ -227,6 +228,7 @@ namespace RevitWebAppSync.Services.CadToBim
                 }
 
                 report.Error = Innermost(ex).Message;
+                report.Failures = new FailureLog();   // the group rolled back: nothing it recorded is in the model
                 report.WallIds.Clear();
                 report.Walls = 0;
 
@@ -285,6 +287,9 @@ namespace RevitWebAppSync.Services.CadToBim
                 if (doc.GetElement(picked) is Level level) return level;
             }
 
+            // AI-642: the Check pane names its level; a missing/renamed one is a failure, never a quiet move to the lowest level
+            if (!MayFallBackToLowestLevel(req))
+                throw new InvalidOperationException("The level this build was meant for isn't in this project any more. Nothing was added; open the drawing again.");
             return LowestLevel(doc);
         }
 
@@ -377,6 +382,12 @@ namespace RevitWebAppSync.Services.CadToBim
         /// constantly. Each failed join raises a dialog, so a thousand walls becomes a
         /// thousand interruptions; the joins are not wanted anyway.
         /// </summary>
+        /// <summary>A transaction's recorded failures count only if it committed (AI-642).</summary>
+        private static void KeepFailuresIf(TransactionStatus status, FailureLog log)
+        {
+            if (status == TransactionStatus.Committed) log.Keep(); else log.Drop();
+        }
+
         private static void Silence(Transaction tx, FailureLog log)
         {
             FailureHandlingOptions options = tx.GetFailureHandlingOptions();
