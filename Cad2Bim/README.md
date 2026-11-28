@@ -32,6 +32,16 @@ dotnet run --project Cad2Bim.Headless -- path\to\drawing.dwg 75 300
 # every text string in the drawing
 dotnet run --project Cad2Bim.Headless -- path\to\drawing.dwg --texts
 
+# electrical census (phase 0): block classes, layers, walls, plans, legend, and the
+# A1-A3 summary on stdout; timings go to stderr
+dotnet run -c Release --project Cad2Bim.Headless -- path\to\drawing.dwg --census
+
+# the same, plus the census JSON written to a file OUTSIDE this repository
+dotnet run -c Release --project Cad2Bim.Headless -- path\to\drawing.dwg --census --census-out=%TEMP%\census.json
+
+# the census JSON only
+dotnet run -c Release --project Cad2Bim.Headless -- path\to\drawing.dwg --census --json
+
 # the viewer — Windows only
 dotnet run --project cad2bim
 ```
@@ -41,6 +51,18 @@ dotnet run --project cad2bim
 `*.dwg` is git-ignored here, deliberately: this repository is public and a real test drawing
 carries a client's floor plans and title block. Copy your test file next to the checkout and pass
 its path.
+
+The same goes for census output. A census of a real drawing carries its layer names, block names
+and texts (project names, room names), so its JSON and summary are never committed here:
+`--census-out` refuses a path inside a git working tree. It also checks before the walk that the
+folder exists and is writable (exit 2 if not); if writing still fails, the summary is printed and
+the exit code is 3. Census tests build their drawings in
+memory instead.
+
+The census wall hint pairs each layer's faces on its own. It never skips a layer for size: a
+layer with more than `MaxWallTestSegments` (80,000) merged faces is split into tiles (a k-d split
+at the median, tiles overlapping by the widest wall plus 500 mm), and each layer's JSON `walls`
+object says how many tiles it took (`tiles`: 0 not tested, 1 paired whole).
 
 ### Thresholds are millimetres
 
