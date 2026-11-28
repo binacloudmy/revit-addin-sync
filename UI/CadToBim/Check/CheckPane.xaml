@@ -66,6 +66,17 @@
                 </DataTemplate.Triggers>
             </DataTemplate>
 
+            <Style x:Key="Step" TargetType="Border">
+                <Setter Property="Height" Value="22"/><Setter Property="Padding" Value="10,0"/><Setter Property="CornerRadius" Value="11"/>
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="TextElement.FontSize" Value="11"/><Setter Property="TextElement.FontWeight" Value="SemiBold"/>
+                <Setter Property="TextElement.Foreground" Value="{DynamicResource Cb.Fg3}"/>
+                <Style.Triggers>
+                    <Trigger Property="Tag" Value="on"><Setter Property="Background" Value="{DynamicResource Cb.Pri}"/><Setter Property="TextElement.Foreground" Value="{DynamicResource Cb.PriFg}"/></Trigger>
+                    <Trigger Property="Tag" Value="done"><Setter Property="Background" Value="{DynamicResource Cb.GS}"/><Setter Property="TextElement.Foreground" Value="{DynamicResource Cb.GT}"/></Trigger>
+                </Style.Triggers>
+            </Style>
+
             <Style x:Key="RowList" TargetType="ItemsControl">
                 <Setter Property="ItemTemplate" Value="{StaticResource Row}"/>
                 <Setter Property="Focusable" Value="False"/>
@@ -279,7 +290,9 @@
             <!-- ═══ 7 · Everything else (W07) ═══ -->
             <DataTemplate x:Key="Rows">
                 <DockPanel>
-                    <Button DockPanel.Dock="Bottom" Style="{StaticResource Cbs.BtnP}" Height="32" FontSize="12.5" Content="{Binding BuildLabel}" Click="OnBuild" IsEnabled="{Binding CanBuild}"/>
+                    <TextBlock DockPanel.Dock="Bottom" Style="{StaticResource Cbs.Dim}" Margin="0,6,0,0" Text="{Binding BuildBlockLine}"
+                               Visibility="{Binding BuildBlockLine, Converter={StaticResource HasText}}"/>
+                    <Button DockPanel.Dock="Bottom" Style="{StaticResource Cbs.BtnP}" Height="32" FontSize="12.5" Content="{Binding BuildButtonText}" Click="OnBuild" IsEnabled="{Binding CanBuild}"/>
                     <StackPanel>
                         <Border Background="{DynamicResource Cb.GS}" CornerRadius="3" Padding="10,7" Margin="0,0,0,9">
                             <DockPanel>
@@ -295,6 +308,186 @@
                         <Border Style="{StaticResource Cbs.Card}">
                             <ItemsControl Style="{StaticResource RowList}" ItemsSource="{Binding Rows}"/>
                         </Border>
+                    </StackPanel>
+                </DockPanel>
+            </DataTemplate>
+
+            <!-- ═══ AI-642 · 8 · Build, pending look (W08). One ExternalEvent builds the level, so the bar is indeterminate (live counts: AI-628) ═══ -->
+            <Style x:Key="Live" TargetType="Ellipse">
+                <Setter Property="Width" Value="8"/><Setter Property="Height" Value="8"/><Setter Property="Fill" Value="{DynamicResource Cb.Focus}"/>
+                <Setter Property="Margin" Value="0,0,7,0"/><Setter Property="VerticalAlignment" Value="Center"/>
+            </Style>
+            <DataTemplate x:Key="Building">
+                <StackPanel>
+                    <Border Style="{StaticResource Cbs.Card}" BorderBrush="{DynamicResource Cb.Focus}" Padding="12,10" Margin="0,0,0,9">
+                        <StackPanel>
+                            <DockPanel Margin="0,0,0,7">
+                                <Ellipse DockPanel.Dock="Left" Style="{StaticResource Live}"/>
+                                <TextBlock Text="{Binding ProgressText}" FontWeight="SemiBold" FontSize="13" TextTrimming="CharacterEllipsis"/>
+                            </DockPanel>
+                            <ProgressBar IsIndeterminate="True" Height="6" Margin="0,0,0,7" BorderThickness="0"
+                                         Foreground="{DynamicResource Cb.Focus}" Background="{DynamicResource Cb.Line2}" AutomationProperties.Name="Building"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,7">
+                                <Border Style="{StaticResource Cbs.Badge}" Tag="b" Margin="0,0,5,0"><TextBlock Text="Walls"/></Border>
+                                <Border Style="{StaticResource Cbs.Badge}" Margin="0,0,5,0"><TextBlock Text="Doors &amp; windows"/></Border>
+                                <Border Style="{StaticResource Cbs.Badge}"><TextBlock Text="Floors &amp; rooms"/></Border>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                                <Button Style="{StaticResource Cbs.Btn}" IsEnabled="False" ToolTip="{x:Static chk:BuildText.FollowTip}" ToolTipService.ShowOnDisabled="True">
+                                    <CheckBox IsChecked="True" IsHitTestVisible="False" Focusable="False" VerticalAlignment="Center" Content="Follow in view" Foreground="{DynamicResource Cb.Fg}"/>
+                                </Button>
+                                <Button Style="{StaticResource Cbs.Btn}" IsEnabled="False" Margin="6,0,0,0" ToolTip="{x:Static chk:BuildText.StopTip}" ToolTipService.ShowOnDisabled="True">
+                                    <StackPanel Orientation="Horizontal">
+                                        <Rectangle Width="10" Height="10" Fill="{DynamicResource Cb.R}" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                                        <TextBlock Text="Stop after this level" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                    <TextBlock Style="{StaticResource Cbs.Dim}" FontSize="11" Foreground="{DynamicResource Cb.Fg3}" Text="{Binding UndoLine}"/>
+                </StackPanel>
+            </DataTemplate>
+
+            <!-- ═══ AI-642 · 9 · Build done, issues collect quietly (W09) ═══ -->
+            <DataTemplate x:Key="Built">
+                <DockPanel>
+                    <Button x:Name="next" DockPanel.Dock="Bottom" Style="{StaticResource Cbs.BtnP}" Content="Next: review" Click="OnNext"/>
+                    <Button x:Name="back" DockPanel.Dock="Bottom" Style="{StaticResource Cbs.Btn}" Content="Back to Check" Click="OnBack" HorizontalAlignment="Left" Visibility="Collapsed"/>
+                    <StackPanel>
+                        <Border x:Name="done" Style="{StaticResource Cbs.Card}" BorderBrush="{DynamicResource Cb.Focus}" Padding="12,10" Margin="0,0,0,9">
+                            <StackPanel>
+                                <DockPanel Margin="0,0,0,7">
+                                    <Ellipse DockPanel.Dock="Left" Style="{StaticResource Live}" Fill="{DynamicResource Cb.G}"/>
+                                    <TextBlock Text="{Binding DoneText}" FontWeight="SemiBold" FontSize="13" TextTrimming="CharacterEllipsis" ToolTip="{Binding DoneText}"/>
+                                </DockPanel>
+                                <Border Height="6" CornerRadius="3" Background="{DynamicResource Cb.Focus}" Margin="0,0,0,7"/>
+                                <StackPanel Orientation="Horizontal">
+                                    <Border Style="{StaticResource Cbs.Badge}" Tag="g" Margin="0,0,5,0"><TextBlock Text="Walls"/></Border>
+                                    <Border Style="{StaticResource Cbs.Badge}" Tag="g" Margin="0,0,5,0"><TextBlock Text="Doors &amp; windows"/></Border>
+                                    <Border x:Name="rooms" Style="{StaticResource Cbs.Badge}"><TextBlock Text="Floors &amp; rooms"/></Border>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+                        <Border x:Name="failed" Style="{StaticResource Cbs.Card}" Background="{DynamicResource Cb.RS}" BorderBrush="Transparent" Padding="11,9" Margin="0,0,0,9" Visibility="Collapsed">
+                            <StackPanel>
+                                <TextBlock Text="{x:Static chk:BuildText.Rolledback}" FontWeight="SemiBold" Foreground="{DynamicResource Cb.RT}" TextWrapping="Wrap"/>
+                                <TextBlock Text="{Binding RunError}" TextWrapping="Wrap" Margin="0,4,0,0" FontSize="11.5"/>
+                            </StackPanel>
+                        </Border>
+                        <ItemsControl ItemsSource="{Binding Banners}" Focusable="False">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type chk:BannerLine}">
+                                    <Border Background="{DynamicResource Cb.Pane2}" BorderBrush="{DynamicResource Cb.Line}" BorderThickness="1" CornerRadius="3" Padding="10,8" Margin="0,0,0,9">
+                                        <DockPanel>
+                                            <TextBlock x:Name="ico" DockPanel.Dock="Left" Text="⚠" Margin="0,0,8,0" Foreground="{DynamicResource Cb.A}" FontWeight="Bold"/>
+                                            <TextBlock FontSize="11.5" LineHeight="15" TextWrapping="Wrap"><Run Text="{Binding Lead, Mode=OneWay}"/><Run Text="{Binding Bold, Mode=OneWay}" FontWeight="SemiBold"/><Run Text="{Binding Post, Mode=OneWay}"/></TextBlock>
+                                        </DockPanel>
+                                    </Border>
+                                    <DataTemplate.Triggers>
+                                        <DataTrigger Binding="{Binding Tone}" Value="r"><Setter TargetName="ico" Property="Foreground" Value="{DynamicResource Cb.R}"/></DataTrigger>
+                                    </DataTemplate.Triggers>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock Style="{StaticResource Cbs.Dim}" FontSize="11" Foreground="{DynamicResource Cb.Fg3}" Text="{Binding UndoLine}"/>
+                    </StackPanel>
+                </DockPanel>
+                <DataTemplate.Triggers>
+                    <DataTrigger Binding="{Binding RoomsBuilt}" Value="True"><Setter TargetName="rooms" Property="Tag" Value="g"/></DataTrigger>
+                    <DataTrigger Binding="{Binding RunFailed}" Value="True">
+                        <Setter TargetName="done" Property="Visibility" Value="Collapsed"/>
+                        <Setter TargetName="failed" Property="Visibility" Value="Visible"/>
+                        <Setter TargetName="next" Property="Visibility" Value="Collapsed"/>
+                        <Setter TargetName="back" Property="Visibility" Value="Visible"/>
+                    </DataTrigger>
+                </DataTemplate.Triggers>
+            </DataTemplate>
+
+            <!-- ═══ AI-642 · 10 · Review (W10, + dark). The needs-you queue (AI-636), source split (AI-627) and view-filter chips (AI-643) are not built yet ═══ -->
+            <DataTemplate x:Key="Review">
+                <DockPanel>
+                    <Button DockPanel.Dock="Bottom" Style="{StaticResource Cbs.BtnP}" Content="Next: accept" Click="OnNext"/>
+                    <StackPanel>
+                        <TextBlock Text="Review" FontSize="20" FontWeight="Bold" LineHeight="24" Margin="0,0,0,9"/>
+                        <Border Style="{StaticResource Cbs.Card}" Margin="0,0,0,9">
+                            <DockPanel Margin="10,9">
+                                <Border DockPanel.Dock="Left" Style="{StaticResource Cbs.Sw}" Width="12" Height="12" Margin="0,2,9,0" VerticalAlignment="Top"/>
+                                <StackPanel>
+                                    <TextBlock Text="{x:Static chk:BuildText.QueuePending}" FontWeight="SemiBold" FontSize="12.5"/>
+                                    <TextBlock Text="{x:Static chk:BuildText.QueuePendingWhy}" FontSize="11" Foreground="{DynamicResource Cb.Fg2}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                            </DockPanel>
+                        </Border>
+                        <TextBlock Style="{StaticResource Cbs.Dim}" Text="{Binding AlsoLine}" Margin="0,0,0,9"/>
+                        <WrapPanel Margin="0,0,0,9">
+                            <Button Style="{StaticResource Cbs.Chip}" Content="All" IsEnabled="False" Margin="0,0,5,0"/>
+                            <Button Style="{StaticResource Cbs.Chip}" Content="Only guesses" IsEnabled="False" Margin="0,0,5,0"/>
+                            <Button Style="{StaticResource Cbs.Chip}" Content="Only missing" IsEnabled="False" Margin="0,0,5,0"/>
+                            <Button Style="{StaticResource Cbs.Chip}" Content="Your rules" IsEnabled="False" Margin="0,0,5,0"/>
+                            <TextBlock Text="{x:Static chk:BuildText.ChipsPending}" FontSize="10.5" Foreground="{DynamicResource Cb.Fg3}" VerticalAlignment="Center"/>
+                        </WrapPanel>
+                        <TextBlock Text="{Binding TotalsLine}" FontSize="11" Foreground="{DynamicResource Cb.Fg3}" Margin="0,0,0,9"/>
+                        <StackPanel Visibility="{Binding FailureRows.Count, Converter={x:Static chk:CheckPane.Positive}}" Margin="0,0,0,9">
+                            <TextBlock Style="{StaticResource Cbs.Sec}" Text="FROM REVIT" Margin="0,0,0,6"/>
+                            <Border Style="{StaticResource Cbs.Card}">
+                                <ItemsControl ItemsSource="{Binding FailureRows}" Focusable="False">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate DataType="{x:Type chk:FailureRow}">
+                                            <Border BorderBrush="{DynamicResource Cb.Line2}" BorderThickness="0,0,0,1" Padding="10,6">
+                                                <DockPanel>
+                                                    <Button DockPanel.Dock="Right" Style="{StaticResource Cbs.Btn}" Height="22" Content="Show" Click="OnShowFailure"
+                                                            IsEnabled="{Binding CanShow}" Margin="8,0,0,0" AutomationProperties.Name="Show these elements in the view"/>
+                                                    <ContentControl DockPanel.Dock="Right" Style="{StaticResource Cbs.Src}" Content="{Binding Kind}" Tag="{Binding Tone}" Margin="8,0,0,0"/>
+                                                    <TextBlock Text="{Binding Text}" FontSize="11.5" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" ToolTip="{Binding Text}"/>
+                                                </DockPanel>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </Border>
+                        </StackPanel>
+                        <Border Background="{DynamicResource Cb.AS}" BorderBrush="{DynamicResource Cb.A}" BorderThickness="1" CornerRadius="3" Padding="10,7">
+                            <DockPanel>
+                                <Button DockPanel.Dock="Right" Style="{StaticResource Cbs.Btn}" Height="20" Content="Set real heights" IsEnabled="False"
+                                        ToolTip="{x:Static chk:BuildText.HeightsPending}" ToolTipService.ShowOnDisabled="True"/>
+                                <TextBlock Text="Heights · amber at best (plan only)" FontWeight="SemiBold" FontSize="11.5" Foreground="{DynamicResource Cb.AT}" VerticalAlignment="Center"/>
+                            </DockPanel>
+                        </Border>
+                    </StackPanel>
+                </DockPanel>
+            </DataTemplate>
+
+            <!-- ═══ AI-642 · 12 · Review, honest accept (W12). Accept waits for AI-636; Remove this run for AI-633 ═══ -->
+            <DataTemplate x:Key="Accept">
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Bottom">
+                        <Button Style="{StaticResource Cbs.Btn}" IsEnabled="False" HorizontalContentAlignment="Center" Background="Transparent"
+                                BorderBrush="{DynamicResource Cb.R}" Foreground="{DynamicResource Cb.RT}" Content="Remove this run…"/>
+                        <TextBlock Text="{x:Static chk:BuildText.RemovePending}" FontSize="11" Foreground="{DynamicResource Cb.Fg3}" TextAlignment="Center" TextWrapping="Wrap" Margin="0,6,0,0"/>
+                    </StackPanel>
+                    <StackPanel>
+                        <TextBlock Text="Accept" FontSize="16" FontWeight="Bold" Margin="0,0,0,9"/>
+                        <Border Style="{StaticResource Cbs.Card}" Margin="0,0,0,9">
+                            <ItemsControl ItemsSource="{Binding AcceptRows}" Focusable="False">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type chk:AcceptRow}">
+                                        <Border BorderBrush="{DynamicResource Cb.Line2}" BorderThickness="0,0,0,1" Padding="10,9">
+                                            <DockPanel>
+                                                <CheckBox DockPanel.Dock="Left" IsEnabled="False" Margin="0,2,9,0" VerticalAlignment="Top" AutomationProperties.Name="{Binding Bold}"/>
+                                                <StackPanel>
+                                                    <TextBlock Text="{Binding Bold}" FontWeight="SemiBold"/>
+                                                    <TextBlock Text="{Binding Note}" FontSize="11" Foreground="{DynamicResource Cb.Fg2}" TextWrapping="Wrap"/>
+                                                </StackPanel>
+                                            </DockPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </Border>
+                        <Button Style="{StaticResource Cbs.BtnP}" Height="32" Content="{x:Static chk:BuildText.AcceptPending}" IsEnabled="False" Margin="0,0,0,9"/>
+                        <TextBlock Style="{StaticResource Cbs.Dim}"><Run Text="{x:Static chk:BuildText.AcceptNote}"/><Run Text=" "/><Run Text="{Binding UndoLine, Mode=OneWay}"/></TextBlock>
+                        <Button Style="{StaticResource Cbs.Btn}" Content="Back" Click="OnBack" HorizontalAlignment="Left" Margin="0,9,0,0"/>
                     </StackPanel>
                 </DockPanel>
             </DataTemplate>
@@ -338,13 +531,12 @@
                     <TextBlock Text="{Binding ConsultantChip}" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center"/>
                 </Border>
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                    <Border Height="22" Padding="10,0" CornerRadius="11" Background="{DynamicResource Cb.Pri}">
-                        <TextBlock Text="1 Check" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource Cb.PriFg}" VerticalAlignment="Center"/>
-                    </Border>
-                    <TextBlock Text=" › " Foreground="{DynamicResource Cb.Fg3}" VerticalAlignment="Center" Margin="2,0"/>
-                    <TextBlock Text="2 Build" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource Cb.Fg3}" VerticalAlignment="Center" Margin="10,0"/>
-                    <TextBlock Text=" › " Foreground="{DynamicResource Cb.Fg3}" VerticalAlignment="Center"/>
-                    <TextBlock Text="3 Review" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource Cb.Fg3}" VerticalAlignment="Center" Margin="10,0"/>
+                    <!-- AI-642: done = green check, on = primary, off = dim (Phase from Screen) -->
+                    <Border Style="{StaticResource Step}" Tag="{Binding StepCheck}"><TextBlock Text="{Binding StepCheckText}" VerticalAlignment="Center"/></Border>
+                    <TextBlock Text="›" Foreground="{DynamicResource Cb.Fg3}" VerticalAlignment="Center" Margin="6,0"/>
+                    <Border Style="{StaticResource Step}" Tag="{Binding StepBuild}"><TextBlock Text="{Binding StepBuildText}" VerticalAlignment="Center"/></Border>
+                    <TextBlock Text="›" Foreground="{DynamicResource Cb.Fg3}" VerticalAlignment="Center" Margin="6,0"/>
+                    <Border Style="{StaticResource Step}" Tag="{Binding StepReview}"><TextBlock Text="3 Review" VerticalAlignment="Center"/></Border>
                 </StackPanel>
             </DockPanel>
         </Border>
@@ -371,6 +563,10 @@
                         <DataTrigger Binding="{Binding Screen}" Value="Gate2"><Setter Property="ContentTemplate" Value="{StaticResource Gate2}"/></DataTrigger>
                         <DataTrigger Binding="{Binding Screen}" Value="Questions"><Setter Property="ContentTemplate" Value="{StaticResource Questions}"/></DataTrigger>
                         <DataTrigger Binding="{Binding Screen}" Value="Rows"><Setter Property="ContentTemplate" Value="{StaticResource Rows}"/></DataTrigger>
+                        <DataTrigger Binding="{Binding Screen}" Value="Building"><Setter Property="ContentTemplate" Value="{StaticResource Building}"/></DataTrigger>
+                        <DataTrigger Binding="{Binding Screen}" Value="Built"><Setter Property="ContentTemplate" Value="{StaticResource Built}"/></DataTrigger>
+                        <DataTrigger Binding="{Binding Screen}" Value="Review"><Setter Property="ContentTemplate" Value="{StaticResource Review}"/></DataTrigger>
+                        <DataTrigger Binding="{Binding Screen}" Value="Accept"><Setter Property="ContentTemplate" Value="{StaticResource Accept}"/></DataTrigger>
                     </Style.Triggers>
                 </Style>
             </ContentControl.Style>

@@ -35,6 +35,7 @@ namespace RevitWebAppSync.UI.CadToBim.Check
         public event Action<string> Failed;
         public event Action Linked;
         public event Action<string> Notice;
+        public event Action<bool> RunPresent;
 
         /// <summary>Create in a valid API context (App.OnStartup builds the pane host).</summary>
         public RevitViewBridge()
@@ -255,6 +256,7 @@ namespace RevitWebAppSync.UI.CadToBim.Check
             app.DocumentSavingAs += (_, e) => BeforeSave(e.Document);
             app.DocumentSaved += (_, e) => AfterSave(e.Document);
             app.DocumentSavedAs += (_, e) => AfterSave(e.Document);
+            app.DocumentChanged += OnDocumentChanged;   // AI-642: undo / redo of a run
             app.DocumentOpened += (_, e) => { Document opened = e.Document; Queue(_ => CleanupAfterOpen(opened)); };   // runs when Revit is idle
             app.DocumentClosing += (_, e) =>
             {
@@ -263,6 +265,52 @@ namespace RevitWebAppSync.UI.CadToBim.Check
                 Log("preview: document closing with the link still in it; it is removed the next time the document opens");
                 _linkDoc = null; _link = ElementId.InvalidElementId; _last = default;
             };
+        }
+
+        // ── AI-642: the run's walls, watched so Build re-opens after Ctrl+Z ──
+        private HashSet<long> _watch = new HashSet<long>();
+        private readonly HashSet<long> _present = new HashSet<long>();
+        private Document _watchDoc;
+
+        /// <summary>Called on Revit's main thread (the build's Completed) or with null on a new open.</summary>
+        public void Watch(IEnumerable<long> elementIds)
+        {
+            _watch = new HashSet<long>(elementIds ?? Enumerable.Empty<long>());
+            _present.Clear();
+            _present.UnionWith(_watch);
+            _watchDoc = null;
+            if (_watch.Count > 0) Queue(app => _watchDoc = app.ActiveUIDocument?.Document);
+        }
+
+        private void OnDocumentChanged(object sender, DocumentChangedEventArgs e)
+        {
+            if (_watch.Count == 0) return;
+            try
+            {
+                Document doc = e.GetDocument();
+                if (_watchDoc != null && !doc.Equals(_watchDoc)) return;
+                bool before = _present.Count > 0;
+                foreach (ElementId id in e.GetDeletedElementIds()) _present.Remove(ElementIdCompat.ToLong(id));
+                foreach (ElementId id in e.GetAddedElementIds()) { long v = ElementIdCompat.ToLong(id); if (_watch.Contains(v)) _present.Add(v); }
+                bool now = _present.Count > 0;
+                if (before != now) RunPresent?.Invoke(now);
+            }
+            catch (Exception ex) { Log("run watch: " + ex.Message); }
+        }
+
+        public void Show(IEnumerable<long> elementIds)
+        {
+            var ids = (elementIds ?? Enumerable.Empty<long>()).Select(ElementIdCompat.ToElementId).ToList();
+            if (ids.Count == 0) return;
+            Queue(app => Guard(() =>
+            {
+                UIDocument ui = app.ActiveUIDocument;
+                if (ui == null) return;
+                var live = ids.Where(i => ui.Document.GetElement(i) != null).ToList();
+                if (live.Count == 0) { Notice?.Invoke("Those elements are no longer in the model"); return; }
+                ui.Selection.SetElementIds(live);
+                ui.ShowElements(live);
+            }, "showing elements"));
         }
 
         private bool Same(Document doc) => _linkDoc != null && _linkDoc.IsValidObject && doc != null && doc.Equals(_linkDoc);

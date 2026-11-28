@@ -74,6 +74,15 @@ namespace UiHarness
                 return;
             }
 
+            // AI-642: `UiHarness --shot-build <dir>` renders screens 8, 9, 10 (+dark) and 12 from the same snapshot.
+            if (e.Args.Length >= 1 && e.Args[0] == "--shot-build")
+            {
+                ShutdownMode = ShutdownMode.OnExplicitShutdown;
+                PrefsGuard.Keep(() => BuildShots.Capture(e.Args.Length >= 2 ? e.Args[1] : System.AppContext.BaseDirectory));
+                Shutdown();
+                return;
+            }
+
             // And for "Login to CDE": `UiHarness --shot-signin <dir>` walks the
             // sign-in window through every step against the stub backend
             // (refusal, the emailed-code step, a wrong code, resend, both ways

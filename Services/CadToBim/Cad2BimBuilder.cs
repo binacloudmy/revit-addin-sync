@@ -30,20 +30,10 @@ using RevitWall = Autodesk.Revit.DB.Wall;
 
 namespace RevitWebAppSync.Services.CadToBim
 {
-    public static class Cad2BimBuilder
+    public static partial class Cad2BimBuilder
     {
         /// <summary>Narrower than any real opening.</summary>
         private const double MinOpeningWidthMm = 300.0;
-
-        /// <summary>One plan cluster and where it goes: the shift that brings its corner to
-        /// the origin (zero in KeepPosition mode) and which storey it is.</summary>
-        private sealed class Placement
-        {
-            public PlanCluster Plan;
-            public double OriginX;
-            public double OriginY;
-            public int LevelIndex;
-        }
 
         public static BuildReport Build(UIApplication uiapp, BuildRequest req)
         {
@@ -93,7 +83,7 @@ namespace RevitWebAppSync.Services.CadToBim
                 List<Space> spaces = req.Spaces ?? new List<Space>();
 
                 // One undo step for the whole build, however many plans it holds.
-                group = new TransactionGroup(doc, "CAD to BIM");
+                group = new TransactionGroup(doc, GroupNameFor(req));
                 group.Start();
 
                 var createdIds = new Dictionary<CadWall, ElementId>();
@@ -106,7 +96,7 @@ namespace RevitWebAppSync.Services.CadToBim
                     using (var tx = new Transaction(doc, "CAD to BIM: walls"))
                     {
                         tx.Start();
-                        Silence(tx);
+                        Silence(tx, report.Failures);
 
                         level = LevelFor(doc, baseLevel, placement.LevelIndex, req.HeightMm);
                         if (level == null)
@@ -149,7 +139,7 @@ namespace RevitWebAppSync.Services.CadToBim
                     using (var tx = new Transaction(doc, "CAD to BIM: openings and rooms"))
                     {
                         tx.Start();
-                        Silence(tx);
+                        Silence(tx, report.Failures);
 
                         // A door needs the wall's geometry to exist before it can cut it.
                         doc.Regenerate();
@@ -183,6 +173,12 @@ namespace RevitWebAppSync.Services.CadToBim
                     if (present.Contains(pair.Value)) report.WallIds[pair.Key] = ElementIdCompat.ToLong(pair.Value);
 
                 report.Walls = report.WallIds.Count;
+
+                // AI-642: openings too - an error's default resolution may have deleted some.
+                report.DoorIds.RemoveAll(id => !(doc.GetElement(ElementIdCompat.ToElementId(id)) is FamilyInstance));
+                report.WindowIds.RemoveAll(id => !(doc.GetElement(ElementIdCompat.ToElementId(id)) is FamilyInstance));
+                report.Doors = report.DoorIds.Count;
+                report.Windows = report.WindowIds.Count;
 
                 if (isNew)
                 {
@@ -365,52 +361,6 @@ namespace RevitWebAppSync.Services.CadToBim
 
         // ─── clustering ──────────────────────────────────────────────────
 
-        /// <summary>
-        /// One storey per floor plan. Read literally the sheet is a single level 350 metres
-        /// across with every floor lying flat beside the others - a carpet, not a building.
-        /// Each plan gets its own level, and each is shifted so its own corner meets the
-        /// origin, which stacks them the way the building actually is.
-        ///
-        /// Two things a converted model gets used for, and they want opposite placement. To
-        /// keep as a model, each plan belongs at the origin on its own level. To check against
-        /// the drawing it came from, it has to land exactly on top of the linked CAD - same
-        /// coordinates, same layout, no stacking - or the two cannot be compared at all.
-        /// </summary>
-        private static List<Placement> ClusterAndPlace(BuildRequest req)
-        {
-            var placements = new List<Placement>();
-
-            // The full layout, not just this Confirm's pending subset - otherwise a second
-            // Confirm re-clusters from the pending walls' own bounding box and every appended
-            // wall lands shifted toward the model origin instead of where the first build put it.
-            List<CadWall> layout = req.LayoutWalls ?? req.Walls;
-
-            if (req.Storeys == StoreyMode.KeepPosition)
-            {
-                // One cluster covering everything, placed where the drawing has it.
-                var whole = new PlanCluster();
-                foreach (CadWall wall in layout) whole.Add(wall);
-                whole.MinX = 0;
-                whole.MinY = 0;
-                placements.Add(new Placement { Plan = whole, OriginX = 0, OriginY = 0, LevelIndex = 0 });
-                return placements;
-            }
-
-            List<PlanCluster> plans = CadClassifier.ClusterPlans(layout);
-            for (int i = 0; i < plans.Count; i++)
-            {
-                placements.Add(new Placement
-                {
-                    Plan = plans[i],
-                    OriginX = plans[i].MinX,
-                    OriginY = plans[i].MinY,
-                    LevelIndex = i,
-                });
-            }
-
-            return placements;
-        }
-
         /// <summary>The cluster a room belongs to: that of the first of its walls that is
         /// being built now. A room none of whose walls are pending was built last time.</summary>
         private static Placement OwnerOf(Space space, Dictionary<CadWall, Placement> owner)
@@ -427,10 +377,10 @@ namespace RevitWebAppSync.Services.CadToBim
         /// constantly. Each failed join raises a dialog, so a thousand walls becomes a
         /// thousand interruptions; the joins are not wanted anyway.
         /// </summary>
-        private static void Silence(Transaction tx)
+        private static void Silence(Transaction tx, FailureLog log)
         {
             FailureHandlingOptions options = tx.GetFailureHandlingOptions();
-            options.SetFailuresPreprocessor(new SilenceJoinFailures());
+            options.SetFailuresPreprocessor(new SilenceJoinFailures(log));
             options.SetClearAfterRollback(true);
             tx.SetFailureHandlingOptions(options);
         }
@@ -504,6 +454,7 @@ namespace RevitWebAppSync.Services.CadToBim
 
                     if (opening.IsDoor) report.Doors++;
                     else report.Windows++;
+                    (opening.IsDoor ? report.DoorIds : report.WindowIds).Add(ElementIdCompat.ToLong(placed.Id));
                 }
                 catch
                 {

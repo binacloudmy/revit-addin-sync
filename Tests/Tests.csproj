@@ -137,6 +137,10 @@
     <Compile Include="..\UI\CadToBim\Check\CheckState.cs" Link="CadToBim\Check\CheckState.cs" />
     <Compile Include="..\UI\CadToBim\Check\CheckRows.cs" Link="CadToBim\Check\CheckRows.cs" />
     <Compile Include="..\UI\CadToBim\Check\CheckViewModel.cs" Link="CadToBim\Check\CheckViewModel.cs" />
+    <!-- AI-642: the Build/Review half of the same state + view model, and the builder's Revit-free placement. -->
+    <Compile Include="..\UI\CadToBim\Check\Build\BuildState.cs" Link="CadToBim\Check\Build\BuildState.cs" />
+    <Compile Include="..\UI\CadToBim\Check\Build\CheckViewModel.Build.cs" Link="CadToBim\Check\Build\CheckViewModel.Build.cs" />
+    <Compile Include="..\Services\CadToBim\Cad2BimBuilder.Placement.cs" Link="CadToBim\Cad2BimBuilder.Placement.cs" />
   </ItemGroup>
 
   <ItemGroup>

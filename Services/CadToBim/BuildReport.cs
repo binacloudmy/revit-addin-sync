@@ -5,6 +5,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace RevitWebAppSync.Services.CadToBim
 {
@@ -35,6 +36,47 @@ namespace RevitWebAppSync.Services.CadToBim
         /// build created and that survived Assimilate(). Keyed by reference.</summary>
         public Dictionary<Cad2Bim.Wall, long> WallIds = new();
 
+        /// <summary>AI-642: door / window instances the build placed (ElementId values). Doors and
+        /// Windows above are recounted from these after Assimilate, like Walls from WallIds.</summary>
+        public List<long> DoorIds = new();
+        public List<long> WindowIds = new();
+
+        /// <summary>AI-642: every warning the failure handler deleted and every error it resolved.</summary>
+        public FailureLog Failures = new();
+
         public bool Ok => Error == null;
+    }
+
+    /// <summary>One kind of Revit failure from a build: same definition, same severity.</summary>
+    public sealed class FailureGroup
+    {
+        public Guid DefinitionId;
+        public string Text = "";
+        /// <summary>A join failure (JoinElements / AutoJoin / WallJoin definitions).</summary>
+        public bool Join;
+        /// <summary>An error Revit resolved with its default resolution (which may delete elements), not a warning.</summary>
+        public bool Error;
+        public int Count;
+        public List<long> ElementIds = new();
+    }
+
+    /// <summary>What SilenceJoinFailures removed from Revit's dialogs, grouped by FailureDefinitionId.
+    /// Revit-free so the grouping is unit-tested. AI-642: warnings go to Review, not to nowhere.</summary>
+    public sealed class FailureLog
+    {
+        public List<FailureGroup> Groups = new();
+
+        public void Add(Guid definitionId, string text, bool join, bool error, IEnumerable<long> elementIds)
+        {
+            FailureGroup g = Groups.Find(x => x.DefinitionId == definitionId && x.Error == error);
+            if (g == null) Groups.Add(g = new FailureGroup { DefinitionId = definitionId, Text = text ?? "", Join = join, Error = error });
+            g.Count++;
+            foreach (long id in elementIds ?? Array.Empty<long>()) if (!g.ElementIds.Contains(id)) g.ElementIds.Add(id);
+        }
+
+        public int JoinWarnings => Groups.Where(g => g.Join && !g.Error).Sum(g => g.Count);
+        public int OtherWarnings => Groups.Where(g => !g.Join && !g.Error).Sum(g => g.Count);
+        public int ResolvedErrors => Groups.Where(g => g.Error).Sum(g => g.Count);
+        public IEnumerable<long> ResolvedErrorIds => Groups.Where(g => g.Error).SelectMany(g => g.ElementIds).Distinct();
     }
 }

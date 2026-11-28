@@ -26,6 +26,11 @@ namespace RevitWebAppSync.UI.CadToBim.Check
         event Action<string> Notice;
         /// <summary>The main plan lies outside the view's crop; the value is the distance in metres.</summary>
         event Action<double> OutsideCrop;
+        /// <summary>AI-642: select and show these elements (Review's "From Revit" rows).</summary>
+        void Show(IEnumerable<long> elementIds);
+        /// <summary>AI-642: watch a run's walls (null/empty = stop). RunPresent(false) once none is left (undo), true when back (redo).</summary>
+        void Watch(IEnumerable<long> elementIds);
+        event Action<bool> RunPresent;
     }
 
     /// <summary>One question card as shown: its number, focus and the plan its crop comes from.</summary>
@@ -42,7 +47,7 @@ namespace RevitWebAppSync.UI.CadToBim.Check
         public string NumberText => Number.ToString(System.Globalization.CultureInfo.InvariantCulture);
     }
 
-    public sealed class CheckViewModel : ViewModelBase
+    public sealed partial class CheckViewModel : ViewModelBase
     {
         private readonly IRevitView _view;
         private readonly Func<string, SheetSnapshot> _read;
@@ -70,6 +75,7 @@ namespace RevitWebAppSync.UI.CadToBim.Check
                 _view.Linked += () => { State.Linked = true; State.PreviewError = null; Changed(); };
                 _view.Notice += message => { State.PreviewNotice = message; Changed(); };
                 _view.OutsideCrop += metres => { State.OutsideCropMetres = metres; Changed(); };
+                _view.RunPresent += OnRunPresent;
             }
             _shortcuts = shortcuts;
         }
@@ -126,6 +132,7 @@ namespace RevitWebAppSync.UI.CadToBim.Check
         public async Task OpenAsync(string path, TargetInfo target)
         {
             _view?.RemoveUnderlay();    // another file: the old preview link goes
+            _view?.Watch(null);         // and a new run may be built (AI-642: reopening ends the old run)
             _path = path;
             int seq = ++_openSeq;
             State = new CheckState { Screen = CheckScreen.Loading, Target = target ?? new TargetInfo() };
@@ -179,6 +186,10 @@ namespace RevitWebAppSync.UI.CadToBim.Check
                 case CheckScreen.Questions:
                     if (!CanContinue) return;
                     State.Screen = CheckScreen.Rows; break;
+                case CheckScreen.Built:
+                    if (!State.Built) return;
+                    State.Screen = CheckScreen.Review; break;
+                case CheckScreen.Review: State.Screen = CheckScreen.Accept; break;
                 default: return;
             }
             Changed(rows: true);
@@ -193,6 +204,9 @@ namespace RevitWebAppSync.UI.CadToBim.Check
                 CheckScreen.Gate2 => CheckScreen.Gate1,
                 CheckScreen.Questions => CheckScreen.Gate2,
                 CheckScreen.Rows => State.Questions.Count == 0 ? CheckScreen.Gate2 : CheckScreen.Questions,
+                CheckScreen.Built => CheckScreen.Rows,
+                CheckScreen.Review => CheckScreen.Built,
+                CheckScreen.Accept => CheckScreen.Review,
                 _ => State.Screen,
             };
             if (prev == State.Screen) return;
@@ -246,7 +260,12 @@ namespace RevitWebAppSync.UI.CadToBim.Check
             Changed();
         }
 
-        public void Build() { if (State.CanBuild) BuildRequested?.Invoke(State); }
+        public void Build()
+        {
+            if (!State.CanBuild) return;
+            BuildRequested?.Invoke(State);
+            StartBuild();   // AI-642
+        }
 
         /// <summary>Cancel / pane closed: drop the preview link.</summary>
         public void Close() => _view?.RemoveUnderlay();

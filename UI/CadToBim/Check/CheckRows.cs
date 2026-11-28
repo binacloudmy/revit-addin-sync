@@ -291,7 +291,7 @@ namespace RevitWebAppSync.UI.CadToBim.Check
             return left > 0 ? "Answer " + left + " more to continue" : "Continue";
         }
 
-        public static string StatusLine(CheckState s) => "CAD to BIM · Check · " + s.Screen switch
+        public static string StatusLine(CheckState s) => BuildText.Status(s) ?? "CAD to BIM · Check · " + s.Screen switch
         {
             CheckScreen.Loading => "reading",
             CheckScreen.Preflight => "reading done",

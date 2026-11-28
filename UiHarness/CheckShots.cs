@@ -46,7 +46,12 @@ namespace UiHarness
                 vm.ToggleRow(vm.Rows[0]);                                                 // W07: the layers row is open
             }
 
-            var pane = new CheckPane(vm);
+            Render(new CheckPane(vm), Path.Combine(dir, file), scale);
+        }
+
+        /// <summary>Show the pane at 520x906 off-screen, settle, and write it as a PNG at the given DPI scale (AI-642 reuses it).</summary>
+        internal static void Render(CheckPane pane, string path, double scale)
+        {
             var win = new Window
             {
                 Width = 520, Height = 906, Content = pane, WindowStyle = WindowStyle.None, ShowInTaskbar = false,
@@ -61,7 +66,7 @@ namespace UiHarness
             rtb.Render(pane);
             var enc = new PngBitmapEncoder();
             enc.Frames.Add(BitmapFrame.Create(rtb));
-            using (var fs = File.Create(Path.Combine(dir, file))) enc.Save(fs);
+            using (var fs = File.Create(path)) enc.Save(fs);
             win.Close();
         }
 

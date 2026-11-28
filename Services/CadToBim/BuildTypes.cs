@@ -70,5 +70,9 @@ namespace RevitWebAppSync.Services.CadToBim
 
         /// <summary>NewFile only. null = Application.DefaultProjectTemplate.</summary>
         public string TemplatePath { get; set; }
+
+        /// <summary>The undo step's name (the TransactionGroup). null = "CAD to BIM" (legacy). AI-642's
+        /// Check pane builds one level and names it "CAD to BIM: Level 1" (canvas screen 8).</summary>
+        public string GroupName { get; set; }
     }
 }

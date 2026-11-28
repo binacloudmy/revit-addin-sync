@@ -12,7 +12,7 @@ using RevitWebAppSync.Services.CadToBim;
 
 namespace RevitWebAppSync.UI.CadToBim.Check
 {
-    public enum CheckScreen { Empty, Loading, Error, Preflight, Consultant, Gate1, Gate2, Questions, Rows }
+    public enum CheckScreen { Empty, Loading, Error, Preflight, Consultant, Gate1, Gate2, Questions, Rows, Building, Built, Review, Accept }
 
     /// <summary>Source badge. Green: Project/DwgHeader/Drawing/TitleBlock. Amber: JkrDefault/AiGuess/DrawingSays. Red: Missing. Grey: Pending.</summary>
     public enum Src { Project, DwgHeader, Drawing, TitleBlock, JkrDefault, AiGuess, DrawingSays, Missing, Pending }
@@ -127,6 +127,7 @@ namespace RevitWebAppSync.UI.CadToBim.Check
             DwgPlanSheet sheet = DwgPlanReader.Read(document, settings);
             sheet.File = Path.GetFileName(path);
             SheetSnapshot snap = From(sheet, new FileInfo(path).Length);
+            snap.Source = sheet;
             snap.ModelSpaceEntities = document.Entities.Count();
             double k = sheet.UsedMmPerUnit;
             (snap.ExtMinX, snap.ExtMinY) = (document.Header.ModelSpaceExtMin.X * k, document.Header.ModelSpaceExtMin.Y * k);
@@ -139,11 +140,15 @@ namespace RevitWebAppSync.UI.CadToBim.Check
         public bool FrameMatches(double linkWidthFt) =>
             Extents is BoxMm e && e.Width > 0 && Math.Abs(linkWidthFt / (e.Width / 304.8) - 1) <= 0.01;
 
+        /// <summary>The reader's own output behind this snapshot (AI-642 builds from its walls). Null in fixtures.</summary>
+        [JsonIgnore] public DwgPlanSheet Source { get; set; }
+
         public string ToJson() => JsonConvert.SerializeObject(this, Formatting.Indented);
         public static SheetSnapshot FromJson(string json) => JsonConvert.DeserializeObject<SheetSnapshot>(json);
     }
 
-    public sealed class LevelInfo { public string Name; public double ElevationMm; }
+    public sealed class LevelInfo { public string Name; public double ElevationMm; /// <summary>ElementId value (0 in tests/harness).</summary>
+        public long Id; }
 
     /// <summary>The open Revit document, read in a valid API context (the ribbon command).</summary>
     public sealed class TargetInfo
@@ -196,7 +201,7 @@ namespace RevitWebAppSync.UI.CadToBim.Check
         public string PickedLevel => Mapped || IsMain ? TargetLevel : null;
     }
 
-    public sealed class CheckState
+    public sealed partial class CheckState
     {
         public CheckScreen Screen { get; set; } = CheckScreen.Empty;
         public string Error { get; set; }
@@ -226,7 +231,7 @@ namespace RevitWebAppSync.UI.CadToBim.Check
         public int Doors => BuiltPlans.Sum(p => p.Plan.Doors);
         public int NotBuilt => Plans.Count(p => !p.Built);
         public int Answered => Questions.Count(q => q.Answer != null);
-        public bool CanBuild => Gate1 == GateState.Passed && Gate2 == GateState.Passed && Answered == Questions.Count;
+        public bool CanBuild => Gate1 == GateState.Passed && Gate2 == GateState.Passed && Answered == Questions.Count && BuildBlock == null;
 
         /// <summary>What passed on an assumption (amber), for Review's named-assumptions list (AI-642). Derived, never stored.</summary>
         public List<string> Assumptions

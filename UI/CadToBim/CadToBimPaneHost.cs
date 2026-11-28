@@ -34,6 +34,9 @@ namespace RevitWebAppSync.UI.CadToBim
                     body = CheckPane = new Check.CheckPane(new Check.CheckViewModel(
                         path => Check.SheetSnapshot.Read(path, settings),
                         new Check.RevitViewBridge(), shortcuts, settings.WallHeightMm));   // built in OnStartup: ExternalEvent.Create is legal here
+                    // AI-642: Build goes through the same handler + ExternalEvent the legacy panel uses (only one pane mode is live)
+                    CheckPane.ViewModel.UseBuilder(App.CadToBimBuildHandler, new RevitWebAppSync.Services.CadToBim.ExternalEventRaiser(App.CadToBimBuildEvent));
+                    CheckPane.ViewModel.RunFinished += LogRun;
                 }
                 else body = _panel = new CadToBimPanel();
                 this.Content = UpdateGateOverlay.Wrap(new Frame
@@ -71,6 +74,20 @@ namespace RevitWebAppSync.UI.CadToBim
                     Margin = new System.Windows.Thickness(10)
                 };
             }
+        }
+
+        /// <summary>AI-642: the last check-mode run's counts and Revit failures, as JSON beside cad-to-bim.log
+        /// (counts and failure groups with their element ids). Copied into Tests/data/cad2bim/aswara-run.real.json by hand.</summary>
+        private static void LogRun(RevitWebAppSync.Services.CadToBim.BuildReport r)
+        {
+            try
+            {
+                string dir = System.IO.Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.LocalApplicationData), "Bina", "RevitSync", "logs");
+                System.IO.Directory.CreateDirectory(dir);
+                var dto = new { r.Walls, r.Doors, r.Windows, r.Rooms, r.SkippedWalls, r.SkippedOpenings, r.SkippedRooms, r.Error, Elapsed = r.Elapsed.TotalSeconds, Failures = r.Failures.Groups };
+                System.IO.File.WriteAllText(System.IO.Path.Combine(dir, "cad-to-bim-last-run.json"), Newtonsoft.Json.JsonConvert.SerializeObject(dto, Newtonsoft.Json.Formatting.Indented));
+            }
+            catch { /* a log must never break the pane */ }
         }
 
         /// <summary>Null when construction failed (the pane then shows the error text), or in check mode.</summary>

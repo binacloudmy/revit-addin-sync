@@ -114,7 +114,7 @@ namespace RevitWebAppSync.Commands
             var target = new UI.CadToBim.Check.TargetInfo { DocTitle = doc?.Title, Workshared = doc?.IsWorkshared ?? false };
             if (doc != null && !doc.IsFamilyDocument)
                 foreach (Level level in new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>())
-                    target.Levels.Add(new UI.CadToBim.Check.LevelInfo { Name = level.Name, ElevationMm = level.Elevation * 304.8 });
+                    target.Levels.Add(new UI.CadToBim.Check.LevelInfo { Name = level.Name, ElevationMm = level.Elevation * 304.8, Id = RevitWebAppSync.Services.CadToBim.ElementIdCompat.ToLong(level.Id) });
 
             _ = host.CheckPane.ViewModel.OpenAsync(path, target);   // the view model shows read failures itself
             return Result.Succeeded;
