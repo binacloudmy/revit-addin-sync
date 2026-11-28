@@ -21,12 +21,30 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         /// owns the "don't overwrite existing user text" rule).</summary>
         public event Action<string> PromptChosen;
 
+        /// <summary>Raised when a saved command's Run is tapped; the panel
+        /// switches to Chat and runs it.</summary>
+        public event Action<SlashTool> CommandRun;
+
+        /// <summary>Raised when a saved command's trash button is tapped; the panel confirms, deletes, then calls <see cref="RefreshSaved"/>.</summary>
+        public event Action<SlashTool> CommandDeleteRequested;
+
         public LibraryView()
         {
             InitializeComponent();
-            Loaded += async (_, __) => await BuildAsync();
+            Loaded += async (_, __) => { BuildSaved(); await BuildAsync(); };
             Unloaded += (_, __) => _cts?.Cancel();
         }
+
+        // Saved commands live in ToolCatalog (merged from the catalog fetch), so
+        // rebuild on every visit rather than caching like the prompt library.
+        private void BuildSaved()
+        {
+            SavedHost.Children.Clear();
+            SavedHost.Children.Add(HomeParts.SavedCommandsSection(t => CommandRun?.Invoke(t), t => CommandDeleteRequested?.Invoke(t)));
+        }
+
+        /// <summary>Redraw the saved-commands list (after a delete).</summary>
+        public void RefreshSaved() => BuildSaved();
 
         private bool _loading;
         private System.Threading.CancellationTokenSource _cts;
@@ -38,6 +56,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             if (ListHost.Children.Count > 0 && CopilotPromptLibrary.Cached != null) return;
 
             var sections = CopilotPromptLibrary.Cached;
+            LibraryLoad failure = null;   // r23 (AI-459): why it did not load, said on the tab
             if (sections == null)
             {
                 _loading = true;
@@ -49,10 +68,10 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 try
                 {
                     var fetched = await new RevitWebAppSync.Services.AIService()
-                        .GetPromptLibraryAsync(BinaConfig.Load().AccessToken, token);
-                    if (token.IsCancellationRequested) return;  // pane closed mid-fetch
-                    if (fetched != null && fetched.Count > 0)
-                        CopilotPromptLibrary.Cached = sections = fetched;
+                        .FetchPromptLibraryAsync(BinaConfig.Load().AccessToken, token);
+                    if (token.IsCancellationRequested || fetched == null) return;  // pane closed mid-fetch
+                    if (fetched.Ok) CopilotPromptLibrary.Cached = sections = fetched.Sections;
+                    else failure = fetched;
                 }
                 finally { _loading = false; }
             }
@@ -60,10 +79,15 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             ListHost.Children.Clear();
             if (sections == null)
             {
-                // Backend unreachable or not signed in. Re-fetch on next tab
-                // visit (Loaded fires again) — no local fallback by design.
-                ListHost.Children.Add(Note(
-                    "Couldn't load the prompt library. Check your connection and sign-in, then reopen this tab."));
+                // r23 (AI-459): the cause in plain words, and Retry (a later visit of the tab fetches again too). No local fallback by design.
+                ListHost.Children.Add(Note(LibraryLoad.Message(failure ?? new LibraryLoad { Failure = LibraryFailure.Unreachable })));
+                if (failure == null || failure.Failure != LibraryFailure.Empty)
+                {
+                    var retry = Controls.CardKit.Secondary("Retry", () => { _ = BuildAsync(); }, null, compact: true);
+                    retry.HorizontalAlignment = HorizontalAlignment.Left;
+                    retry.Margin = new Thickness(6, 4, 0, 0);
+                    ListHost.Children.Add(retry);
+                }
                 return;
             }
 

@@ -1,0 +1,900 @@
+[
+  {
+    "name": "model_overview",
+    "kind": "read",
+    "description": "Summary of the open Revit model. Pick only the sections you need: levels, grids, rooms, types, views, sheets, links, worksets, warnings, project. Long lists are cut with a note saying how many more exist and how to narrow. Use this before guessing any level, type, view or link name.",
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sections"
+      ],
+      "properties": {
+        "sections": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": [
+              "levels",
+              "grids",
+              "rooms",
+              "types",
+              "views",
+              "sheets",
+              "links",
+              "worksets",
+              "warnings",
+              "project"
+            ]
+          }
+        },
+        "category": {
+          "type": "string",
+          "description": "Narrow long sections to one category, e.g. Doors."
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200,
+          "default": 50,
+          "description": "Rows per section."
+        }
+      }
+    }
+  },
+  {
+    "name": "find_elements",
+    "kind": "read",
+    "description": "Find elements in the host model or links. Give 1–5 queries; each can combine free text (matches name, type, mark, room, comments; Malay and English words work) with category, level, type, room, a parameter condition or in_view. Returns exact counts, up to 50 rows, a handle for reuse, and what was and was not searched. group_by counts per level/type/category/room/parameter; with sum:<parameter> it also totals a number (area, length) per group. highlight:true selects the results in Revit in the same call; zoom:true also zooms. Never say 'none' without the searched scope from the result.",
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "queries"
+      ],
+      "properties": {
+        "queries": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 5,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "text": {
+                "type": "string",
+                "description": "Free text: name, type, mark, room or comments; Malay or English."
+              },
+              "category": {
+                "type": "string",
+                "description": "Revit category, e.g. Doors."
+              },
+              "level": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "description": "Family type name."
+              },
+              "room": {
+                "type": "string"
+              },
+              "parameter": {
+                "type": "object",
+                "description": "Needs a category or a handle. A Mark or Comments value with no category: one query with the value as text and no category (one call over 39 common categories; 0 is none in the scope it reports); if found, filter that handle with this parameter before highlight or write.",
+                "additionalProperties": false,
+                "required": [
+                  "name",
+                  "op"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "op": {
+                    "type": "string",
+                    "enum": [
+                      "eq",
+                      "ne",
+                      "contains",
+                      "empty",
+                      "not_empty",
+                      "gt",
+                      "ge",
+                      "lt",
+                      "le"
+                    ]
+                  },
+                  "value": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "boolean"
+                      }
+                    ],
+                    "description": "Not used with empty or not_empty. Give the unit, e.g. '2700 mm'."
+                  }
+                }
+              },
+              "in_view": {
+                "type": "boolean",
+                "description": "Only elements visible in the active view."
+              },
+              "source": {
+                "type": "string",
+                "pattern": "^(host|all|link:.+)$",
+                "default": "host",
+                "description": "host, all, or link:<link name>."
+              }
+            }
+          }
+        },
+        "group_by": {
+          "anyOf": [
+            { "type": "string", "pattern": "^(level|type|category|room|param:.+)$" },
+            {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 2,
+              "items": { "type": "string", "pattern": "^(level|type|category|room|param:.+)$" }
+            }
+          ],
+          "description": "level, type, category, room or param:<parameter name>; or two of them, e.g. [\"level\", \"type\"]. A type group of family instances (doors, windows, furniture) is keyed \"Family: Type\", so same-named types of different families stay apart; system types (walls, floors, ceilings) keep the bare type name."
+        },
+        "sum": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Needs group_by. One numeric parameter to total per group, e.g. Area, Length or Volume. Each group then carries sum (display units) and without_value (elements with no value)."
+        },
+        "handle": {
+          "type": "string",
+          "description": "Search only within the elements of an earlier handle."
+        },
+        "highlight": {
+          "type": "boolean",
+          "default": false
+        },
+        "zoom": {
+          "type": "boolean",
+          "default": false
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50,
+          "default": 50
+        }
+      }
+    }
+  },
+  {
+    "name": "inspect",
+    "kind": "read",
+    "description": "Read parameters of elements (by ids, a handle or the current selection) in display units, with storage type and read-only flags; include_type adds type parameters. schedule reads a schedule's rows by name. explain_visibility says exactly why the elements are not visible in a view (view range, filters, template, workset, phase, design option, crop, hidden category or element) and how to fix each reason.",
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "target": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "description": "Give one of ids, handle or selection:true. Give target or schedule (at least one).",
+          "properties": {
+            "ids": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "integer"
+              },
+              "description": "Element ids."
+            },
+            "handle": {
+              "type": "string"
+            },
+            "selection": {
+              "type": "boolean"
+            }
+          }
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Parameter names to read; omit for all."
+        },
+        "include_type": {
+          "type": "boolean",
+          "default": false
+        },
+        "schedule": {
+          "type": "string",
+          "description": "Name of a schedule to read rows from. Give target or schedule (at least one)."
+        },
+        "explain_visibility": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "view": {
+              "type": "string",
+              "description": "View name; omit for the active view."
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "name": "check",
+    "kind": "read",
+    "description": "Run a standards rule set against the model: JKR naming/parameters/LOD, model health, UBBL or MS 1184 basics, BOMBA basics, documentation hygiene, grid and level alignment with links. Pick the rule_set from its list. Returns per-rule pass / fail / not_verified counts with the cited clause and a handle per failing group. not_verified means the check could not see the data (for example an unloaded link): report it and never treat it as a pass. check never changes the model.",
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rule_set"
+      ],
+      "properties": {
+        "rule_set": {
+          "type": "string",
+          "enum": ["jkr-naming", "jkr-lod300-params", "model-health", "ubbl-basics", "ms1184-basics", "bomba-basics", "doc-hygiene", "link-alignment"],
+          "description": "Rule set id; lookup(kind:'rules') describes each."
+        },
+        "scope": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "level": {
+              "type": "string"
+            },
+            "category": {
+              "type": "string"
+            },
+            "link": {
+              "type": "string",
+              "description": "Link name."
+            },
+            "selection": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "name": "set_parameters",
+    "kind": "write",
+    "description": "Set one parameter on many elements: target by filter, handle or ids, or give from_table (an attached table with element ids or a match field and values). Use it for every parameter value; for a type parameter set type_param and target its instances. Give the value with its unit: '2700 mm', '10 W', '0.04 A', '230 V'. Several parameters: send all the calls in one message, so they apply as one change. The change applies at once and the drafter can undo it; you get the committed result with read-back. A type parameter changes every instance of that type: say so.",
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "param"
+      ],
+      "properties": {
+        "target": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "description": "Give one of filter, handle or ids. Omit when using from_table.",
+          "properties": {
+            "filter": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "text": {
+                  "type": "string",
+                  "description": "Free text: name, type, mark, room or comments; Malay or English."
+                },
+                "category": {
+                  "type": "string",
+                  "description": "Revit category, e.g. Doors."
+                },
+                "level": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string",
+                  "description": "Family type name."
+                },
+                "room": {
+                  "type": "string"
+                },
+                "parameter": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "name",
+                    "op"
+                  ],
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "op": {
+                      "type": "string",
+                      "enum": [
+                        "eq",
+                        "ne",
+                        "contains",
+                        "empty",
+                        "not_empty",
+                        "gt",
+                        "lt"
+                      ]
+                    },
+                    "value": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "boolean"
+                        }
+                      ],
+                      "description": "Not used with empty or not_empty. Give the unit, e.g. '2700 mm'."
+                    }
+                  }
+                },
+                "in_view": {
+                  "type": "boolean",
+                  "description": "Only elements visible in the active view."
+                }
+              },
+              "description": "A find_elements query; writes apply to the host model only."
+            },
+            "handle": {
+              "type": "string"
+            },
+            "ids": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "integer"
+              },
+              "description": "Element ids."
+            }
+          }
+        },
+        "from_table": {
+          "type": "string",
+          "description": "Name of an attached table; use instead of target and value."
+        },
+        "param": {
+          "type": "string",
+          "description": "Parameter name."
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            }
+          ],
+          "description": "With its unit when it has one, e.g. '2700 mm'."
+        },
+        "type_param": {
+          "type": "boolean",
+          "default": false,
+          "description": "true for a type parameter."
+        },
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "description": "Where this value came from. prompt: the drafter wrote it; document: printed in an attached document (give attachment, and page when you know it); excel: a cell of an attached table (attachment and row); rule: a rule set or playbook; calculated: your own choice or derivation. Leave it out when unsure: the server checks it against the drafter's message and attachments.",
+          "properties": {
+            "kind": { "enum": ["document", "prompt", "rule", "calculated", "excel"] },
+            "attachment": { "type": "string", "description": "The attachment's name." },
+            "page": { "type": "integer", "minimum": 1, "description": "1-based page of a document." },
+            "row": { "type": "integer", "minimum": 1, "description": "1-based row of a table, not counting the header." },
+            "quote": { "type": "string", "maxLength": 300, "description": "The text the value was taken from, verbatim." }
+          }
+        }
+      }
+    }
+  },
+  {
+    "name": "look",
+    "kind": "read",
+    "description": "Get an image of the model to orient yourself: the active view, a named view, or a 3D view around elements (by handle or ids). mode 'multi' returns plan, 3D and elevation side by side. The drafter sees the same image. Use it to check placement and layout, never to count or measure: use find_elements and inspect for numbers.",
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target"
+      ],
+      "properties": {
+        "target": {
+          "type": "string",
+          "enum": [
+            "active_view",
+            "view",
+            "elements"
+          ]
+        },
+        "view": {
+          "type": "string",
+          "description": "View name, with target view."
+        },
+        "handle": {
+          "type": "string",
+          "description": "With target elements."
+        },
+        "ids": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "integer"
+          },
+          "description": "With target elements."
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "single",
+            "multi"
+          ],
+          "default": "single"
+        }
+      }
+    }
+  },
+  {
+    "name": "run_revit_code",
+    "kind": "code",
+    "description": "Run C# against the Revit API for jobs no other tool covers (sheets, views, tags, dimensions, renumbering, filters, elevations, modelling). Never set parameter values here: use set_parameters (raw numbers here land in internal units). Write method-body statements only; you get doc, uidoc, view and Print(obj). Do not open transactions: the host does. Allowed: Autodesk.Revit.DB and basic System types; no files, network, saving or dialogs. Changes apply at once and the drafter can undo them. Errors come back with line numbers: fix and retry. A runnable playbook: give playbook and inputs, not code.",
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "intent"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "description": "C# method-body statements."
+        },
+        "playbook": {
+          "type": "string",
+          "description": "A runnable playbook's name."
+        },
+        "inputs": {
+          "type": "object",
+          "description": "That playbook's inputs by name."
+        },
+        "intent": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "One line shown to the drafter."
+        },
+        "expected": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "How many elements you expect the code to add, modify and delete. Prefer the by-category counts: elements Revit creates along with them (viewports, title blocks, sun paths, centre lines) are only compared when you name their category.",
+          "properties": {
+            "adds": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "modifies": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "deletes": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "adds_by_category": {
+              "type": "object",
+              "description": "Revit category name to count, e.g. {\"Sheets\": 9, \"Viewports\": 9}.",
+              "additionalProperties": { "type": "integer", "minimum": 0 }
+            },
+            "deletes_by_category": {
+              "type": "object",
+              "description": "Revit category name to count.",
+              "additionalProperties": { "type": "integer", "minimum": 0 }
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "name": "lookup",
+    "kind": "server",
+    "description": "Look things up instead of guessing. knowledge: JKR spec, JKR parameter rules, naming segments, Revit API members and fixes for Revit warnings, with citations. playbook: a step-by-step procedure with known traps for a job in the playbook list. rules: rule set ids for check. Meanings of JKR codes, parameters and naming must come from here, never from memory.",
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "What to look up. Give query or id."
+        },
+        "id": {
+          "type": "string",
+          "description": "Exact entry, playbook or rule set id."
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "knowledge",
+            "playbook",
+            "rules"
+          ],
+          "default": "auto"
+        }
+      }
+    }
+  },
+  {
+    "name": "ask_user",
+    "kind": "pane",
+    "description": "Ask the drafter one question when something you need is missing or ambiguous: give 2–6 options with real names from tool results (for example the level names), or a small form with fields. Set multi: true when several may apply (tag kinds, levels, fields, categories, types). purpose 'project_note' proposes saving a project fact the drafter stated; it is saved only if they confirm. Never use this to ask permission for a change: changes apply at once and can be undone.",
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "question"
+      ],
+      "properties": {
+        "question": {
+          "type": "string"
+        },
+        "options": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 6,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "label"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "fields": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "label",
+              "type"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "text",
+                  "number",
+                  "choice"
+                ]
+              },
+              "unit": {
+                "type": "string"
+              },
+              "choices": {
+                "type": "array",
+                "minItems": 2,
+                "description": "Required with type choice.",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "id",
+                    "label"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            },
+            "if": {
+              "required": [
+                "type"
+              ],
+              "properties": {
+                "type": {
+                  "const": "choice"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "choices"
+              ]
+            }
+          }
+        },
+        "multi": {
+          "type": "boolean",
+          "default": false
+        },
+        "purpose": {
+          "type": "string",
+          "enum": [
+            "clarify",
+            "project_note"
+          ],
+          "default": "clarify"
+        },
+        "note_text": {
+          "type": "string",
+          "description": "The project fact to save, with purpose project_note."
+        }
+      }
+    }
+  },
+  {
+    "name": "report",
+    "kind": "server",
+    "description": "Finish the turn after you changed values, ran a check or highlighted: call it once, alone, as the last step. reply: one sentence with the key numbers; the server checks them against Revit's results and uses its own sentence if one is wrong. checks: what the drafter must still look at. sources: where each value you wrote came from. Not for questions, how-to answers or ask_user.",
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reply"
+      ],
+      "properties": {
+        "reply": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300,
+          "description": "One sentence in the drafter's language, with the key numbers."
+        },
+        "checks": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "severity",
+              "text"
+            ],
+            "properties": {
+              "severity": {
+                "enum": [
+                  "error",
+                  "warning",
+                  "info"
+                ]
+              },
+              "text": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 300,
+                "description": "One thing to look at, with its numbers."
+              },
+              "actions": {
+                "type": "array",
+                "maxItems": 4,
+                "description": "Buttons for this check. Ids only from tool results.",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "label",
+                    "kind"
+                  ],
+                  "properties": {
+                    "label": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 60
+                    },
+                    "kind": {
+                      "enum": [
+                        "set_parameters",
+                        "prompt",
+                        "dismiss"
+                      ],
+                      "description": "set_parameters: args as the tool's. prompt: args {text} sent as the drafter's next message. dismiss: no args."
+                    },
+                    "args": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "items": {
+          "type": "array",
+          "maxItems": 200,
+          "description": "Rows of what you made or found (sheets, views, tags, table rows). Only numbers and ids a tool result showed.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "title"
+            ],
+            "properties": {
+              "kind": {
+                "enum": [
+                  "sheet",
+                  "view",
+                  "tag",
+                  "row",
+                  "element"
+                ]
+              },
+              "group": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "count": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "ids": {
+                "type": "array",
+                "maxItems": 500,
+                "items": {
+                  "type": "integer"
+                },
+                "description": "One id for a sheet or view item (a view is its own item); the tags or elements otherwise."
+              },
+              "cells": {
+                "type": "object",
+                "maxProperties": 8,
+                "additionalProperties": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80
+                },
+                "description": "Short facts, e.g. scale 1:100, fill 72%."
+              }
+            }
+          }
+        },
+        "mapping": {
+          "type": "array",
+          "maxItems": 20,
+          "description": "Excel column to parameter matches you used.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "col",
+              "param"
+            ],
+            "properties": {
+              "col": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "param": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              }
+            }
+          }
+        },
+        "next": {
+          "type": "array",
+          "maxItems": 3,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 60
+          },
+          "description": "Up to 3 short next steps for the drafter."
+        },
+        "sources": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "param",
+              "value",
+              "source"
+            ],
+            "properties": {
+              "param": {
+                "type": "string",
+                "description": "The parameter you wrote."
+              },
+              "value": {
+                "type": "string",
+                "description": "The value as written, with its unit."
+              },
+              "source": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind"
+                ],
+                "description": "Where this value came from, the same kinds as set_parameters' source. Leave it out when unsure: the server checks it against the drafter's message and attachments.",
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "document",
+                      "prompt",
+                      "rule",
+                      "calculated",
+                      "excel"
+                    ]
+                  },
+                  "attachment": {
+                    "type": "string",
+                    "description": "The attachment's name."
+                  },
+                  "page": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "1-based page of a document."
+                  },
+                  "row": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "1-based row of a table, not counting the header."
+                  },
+                  "quote": {
+                    "type": "string",
+                    "maxLength": 300,
+                    "description": "The text the value was taken from, verbatim."
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+]

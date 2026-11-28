@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows.Media;
@@ -64,7 +65,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
         {
             // ── Actions: generic verb commands ──
             new SlashTool { Id="create",    Category="Actions", Name="Create",             Subtitle="Create elements from description",              Badge=ToolBadge.AiAssisted,    IconKey="ti-plus",            Keywords="create make add new build buat bina tambah letak" },
-            new SlashTool { Id="delete",    Category="Actions", Name="Delete",             Subtitle="Delete by selection / filter — preview first",  Badge=ToolBadge.Deterministic, IconKey="ti-trash",           Keywords="delete remove erase clear padam buang hapus" },
+            new SlashTool { Id="delete",    Category="Actions", Name="Delete",             Subtitle="Delete by selection / filter; one Undo restores",Badge=ToolBadge.Deterministic, IconKey="ti-trash",           Keywords="delete remove erase clear padam buang hapus" },
             new SlashTool { Id="change",    Category="Actions", Name="Change",             Subtitle="Swap type / material / parameter",              Badge=ToolBadge.Deterministic, IconKey="ti-exchange",        Keywords="change swap replace type material parameter tukar ganti" },
             new SlashTool { Id="rename",    Category="Actions", Name="Rename",             Subtitle="Bulk rename by pattern",                        Badge=ToolBadge.Deterministic, IconKey="ti-pencil",          Keywords="rename name pattern batch namakan nama semula" },
             new SlashTool { Id="open-view", Category="Actions", Name="Open View",          Subtitle="Open view / sheet by name",                     Badge=ToolBadge.Deterministic, IconKey="ti-eye",             Keywords="open view sheet goto jump navigate buka papar", Local=true },
@@ -72,7 +73,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
             // ── Task tools from the same mining round ──
             new SlashTool { Id="clone",     Category="General", Name="Clone Sheet",        Subtitle="Duplicate template sheet per room / level",     Badge=ToolBadge.Deterministic, IconKey="ti-copy",            Keywords="clone duplicate sheet template copy salin" },
             new SlashTool { Id="place",     Category="General", Name="Place at Selection", Subtitle="Place family relative to selection",            Badge=ToolBadge.AiAssisted,    IconKey="ti-map-pin",         Keywords="place put position spacing selection letak jarak bawah tepi" },
-            new SlashTool { Id="audit",     Category="General", Name="Name Audit",         Subtitle="JKR name audit → fix via /rename",              Badge=ToolBadge.Report,        IconKey="ti-clipboard-check", Keywords="audit naming standard jkr compliance check semak nama" },
+            new SlashTool { Id="audit",     Category="General", Name="Name Audit",         Subtitle="JKR name audit, then fix with /rename",         Badge=ToolBadge.Report,        IconKey="ti-clipboard-check", Keywords="audit naming standard jkr compliance check semak nama" },
         };
 
         // addin-local Id → bina-ai P1 command id (app/commands/*.md).
@@ -93,9 +94,58 @@ namespace RevitWebAppSync.UI.Copilot.Model
         {
             foreach (var t in Curated)
                 t.CommandId = _backendIds.TryGetValue(t.Id, out var bid) ? bid : t.Id;
+            _curated = new List<SlashTool>(Curated);
             _all = new List<SlashTool>(Curated);
             _byId = Curated.ToDictionary(t => t.Id);
         }
+
+        // ── Curated tier from the backend's catalogue (r17) ─────────────────
+        private static List<SlashTool> _curated;
+
+        /// <summary>The curated commands now in the menu: the backend's catalogue when it loaded, else the built-in list.</summary>
+        public static IReadOnlyList<SlashTool> CuratedNow => _curated;
+
+        /// <summary>The curated tier from GET /revit-copilot/commands (r17): one tool per live non-"mine" row, keeping the built-in id, category
+        /// and badge where the row is a known command (quick-create is "create"), the built-in local commands (open-view) always; null or no
+        /// live row keeps the built-in list (the fall back when the fetch fails).</summary>
+        public static IReadOnlyList<SlashTool> CuratedFrom(IEnumerable<Models.CatalogCommandDto> rows)
+        {
+            var live = (rows ?? Enumerable.Empty<Models.CatalogCommandDto>())
+                .Where(r => r != null && !string.IsNullOrWhiteSpace(r.Id) && r.Group != "mine" && (r.Status ?? "live") == "live").ToList();
+            if (live.Count == 0) return Curated;
+            var local = _backendIds.ToDictionary(kv => kv.Value, kv => kv.Key);
+            var builtIn = Curated.ToDictionary(t => t.Id);
+            var tools = new List<SlashTool>();
+            foreach (var r in live)
+            {
+                var id = local.TryGetValue(r.Id, out var l) ? l : r.Id;
+                builtIn.TryGetValue(id, out var known);
+                tools.Add(new SlashTool
+                {
+                    Id = id, CommandId = r.Id,
+                    Name = string.IsNullOrWhiteSpace(r.NameEn) ? known?.Name ?? r.Id : r.NameEn,
+                    Subtitle = string.IsNullOrWhiteSpace(r.DescriptionEn) ? known?.Subtitle ?? "" : r.DescriptionEn,
+                    Category = known?.Category ?? "General",
+                    Badge = known?.Badge ?? (r.Engine == "report" ? ToolBadge.Report : r.Engine == "deterministic" ? ToolBadge.Deterministic : ToolBadge.AiAssisted),
+                    IconKey = string.IsNullOrWhiteSpace(r.Icon) ? known?.IconKey ?? "ti-command" : r.Icon,
+                    Keywords = known?.Keywords ?? string.Join(" ", r.Keywords ?? new List<string>()),
+                });
+            }
+            foreach (var t in Curated.Where(t => t.Local && tools.All(x => x.Id != t.Id))) tools.Insert(Math.Min(4, tools.Count), t);
+            return tools;
+        }
+
+        /// <summary>Put the backend's curated tier in the menu (or the built-in list back when <paramref name="rows"/> is null or empty).</summary>
+        public static void MergeCurated(IEnumerable<Models.CatalogCommandDto> rows)
+        {
+            _curated = CuratedFrom(rows).ToList();
+            Rebuild();
+        }
+
+        /// <summary>The command id a chosen tool sends with its turn (r17): the backend's id for a curated command; null for a local command
+        /// (handled in the add-in) and for a command saved on this PC (its own template is the prompt).</summary>
+        public static string WireCommandId(SlashTool tool) =>
+            tool == null || tool.Local || tool.Editable || tool.Category == "Mine" ? null : tool.BackendId;
 
         // ── User tier (Mine) — merged from GET /revit-copilot/commands ──────
         private static List<SlashTool> _mine = new List<SlashTool>();
@@ -111,11 +161,20 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public static void MergeRemote(IEnumerable<SlashTool> mine)
         {
             _mine = (mine ?? Enumerable.Empty<SlashTool>()).Where(t => t != null).ToList();
-            _all = _mine.Concat(Curated).ToList();
+            Rebuild();
+        }
+
+        private static void Rebuild()
+        {
+            _all = _mine.Concat(_curated ?? (IEnumerable<SlashTool>)Curated).ToList();
             var map = new Dictionary<string, SlashTool>();
             foreach (var t in _all) map[t.Id] = t;
             _byId = map;
         }
+
+        /// <summary>Replace the user tier with the commands saved on this PC (LocalCommandStore). Same merge as the remote
+        /// tier used; curated entries are never touched.</summary>
+        public static void MergeMine(IEnumerable<SlashTool> mine) => MergeRemote(mine);
 
         /// <summary>Catalog row → Mine SlashTool; null for curated groups (the
         /// hardcoded list stays authoritative for those) and disabled rows.</summary>

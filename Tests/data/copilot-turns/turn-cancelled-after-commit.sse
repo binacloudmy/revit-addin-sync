@@ -1,0 +1,9 @@
+event: progress
+data: {"seq":1,"kind":"running","text":"Preparing the change"}
+
+event: tool_request
+data: {"seq":2,"request_id":"req_w","kind":"write","calls":[{"call_id":"call_w","idempotency_key":"t:call_w","tool":"set_parameters","args":{"target":{"handle":"h_7f3a91c2"},"param":"Height Offset From Level","value":"2700 mm"}}],"description":"Raise the ceilings to 2700 mm."}
+
+event: turn_end
+data: {"seq":3,"status":"cancelled","session_id":"ses_cancel","receipt_ids":[]}
+

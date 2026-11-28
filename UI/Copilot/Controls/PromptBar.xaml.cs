@@ -1,3 +1,4 @@
+using RevitWebAppSync.UI.Copilot.Model;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
@@ -32,28 +33,6 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 prefs.Save();
                 UpdateReasoningDot();
             };
-            // Action Mode chip + popover (2026-08-02 addendum). ActionModeBtn opens
-            // the popup (StaysOpen="False" in XAML already closes it on outside
-            // click); the two option rows persist the choice and close it; Esc
-            // closes it too (OnActionModePopupKeyDown, wired via the Border's
-            // KeyDown in XAML — needs keyboard focus inside the popup, so we grab
-            // it on open).
-            UpdateActionModeChip();
-            ActionModeBtn.Click += (_, __) =>
-            {
-                // Respect reduced motion: skip the fade entrance. Must be set
-                // BEFORE IsOpen flips true — PopupAnimation governs the OPEN
-                // transition, so setting it in an Opened handler would be one
-                // frame too late (same "drop the motion, keep function" rule
-                // the reasoning-UI's BeginAnimation call sites use).
-                ActionModePopup.PopupAnimation = CopilotTheme.ReducedMotion
-                    ? System.Windows.Controls.Primitives.PopupAnimation.None
-                    : System.Windows.Controls.Primitives.PopupAnimation.Fade;
-                ActionModePopup.IsOpen = true;
-                ActionModeCard.Focus();
-            };
-            AskFirstOption.Click += (_, __) => SetActionMode(auto: false);
-            AutoOption.Click += (_, __) => SetActionMode(auto: true);
             SendBtn.Click += (_, __) =>
             {
                 // Busy → the button is a Stop: cancel the in-flight reply instead
@@ -66,11 +45,13 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 }
                 Input.TriggerSubmit();
             };
+            BuildRunningExtras();
             Input.ToolPicked += OnToolPicked;
-            Input.Submitted += (text, mentions) =>
+            Input.Submitted += (text, shown, mentions) =>
             {
-                // Enter while a reply streams must not queue another prompt.
-                if (Busy) return;
+                // Enter while a turn runs queues the next prompt (the view model holds
+                // it until the turn ends); a slash command waits for the turn.
+                if (Busy && _pendingTool != null) { Input.RejectSubmit(); return; }
                 // A pending slash command takes the turn: raise it (with any typed
                 // args) and skip the normal text/attachment submit path.
                 if (_pendingTool != null)
@@ -85,6 +66,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                         missing[0].FocusValue();
                         PendingHintText.Text = "Fill " + (missing[0].Input.Label ?? missing[0].Input.Name) + " to send";
                         PendingHintRow.Visibility = Visibility.Visible;
+                        Input.RejectSubmit();
                         return;
                     }
                     PendingHintRow.Visibility = Visibility.Collapsed;
@@ -104,7 +86,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     }
                     var tool = _pendingTool;
                     ClearPendingTool();
-                    SlashToolSubmitted?.Invoke(tool, text, cmdArgs);
+                    // The picked @ mentions and the attached images/files belong to this turn; a local tool ignores attachments, so they stay in the strip.
+                    var slashPayload = ComposePayload(text, shown, mentions, !tool.Local) as RevitWebAppSync.UI.Copilot.Model.PromptPayload
+                        ?? new RevitWebAppSync.UI.Copilot.Model.PromptPayload { Text = text };
+                    SlashToolSubmitted?.Invoke(tool, text, cmdArgs, slashPayload);
                     return;
                 }
                 // With screenshots and/or files attached, submit a composed payload
@@ -114,57 +99,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 // not concatenated into the text — so the chat bubble and history
                 // show the user's message, not the file dump (the backend route text
                 // re-embeds them in CopilotViewModel.BuildRouteText).
-                object payload = text;
-                if (_images.Count > 0 || _files.Count > 0)
-                {
-                    var pp = new RevitWebAppSync.UI.Copilot.Model.PromptPayload { Text = text };
-                    if (_images.Count > 0)
-                    {
-                        var encoded = new System.Collections.Generic.List<string>();
-                        foreach (var img in _images)
-                        {
-                            var b64 = EncodePng(img);
-                            if (!string.IsNullOrEmpty(b64)) encoded.Add(b64);
-                        }
-                        if (encoded.Count > 0) pp.ImagesBase64 = encoded;
-                        _images.Clear();
-                    }
-                    if (_files.Count > 0)
-                    {
-                        var files = new System.Collections.Generic.List<RevitWebAppSync.UI.Copilot.Model.FileAttachment>();
-                        foreach (var (fname, fcontent, fpath, fkind, ferror) in _files)
-                        {
-                            // A rejected file still travels — as a "could not be
-                            // read" block. RouteText renders it, so the agent tells
-                            // the drafter their file was not used instead of
-                            // answering as though it never existed.
-                            if (ferror != null)
-                            {
-                                files.Add(new RevitWebAppSync.UI.Copilot.Model.FileAttachment
-                                {
-                                    Name = fname, Kind = fkind, ReadError = ferror,
-                                });
-                                continue;
-                            }
-                            switch (fkind)
-                            {
-                                case RevitWebAppSync.UI.Copilot.Model.AttachmentKind.Dwg:
-                                    files.Add(RevitWebAppSync.UI.Copilot.Model.FileAttachment.ForDrawing(fname, fpath));
-                                    break;
-                                case RevitWebAppSync.UI.Copilot.Model.AttachmentKind.Pdf:
-                                    files.Add(RevitWebAppSync.UI.Copilot.Model.FileAttachment.ForDocument(fname, fpath));
-                                    break;
-                                default:
-                                    files.Add(new RevitWebAppSync.UI.Copilot.Model.FileAttachment(fname, fcontent));
-                                    break;
-                            }
-                        }
-                        pp.Files = files;
-                        _files.Clear();
-                    }
-                    payload = pp;
-                    RebuildThumbStrip();
-                }
+                // A picked chip sends its full form ("Pintu Tunggal: PTh300a (door type)")
+                // while the thread shows the message as the drafter wrote it.
+                var payload = ComposePayload(text, shown, mentions, true);
                 if (SubmitCommand != null && SubmitCommand.CanExecute(payload))
                     SubmitCommand.Execute(payload);
             };
@@ -178,8 +115,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             // the editor — the mention picker opens from the editor's own logic.
             AtBtn.Click += (_, __) =>
             {
+                // Appended, not a Text set, so chips already in the box keep their place.
                 var t = Input.Editor.Text ?? "";
-                Input.Editor.Text = t.Length > 0 && !char.IsWhiteSpace(t[t.Length - 1]) ? t + " @" : t + "@";
+                Input.Editor.CaretIndex = t.Length;
+                Input.Editor.AppendText(t.Length > 0 && !char.IsWhiteSpace(t[t.Length - 1]) ? " @" : "@");
                 Input.Editor.CaretIndex = Input.Editor.Text.Length;
                 Input.Editor.Focus();
             };
@@ -215,10 +154,80 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             };
         }
 
+        /// <summary>The message as the view model takes it: plain text, or a PromptPayload carrying the display text,
+        /// the picked mentions and (withAttachments) the pending images/files, which it clears from the strip.
+        /// A slash command turn uses the same composition as a normal send.</summary>
+        private object ComposePayload(string text, string shown, System.Collections.Generic.List<RevitWebAppSync.UI.Copilot.Model.Mention> mentions, bool withAttachments)
+        {
+            string display = shown != text ? shown : null;
+            object payload = text;
+            var picked = mentions != null && mentions.Count > 0 ? mentions : null;   // r17: the mentions travel with the turn
+            if ((display != null || picked != null) && (!withAttachments || (_images.Count == 0 && _files.Count == 0)))
+                payload = new RevitWebAppSync.UI.Copilot.Model.PromptPayload { Text = text, DisplayText = display, Mentions = picked };
+            if (withAttachments && (_images.Count > 0 || _files.Count > 0))
+            {
+                var pp = new RevitWebAppSync.UI.Copilot.Model.PromptPayload { Text = text, DisplayText = display, Mentions = picked };
+                if (_images.Count > 0)
+                {
+                    var encoded = new System.Collections.Generic.List<string>();
+                    foreach (var img in _images)
+                    {
+                        var b64 = EncodePng(img);
+                        if (!string.IsNullOrEmpty(b64)) encoded.Add(b64);
+                    }
+                    if (encoded.Count > 0) pp.ImagesBase64 = encoded;
+                    _images.Clear();
+                }
+                if (_files.Count > 0)
+                {
+                    var files = new System.Collections.Generic.List<RevitWebAppSync.UI.Copilot.Model.FileAttachment>();
+                    foreach (var (fname, fcontent, fpath, fkind, ferror) in _files)
+                    {
+                        // A rejected file still travels — as a "could not be
+                        // read" block. RouteText renders it, so the agent tells
+                        // the drafter their file was not used instead of
+                        // answering as though it never existed.
+                        if (ferror != null)
+                        {
+                            files.Add(new RevitWebAppSync.UI.Copilot.Model.FileAttachment
+                            {
+                                Name = fname, Kind = fkind, ReadError = ferror,
+                            });
+                            continue;
+                        }
+                        switch (fkind)
+                        {
+                            case RevitWebAppSync.UI.Copilot.Model.AttachmentKind.Dwg:
+                                files.Add(RevitWebAppSync.UI.Copilot.Model.FileAttachment.ForDrawing(fname, fpath));
+                                break;
+                            case RevitWebAppSync.UI.Copilot.Model.AttachmentKind.Pdf:
+                                files.Add(RevitWebAppSync.UI.Copilot.Model.FileAttachment.ForDocument(fname, fpath));
+                                break;
+                            default:
+                                files.Add(new RevitWebAppSync.UI.Copilot.Model.FileAttachment(fname, fcontent) { Path = fpath });
+                                break;
+                        }
+                    }
+                    pp.Files = files;
+                    _files.Clear();
+                }
+                payload = pp;
+                RebuildThumbStrip();
+            }
+            return payload;
+        }
+
+        /// <summary>The line under the input while a question card is open; empty hides it.</summary>
+        public void SetAskHint(string text)
+        {
+            AskHint.Text = text ?? "";
+            AskHint.Visibility = string.IsNullOrEmpty(text) ? Visibility.Collapsed : Visibility.Visible;
+        }
+
         // ─── Slash command (pending, sent as the next turn) ──────────────────
         /// <summary>Raised when a message is sent with a slash command active —
         /// the picked tool plus any typed args. UI-only for now.</summary>
-        public event System.Action<Model.SlashTool, string, System.Collections.Generic.Dictionary<string, object>> SlashToolSubmitted;
+        public event System.Action<Model.SlashTool, string, System.Collections.Generic.Dictionary<string, object>, Model.PromptPayload> SlashToolSubmitted;
 
         private Model.SlashTool _pendingTool;
         // Saved Commands J1: one inline chip per typed input of the pending
@@ -233,6 +242,24 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
         /// <summary>Close the palette from the host (scrim click-outside).</summary>
         public void CloseSlashPalette() => Input.CloseSlashExternal();
+
+        /// <summary>The message box itself: a question card that arrives may take the focus from it while it is empty,
+        /// and hands back a character the card does not use (AskCardFocus).</summary>
+        internal TextBox MessageBox => Input?.Editor;
+
+        /// <summary>A prompt the drafter sent before, back in the composer to change (r17: Edit on their bubble). An unsent
+        /// draft stays: the prompt goes on a new line under it. A pending "/" command is dropped, since the prompt was plain
+        /// text. @ mentions come back as their plain text (the thread keeps no chip data).
+        /// Sends nothing: their own Enter or Send starts a new turn with the edited text.</summary>
+        public void EditPrompt(string text)
+        {
+            if (Input?.Editor == null || string.IsNullOrWhiteSpace(text)) return;
+            if (_pendingTool != null) ClearPendingTool();
+            Input.PutPrompt(text);
+        }
+
+        /// <summary>Where Up in an empty composer gets the last prompt from (r17).</summary>
+        public System.Func<string> RecallLast { set { if (Input != null) Input.RecallLast = value; } }
 
         /// <summary>Drop a starter prompt into the composer for the user to edit —
         /// does NOT send. If the user has already typed something, leave it alone
@@ -258,13 +285,17 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         public void OpenCommandPalette()
         {
             if (Input?.Editor == null) return;
-            if (string.IsNullOrWhiteSpace(Input.Editor.Text))
-            {
-                Input.Editor.Text = "/";
-                Input.Editor.CaretIndex = 1;
-            }
+            // r17 (tester: "the / button inserted only a slash, no tools menu"): a composer with no palette attached never gets a lone "/";
+            // a draft keeps its text and the palette opens over it.
+            if (!Input.HasSlashPalette) { Input.Editor.Focus(); return; }
+            // r23 (AI-460): an empty box seeds "/" with the caret after it and opens the list (the text set alone ran detection at caret 0).
+            if (string.IsNullOrWhiteSpace(Input.Editor.Text)) Input.SeedSlash();
+            else Input.OpenSlashOverDraft();
             Input.Editor.Focus();
         }
+
+        /// <summary>Pick a command from outside the palette (Home / Commands tab).</summary>
+        public void PickTool(Model.SlashTool tool) => OnToolPicked(tool);
 
         private void OnToolPicked(Model.SlashTool tool)
         {
@@ -376,10 +407,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         }
 
         // ─── Pasted screenshots (pending, sent with the next prompt) ─────────
-        private const int MaxImages = 3;
+        private const int MaxImages = Model.AttachmentGate.MaxImages;
         // Cap the long edge before base64-encoding: keeps the JSON payload sane
         // while leaving plenty of resolution for the model to read a screenshot.
-        private const int MaxImageDim = 1568;
+        private const int MaxImageDim = Model.AttachmentGate.MaxImageEdge;
         private readonly System.Collections.Generic.List<System.Windows.Media.Imaging.BitmapSource> _images
             = new System.Collections.Generic.List<System.Windows.Media.Imaging.BitmapSource>();
 
@@ -400,6 +431,29 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             if (img == null || _images.Count >= MaxImages) return;
             _images.Add(img);
             RebuildThumbStrip();
+        }
+
+        /// <summary>Attach an image FILE as if it had been pasted. A file that cannot be used stays as a chip with its reason (silence looks
+        /// like "the AI ignored me"), like every other refused attachment.</summary>
+        private void AddImageFile(string path, string name)
+        {
+            long bytes = 0;
+            try { bytes = new System.IO.FileInfo(path).Length; }
+            catch (System.Exception ex) { _files.Add((name, null, null, Model.AttachmentKind.Text, "imej tidak boleh dibaca: " + ex.Message)); return; }
+            var refusal = Model.AttachmentGate.ImageRefusal(bytes, _images.Count);
+            if (refusal != null) { _files.Add((name, null, null, Model.AttachmentKind.Text, refusal)); return; }
+            try
+            {
+                var decoder = System.Windows.Media.Imaging.BitmapDecoder.Create(new System.Uri(path),
+                    System.Windows.Media.Imaging.BitmapCreateOptions.PreservePixelFormat, System.Windows.Media.Imaging.BitmapCacheOption.OnLoad);
+                var frame = decoder.Frames[0];
+                frame.Freeze();
+                AddImage(frame);   // the same list as Ctrl+V: capped at 1568 px when it is encoded
+            }
+            catch (System.Exception ex)
+            {
+                _files.Add((name, null, null, Model.AttachmentKind.Text, "imej tidak boleh dibaca: " + ex.Message));
+            }
         }
 
         private void RemoveImage(System.Windows.Media.Imaging.BitmapSource img)
@@ -443,6 +497,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             foreach (var path in paths)
             {
                 var name = System.IO.Path.GetFileName(path);
+                // An image file (.png / .jpg / .jpeg, from Attach or a drop) joins the pasted screenshots: same list, same limits.
+                if (Model.AttachmentGate.IsImage(path)) { AddImageFile(path, name); continue; }
                 var gate = Model.AttachmentGate.Check(path);
                 if (!gate.Accepted)
                 {
@@ -480,7 +536,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     {
                         content = System.IO.File.ReadAllText(path, System.Text.Encoding.UTF8);
                     }
-                    _files.Add((name, content, null, kind, null));
+                    // Tables keep their path: the turn also sends them as a
+                    // structured attachments[kind=table] (TableAttachment).
+                    _files.Add((name, content, Model.TableAttachment.IsTable(path) ? path : null, kind, null));
                 }
                 catch (System.Exception ex)
                 {
@@ -576,9 +634,122 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             if (pb.Input?.Editor != null) pb.Input.Editor.IsReadOnly = locked;
             if (pb.ComposerBox != null)
                 pb.ComposerBox.SetResourceReference(Border.BackgroundProperty, locked ? "Cp.Sunken" : "Cp.Bg");
-            if (pb.LockedHint != null) pb.LockedHint.Visibility = locked ? Visibility.Visible : Visibility.Collapsed;
-            if (pb.PlaceholderHint != null) pb.PlaceholderHint.Visibility = locked ? Visibility.Collapsed : Visibility.Visible;
+            pb.UpdateHints();
             pb.UpdateSendVisual();
+            pb.UpdateRunningChrome();
+        }
+
+        // ── The running composer (design Running.dc.html): while a turn runs the toolbar is attach, the scope chip,
+        // "Queues after this run" and a Queue button; @, /, Reasoning and the send arrow step aside. Stop lives in the card.
+        private Button _queueBtn;
+        private TextBlock _queueNote;
+        private Border _scopeChip;
+        private TextBlock _scopeText;
+
+        public static readonly DependencyProperty ScopeTextProperty = DependencyProperty.Register(
+            nameof(ScopeText), typeof(string), typeof(PromptBar), new PropertyMetadata("", (d, _) => ((PromptBar)d).UpdateRunningChrome()));
+        /// <summary>"{3D} · 52 selected": what the next step will work on. Shown only while a turn runs.</summary>
+        public string ScopeText { get => (string)GetValue(ScopeTextProperty); set => SetValue(ScopeTextProperty, value); }
+
+        private void BuildRunningExtras()
+        {
+            if (SendBtn?.Parent is not DockPanel dock) return;
+            var icon = new System.Windows.Shapes.Path
+            {
+                Data = Geometry.Parse("M3,4.5 H13 M3,8 H13 M3,11.5 H9"), Width = 16, Height = 16, Stretch = Stretch.Uniform,
+                StrokeThickness = 1.5, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
+            };
+            icon.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, "Cp.Run.Muted");
+            _queueBtn = RunKit.Button(icon, "Cp.Run.Surface2", "Cp.Run.LineStrong", height: 30, padding: new Thickness(7, 0, 7, 0), radius: 8);
+            _queueBtn.Width = 30; _queueBtn.ToolTip = "Queue"; _queueBtn.Visibility = Visibility.Collapsed;
+            _queueBtn.Click += (_, __) => Input.TriggerSubmit();
+            DockPanel.SetDock(_queueBtn, Dock.Right);
+
+            _queueNote = new TextBlock { Text = RunningText.QueueNote, FontSize = 11, TextWrapping = TextWrapping.NoWrap, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0), Visibility = Visibility.Collapsed };
+            _queueNote.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Run.Faint");
+            _queueNote.SetResourceReference(TextBlock.FontFamilyProperty, "Cp.Run.Font");
+            DockPanel.SetDock(_queueNote, Dock.Right);
+
+            var dot = new System.Windows.Shapes.Ellipse { Width = 10, Height = 10, StrokeThickness = 1.6, Margin = new Thickness(0, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center };
+            dot.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, "Cp.Run.Info");
+            _scopeText = new TextBlock { FontSize = 11.5, FontWeight = FontWeights.Medium, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
+            _scopeText.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Run.Text");
+            _scopeText.ToolTip = null;
+            // A Grid, not a StackPanel: the text column is the one that shrinks and shows "…", so a long view name never
+            // pushes "Queues after this run" off the toolbar.
+            var inner = new Grid();
+            inner.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            inner.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            inner.Children.Add(dot);
+            Grid.SetColumn(_scopeText, 1);
+            inner.Children.Add(_scopeText);
+            _scopeChip = new Border { Height = 28, Padding = new Thickness(8, 0, 8, 0), CornerRadius = new CornerRadius(7), BorderThickness = new Thickness(1), Margin = new Thickness(4, 0, 0, 0), Child = inner, Visibility = Visibility.Collapsed, MaxWidth = 128 };
+            _scopeChip.SetResourceReference(Border.BackgroundProperty, "Cp.Run.Surface2");
+            _scopeChip.SetResourceReference(Border.BorderBrushProperty, "Cp.Run.LineStrong");
+            DockPanel.SetDock(_scopeChip, Dock.Left);
+
+            // Right docks stack from the edge inwards: Queue button first, then the note. Left: after attach.
+            dock.Children.Insert(dock.Children.IndexOf(SendBtn) + 1, _queueBtn);
+            dock.Children.Insert(dock.Children.IndexOf(SendBtn) + 2, _queueNote);
+            dock.Children.Insert(dock.Children.IndexOf(AttachBtn) + 1, _scopeChip);
+        }
+
+        /// <summary>Show the running toolbar while a turn runs (and the composer is not locked), the normal one otherwise.</summary>
+        private void UpdateRunningChrome()
+        {
+            if (_queueBtn == null) return;
+            bool running = Busy && !Locked;
+            _queueBtn.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
+            _queueNote.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
+            var scope = ScopeText ?? "";
+            _scopeText.Text = scope;
+            _scopeText.ToolTip = scope.Length > 0 ? scope : null;   // the chip shows "…" for a long view name; the whole name is here
+            _scopeChip.Visibility = running && scope.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+            var normal = running ? Visibility.Collapsed : Visibility.Visible;
+            if (AtBtn != null) AtBtn.Visibility = normal;
+            if (SlashBtn != null) SlashBtn.Visibility = normal;
+            if (ReasoningBtn != null) ReasoningBtn.Visibility = normal;
+            if (SendBtn != null) SendBtn.Visibility = normal;
+            if (ComposerBox != null)
+            {
+                ComposerBox.CornerRadius = new CornerRadius(running ? 12 : 14);
+                ComposerBox.SetResourceReference(Border.BackgroundProperty, running ? "Cp.Run.Composer" : Locked ? "Cp.Sunken" : "Cp.Bg");
+                ComposerBox.SetResourceReference(Border.BorderBrushProperty, running ? "Cp.Run.LineStrong" : "Cp.Line");
+            }
+            _queueBtn.Opacity = Input?.Editor != null && !string.IsNullOrWhiteSpace(Input.Editor.Text) ? 1.0 : 0.6;
+        }
+
+        // The one line under the composer: why it will not send (signed out), else that a typed prompt queues
+        // (a turn runs), else the tools hint. Both Locked and Busy changes land here, so the lines never overlap.
+        private void UpdateHints()
+        {
+            if (LockedHint != null) LockedHint.Visibility = Locked ? Visibility.Visible : Visibility.Collapsed;
+            if (QueueHint != null)
+            {
+                QueueHint.Text = RunningText.QueueHintFor(_runLanguage);
+                QueueHint.Visibility = Visibility.Collapsed;   // the toolbar says "Queues after this run" now
+            }
+            if (PlaceholderHint != null) PlaceholderHint.Visibility = !Locked && !Busy ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        // r23 (AI-464, live 3c11223a): the running composer's words follow the running turn's language (the chat sets it as it does the
+        // Working card's "Langkah"); English until told otherwise.
+        private Model.ReceiptLanguage _runLanguage = Model.ReceiptLanguage.En;
+
+        /// <summary>The language of the turn that runs now: the queue placeholder and note read in it. Set by the chat.</summary>
+        public Model.ReceiptLanguage RunLanguage
+        {
+            get => _runLanguage;
+            set { if (_runLanguage == value) return; _runLanguage = value; ApplyRunLanguage(); UpdateHints(); }
+        }
+
+        private void ApplyRunLanguage()
+        {
+            // While a turn runs, a prompt typed now queues (board 2): the composer says so, in the turn's language.
+            if (Input != null) Input.PlaceholderText = Busy ? RunningText.QueuePlaceholderFor(_runLanguage) : RunningText.IdlePlaceholderFor(_runLanguage, Placeholder);
+            if (_queueNote != null) _queueNote.Text = RunningText.QueueNoteFor(_runLanguage);
+            if (_queueBtn != null) _queueBtn.ToolTip = RunningText.QueueTip(_runLanguage);
+            if (Busy && SendBtn != null) SendBtn.ToolTip = RunningText.StopTip(_runLanguage);
         }
 
         public static readonly DependencyProperty BusyProperty = DependencyProperty.Register(
@@ -595,8 +766,12 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             var pb = (PromptBar)d;
             bool busy = (bool)e.NewValue;
             if (pb.SendIcon != null) pb.SendIcon.Data = busy ? StopGeom : SendGeom;
-            if (pb.SendBtn != null) pb.SendBtn.ToolTip = busy ? "Stop" : "Send";
+            if (pb.SendBtn != null) pb.SendBtn.ToolTip = busy ? RunningText.StopTip(pb._runLanguage) : "Send";
+            // While a turn runs, a prompt typed now queues (board 2): the composer says so.
+            pb.ApplyRunLanguage();
+            pb.UpdateHints();
             pb.UpdateSendVisual();
+            pb.UpdateRunningChrome();
         }
 
         // v6 btn-primary btn-icon: accent OUTLINE button — accent border +
@@ -640,50 +815,17 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             ReasoningDot.StrokeThickness = on ? 0 : 1;
         }
 
-        // Action Mode chip (2026-08-02 addendum): amber dot + "Ask first" when
-        // AutoApproveWrites is off (default), green dot + "Auto" when on. Same
-        // one-shot TryFindResource snapshot pattern as UpdateReasoningDot/
-        // UpdateSendVisual above.
-        private static readonly System.Windows.Media.Color AmberDot = (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#eab308");
-        private static readonly System.Windows.Media.Color GreenDot = (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#10b981");
-
-        private void UpdateActionModeChip()
-        {
-            if (ActionModeDot == null) return;
-            bool auto = RevitWebAppSync.UI.Copilot.Model.CopilotPrefs.Load().AutoApproveWrites;
-            ActionModeDot.Fill = new SolidColorBrush(auto ? GreenDot : AmberDot);
-            ActionModeLabel.Text = auto ? "Auto" : "Ask first";
-        }
-
-        private void SetActionMode(bool auto)
-        {
-            var prefs = RevitWebAppSync.UI.Copilot.Model.CopilotPrefs.Load();
-            prefs.AutoApproveWrites = auto;
-            prefs.Save();
-            UpdateActionModeChip();
-            ActionModePopup.IsOpen = false;
-        }
-
-        private void OnActionModePopupKeyDown(object sender, KeyEventArgs e)
-        {
-            if (e.Key == Key.Escape)
-            {
-                ActionModePopup.IsOpen = false;
-                e.Handled = true;
-            }
-        }
-
         // "Ask Copilot" (no ellipsis) — 2026-08-02 defect #6, matches the
         // artifact's composer 1:1 exactly.
         public static readonly DependencyProperty PlaceholderProperty = DependencyProperty.Register(
             nameof(Placeholder), typeof(string), typeof(PromptBar),
-            new PropertyMetadata("Ask Copilot", OnPlaceholderChanged));
+            new PropertyMetadata(RunningText.IdlePlaceholder, OnPlaceholderChanged));
         public string Placeholder { get => (string)GetValue(PlaceholderProperty); set => SetValue(PlaceholderProperty, value); }
 
         private static void OnPlaceholderChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
         {
             var pb = (PromptBar)d;
-            if (pb.Input != null) pb.Input.PlaceholderText = (string)e.NewValue;
+            if (pb.Input != null && !pb.Busy) pb.Input.PlaceholderText = RunningText.IdlePlaceholderFor(pb._runLanguage, (string)e.NewValue);
         }
     }
 }

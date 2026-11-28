@@ -6,13 +6,13 @@ namespace RevitWebAppSync.UI.Copilot.Model
 {
     // ─── Stream v2 segmented turn body (copilot-stream-v2-hermes-parity spec, T1) ──
     // A v2 turn renders as an ORDERED list of blocks instead of one growing
-    // text blob: narrative legs, tool cards, and the confirm decision record
+    // text blob: narrative legs and tool cards
     // interleave in arrival order (the thinking card stays a single block
     // pinned first, outside this list). Legacy turns (no `segment` on any
     // reply_partial) never populate blocks — the pane keeps today's rendering
     // byte-identical.
 
-    public enum TurnBlockKind { Narrative, ToolCard, ConfirmCard }
+    public enum TurnBlockKind { Narrative, ToolCard }
 
     public sealed class TurnBlock
     {
@@ -22,14 +22,12 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public string Text = "";
         // ToolCard: the per-execution result frame (wire or locally synthesized).
         public ToolResultEvent ToolResult;
-        // ConfirmCard: the resolved decision record ("3 tindakan diluluskan").
-        public bool? Approved;
     }
 
     /// <summary>
     /// Pure per-turn accumulator for the v2 block list — the segment twin of
     /// ReasoningReducer. Fed by the SSE layer (reply deltas + tool_result
-    /// frames) and by ToolLoopRunner's local executions; no UI, no I/O, so the
+    /// frames) of the pre-protocol-3 stream (saved history); no UI, no I/O, so the
     /// append/new-block rules are unit-testable.
     ///
     /// v2 feature-detect: the FIRST reply delta carrying a segment id flips
@@ -86,7 +84,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>Append a tool card. A segment-tagged wire frame is itself a
         /// v2-only marker, so it activates segmented rendering (a tool can
         /// complete BEFORE the first narrative leg streams). An untagged event
-        /// (ToolLoopRunner's local synthesis) still needs the turn already
+        /// (local synthesis in the old loop) still needs the turn already
         /// active — against an old backend the pane must stay legacy, so those
         /// are dropped. Returns true when a block was added.</summary>
         public bool ApplyToolResult(ToolResultEvent ev)
@@ -96,14 +94,6 @@ namespace RevitWebAppSync.UI.Copilot.Model
             Active = true;
             Blocks.Add(new TurnBlock { Kind = TurnBlockKind.ToolCard, ToolResult = ev });
             return true;
-        }
-
-        /// <summary>Append the confirm decision record (T5) — called at
-        /// resolution time so the record carries the outcome, never a pending
-        /// state.</summary>
-        public void ApplyConfirm(bool approved, string label)
-        {
-            Blocks.Add(new TurnBlock { Kind = TurnBlockKind.ConfirmCard, Approved = approved, Text = label ?? "" });
         }
 
         /// <summary>Note a tool completion whose reasoning-strip headline the
@@ -179,7 +169,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return i;
         }
 
-        /// <summary>Reconstitute state carried across a confirm pause (T5) —
+        /// <summary>Reconstitute state carried across a question pause (T5) —
         /// prior blocks re-seed the list and v2 stays engaged so the resumed
         /// stream keeps appending to the same visual thread.</summary>
         public static TurnBlocks From(IReadOnlyList<TurnBlock> prior)

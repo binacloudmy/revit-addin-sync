@@ -1,53 +1,35 @@
-# BinaVibe — v2 client modules
+# BinaVibe
 
-These C# modules implement the client-side surface of **PRD v2** (the
-"vibe modeling" architecture: ambient → plan → execute → review →
-learn).
+C# modules behind the Revit copilot pane. The copilot talks to the backend over
+`/copilot/turns` (HTTP + SSE); the nine tools it drives are executed here and
+their measured results are reported back.
 
-This folder runs **alongside** `UI/Copilot/` — the v1.5 Copilot pane is
-unchanged and continues to call `/agents/revit-ai/route` + `/generate`.
-v2 routes traffic to `/vibe/conversation/{id}/message` (SSE) and is
-gated by a settings flag (`BinaConfig.UseVibeV2`) until each migration
-step is proven on staging.
+## Layout
 
-## Modules
+- **Copilot/** - the lean tool harness: `Contracts/` (wire DTOs and envelopes),
+  `Read/` (find, inspect, overview, look, snapshot), `Check/` (rule sets and
+  compliance checks), `Writes/` (set_parameters engine, commit ledger, the
+  Revit-thread marshal), `Undo/`, `Code/` (run_revit_code), `Guard/`,
+  `Drafting/`, `Tools/`. Add coverage with playbooks and rule sets on the
+  backend, not by adding tools.
+- **Mcp/Tools/** - what is left of the old tool layer, used by the copilot and
+  the pane:
+  - `Inspectors` - the read helpers the copilot readers call (levels, grids,
+    rooms, views, sheets, worksets, phases, family types, warnings, project
+    info, CAD links, element selection, parameter-name suggestions).
+  - `TxGuard` - transaction wrapper that tolerates Revit failures.
+  - `ArgsHelp`, `CategoryResolve`, `BulkEdit` (category + level targets),
+    `Schedules` (name lookup).
+  - `DwgReader`, `DwgScratchCache`, `CadFileReader` and `PdfReader`,
+    `PdfAttachmentCache` - read attached DWG and PDF files.
+  - `PaneTools` - the handful of reads and actions the pane runs by direct call
+    on Revit's thread.
+- **DocState/OperationLedger** - idempotency ledger behind the copilot commit
+  ledger.
+- **Policy/VibeFlags** - local tenant config from `%APPDATA%\RevitWebAppSync\vibe.json`.
+- **Auth/** - OAuth and password sign-in, secure token store.
+- **WarmupHandler** - warms the Revit API on the first document open.
 
-- **Mcp/** — embedded HTTP listener (`localhost:8080` by default) that
-  exposes the 10 INSPECT tools to the bina-ai backend's Inspector
-  preflight. Boots on `App.OnStartup`; jobs are dispatched to Revit's
-  main thread via `IExternalEventHandler`. Override port with
-  `BINA_VIBE_MCP_PORT`. Matches the protocol the backend's
-  `app.agents.vibe.mcp_client.call` speaks (POST
-  `/mcp/tools/{name}`, JSON in / JSON out).
-- **Bridge/** — HTTP+SSE client for `POST /vibe/conversation/{id}/message`,
-  approval POSTs, snapshot uploads. Replaces the v1 `AIService.RouteAsync`
-  call path when `UseVibeV2 = true`.
-- **Indexer/** — `DocumentChanged` subscriber that ships element deltas
-  to `POST /vibe/snapshot/{tenant}/{project}` for Channel 3.
-- **Ambient/** — captures the per-turn `AmbientContext` payload
-  (selection, view, project, units, role) the Bridge attaches to
-  every message.
-- **Plan/** — `PlanCardView` + `ApprovalCardView` WPF stubs the
-  Copilot pane will host inline once the v2 pipeline lands.
-- **Policy/** — local config for v2 enable, tenant id, sovereign flag.
-
-## Test the embedded MCP server (once built + Revit running)
-
-```powershell
-# Health
-curl http://localhost:8080/mcp/health
-
-# Real Revit data — open a project first
-curl -X POST http://localhost:8080/mcp/tools/list_levels -d '{}'
-curl -X POST http://localhost:8080/mcp/tools/get_project_info -d '{}'
-curl -X POST http://localhost:8080/mcp/tools/get_current_selection -d '{}'
-
-# Tunnel out for the bina-ai backend
-ngrok http 8080
-# Then on the backend: REVIT_MCP_BASE_URL=https://<ngrok>.ngrok-free.app
-```
-
-## Status
-
-Step 1 of 7. All files compile-skeleton only; this branch is unbuilt
-(dev on macOS; Windows/Revit 2027 build pending).
+The MCP-era tool surface (a 176-arm `ToolRegistry`, the `Mutators`, the
+`DesignSpec`/`Audit`/`Cad*FromAttachment` tools and their plan modules) was
+deleted; it was never reachable from the model path.

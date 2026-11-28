@@ -1,0 +1,873 @@
+#nullable enable
+// The pane's chat router on protocol 3 (lean-harness spec §7.1, §7.11, §9;
+// W5 Task 3). One path: no local engine, no pending/resume.
+// Revit-free: Revit work goes through ITurnTools (PaneToolRunner in the pane),
+// and the add-in's update gate and W3's turn end come in as hooks, so the
+// whole router runs in the test harness.
+//
+//   RouteAsync(text)        POST /copilot/turns (or answers the parked ask)
+//   tool_request read   ->  ITurnTools.RunReadsAsync   (no preview)
+//   tool_request write  ->  ITurnTools.RunWritesAsync  (W3 previews, then commits
+//                           at once)
+//   ask                 ->  RouteResult.Ask; the card's answer -> SubmitAskAsync
+//   progress            ->  the step list (plus the turn budget); consecutive
+//                           frames with the same kind and text share one row
+//   reply_delta         ->  the growing reply; the final Reply is the model's
+//                           text, a blank line at each tool round, nothing else
+//   turn_end            ->  RouteResult with TurnEvidence (evidence strip,
+//                           receipt, caution) built from the add-in's envelopes
+//
+// The turn's snapshot (re-review C1): the snapshot sent with POST /turns is
+// kept on the turn and handed to every tool request of that turn, so W2's and
+// W3's document checks compare the TURN's document with the live one and a
+// document switch mid-turn answers doc_changed. Results bodies still carry
+// the live snapshot, so the cloud sees the switch.
+//
+// Single flight (review I3): one turn at a time. While a turn is driving, or
+// bound and not parked on a question, a new message is refused with a pane
+// note; nothing is posted. Each drive gets its own event handler bound to its
+// own Turn, so a stream's progress, reply and evidence can never land in
+// another turn.
+
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Linq;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+using BinaVibe.Copilot.Contracts;
+using RevitWebAppSync.Services;
+using RevitWebAppSync.UI.Copilot.Model;
+
+namespace RevitWebAppSync.UI.Copilot
+{
+    /// <summary>What the router needs from Revit (PaneToolRunner in the pane).
+    /// <c>turnSnapshot</c> is the snapshot the turn started with: the tools'
+    /// document checks compare it with the live document.</summary>
+    /// <summary>Tools that can re-read the view from Revit at a turn's start (PaneToolRunner). Optional: a router whose tools lack it uses
+    /// the snapshot as it is.</summary>
+    public interface ISnapshotRefresher
+    {
+        Task<SnapshotModel> FreshSnapshotAsync(CancellationToken ct);
+    }
+
+    public interface ITurnTools
+    {
+        Task<Envelope[]> RunReadsAsync(string turnId, IReadOnlyList<ToolCallDto> calls, SnapshotModel turnSnapshot, CancellationToken ct);
+        Task<Envelope[]> RunWritesAsync(string turnId, string requestId, IReadOnlyList<ToolCallDto> calls, string? description,
+            SnapshotModel turnSnapshot, CancellationToken ct);
+        /// <summary>The live snapshot (turn start, results bodies).</summary>
+        SnapshotModel Snapshot();
+        /// <summary>Language for the result card; set per turn.</summary>
+        ReceiptLanguage Language { get; set; }
+    }
+
+    /// <summary>The add-in's own rules the router follows (wired by the pane).</summary>
+    public sealed class CopilotRouterHooks
+    {
+        /// <summary>A forced update is pending: nothing of the copilot may act.</summary>
+        public Func<bool> UpdateBlocked = () => false;
+        public Func<string> UpdateBlockedMessage = () => "BINA Sync must be updated before the copilot can be used.";
+        /// <summary>The cloud answered 426: run the add-in's update check.</summary>
+        public Action OnUpdateRequired = () => { };
+        /// <summary>The turn ended or was cancelled (W3's add-only scope ends).</summary>
+        public Action<string> OnTurnEnded = _ => { };
+        /// <summary>A new chat, or another chat continued: the session's handles start over.</summary>
+        public Action OnSessionReset = () => { };
+        /// <summary>What the model must know before this turn (the drafter undid its writes in Revit); null for nothing.
+        /// Appended to the turn's text, so no protocol field is involved.</summary>
+        public Func<string?> TakeTurnNote = () => null;
+    }
+
+    public sealed class CopilotTurnRouter : IChatRouter
+    {
+        private readonly ITurnTools _tools;
+        private readonly CopilotTurnClient _client;
+        private readonly CopilotRouterHooks _hooks;
+        private readonly object _sync = new object();
+
+        private string? _sessionId;
+        /// <summary>Bumped on every chat change ("+" or continuing another chat). A turn
+        /// carries the value it started under; only a turn of the current chat may set
+        /// the session id or reach the pane (I1).</summary>
+        private long _sessionEpoch;
+        private Turn? _turn;          // the driving or parked turn
+        private AskCardModel? _pendingAsk;
+        private CancellationTokenSource? _cts;
+        private bool _driving;
+
+        public CopilotTurnRouter(ITurnTools tools, CopilotTurnClient client, CopilotRouterHooks? hooks = null)
+        {
+            _tools = tools ?? throw new ArgumentNullException(nameof(tools));
+            _client = client ?? throw new ArgumentNullException(nameof(client));
+            _hooks = hooks ?? new CopilotRouterHooks();
+        }
+
+        /// <summary>Live step list (each call a fresh snapshot).</summary>
+        public Action<IReadOnlyList<ProgressStep>>? OnSteps { get; set; }
+
+        /// <summary>One-line progress fallback (step list rendered as text).</summary>
+        public Action<string>? OnProgressText { get; set; }
+
+        /// <summary>The CUMULATIVE reply text of the current leg as it streams.</summary>
+        public Action<string>? OnCodeStream { get; set; }
+
+        /// <summary>Screenshots for the NEXT turn (base64 PNG); consumed by RouteAsync.</summary>
+        public List<string>? PendingImages { get; set; }
+        /// <summary>The @ mentions of the next message (r17): sent as the turn's structured mentions when their text is in the message.</summary>
+        public List<MentionDto>? PendingMentions { get; set; }
+        /// <summary>The curated slash command the next message comes from (r17): sent as command_id.</summary>
+        public string? PendingCommandId { get; set; }
+
+        /// <summary>Tables (Excel/CSV) for the NEXT turn; consumed by RouteAsync.</summary>
+        public List<TableData>? PendingTables { get; set; }
+
+        /// <summary>PDFs (page by page) for the NEXT turn; consumed by RouteAsync.</summary>
+        public List<DocumentData>? PendingDocuments { get; set; }
+
+        /// <summary>The server-issued session id, null for a new chat.</summary>
+        public string? SessionId { get { lock (_sync) return _sessionId; } }
+
+        public bool IsStreaming { get { lock (_sync) return _driving; } }
+
+        /// <summary>A turn is driving, or bound and not parked on a question.</summary>
+        public bool IsBusy
+        {
+            get
+            {
+                lock (_sync) return _driving || (_pendingAsk == null && _client.ActiveTurnId != null);
+            }
+        }
+
+        /// <summary>The snapshot the driving (or parked) turn started with; null between turns.</summary>
+        public SnapshotModel? TurnSnapshot { get { lock (_sync) return _turn?.Snapshot; } }
+
+        /// <summary>The chat's epoch: bumped by "+" and by continuing another chat. A
+        /// write carries the epoch it started under (M-4).</summary>
+        public long SessionEpoch { get { lock (_sync) return _sessionEpoch; } }
+
+        /// <summary>M-2: Revit opened a dialog with no safe answer during a write
+        /// (W3's DialogWatch) and waits for the drafter. Shown as a step of the running
+        /// turn. False when no turn is driving (the pane says it another way).</summary>
+        public bool NoteRevitWaiting(string? dialogText)
+        {
+            Turn? turn;
+            lock (_sync) turn = _driving ? _turn : null;
+            if (turn == null || !IsCurrent(turn)) return false;
+            var ms = turn.Language == ReceiptLanguage.Ms;
+            var text = (dialogText ?? "").Trim();
+            var label = (ms ? "Revit sedang menunggu dialog" : "Revit is waiting on a dialog")
+                        + (text.Length > 0 ? ": " + Trim(text, 120) : "");
+            turn.Step("dialog:" + turn.NextDialog(), ProgressKinds.RevitBusy, label, StepState.Error);
+            Publish(turn);
+            return true;
+        }
+
+        /// <summary>M-2 (W3's IPreviewNotice): the runner is about to preview a batch.
+        /// The first preview already has its row (the handler adds it before the
+        /// batch runs); a re-preview after the model moved under the card shows
+        /// "previewing again" before the callback freezes the pane.</summary>
+        public void NotePreviewStarting(string? batchId)
+        {
+            Turn? turn;
+            lock (_sync) turn = _driving ? _turn : null;
+            if (turn == null || string.IsNullOrEmpty(batchId) || !IsCurrent(turn)) return;
+            if (!turn.PreviewAgain(batchId!)) return;
+            var ms = turn.Language == ReceiptLanguage.Ms;
+            turn.Step("preview:" + batchId, "preview",
+                ms ? "Pratonton semula perubahan dalam Revit…" : "Previewing the change in Revit again…", StepState.Running);
+            Publish(turn);
+        }
+
+        /// <summary>The ask the turn is parked on, if any.</summary>
+        public AskCardModel? PendingAsk { get { lock (_sync) return _pendingAsk; } }
+
+        public static string BusyNote(ReceiptLanguage lang) =>
+            lang == ReceiptLanguage.Ms ? "Selesaikan atau hentikan giliran semasa dahulu." : "Finish or stop the current turn first.";
+
+        // ------------------------------------------------------------------
+        // Session
+        // ------------------------------------------------------------------
+
+        /// <summary>"+": a new chat. A running turn is stopped (its tool run, which
+        /// waits on the turn's token, is cancelled) and a parked one is abandoned.</summary>
+        public void ResetSession() => ChangeSession(null);
+
+        /// <summary>Continue another chat from History; the same stop as "+" (I1).</summary>
+        public void AdoptSession(string? sessionId) => ChangeSession(string.IsNullOrWhiteSpace(sessionId) ? null : sessionId);
+
+        /// <summary>r21: the language of the chat's last message, for a neutral one (<see cref="PromptLanguage.Follow"/>); a new chat starts without it.</summary>
+        private ReceiptLanguage? _chatLanguage;
+
+        private void ChangeSession(string? sessionId)
+        {
+            _chatLanguage = null;
+            bool driving;
+            lock (_sync)
+            {
+                driving = _driving;
+                // From here on the old chat's turn is not current: it can neither set
+                // the session id nor publish into the new chat.
+                _sessionEpoch++;
+                _sessionId = sessionId;
+            }
+            if (driving) CancelStream();
+            AbandonParkedTurn();
+            SafeSessionReset();
+        }
+
+        private bool IsCurrent(Turn turn)
+        {
+            lock (_sync) return turn.SessionEpoch == _sessionEpoch;
+        }
+
+        private void SafeSessionReset()
+        {
+            try { _hooks.OnSessionReset(); } catch { /* a hook must never break the pane */ }
+        }
+
+        /// <summary>Stop the turn: the client unbinds it at once (nothing more of it
+        /// runs in Revit), then the cloud is told (once).</summary>
+        public void CancelStream()
+        {
+            CancellationTokenSource? cts;
+            string? turnId;
+            lock (_sync) { cts = _cts; turnId = _turn?.Id; }
+            try { cts?.Cancel(); } catch { }
+            if (turnId != null) _ = _client.CancelAsync(turnId, CancellationToken.None);
+        }
+
+        private void AbandonParkedTurn()
+        {
+            AskCardModel? ask;
+            lock (_sync) { ask = _pendingAsk; _pendingAsk = null; }
+            if (ask != null && !string.IsNullOrEmpty(ask.TurnId))
+            {
+                _ = _client.CancelAsync(ask.TurnId, CancellationToken.None);
+                SafeTurnEnded(ask.TurnId);
+            }
+        }
+
+        // ------------------------------------------------------------------
+        // Routing
+        // ------------------------------------------------------------------
+
+        public Task<RouteResult> RouteAsync(string message, string fallbackToolId)
+        {
+            var images = PendingImages; PendingImages = null;
+            var mentions = PendingMentions; PendingMentions = null;
+            var commandId = PendingCommandId; PendingCommandId = null;
+            var tables = PendingTables; PendingTables = null;
+            var documents = PendingDocuments; PendingDocuments = null;
+            var lang = PromptLanguage.Follow(message, _chatLanguage);   // receipts follow the prompt's language; r21: a neutral "ok"/"retry" keeps the chat's
+            _chatLanguage = lang;
+
+            // A pending forced update: nothing of the copilot may act on the model.
+            if (_hooks.UpdateBlocked())
+                return Task.FromResult(Refusal(lang, RouteFailure.UpdateRequired, _hooks.UpdateBlockedMessage(), failed: true));
+
+            AskCardModel? ask;
+            Turn turn;
+            lock (_sync)
+            {
+                // Single flight: never start (or answer) while a drive is running,
+                // and never start a second turn beside a bound one.
+                if (_driving || (_pendingAsk == null && _client.ActiveTurnId != null))
+                    return Task.FromResult(Refusal(lang, RouteFailure.Busy, BusyNote(lang), failed: false));
+                ask = _pendingAsk;
+                // A question that asks for a credential is never answered with typed
+                // text (N1): refused while the question stays parked and unanswered.
+                var refusal = ask?.RefuseTypedAnswer();
+                if (refusal != null)
+                    return Task.FromResult(Refusal(ask!.Language, RouteFailure.Refused, refusal, failed: false));
+                turn = ask == null ? new Turn(Guid.NewGuid().ToString(), lang) { SessionEpoch = _sessionEpoch } : _turn!;
+                _driving = true;   // claimed; released when the drive ends
+            }
+
+            // A typed message while the turn is parked on a question is its answer.
+            if (ask != null) return AnswerClaimedAsync(ask, ask.AnswerForText(message ?? ""));
+
+            var attachments = new List<AttachmentDto>();
+            foreach (var t in tables ?? new List<TableData>())
+            {
+                if (t == null) continue;
+                attachments.Add(TableAttachment.ToAttachment(t));
+                if (t.Truncated)
+                    turn.Evidence.AddNote(ReceiptTemplates.TableCut(t.Name, t.Rows.Count, t.TotalRows, turn.Language));
+            }
+            foreach (var doc in documents ?? new List<DocumentData>())
+            {
+                if (doc == null || !doc.HasText) continue;
+                var attachment = DocumentAttachment.ToAttachment(doc);
+                if (AttachmentRules.Violations(attachment).Count == 0) attachments.Add(attachment);
+            }
+            var shot = 0;
+            foreach (var b64 in (images ?? new List<string>()).Where(s => !string.IsNullOrEmpty(s)))
+                attachments.Add(new AttachmentDto { Name = "screenshot-" + (++shot) + ".png", Kind = AttachmentKinds.Image, ImageB64 = b64 });
+
+            // The turn's snapshot: sent once, then handed to every tool request (C1). Where the tools can, the view is re-read first (a tab
+            // switch a moment ago must not leave the turn on the previous view).
+            turn.Snapshot = SafeSnapshot();
+            turn.Mentions = mentions;   // the composer's chips at send time (MentionChips.Records after Reconcile): only chips still in the message
+            turn.CommandId = string.IsNullOrWhiteSpace(commandId) ? null : commandId!.Trim();
+            var text = (message ?? "") + TurnNote();
+            if (_tools is ISnapshotRefresher fresh) return StartWithFreshViewAsync(turn, text, attachments, fresh);
+            return RunAsync(turn, (h, ct) => _client.StartTurnAsync(StartRequest(turn, text, attachments), h, ct));
+        }
+
+        private TurnRequestDto StartRequest(Turn turn, string text, List<AttachmentDto> attachments) => new TurnRequestDto
+        {
+            TurnId = turn.Id,
+            SessionId = SessionId,
+            Text = text,
+            Lang = PromptLanguage.Code(turn.Language),
+            Snapshot = turn.Snapshot,
+            Attachments = attachments,
+            Mentions = turn.Mentions,
+            CommandId = turn.CommandId,
+        };
+
+        /// <summary>How long a turn waits for Revit to re-read its view before it goes on with the snapshot it has.</summary>
+        public const int FreshViewWaitMs = 1500;
+
+        private async Task<RouteResult> StartWithFreshViewAsync(Turn turn, string text, List<AttachmentDto> attachments, ISnapshotRefresher fresh)
+        {
+            try
+            {
+                using var cts = new CancellationTokenSource(FreshViewWaitMs);
+                var read = fresh.FreshSnapshotAsync(cts.Token);
+                if (await Task.WhenAny(read, Task.Delay(FreshViewWaitMs)).ConfigureAwait(true) == read && read.Status == TaskStatus.RanToCompletion
+                    && read.Result != null && !read.Result.Stale)
+                    turn.Snapshot = read.Result;
+            }
+            catch (Exception) { /* the snapshot the turn already has stands */ }
+            return await RunAsync(turn, (h, ct) => _client.StartTurnAsync(StartRequest(turn, text, attachments), h, ct)).ConfigureAwait(true);
+        }
+
+        private string TurnNote()
+        {
+            try
+            {
+                var note = _hooks.TakeTurnNote();
+                return string.IsNullOrWhiteSpace(note) ? "" : "\n\n" + note!.Trim();
+            }
+            catch (Exception) { return ""; }
+        }
+
+        /// <summary>Answer the parked ask (option tap, form or free text).</summary>
+        public Task<RouteResult> SubmitAskAsync(AskCardModel card, AnswerDto answer)
+        {
+            lock (_sync)
+            {
+                if (_driving)
+                    return Task.FromResult(Refusal(card.Language, RouteFailure.Busy, BusyNote(card.Language), failed: false));
+                if (!ReferenceEquals(_pendingAsk, card) || _turn == null || _turn.Id != card.TurnId)
+                    return Task.FromResult(Refusal(card.Language, RouteFailure.Refused, card.Language == ReceiptLanguage.Ms
+                        ? "Soalan ini sudah dijawab atau giliran itu telah tamat. Hantar permintaan sekali lagi."
+                        : "That question was already answered or its turn has ended. Send the request again.", failed: false));
+                _driving = true;
+            }
+            return AnswerClaimedAsync(card, answer);
+        }
+
+        /// <summary>Answer with the drive already claimed (_driving set by the caller).</summary>
+        private Task<RouteResult> AnswerClaimedAsync(AskCardModel card, AnswerDto answer)
+        {
+            Turn turn;
+            lock (_sync)
+            {
+                _pendingAsk = null;
+                turn = _turn!;
+            }
+            return RunAsync(turn, (h, ct) => _client.AnswerAsync(card.TurnId, card.RequestId, answer, h, ct));
+        }
+
+        private async Task<RouteResult> RunAsync(Turn turn, Func<ICopilotTurnHandler, CancellationToken, Task<TurnOutcome>> drive)
+        {
+            var cts = new CancellationTokenSource();
+            lock (_sync)
+            {
+                try { _cts?.Dispose(); } catch { }
+                _cts = cts;
+                _turn = turn;
+            }
+            _tools.Language = turn.Language;
+            RevitWebAppSync.UI.Copilot.Model.HandleProbe.Mark("turn " + turn.Id.Substring(0, Math.Min(8, turn.Id.Length)) + " start", force: true);
+            turn.Step("thinking", "", turn.Language == ReceiptLanguage.Ms ? "Berfikir…" : "Thinking…", StepState.Running);
+            Publish(turn);
+
+            // This drive's own handler: its events can only reach this turn.
+            var handler = new Handler(this, turn);
+            TurnOutcome outcome;
+            var cancelled = false;
+            try
+            {
+                outcome = await drive(handler, cts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                cancelled = true;
+                outcome = new TurnOutcome { Kind = TurnOutcomeKind.Failed };
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine("[BINA copilot] turn " + turn.Id + " stopped: " + ex);
+                outcome = new TurnOutcome { Kind = TurnOutcomeKind.Failed, Message = "The copilot stopped unexpectedly. Send it again." };
+            }
+            finally
+            {
+                lock (_sync)
+                {
+                    if (ReferenceEquals(_cts, cts)) _cts = null;
+                    _driving = false;
+                }
+                try { cts.Dispose(); } catch { }
+            }
+            RevitWebAppSync.UI.Copilot.Model.HandleProbe.Mark("turn " + turn.Id.Substring(0, Math.Min(8, turn.Id.Length)) + " driven", force: true);
+            try { AfterDriveForTests?.Invoke(); } catch { }
+
+            if (cancelled || cts.IsCancellationRequested)
+            {
+                _ = _client.CancelAsync(turn.Id, CancellationToken.None);   // posted once per turn by the client
+                SafeTurnEnded(turn.Id);
+                return Superseded(turn, Result(turn, interrupted: true));
+            }
+            var result = ToRoute(turn, outcome);
+            if (outcome.Kind != TurnOutcomeKind.Ask) SafeTurnEnded(turn.Id);
+            return Superseded(turn, result);
+        }
+
+        /// <summary>Test seam (M2): runs once a drive has ended (no longer driving) and
+        /// before its outcome is applied, the window a chat switch can fall into.</summary>
+        internal Action? AfterDriveForTests;
+
+        /// <summary>A turn of a chat that is gone (I1): marked so the pane drops it. A
+        /// question it ended on was never parked (M2); the turn is ended instead.</summary>
+        private RouteResult Superseded(Turn turn, RouteResult result)
+        {
+            if (IsCurrent(turn)) return result;
+            result.Superseded = true;
+            if (result.Ask != null)
+            {
+                _ = _client.CancelAsync(turn.Id, CancellationToken.None);
+                SafeTurnEnded(turn.Id);
+            }
+            return result;
+        }
+
+        private RouteResult ToRoute(Turn turn, TurnOutcome outcome)
+        {
+            switch (outcome.Kind)
+            {
+                case TurnOutcomeKind.Ask:
+                {
+                    var card = AskCardModel.From(outcome.Ask!, PromptLanguage.ForCard(turn.Language, outcome.Ask!.Title, outcome.Ask!.Question));   // r22: M7 ab677831
+                    card.TurnId = turn.Id;
+                    if (card.Language == ReceiptLanguage.Ms && turn.Language != ReceiptLanguage.Ms)
+                    {
+                        // r22 (L7 N5 e2f6a6e3): the server wrote its card in Malay, so the chat is Malay: the answer's result card and footer
+                        // ("Langkah", "Simpan sebagai arahan") and a following neutral "ok" follow it, not the prompt's English-looking words.
+                        turn.Language = ReceiptLanguage.Ms;
+                        _chatLanguage = ReceiptLanguage.Ms;
+                    }
+                    card.ArrivedLive = true;   // a live question: it may take the focus from an empty message box
+                    // M2: park the question only for a turn of the current chat. A chat
+                    // switch between the drive's end and here did not cancel (nothing
+                    // was driving), and a message typed in the new chat must never
+                    // become the old chat's answer; Superseded ends that turn instead.
+                    lock (_sync) { if (turn.SessionEpoch == _sessionEpoch) _pendingAsk = card; }
+                    turn.Step("ask", "", turn.Language == ReceiptLanguage.Ms ? "Menunggu jawapan anda" : "Waiting for your answer", StepState.Done);
+                    var r = Result(turn);
+                    r.NeedsClarification = true;
+                    r.ClarifyingQuestion = card.Question;
+                    r.Ask = card;
+                    // The text so far is shown above the question; the answer's
+                    // leg shows only what the model writes after it.
+                    turn.StartNewLeg();
+                    return r;
+                }
+                case TurnOutcomeKind.Ended:
+                {
+                    var end = outcome.End!;
+                    // Only a turn of the current chat names its session (I1): an old
+                    // chat's turn_end must not overwrite a chat continued meanwhile.
+                    if (!string.IsNullOrEmpty(end.SessionId))
+                        lock (_sync) { if (turn.SessionEpoch == _sessionEpoch) _sessionId = end.SessionId; }
+                    var r = Result(turn, interrupted: end.Status == TurnEndStatus.Cancelled || end.Status == TurnEndStatus.Interrupted);
+                    r.ServerResult = end.ReadResult();
+                    r.EndedFailed = end.Status == TurnEndStatus.Failed;
+                    if (end.Status == TurnEndStatus.Failed || end.Status == TurnEndStatus.Limit)
+                    {
+                        var why = outcome.Error?.Message;
+                        if (end.Status == TurnEndStatus.Limit)
+                            r.PaneNote = turn.Language == ReceiptLanguage.Ms
+                                ? "Giliran ini berhenti pada hadnya." : "This turn stopped at its limit.";
+                        if (string.IsNullOrWhiteSpace(r.Reply))
+                        {
+                            r.Failed = true;
+                            r.FailureKind = RouteFailure.Other;
+                            r.PaneNote = !string.IsNullOrWhiteSpace(why) ? why! : (turn.Language == ReceiptLanguage.Ms
+                                ? "Copilot tidak dapat menyiapkan permintaan ini." : "The copilot could not finish this request.");
+                        }
+                        else if (!string.IsNullOrWhiteSpace(why))
+                            r.PaneNote = why;
+                    }
+                    return r;
+                }
+                case TurnOutcomeKind.Refused:
+                    return Failure(turn, RouteFailure.Refused, outcome.Message);
+                case TurnOutcomeKind.UpdateRequired:
+                    try { _hooks.OnUpdateRequired(); } catch { }
+                    return Failure(turn, RouteFailure.UpdateRequired, outcome.Message);
+                case TurnOutcomeKind.TurnActive:
+                    return Failure(turn, RouteFailure.TurnActive, outcome.Message);
+                case TurnOutcomeKind.Unauthorized:
+                    return Failure(turn, RouteFailure.SignIn, outcome.Message);
+                default:
+                    if (outcome.HostBlocked) return Failure(turn, RouteFailure.HostBlocked, outcome.Message);
+                    return Failure(turn, outcome.HttpStatus == null && !outcome.ResultsUndelivered ? RouteFailure.Unreachable : RouteFailure.Other,
+                        outcome.Message);
+            }
+        }
+
+        private RouteResult Failure(Turn turn, RouteFailure kind, string? message)
+        {
+            var r = Result(turn);
+            r.Failed = true;
+            r.FailureKind = kind;
+            // The reply so far (if any) stays the model's; the failure is the pane's.
+            r.PaneNote = message ?? "The copilot could not finish this request.";
+            return r;
+        }
+
+        private static RouteResult Refusal(ReceiptLanguage lang, RouteFailure kind, string note, bool failed) => new RouteResult
+        {
+            ToolId = "ai-generated",
+            IsQuery = true,
+            Failed = failed,
+            FailureKind = kind,
+            PaneNote = note,
+            Language = lang,
+        };
+
+        private RouteResult Result(Turn turn, bool interrupted = false)
+        {
+            turn.CompleteSteps();
+            return new RouteResult
+            {
+                ToolId = "ai-generated",
+                IsQuery = true,
+                TurnId = turn.Id,
+                Language = turn.Language,
+                Evidence = turn.Evidence,
+                // Whatever the model said before the stop stays its own text;
+                // a cancelled turn (ruling R26) gets the pane's own line, and
+                // the receipt from the envelopes the add-in already holds.
+                Reply = turn.LegReply,
+                PaneNote = interrupted ? (turn.Language == ReceiptLanguage.Ms ? "Dibatalkan." : "Cancelled.") : null,
+                Interrupted = interrupted,
+                Steps = turn.StepsSnapshot(),
+                ToolsUsed = turn.ToolsUsed.Count > 0 ? turn.ToolsUsed.Distinct().ToList() : null,
+            };
+        }
+
+        private SnapshotModel SafeSnapshot()
+        {
+            try { return _tools.Snapshot() ?? new SnapshotModel { Stale = true }; }
+            catch { return new SnapshotModel { Stale = true }; }
+        }
+
+        private void SafeTurnEnded(string turnId)
+        {
+            try { _hooks.OnTurnEnded(turnId); } catch { /* a hook must never break the pane */ }
+        }
+
+        private void Publish(Turn turn)
+        {
+            if (!IsCurrent(turn)) return;   // an old chat's turn never draws in the new one
+            RevitWebAppSync.UI.Copilot.Model.HandleProbe.Mark("before publish");
+            var snapshot = turn.StepsSnapshot();
+            try { OnSteps?.Invoke(snapshot); } catch { }
+            try { OnProgressText?.Invoke(ProgressTrail.Render(snapshot)); } catch { }
+            RevitWebAppSync.UI.Copilot.Model.HandleProbe.Mark("after publish (steps drawn)");
+        }
+
+        // ------------------------------------------------------------------
+        // One drive's event handler (called off the UI thread)
+        // ------------------------------------------------------------------
+
+        private sealed class Handler : ICopilotTurnHandler
+        {
+            private readonly CopilotTurnRouter _router;
+            private readonly Turn _turn;
+
+            public Handler(CopilotTurnRouter router, Turn turn) { _router = router; _turn = turn; }
+
+            public void OnProgress(ProgressDto progress)
+            {
+                if (progress == null) return;
+                var label = StepLabels.Server(string.IsNullOrWhiteSpace(progress.Text) ? progress.Kind : progress.Text, _turn.Language == ReceiptLanguage.Ms);
+                _turn.Progress(progress.Seq, progress.Kind, label,
+                    progress.Kind == ProgressKinds.RevitBusy ? StepState.Error : StepState.Running, progress.Step);
+                _router.Publish(_turn);
+            }
+
+            public void OnReplyDelta(ReplyDeltaDto delta)
+            {
+                if (delta == null || string.IsNullOrEmpty(delta.Text)) return;
+                var text = _turn.AppendReply(delta.Text);
+                RevitWebAppSync.UI.Copilot.Model.HandleProbe.Mark("reply delta");
+                if (!_router.IsCurrent(_turn)) return;
+                try { _router.OnCodeStream?.Invoke(text); } catch { }   // cumulative within the leg
+            }
+
+            public void OnError(StreamErrorDto error)
+            {
+                if (error == null) return;
+                _turn.Step("error:" + error.Seq, "error", error.Message, StepState.Error);
+                _router.Publish(_turn);
+            }
+
+            public SnapshotModel CurrentSnapshot() => _router.SafeSnapshot();
+
+            public async Task<Envelope[]> RunToolsAsync(string turnId, ToolRequestDto request, CancellationToken ct)
+            {
+                var ms = _turn.Language == ReceiptLanguage.Ms;
+                _turn.CloseProgress();
+                _turn.MarkStepBoundary();
+                foreach (var c in request.Calls)
+                {
+                    _turn.ToolsUsed.Add(c.Tool);
+                    _turn.ToolStep("call:" + c.CallId, StepLabels.For(c, ms), ms);   // r17: what the step does; repeats are one row, a retry says so
+                    _turn.Annotate("call:" + c.CallId, note: RunningCard.ActiveNote(c.Tool, _turn.Snapshot?.View?.Name, ms));
+                }
+
+                Envelope[] envelopes;
+                if (request.Kind == ToolRequestKinds.Write)
+                {
+                    // "What I will write": the values, before the preview (informational;
+                    // the write still auto-applies, and Stop before it changes nothing).
+                    var willWrite = WritePreviewText.Lines(request.Calls, ms);
+                    var willWriteId = "write:" + request.RequestId;
+                    if (willWrite.Length > 0)
+                    {
+                        _turn.Step(willWriteId, WritePreviewText.Phase, WritePreviewText.Title(request.Calls, ms), StepState.Running,
+                            detail: willWrite + "\n" + WritePreviewText.NothingWritten(ms));
+                        _turn.Annotate(willWriteId, preview: WritePreviewText.Records(request.Calls, ms));
+                        _router.Publish(_turn);
+                        // A beat to read the values and press Stop: the Revit preview below freezes the pane.
+                        try { await Task.Delay(WritePreviewText.StopWindowMs, ct).ConfigureAwait(false); }
+                        catch (OperationCanceledException)
+                        {
+                            _turn.Step(willWriteId, WritePreviewText.Phase, "", StepState.Done,
+                                detail: willWrite + "\n" + WritePreviewText.NothingWritten(ms));
+                            _router.Publish(_turn);
+                            throw;
+                        }
+                    }
+                    // WPF shares Revit's thread: say "previewing" BEFORE the preview
+                    // callback freezes the pane (spec §7.10).
+                    _turn.Step("preview:" + request.RequestId, "preview",
+                        WritePreviewText.PreviewStepLabel(request.Calls, ms), StepState.Running);
+                    _router.Publish(_turn);
+                    // The drafter's click on "Force the change" travels on the request; the runner reads it from each call.
+                    foreach (var call in request.Calls) if (call != null) call.Force = request.Force;
+                    envelopes = await _router._tools.RunWritesAsync(turnId, request.RequestId, request.Calls, request.Description, _turn.Snapshot, ct).ConfigureAwait(false);
+                    _turn.Step("preview:" + request.RequestId, "preview", "", StepState.Done);
+                    if (willWrite.Length > 0)
+                        _turn.Step(willWriteId, WritePreviewText.Phase, "", StepState.Done, detail: willWrite);
+                }
+                else
+                {
+                    _router.Publish(_turn);
+                    envelopes = await _router._tools.RunReadsAsync(turnId, request.Calls, _turn.Snapshot, ct).ConfigureAwait(false);
+                }
+                envelopes ??= Array.Empty<Envelope>();
+                RevitWebAppSync.UI.Copilot.Model.HandleProbe.Mark("tools done " + string.Join(",", System.Linq.Enumerable.Select(request.Calls, c => c.Tool)), force: true);
+
+                _turn.Evidence.Add(request, envelopes);
+                for (var i = 0; i < request.Calls.Count; i++)
+                {
+                    var env = i < envelopes.Length ? envelopes[i] : null;
+                    var ok = env != null && (env.Ok || env.Status == EnvelopeStatus.Rejected);
+                    _turn.Step("call:" + request.Calls[i].CallId, "tool", "", ok ? StepState.Done : StepState.Error,
+                        detail: env == null ? null : Trim(RevitWebAppSync.UI.Copilot.Model.StepDetailText.Of(env.Summary), 140));
+                    if (ok) _turn.Annotate("call:" + request.Calls[i].CallId, outcome: RunningCard.OutcomeText(request.Calls[i].Tool, env?.Count, ms));
+                }
+                var budget = _router._client.ActiveBudget;
+                if (budget != null) _turn.Budget(budget.Describe());
+                _router.Publish(_turn);
+                return envelopes;
+            }
+        }
+
+        private static string Trim(string? s, int max) =>
+            string.IsNullOrEmpty(s) ? "" : s!.Length <= max ? s : s.Substring(0, max - 1) + "…";
+
+        /// <summary>One turn's live state: steps, reply text, evidence.</summary>
+        private sealed class Turn
+        {
+            private readonly object _lock = new object();
+            private readonly ObservableCollection<ProgressStep> _steps = new ObservableCollection<ProgressStep>();
+            private readonly StringBuilder _reply = new StringBuilder();
+            private int _legStart;
+            private bool _stepBoundary;
+            private string? _lastStepId;
+            private string? _lastProgressId;
+            private string? _lastProgressKey;
+
+            public Turn(string id, ReceiptLanguage language) { Id = id; Language = language; }
+
+            public string Id { get; }
+            public ReceiptLanguage Language { get; set; }   // r22: a Malay server card makes the rest of the turn Malay (N5 e2f6a6e3)
+            /// <summary>The chat (session epoch) the turn started under (I1).</summary>
+            public long SessionEpoch { get; set; }
+            /// <summary>The snapshot the turn started with (C1); never refreshed mid-turn.</summary>
+            public SnapshotModel Snapshot { get; set; } = new SnapshotModel { Stale = true };
+            public TurnEvidence Evidence { get; } = new TurnEvidence();
+            /// <summary>The message's @ mentions (r17); null when none.</summary>
+            public List<MentionDto>? Mentions { get; set; }
+            /// <summary>The curated slash command this turn starts from (r17); null for none.</summary>
+            public string? CommandId { get; set; }
+            public List<string> ToolsUsed { get; } = new List<string>();
+
+            /// <summary>The model's text since the last ask (all of it before one).</summary>
+            public string LegReply { get { lock (_lock) return _reply.ToString(_legStart, _reply.Length - _legStart); } }
+
+            /// <summary>Appends; returns the cumulative text of the current leg. The first
+            /// text after a tool request gets a blank line before it when the two steps
+            /// would touch ("first.Saya"); never doubled.</summary>
+            public string AppendReply(string delta)
+            {
+                lock (_lock)
+                {
+                    if (_stepBoundary && delta.Length > 0)  // an empty delta keeps the boundary for the next text
+                    {
+                        _stepBoundary = false;
+                        if (_reply.Length > _legStart && !char.IsWhiteSpace(_reply[_reply.Length - 1]) && !char.IsWhiteSpace(delta[0]))
+                            _reply.Append("\n\n");
+                    }
+                    _reply.Append(delta);
+                    return _reply.ToString(_legStart, _reply.Length - _legStart);
+                }
+            }
+
+            public void MarkStepBoundary() { lock (_lock) _stepBoundary = true; }
+
+            public void StartNewLeg()
+            {
+                lock (_lock) _legStart = _reply.Length;
+            }
+
+            private int _dialogs;
+            private readonly HashSet<string> _previewed = new HashSet<string>(StringComparer.Ordinal);
+
+            public int NextDialog() { lock (_lock) return ++_dialogs; }
+
+            /// <summary>True from a batch's second preview on.</summary>
+            public bool PreviewAgain(string batchId) { lock (_lock) return !_previewed.Add(batchId); }
+
+            private readonly Dictionary<string, string> _alias = new Dictionary<string, string>(StringComparer.Ordinal);
+
+            public void Step(string id, string phase, string label, StepState state, string? detail = null)
+            {
+                lock (_lock)
+                {
+                    id = StepCollapse.Resolve(_alias, id);
+                    ProgressReducer.Apply(_steps, id, phase, label, detail ?? "", state);
+                    _lastStepId = id;
+                }
+            }
+
+            /// <summary>A tool call's row (r17): the server's generic "Running the code in Revit" row before it goes, a repeat folds into the row before.</summary>
+            public void ToolStep(string id, string label, bool ms)
+            {
+                lock (_lock)
+                {
+                    StepCollapse.DropServerRun(_steps);
+                    _lastStepId = StepCollapse.AddTool(_steps, _alias, id, label, ms);
+                }
+            }
+
+            /// <summary>Set the running card's extras on a step: the right-hand outcome, the active note, the values a write shows.</summary>
+            public void Annotate(string id, string? outcome = null, string? note = null, IReadOnlyList<PreviewRecord>? preview = null)
+            {
+                lock (_lock)
+                    foreach (var s in _steps)
+                        if (s.StepId == StepCollapse.Resolve(_alias, id))
+                        {
+                            if (outcome != null) s.Outcome = outcome;
+                            if (note != null) s.Note = note;
+                            if (preview != null) s.Preview = preview;
+                            break;
+                        }
+            }
+
+            /// <summary>A progress frame. One that repeats the previous step's kind
+            /// and text (W7 sends progress{thinking} every ~20 s) keeps its row.</summary>
+            public void Progress(long seq, string kind, string label, StepState state, int? modelStep = null)
+            {
+                lock (_lock)
+                {
+                    var key = kind + "\u0001" + label;
+                    if (_lastProgressId != null && _lastProgressKey == key && _lastStepId == _lastProgressId)
+                    {
+                        ProgressReducer.Apply(_steps, _lastProgressId, kind, label, "", state);
+                        SetModelStep(_lastProgressId, modelStep);
+                        return;
+                    }
+                    CloseProgressLocked();
+                    var id = "p:" + seq;
+                    ProgressReducer.Apply(_steps, id, kind, label, "", state);
+                    SetModelStep(id, modelStep);
+                    _lastStepId = _lastProgressId = id;
+                    _lastProgressKey = key;
+                }
+            }
+
+            private void SetModelStep(string id, int? modelStep)
+            {
+                if (modelStep is not > 0) return;
+                foreach (var s in _steps)
+                    if (s.StepId == id) { s.ModelStep = modelStep.Value; break; }
+            }
+
+            /// <summary>A new step supersedes the open progress rows.</summary>
+            public void CloseProgress()
+            {
+                lock (_lock) CloseProgressLocked();
+            }
+
+            private void CloseProgressLocked()
+            {
+                foreach (var s in _steps)
+                    if (s.State == StepState.Running && (s.StepId.StartsWith("p:", StringComparison.Ordinal) || s.StepId == "thinking"))
+                    {
+                        s.EndedUtc ??= DateTime.UtcNow;
+                        s.State = StepState.Done;
+                    }
+            }
+
+            public void Budget(string text)
+            {
+                lock (_lock)
+                {
+                    ProgressReducer.Apply(_steps, "budget", "budget", text, "", StepState.Done);
+                    ProgressReducer.MoveStepToEnd(_steps, "budget");
+                }
+            }
+
+            public void CompleteSteps()
+            {
+                lock (_lock) ProgressReducer.CompleteRunning(_steps);
+            }
+
+            public IReadOnlyList<ProgressStep> StepsSnapshot()
+            {
+                // Not the turn budget: a developer line the drafter never reads.
+                lock (_lock) return ProgressTrail.UserVisible(_steps);
+            }
+        }
+    }
+}

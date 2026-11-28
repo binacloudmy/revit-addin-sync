@@ -7,6 +7,8 @@ using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using RevitWebAppSync.Services;
 using RevitWebAppSync.UI.Copilot.Model;
+using RevitWebAppSync.UI.Copilot.Ports;
+using HL = RevitWebAppSync.UI.Copilot.Highlights;
 
 namespace RevitWebAppSync.UI.Copilot
 {
@@ -17,30 +19,38 @@ namespace RevitWebAppSync.UI.Copilot
         public string Message;
         public string Error;
         public string Data;   // JSON of the snippet's real structured return (drives the card)
+        public string TurnId; // host run id: the result's Undo is per run (W3's UndoService)
     }
 
-    /// <summary>Pluggable executor — set by the panel (Task 7 wires it to the Revit ExternalEvent).</summary>
+    /// <summary>Runs a library tool form — the panel sets HostCopilotExecutor,
+    /// which runs it through CopilotToolHost (writes apply at once and can be undone).</summary>
     public interface ICopilotExecutor
     {
         void Run(ToolDef tool, IDictionary<string, object> values, string code, Action<ExecOutcome> onDone);
-
-        /// <summary>Returns the user's natural-language request for the current run.
-        /// Fed to the self-heal retry so a regeneration keeps the right grounding.</summary>
-        Func<string> PromptProvider { get; set; }
-
-        /// <summary>Called with the attempt number when the self-heal loop retries
-        /// after a compile/runtime failure (drives the "fixing… (attempt N)" line).</summary>
-        Action<int> OnRetryProgress { get; set; }
     }
 
     /// <summary>
     /// Central Copilot state machine — a C# port of the prototype useReducer (app.jsx).
     /// Drives the panel chrome + all screen bodies via data binding.
     /// </summary>
-    public class CopilotViewModel : INotifyPropertyChanged
+    public partial class CopilotViewModel : INotifyPropertyChanged, IPaneNoticeView
     {
-        public CopilotViewModel()
+        private readonly IPaneServices _pane;
+        /// <summary>Revit-side actions (undo/redo, rings, selection); fakeable.</summary>
+        public IRevitActions Revit { get; }
+
+        public CopilotViewModel(IPaneServices pane = null, IRevitActions revit = null)
         {
+            _pane = pane ?? new PaneServices();
+            Revit = revit ?? new RevitActions(() => InModel);
+            Revit.UndoChanged += OnUndoChanged;
+            // A new chat or another one continued (Thread.Clear raises Reset): the undo lines went with the old thread.
+            Thread.CollectionChanged += (_, e) => { if (e.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Reset) UndoNotices.Clear(); };
+            // r23 (live P11 83058dfb): the chip's language belongs to the thread: a new chat, or another chat opened, starts from its own
+            // messages ("Selesai" from a Malay chat never carries into a new English one).
+            Thread.CollectionChanged += (_, e) => { if (e.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Reset) ResetStatusLanguage(); };
+            // The commands saved on this PC are the catalog's Mine tier from the first frame.
+            try { ToolCatalog.MergeMine(LocalCommandStore.Default.ToTools()); } catch (Exception) { /* none shown */ }
             var st = CopilotStateStore.Load();
             _pinned = new HashSet<string>(st.Pinned);
             History = new ObservableCollection<HistoryEntry>(st.History);
@@ -57,9 +67,10 @@ namespace RevitWebAppSync.UI.Copilot
             CancelRunCommand = new RelayCommand(_ => CancelRun());
             ClearChatCommand = new RelayCommand(_ =>
             {
+                LeaveCurrentChat(adopt: false, sessionId: null);
+                try { ModelResultStale?.Invoke(); } catch (Exception) { }
                 Thread.Clear();
                 _currentSession = null;
-                (Router as RevitChatRouter)?.ResetSession();
                 Tab = CpTab.Chat;   // "+" from the History tab must land on the new empty chat
                 RunStatus = "Ready";
             });
@@ -75,18 +86,18 @@ namespace RevitWebAppSync.UI.Copilot
             // A BINA AI sign-in (App.SessionChanged) unlocks and re-sends the
             // kept prompt; "Not now" unlocks and drops it.
             App.SessionChanged += OnSessionChanged;
-            // Engine strip: the turn preflight reports its slow steps here.
-            RevitWebAppSync.Services.ToolLoopService.PreflightProgress += text =>
-                System.Windows.Application.Current?.Dispatcher?.BeginInvoke(new Action(() => EngineStatus = text));
             CancelSendCommand = new RelayCommand(_ => CancelSend());
-            ChatRunCommand = new RelayCommand(p => ChatRun(p as ChatMessage));
-            ChatRegenerateCommand = new RelayCommand(p => ChatRegenerate(p as ChatMessage));
-            ChatOpenEditorCommand = new RelayCommand(p => OpenTool((p as ChatMessage)?.ToolId));
         }
 
         // ─── Injected context ────────────────────────────────────────────────
         public ICopilotExecutor Executor { get; set; }
         public IChatRouter Router { get; set; }
+        /// <summary>The protocol-3 router behind <see cref="Router"/> (null in design hosts).</summary>
+        private CopilotTurnRouter TurnRouter => Router as CopilotTurnRouter;
+        /// <summary>The line for the composer while a question card is open ("" when none).</summary>
+        public string AskHint => Model.AskCardModel.TypedAnswerHint(TurnRouter?.PendingAsk);
+        /// <summary>The pane's door to CopilotToolHost (reads, previewed writes).</summary>
+        public PaneToolRunner Tools { get; set; }
         public string UserFirstName { get; set; } = "there";
         public string ModelName { get; set; } = "Main Model";
         // 2026-08-02 defect #9 fix: the header subline is "«connection label»
@@ -106,6 +117,36 @@ namespace RevitWebAppSync.UI.Copilot
         /// star UI + persistence). Kept as an event so screens don't reach up
         /// into the panel's chrome directly.</summary>
         public event Action RateRequested;
+
+        /// <summary>A finished turn produced a result worth drawing in the model (the marks and the key).</summary>
+        public event Action<HL.HighlightSet, ChatMessage> ModelResultReady;
+        /// <summary>What the model showed for an earlier turn is stale (a new turn started, a new chat, or the latest turn had nothing to show):
+        /// the pane clears the marks and the key so an old result never stays over a newer one.</summary>
+        public event Action ModelResultStale;
+        /// <summary>The model's marks changed (shown, hidden, cleared): the cards relabel "Hide marks" / "Show in model". UI thread.</summary>
+        public event Action MarksChanged;
+        public void RaiseMarksChanged()
+        {
+            try { MarksChanged?.Invoke(); } catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] marks changed: " + ex.Message); }
+            List<Func<bool>> watchers;
+            lock (_marksWatchers) watchers = _marksWatchers.ToList();
+            var gone = watchers.Where(w => { try { return !w(); } catch (Exception) { return true; } }).ToList();
+            if (gone.Count > 0) lock (_marksWatchers) foreach (var w in gone) _marksWatchers.Remove(w);
+        }
+        private readonly List<Func<bool>> _marksWatchers = new List<Func<bool>>();
+        /// <summary>A card's "Hide marks" / "Show in model" button asks to be relabelled when the marks change; the callback
+        /// answers false once the button is gone.</summary>
+        public void WatchMarks(Func<bool> relabel) { if (relabel != null) lock (_marksWatchers) _marksWatchers.Add(relabel); }
+
+        private string _runScope = "";
+        /// <summary>"{3D} · 52 selected": the view and selection the running turn works on (the running composer's chip).</summary>
+        public string RunScope
+        {
+            get => _runScope;
+            private set { if (_runScope == value) return; _runScope = value; Raise(); }
+        }
+        /// <summary>The in-model result layer (set by the panel); the chat's card actions use it.</summary>
+        public HL.InModelResult InModel;
         public void RequestRate() => RateRequested?.Invoke();
 
         // ─── State ───────────────────────────────────────────────────────────
@@ -140,11 +181,16 @@ namespace RevitWebAppSync.UI.Copilot
         public string LastRunElapsed { get => _lastRunElapsed; private set { _lastRunElapsed = value; Raise(); } }
 
         public ObservableCollection<ChatMessage> Thread { get; } = new ObservableCollection<ChatMessage>();
+        /// <summary>The thread's "You undid: …" lines for Revit's own Undo/Redo (r12). Pane-only: never in Thread, the saved
+        /// history or the model's transcript; cleared with the thread.</summary>
+        public UndoNotices UndoNotices { get; } = new UndoNotices();
         public ObservableCollection<HistoryEntry> History { get; }
         public ObservableCollection<HighlightMarker> Highlights { get; } = new ObservableCollection<HighlightMarker>();
 
         // ─── Model-mirror indexing (Copilot open → seed → then prompt) ────────
         private bool _isIndexing;
+        /// <summary>r22: this turn's last card was answered by typing at a write card (P5 6bf0f4ec) or with only Skip/Langkau/Cancel (L8 959b3001): a reply that then wrote nothing gets the info disc.</summary>
+        private bool _typedAtWriteCard;
         public bool IsIndexing { get => _isIndexing; private set { if (_isIndexing == value) return; _isIndexing = value; Raise(); } }
 
         private int _indexProgress;
@@ -177,83 +223,17 @@ namespace RevitWebAppSync.UI.Copilot
         public void SetToolActivity(string tool)
         {
             var text = string.IsNullOrEmpty(tool) ? "applying…" : $"applying {tool}…";
-            var disp = System.Windows.Application.Current?.Dispatcher;
-            if (disp != null && !disp.CheckAccess()) disp.Invoke(() => ToolActivity = text);
-            else ToolActivity = text;
+            _pane.RunOnUi(() => ToolActivity = text);
         }
 
         /// <summary>Clear the tool-activity indicator (UI-thread safe).</summary>
         public void ClearToolActivity()
         {
-            var disp = System.Windows.Application.Current?.Dispatcher;
-            if (disp != null && !disp.CheckAccess()) disp.Invoke(() => ToolActivity = "");
-            else ToolActivity = "";
+            _pane.RunOnUi(() => ToolActivity = "");
         }
 
-        /// <summary>DEPRECATED (2026-06-08) — NO-OP. Seeded the cloud model
-        /// mirror on pane open ("Preparing your model… 48%"). The mirror is no
-        /// longer read by any live path: inspect tools run natively in Revit
-        /// (external_execution) or answer from the live snapshot, and backend
-        /// reads are gated behind VIBE_MIRROR_READS (=0). Seeding it just delayed
-        /// first-open by up to a minute for zero benefit, so it's disabled. The
-        /// body below is retained (parked) for when the zero-round-trip mirror
-        /// read path is wired up; flip the early-return to re-enable.</summary>
-        public async Task EnsureMirrorSeededAsync()
-        {
-            // DEPRECATED mirror seed — disabled. See summary above.
-            await Task.CompletedTask;
-            return;
-#pragma warning disable CS0162 // unreachable (parked for future re-enable)
-            try
-            {
-                var cfg = BinaConfig.Load();
-                if (cfg == null || cfg.ProjectId <= 0 || string.IsNullOrEmpty(cfg.AccessToken))
-                    return;  // not logged in / no project → nothing to seed
 
-                var ai = new AIService();
-                var status = await ai.GetSeedStatusAsync(cfg.ProjectId, cfg.AccessToken);
-                if (status != null && status.Warm)
-                    return;  // mirror already warm — no indicator needed
-
-                IsIndexing = true;
-                IndexProgress = status?.Progress ?? 0;
-                AddAi(new ChatMessage
-                {
-                    Role = "ai", Kind = CpMsgKind.Thinking,
-                    Text = "Indexing your model so I can answer instantly… one moment.",
-                });
-
-                // Poll until warm (~30s budget: 20 × 1.5s). StartSeedAsync is
-                // retried each round (idempotent) so a tunnel that connects a
-                // moment after the pane opens still kicks off the seed — the
-                // user no longer has to type first.
-                bool warm = false;
-                for (int i = 0; i < 20; i++)
-                {
-                    await ai.StartSeedAsync(cfg.ProjectId, cfg.UserId, cfg.AccessToken);
-                    await Task.Delay(1500);
-                    status = await ai.GetSeedStatusAsync(cfg.ProjectId, cfg.AccessToken);
-                    if (status != null) IndexProgress = status.Progress;
-                    if (status != null && status.Warm) { warm = true; break; }
-                }
-
-                IsIndexing = false;
-                ReplaceLastThinking(new ChatMessage
-                {
-                    Role = "ai", Kind = CpMsgKind.AiReply,
-                    Text = warm
-                        ? "Model indexed — ask me anything."
-                        : "Still indexing in the background — you can ask now; the first few answers may be a little slower.",
-                });
-            }
-            catch
-            {
-                IsIndexing = false;  // never trap the user behind a failed seed
-            }
-#pragma warning restore CS0162
-        }
-
-        /// <summary>On pane open (after mirror seeding): hold the send gate until
+        /// <summary>On pane open: hold the send gate until
         /// the Revit model is warm — i.e. the add-in's warm-up edit has paid the
         /// one-time ~70s first regen — so the user's first BUILD runs warm (~60ms)
         /// instead of freezing on the cold regen. Reuses IsIndexing (which gates
@@ -327,9 +307,7 @@ namespace RevitWebAppSync.UI.Copilot
         /// <summary>Add an AI message to the thread, marshalling to the UI thread.</summary>
         private void AddAi(ChatMessage m)
         {
-            var disp = System.Windows.Application.Current?.Dispatcher;
-            if (disp != null && !disp.CheckAccess()) disp.Invoke(() => Thread.Add(m));
-            else Thread.Add(m);
+            _pane.RunOnUi(() => Thread.Add(m));
         }
 
         private readonly HashSet<string> _pinned;
@@ -338,7 +316,8 @@ namespace RevitWebAppSync.UI.Copilot
         private HistoryEntry _currentSession = null;
 
         private void AppendToCurrentSession(string userText, string botText,
-            string status = "ok", List<string> toolIds = null, List<HistoryFile> userFiles = null)
+            string status = "ok", List<string> toolIds = null, List<HistoryFile> userFiles = null, string botNote = null,
+            ResultCardModel resultCard = null, ReceiptLanguage lang = default)
         {
             string time = DateTime.Now.ToString("h:mm tt");
             if (_currentSession == null)
@@ -346,11 +325,19 @@ namespace RevitWebAppSync.UI.Copilot
                 _currentSession = new HistoryEntry(
                     DateTime.Now.ToString("MMM d, h:mm tt"), status, userText,
                     new List<History>())
-                { SessionId = (Router as RevitChatRouter)?.SessionId };
+                { SessionId = TurnRouter?.SessionId };
                 History.Insert(0, _currentSession);
             }
+            // The server issues the session id at the first turn_end, which can
+            // come after this entry was opened (a turn that asked first).
+            if (string.IsNullOrEmpty(_currentSession.SessionId)) _currentSession.SessionId = TurnRouter?.SessionId;
             _currentSession.History.Add(new History("user", userText, time) { Files = userFiles });
-            _currentSession.History.Add(new History("bot", botText, time, toolIds));
+            _currentSession.History.Add(new History("bot", botText, time, toolIds)
+            {
+                PaneNote = botNote,
+                ResultCard = resultCard != null && resultCard.Kind != ResultKind.None ? resultCard : null,
+                Lang = lang,
+            });
             if (status == "warn") _currentSession.Status = "warn";
             int exchanges = _currentSession.History.Count(m => m.Sender == "user");
             _currentSession.Summary = exchanges == 1 ? userText : $"{exchanges} messages";
@@ -358,6 +345,26 @@ namespace RevitWebAppSync.UI.Copilot
             if (idx >= 0) History[idx] = _currentSession;
             CopilotStateStore.Save(_pinned, History);
             Raise(nameof(RecentEntry));
+        }
+
+        /// <summary>"+" and continuing a chat from History share this (I1): the running
+        /// turn stops, and the router switches session
+        /// (a fresh handle store). The stopped turn comes back Superseded, so none of it
+        /// is drawn in, or recorded to, the next chat.</summary>
+        private void LeaveCurrentChat(bool adopt, string sessionId)
+        {
+            var router = TurnRouter;
+            _queued = null;
+            if (IsSending || (router?.IsBusy ?? false)) router?.CancelStream();
+            if (adopt) router?.AdoptSession(sessionId);
+            else router?.ResetSession();
+        }
+
+        /// <summary>r23: the status chip's language from the thread as it is now (English for an empty one).</summary>
+        private void ResetStatusLanguage()
+        {
+            _statusLang = Model.TurnStatusText.ChipLanguage(Thread);
+            Raise(nameof(RunStatusText));
         }
 
         private void StartNewChat()
@@ -373,23 +380,36 @@ namespace RevitWebAppSync.UI.Copilot
         public void ContinueSession(HistoryEntry entry)
         {
             if (entry == null) return;
-            var router = Router as RevitChatRouter;
-            router?.AdoptSession(entry.SessionId);
-            if (string.IsNullOrWhiteSpace(entry.SessionId) && router != null)
-            {
-                // Pre-feature entry: remember the freshly minted session so a
-                // second Continue on this entry stays in the same conversation.
-                entry.SessionId = router.SessionId;
-                CopilotStateStore.Save(_pinned, History);
-            }
+            // A null id (an entry that never reached turn_end) starts a new
+            // server session; AppendToCurrentSession records it on the next turn.
+            // A turn still running in the chat being left stops first, as on "+".
+            LeaveCurrentChat(adopt: true, sessionId: entry.SessionId);
             _currentSession = entry;
             Thread.Clear();
             foreach (var m in entry.History)
             {
-                Thread.Add(m.Sender == "user"
-                    ? new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = m.Text, Time = m.Time }
-                    : new ChatMessage { Role = "ai", Kind = CpMsgKind.AiReply, Text = m.Text, Time = m.Time, ToolCallTrace = m.Tools });
+                if (m.Sender == "user")
+                {
+                    Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = m.Text, Time = m.Time });
+                    continue;
+                }
+                // M-12: the add-in's own words come back as its note, never as the
+                // model's reply (older history stored its "Done" as the reply).
+                var legacy = m.PaneNote == null && ReceiptTemplates.IsLegacyAddinDone(m.Text);
+                Thread.Add(new ChatMessage
+                {
+                    Role = "ai", Kind = CpMsgKind.AiReply,
+                    Text = legacy ? "" : m.Text,
+                    PaneNote = legacy ? m.Text : m.PaneNote,
+                    Time = m.Time, ToolCallTrace = m.Tools,
+                    // The card is drawn from the saved model alone: empty evidence, so no
+                    // Undo is offered for a turn from a past session.
+                    ResultCard = m.ResultCard,
+                    Evidence = m.ResultCard != null ? new TurnEvidence() : null,
+                    Lang = PromptLanguage.Card(m.Lang),   // r21: a saved card reads in the language it was made in
+                });
             }
+            ResetStatusLanguage();   // r23: a reopened chat's chip reads in its own language
             Tab = CpTab.Chat;
         }
 
@@ -480,31 +500,27 @@ namespace RevitWebAppSync.UI.Copilot
             set { if (_isSignedOut == value) return; _isSignedOut = value; Raise(nameof(IsSignedOut)); }
         }
 
-        private string _engineStatus;
-        /// <summary>Text for the strip above the composer while the engine
-        /// preflight signs in / downloads / starts. Null hides the strip.</summary>
-        public string EngineStatus
-        {
-            get => _engineStatus;
-            set { if (_engineStatus == value) return; _engineStatus = value; Raise(nameof(EngineStatus)); }
-        }
-
         // The prompt kept while signed out — sent automatically after sign-in.
         private PromptPayload _pendingAfterSignIn;
         private SlashTool _pendingSlashAfterSignIn;
+        private Dictionary<string, object> _pendingArgsAfterSignIn;
+        // r25: what the last turn really sent, for "Send again" / "Try again" on its failure card.
+        private PromptPayload _lastSent;
+        private SlashTool _lastSentSlash;
+        private Dictionary<string, object> _lastSentArgs;
 
         private void OnSessionChanged()
         {
-            System.Windows.Application.Current?.Dispatcher?.BeginInvoke(new Action(() =>
+            _pane.BeginOnUi(new Action(() =>
             {
                 bool signedOut;
-                try { signedOut = !(BinaConfig.Load()?.IsLoggedIn() ?? false); } catch { signedOut = false; }
+                try { signedOut = !(_pane.LoadConfig()?.IsLoggedIn() ?? false); } catch { signedOut = false; }
                 if (signedOut)
                 {
                     // Signed out: composer stays usable. The next send produces
                     // the Sign-in card (and locks, with that prompt kept).
                     IsSignedOut = false;
-                    _pendingAfterSignIn = null; _pendingSlashAfterSignIn = null;
+                    _pendingAfterSignIn = null; _pendingSlashAfterSignIn = null; _pendingArgsAfterSignIn = null;
                     return;
                 }
                 IsSignedOut = false;
@@ -515,7 +531,8 @@ namespace RevitWebAppSync.UI.Copilot
                     if (Thread[i].Kind == CpMsgKind.SignIn) Thread.RemoveAt(i);
                 var pending = _pendingAfterSignIn; _pendingAfterSignIn = null;
                 var slash = _pendingSlashAfterSignIn; _pendingSlashAfterSignIn = null;
-                if (pending != null) ChatSend(pending.Text, pending.ImagesBase64, pending.Files, slash);
+                var args = _pendingArgsAfterSignIn; _pendingArgsAfterSignIn = null;
+                Resend(pending, slash, args);
             }));
         }
 
@@ -539,7 +556,7 @@ namespace RevitWebAppSync.UI.Copilot
             SecondaryLabel = "Not now",
             SecondaryAction = () =>
             {
-                _pendingAfterSignIn = null; _pendingSlashAfterSignIn = null;
+                _pendingAfterSignIn = null; _pendingSlashAfterSignIn = null; _pendingArgsAfterSignIn = null;
                 IsSignedOut = false;   // unlock; the drafter can keep typing
                 for (int i = Thread.Count - 1; i >= 0; i--)
                     if (Thread[i].Kind == CpMsgKind.SignIn) Thread.RemoveAt(i);
@@ -560,39 +577,54 @@ namespace RevitWebAppSync.UI.Copilot
             card.PrimaryAction = primary ?? (() =>
             {
                 var pending = _pendingAfterSignIn; _pendingAfterSignIn = null;
-                if (pending != null) ChatSend(pending.Text, pending.ImagesBase64, pending.Files, _pendingSlashAfterSignIn);
+                var slash = _pendingSlashAfterSignIn; var args = _pendingArgsAfterSignIn;
+                Resend(pending, slash, args);
             });
             return card;
         }
 
-        /// <summary>Map a failed preflight (ToolLoopService.LastFailedStep) or a
-        /// gateway rejection to a card. Returns null when the failure is not one
-        /// the drafter can act on (falls through to the normal error path).</summary>
-        private ChatMessage CardForFailure(string error, PromptPayload retry)
+        /// <summary>Map a turn that could not run (RouteResult.FailureKind) to the
+        /// card the drafter can act on. Null when there is nothing to act on; the
+        /// failure then renders as a plain reply.</summary>
+        private ChatMessage CardForFailure(RouteResult rr, PromptPayload retry)
         {
-            var step = RevitWebAppSync.Services.ToolLoopService.LastFailedStep;
-            var detail = RevitWebAppSync.Services.ToolLoopService.LastFailureDetail;
-            if (step == RevitWebAppSync.Services.PreflightStep.LoginRequired) { _pendingAfterSignIn = retry; return SignInCard(); }
-            if (step != null)
+            var slash = _lastSentSlash; var args = _lastSentArgs;
+            switch (rr?.FailureKind ?? RouteFailure.None)
             {
-                _pendingAfterSignIn = retry;
-                var origin = "preflight · " + step + (string.IsNullOrEmpty(detail) ? "" : " · " + detail);
-                return AttentionCard(error ?? "BINA Engine is not ready", "Nothing was changed in the model.", origin);
+                case RouteFailure.SignIn:
+                    _pendingAfterSignIn = retry; _pendingSlashAfterSignIn = slash; _pendingArgsAfterSignIn = args;
+                    return SignInCard(tokenExpired: true);
+                case RouteFailure.UpdateRequired:
+                    return AttentionCard("Update BINA Sync to keep using the Copilot",
+                        "BINA's copilot now needs a newer add-in. Nothing was changed in the model.",
+                        "copilot · HTTP 426 update_required", primaryLabel: "Check for update",
+                        primary: () => { try { RevitWebAppSync.Services.UpdateService.EnsureUpToDate(); } catch { } });
+                case RouteFailure.TurnActive:
+                    return AttentionCard(FailureCards.TurnActiveTitle(rr.Language == ReceiptLanguage.Ms),
+                        FailureCards.TurnActiveBody(rr.PaneNote, rr.Language == ReceiptLanguage.Ms),
+                        "copilot · HTTP 409 turn active", primaryLabel: "Send again",
+                        primary: () => Resend(retry, slash, args));
+                case RouteFailure.Unreachable:
+                case RouteFailure.HostBlocked:
+                    _pendingAfterSignIn = retry; _pendingSlashAfterSignIn = slash; _pendingArgsAfterSignIn = args;
+                    var banner = FailureCards.For(rr.FailureKind, rr.PaneNote);
+                    return AttentionCard(banner.Title, banner.Body, banner.Origin);
+                default:
+                    var e = rr?.PaneNote ?? "";
+                    if (e.IndexOf("credit", StringComparison.OrdinalIgnoreCase) >= 0
+                        && (e.IndexOf("used up", StringComparison.OrdinalIgnoreCase) >= 0 || e.IndexOf("limit", StringComparison.OrdinalIgnoreCase) >= 0))
+                        return AttentionCard("AI credit limit reached for this period", "Your plan's credits are used up. Upgrade, or wait for the next period.",
+                            "copilot · plan_limit", primaryLabel: "See plans", primary: () => UpgradeRequested?.Invoke(), secondaryLabel: "Try again",
+                            secondary: () => Resend(retry, slash, args));
+                    return null;
             }
-            var e = error ?? "";
-            // Gateway rejections now carry the OpenAI error shape (bina-ai #121);
-            // the message text is what reaches us through the engine.
-            if (e.IndexOf("login required", StringComparison.OrdinalIgnoreCase) >= 0
-                || e.IndexOf("device token", StringComparison.OrdinalIgnoreCase) >= 0)
-            { _pendingAfterSignIn = retry; return SignInCard(tokenExpired: true); }
-            if (e.IndexOf("credit limit", StringComparison.OrdinalIgnoreCase) >= 0)
-                return AttentionCard("AI credit limit reached for this period", "Your plan's credits are used up. Upgrade, or wait for the next period.",
-                    "gateway · 402 insufficient_quota", primaryLabel: "See plans", primary: () => UpgradeRequested?.Invoke(), secondaryLabel: "Try again",
-                    secondary: () => { if (retry != null) ChatSend(retry.Text, retry.ImagesBase64, retry.Files); });
-            if (e.IndexOf("Unknown model error", StringComparison.OrdinalIgnoreCase) >= 0
-                || e.IndexOf("stream connect failed", StringComparison.OrdinalIgnoreCase) >= 0)
-            { _pendingAfterSignIn = retry; return AttentionCard("The Copilot couldn't reach its model", "Check the network and try again. Nothing was changed in the model.", "engine · " + e.Trim()); }
-            return null;
+        }
+
+        /// <summary>Send a failed turn again as it was sent: text, images, files, the slash command and its inputs, the shown text and
+        /// the @ mentions (as the sign-in path does).</summary>
+        private void Resend(PromptPayload p, SlashTool slash, Dictionary<string, object> args)
+        {
+            if (p != null) ChatSend(p.Text, p.ImagesBase64, p.Files, slash, args, displayText: p.DisplayText, mentions: p.Mentions);
         }
 
         public bool IsSending
@@ -605,7 +637,9 @@ namespace RevitWebAppSync.UI.Copilot
                 // Header status pill (PRD A7) rides the same transitions: a
                 // send opens Running; its end lands on Stopped (user clicked
                 // Stop this turn) or Done. No extra state machine.
-                if (value) RunStatus = "Running";
+                // r23 (live L14 e33b2db9, 824dbaae): the chip's words follow the thread from the moment the drafter's message is in it,
+                // by the composer's rule, so "Running" and the "Done" set here (before the reply is drawn) already read Malay in a Malay chat.
+                if (value) { _statusLang = Model.TurnStatusText.ChipLanguage(Thread); RunStatus = "Running"; Raise(nameof(RunStatusText)); }
                 else if (RunStatus == "Running") RunStatus = _stopRequested ? "Stopped" : "Done";
                 _stopRequested = false;
             }
@@ -613,34 +647,47 @@ namespace RevitWebAppSync.UI.Copilot
 
         // ─── Header status pill (PRD A7): Ready / Running / Done / Stopped ──
         private bool _stopRequested;
+
+        // The prompt typed while a turn ran: sent when that turn ends well.
+        private PromptPayload _queued;
+
+        private void SendQueued(RouteResult rr)
+        {
+            var q = _queued;
+            _queued = null;
+            if (q == null) return;
+            if (rr == null || rr.Superseded || rr.Failed || rr.Ask != null)
+            {
+                if (rr != null && rr.Superseded) return;   // another chat now
+                Thread.Add(new ChatMessage
+                {
+                    Role = "ai", Kind = CpMsgKind.AiReply,
+                    PaneNote = "Your queued message was not sent. Send it again when you are ready.",
+                    Time = System.DateTime.Now.ToString("h:mm tt"),
+                });
+                return;
+            }
+            ChatSend(q.Text, q.ImagesBase64, q.Files, displayText: q.DisplayText, mentions: q.Mentions);
+        }
         private string _runStatus = "Ready";
         public string RunStatus
         {
             get => _runStatus;
-            private set { if (_runStatus == value) return; _runStatus = value; Raise(); }
+            private set { if (_runStatus == value) return; _runStatus = value; Raise(); Raise(nameof(RunStatusText)); }
         }
 
-        // Live step trail state for the CURRENT turn. _lastSteps is the latest
-        // typed-steps snapshot from RevitChatRouter.OnSteps (null until the
-        // backend emits at least one steps frame — older backends never set
-        // this, which is how the legacy OnProgress fallback below detects it
-        // should keep driving the trail). Reset at the start of every turn
-        // (ChatSend) — never mid-turn, so a late OnProgress tick from an
-        // old-style backend can't clobber a newer OnSteps-driven trail once
-        // one has arrived this turn.
+        private bool _needsOk;
+        /// <summary>r22: the chat's language for the chip's words (the last turn's card language; a neutral "ok" keeps it).</summary>
+        private ReceiptLanguage _statusLang = ReceiptLanguage.En;
+        /// <summary>What the status chip says. The state key stays "Needs input" (the chip's colours key on it); the words follow the card: a question says
+        /// "Needs your answer", the server's gate "Needs your OK" (UX review Q8: the chip and the card used two words for one state); r22: in the chat's language.</summary>
+        public string RunStatusText => Model.TurnStatusText.Of(_runStatus, _needsOk, _statusLang);
+
+        // Live state for the CURRENT turn leg: the step list from the router
+        // and the cumulative streamed reply. Reset at the start of every leg;
+        // every live handler rebuilds the Thinking message from both, so one
+        // feed never stomps the other.
         private IReadOnlyList<ProgressStep> _lastSteps;
-        // Live REASONING trail state for the current turn — same reset/lifecycle
-        // as _lastSteps above, but a separate collection (see ReasoningStep):
-        // the working-narrative timeline, not the terse tool/status trail.
-        private IReadOnlyList<ReasoningStep> _lastReasoning;
-        // Stream v2 segmented turn body (T1) — same reset/lifecycle again.
-        // Null until the backend tags a reply leg with a segment id this turn.
-        private IReadOnlyList<TurnBlock> _lastBlocks;
-        // Cumulative streamed reply text — same reset/lifecycle. Kept in a
-        // field because ALL the live handlers rebuild the Thinking message
-        // from scratch: without this, a steps/reasoning tick landing after a
-        // reply delta replaced the message with a text-less one and the
-        // streaming bubble flickered out (2026-08-30 "still no streaming").
         private string _lastReplyText;
 
         /// <summary>User clicked Stop — abort the streaming reply. The router's
@@ -649,193 +696,88 @@ namespace RevitWebAppSync.UI.Copilot
         public void CancelSend()
         {
             _stopRequested = true;
-            try { (Router as RevitChatRouter)?.CancelStream(); } catch { /* already done */ }
-        }
-        public RelayCommand ChatRunCommand { get; }
-        public RelayCommand ChatRegenerateCommand { get; }
-        public RelayCommand ChatOpenEditorCommand { get; }
-
-        private static CpTab ParseTab(object p)
-        {
-            if (p is CpTab t) return t;
-            return Enum.TryParse(p as string ?? "Chat", true, out CpTab parsed) ? parsed : CpTab.Chat;
-        }
-
-        public void GoTab(CpTab tab)
-        {
-            Tab = tab;
-            Screen = CpScreen.Home;
-            ToolId = null;
-            RunResult = null;
-        }
-
-        public void OpenTool(string toolId)
-        {
-            var tool = CopilotCatalog.Find(toolId);
-            if (tool == null) return;
-            Prev = Screen;
-            ToolId = tool.Id;
-            if (tool.Tier == 1)
-            {
-                FormValues = tool.Fields.ToDictionary(f => f.Id, f => f.Default);
-                Raise(nameof(FormValues));
-                Screen = CpScreen.ToolForm;
-            }
-            else
-            {
-                FormValues = new Dictionary<string, object>();
-                Raise(nameof(FormValues));
-                Screen = CpScreen.ToolReview;
-            }
-        }
-
-        public void SetForm(string fieldId, object value)
-        {
-            FormValues[fieldId] = value;
-            Raise(nameof(FormValues));
-            // Re-evaluate the live preview/run-label bindings.
-            Raise(nameof(CurrentTool));
-        }
-
-        public void Back()
-        {
-            Screen = Prev == CpScreen.Home ? CpScreen.Home : Prev;
-            if (Screen == CpScreen.Home) { ToolId = null; RunResult = null; }
-        }
-
-        public void BackHome()
-        {
-            Screen = CpScreen.Home;
-            ToolId = null;
-            RunResult = null;
-            Prev = CpScreen.Home;
-        }
-
-        public void Pin(string toolId)
-        {
-            if (string.IsNullOrEmpty(toolId)) return;
-            if (_pinned.Add(toolId)) PersistAndRaisePinned();
-        }
-
-        public void Unpin(string toolId)
-        {
-            if (string.IsNullOrEmpty(toolId)) return;
-            if (_pinned.Remove(toolId)) PersistAndRaisePinned();
-        }
-
-        private void PersistAndRaisePinned()
-        {
-            CopilotStateStore.Save(_pinned, History);
-            Raise(nameof(SavedCount));
-            Raise(nameof(SavedTools));
-            Raise(nameof(Pinned));
-        }
-
-        // ─── Run / finish ────────────────────────────────────────────────────
-        public void Run()
-        {
-            var tool = CurrentTool;
-            if (tool == null) return;
-            // Tool-form path has no free-text prompt — the tool title is what the
-            // response answers, so feedback keys to that.
-            LastPrompt = tool.Title;
-            Prev = Screen;
-            Screen = CpScreen.Running;
-            _runClock = System.Diagnostics.Stopwatch.StartNew();
-
-            string code = tool.Tier == 2 ? tool.Code : null; // vetted code synthesized in the executor
-
-            if (Executor != null)
-            {
-                Executor.Run(tool, FormValues, code, FinishRun);
-            }
-            else
-            {
-                // Offline fallback (no Revit context) — simulate success with the catalog result shape.
-                FinishRun(new ExecOutcome { Success = true, Message = null });
-            }
-        }
-
-        public void CancelRun()
-        {
-            Screen = Prev == CpScreen.Running ? CpScreen.Home : Prev;
-        }
-
-        public void FinishRun(ExecOutcome outcome)
-        {
-            var tool = CurrentTool;
-            if (tool == null) return;
-
-            RunResult = BuildResult(tool, outcome);
-            var result = RunResult;
-            Screen = CpScreen.Result;
-
-            string status = result.Kind == CpResultKind.Issues ? "warn" : (outcome != null && !outcome.Success ? "warn" : "ok");
-            string summary = SummaryOf(result);
-            AppendToCurrentSession(tool.Title, summary, status, new List<string> { tool.Id });
-
-            PopulateHighlights(tool.Id);
-        }
-
-        /// <summary>
-        /// Build the result card. On a real run we render the snippet's actual model data
-        /// (mapped from outcome.Data) — never the catalog mock. The catalog mock is used only
-        /// in offline preview (no Revit executor wired).
-        /// </summary>
-        private ResultModel BuildResult(ToolDef tool, ExecOutcome outcome)
-        {
-            if (_runClock != null)
-            {
-                _runClock.Stop();
-                LastRunElapsed = _runClock.Elapsed.TotalSeconds.ToString("0.0") + "s";
-                _runClock = null;
-            }
-
-            if (outcome != null && !outcome.Success)
-                return new ResultModel { Kind = CpResultKind.Plain, Headline = "Run failed", Sub = outcome.Error ?? "The operation did not complete." };
-
-            if (Executor == null)
-            {
-                // Offline design preview only — no live model to query.
-                return tool.Result != null ? tool.Result(FormValues) : new ResultModel { Kind = CpResultKind.Plain, Headline = tool.Title, Sub = "Done." };
-            }
-
-            // Real run — map the actual structured return; fall back to the status message.
-            return CopilotResultMapper.Map(outcome?.Data, tool, outcome?.Message);
-        }
-
-        private static string SummaryOf(ResultModel r)
-        {
-            if (r.Kind == CpResultKind.Count || r.Kind == CpResultKind.Issues)
-                return $"{r.Headline} {r.Unit}";
-            return r.Headline;
-        }
-
-        private void PopulateHighlights(string toolId)
-        {
-            // Real marker projection lands in Task 15; for now mirror the prototype's seed set.
-            Highlights.Clear();
-            foreach (var m in CopilotHighlights.For(toolId))
-                Highlights.Add(m);
+            _queued = null;
+            try { TurnRouter?.CancelStream(); } catch { /* already done */ }
         }
 
         // ─── Chat ──────────────────────────────────────────────────────────────
+
+        private string _pendingCommandId;
 
         /// <summary>Command entry: the PromptBar sends a PromptPayload when
         /// screenshots are attached; chips/follow-ups still send a plain string.</summary>
         private void ChatSendAny(object p)
         {
-            if (p is PromptPayload pp) ChatSend(pp.Text, pp.ImagesBase64, pp.Files);
+            // r17: the @ mentions travel with this message as data (the composer's chips at send time), never kept for a later turn.
+            if (p is PromptPayload pp) ChatSend(pp.Text, pp.ImagesBase64, pp.Files, displayText: pp.DisplayText, mentions: pp.Mentions);
             else ChatSend(p as string);
         }
 
+        /// <summary>A turn is running (or the router is busy): a prompt cannot be edited or recalled now.</summary>
+        public bool TurnBusy => IsSending || (TurnRouter?.IsBusy ?? false);
+
+        /// <summary>Raised with a prompt's text for the composer to hold, editable (r17: a user bubble's Edit, Up in an
+        /// empty composer). The composer only shows it; the drafter's own send starts a new turn.</summary>
+        public event Action<string> PromptToEdit;
+
+        /// <summary>The drafter's Edit on their own message <paramref name="m"/>: its text goes back in the composer. Nothing
+        /// is sent and the thread is not changed. False (and nothing happens) while a turn runs or for a slash command.</summary>
+        public bool EditPrompt(ChatMessage m)
+        {
+            // A question parked on the assistant would take the edited prompt as its answer: edit after it is answered.
+            var text = PromptRecall.TextFor(m, TurnBusy || TurnRouter?.PendingAsk != null);
+            if (text == null) return false;
+            PromptToEdit?.Invoke(text);
+            return true;
+        }
+
+        /// <summary>The last prompt the drafter typed, for Up in an empty composer; null when none or a turn runs. A question
+        /// parked on the assistant keeps Up for itself (its card's keys), so nothing is recalled then.</summary>
+        public string RecallLastPrompt() => TurnBusy || TurnRouter?.PendingAsk != null ? null : PromptRecall.Last(Thread);
+
+        /// <param name="displayText">The message as the thread shows it when it differs
+        /// from what is sent (@ chips: "@PTh300a" in the thread, "Pintu Tunggal:
+        /// PTh300a (door type)" to the backend). Null: the thread shows <paramref name="text"/>.</param>
         public void ChatSend(string text, List<string> images = null, List<FileAttachment> files = null,
-            SlashTool slashChip = null, Dictionary<string, object> commandArgs = null)
+            SlashTool slashChip = null, Dictionary<string, object> commandArgs = null, string displayText = null, List<Mention> mentions = null)
         {
             text = (text ?? "").Trim();
+            string shown = string.IsNullOrWhiteSpace(displayText) ? text : displayText.Trim();
+            if (shown == text) displayText = null;
             // A slash command may carry no typed args (a bare "/level-builder"),
             // so an empty text is valid when a command chip is attached.
             if (text.Length == 0 && slashChip == null) return;
+            // Single flight (review I3): one copilot turn at a time. A parked
+            // question is not busy: a typed message answers it.
+            if (IsSending || (TurnRouter?.IsBusy ?? false))
+            {
+                // A plain prompt queues behind the running turn (one slot: the latest
+                // wins); a slash command still waits for the drafter to retry.
+                var queue = slashChip == null && text.Length > 0;
+                if (queue) _queued = new PromptPayload { Text = text, ImagesBase64 = images, Files = files, DisplayText = displayText, Mentions = mentions };
+                Thread.Add(new ChatMessage
+                {
+                    Role = "ai", Kind = CpMsgKind.AiReply,
+                    PaneNote = queue ? "Queued. It runs when this turn finishes. Stop clears it." : CopilotTurnRouter.BusyNote(ReceiptLanguage.En),
+                    Time = System.DateTime.Now.ToString("h:mm tt"),
+                });
+                return;
+            }
+            // N1: a parked question that asks for a password or token is never
+            // answered by typing. Refuse BEFORE the card is marked answered, so its
+            // "Don't answer" stays live, and keep the typed text out of the thread,
+            // LastPrompt, the prompt counter and local history.
+            var typedRefusal = TurnRouter?.PendingAsk?.RefuseTypedAnswer();
+            if (typedRefusal != null)
+            {
+                Thread.Add(new ChatMessage
+                {
+                    Role = "ai", Kind = CpMsgKind.AiReply,
+                    PaneNote = typedRefusal,
+                    Time = System.DateTime.Now.ToString("h:mm tt"),
+                });
+                return;
+            }
             LastPrompt = text;   // key for 👍/👎 feedback on the resulting response
             if (IsIndexing)
             {
@@ -847,26 +789,30 @@ namespace RevitWebAppSync.UI.Copilot
                 return;
             }
             // Lifetime prompt counter feeds the rating nudge threshold.
-            try { var prefs = CopilotPrefs.Load(); prefs.PromptsSent++; prefs.Save(); }
+            try { var prefs = _pane.LoadPrefs(); prefs.PromptsSent++; prefs.Save(); }
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] PromptsSent not persisted: " + ex.Message); }
             Tab = CpTab.Chat;
             Screen = CpScreen.Home;
             ToolId = null;
 
-            // The user typed past a pending Ya/Tidak card — its buttons die here
-            // (the router auto-rejects the parked batch in the background when
-            // this message routes; see RevitChatRouter.RouteAsync stale-confirm).
+            // A typed message while the turn is parked on the assistant's
+            // question answers it (the router posts it as the "text" answer);
+            // the question card collapses into the record.
+            var parkedAsk = TurnRouter?.PendingAsk;
+            if (parkedAsk == null) _typedAtWriteCard = false;   // a new request, not an answer: no earlier typed answer counts
             for (int k = 0; k < Thread.Count; k++)
             {
                 var msg = Thread[k];
-                if (msg.Kind == CpMsgKind.ConfirmActions && !msg.ActionsResolved)
+                if (parkedAsk != null && ReferenceEquals(msg.Ask, parkedAsk) && msg.Ask.AnsweredSummary == null)
                 {
-                    msg.ActionsResolved = true;
+                    msg.Ask.AnsweredSummary = shown;
+                    msg.Ask.AnsweredByTyping = true;   // r22: a typed answer at a write card is no approval (no tick on its record)
+                    _typedAtWriteCard = _typedAtWriteCard || msg.Ask.Wide != null;   // r22 P5: its reply gets the info disc
                     Thread[k] = Thread[k];   // item-replace redraw trick
                 }
             }
 
-            Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = text, ImagesBase64 = images, Files = files, SlashCommand = slashChip, Time = System.DateTime.Now.ToString("h:mm tt") });
+            Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = shown, ImagesBase64 = images, Files = files, SlashCommand = slashChip, Time = System.DateTime.Now.ToString("h:mm tt") });
 
 
             // Intent detection runs on the user's text only, so file contents can't
@@ -881,16 +827,16 @@ namespace RevitWebAppSync.UI.Copilot
 
             // Auth gate: BINA Copilot needs a signed-in BINA Cloud session. Show a friendly
             // prompt instead of letting the request 401 at the backend.
-            var authCfg = BinaConfig.Load();
+            var authCfg = _pane.LoadConfig();
             if (authCfg == null || !authCfg.IsLoggedIn())
             {
                 // Sign-in card in the thread, composer locks, prompt kept and
                 // re-sent after sign-in (OnSessionChanged). The old bubble here
                 // named "BINA Cloud → Login" - the CDE sign-in, which never mints
                 // the engine token - and had nothing to click.
-                _pendingAfterSignIn = new PromptPayload { Text = text, ImagesBase64 = images, Files = files };
-                _pendingSlashAfterSignIn = slashChip;
-                Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = text, SlashCommand = slashChip });
+                _pendingAfterSignIn = new PromptPayload { Text = text, ImagesBase64 = images, Files = files, DisplayText = displayText, Mentions = mentions };
+                _pendingSlashAfterSignIn = slashChip; _pendingArgsAfterSignIn = commandArgs;
+                Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = shown, SlashCommand = slashChip });
                 Thread.Add(SignInCard());   // locks the composer; "Not now" or sign-in unlocks
                 return;
             }
@@ -908,22 +854,17 @@ namespace RevitWebAppSync.UI.Copilot
             // }
 
             _lastSteps = null;
-            _lastReasoning = null;
-            _lastBlocks = null;
             _lastReplyText = null;
-            // P2 slash command: hand the backend command id to the router BEFORE
-            // routing kicks off. The field persists until RouteAsync consumes and
-            // clears it (sends are serial, so it can't leak into another turn).
-            if (slashChip != null && Router is RevitChatRouter _rr)
-            {
-                _rr.PendingCommandId = slashChip.BackendId;
-                // Saved Commands J1 (A4): the prompt bar's typed input chips
-                // ride the request as command_args; the server substitutes them
-                // into the pinned template (422 on a missing required one).
-                _rr.PendingCommandArgs = commandArgs != null && commandArgs.Count > 0 ? commandArgs : null;
-            }
-            Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Thinking, Text = "Menganalisis permintaan…" });
-            _ = SendWithAttachmentsAsync(text, files, interp.ToolId, images);
+            try { _turnDocKey = BinaVibe.Copilot.Read.SnapshotService.ActiveDocKey ?? ""; } catch (Exception) { _turnDocKey = ""; }
+            try { ModelResultStale?.Invoke(); } catch (Exception) { /* the toast is a convenience */ }
+            // Slash command: the command travels as its own prompt (template + typed inputs); a curated command also sends its id
+            // (r17), so the backend adds that command's instructions. A command saved on this PC sends none.
+            var routeTextOverride = slashChip != null ? SlashPrompt(slashChip, text, commandArgs) : null;
+            _pendingCommandId = ToolCatalog.WireCommandId(slashChip);
+            _lastSent = new PromptPayload { Text = text, ImagesBase64 = images, Files = files, DisplayText = displayText, Mentions = mentions };
+            _lastSentSlash = slashChip; _lastSentArgs = commandArgs;
+            Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Thinking, Text = "Thinking…" });
+            _ = SendWithAttachmentsAsync(routeTextOverride ?? text, files, interp.ToolId, images, text, mentions);
         }
 
         /// <summary>Read any binary attachments locally (the addin does it — Revit
@@ -933,7 +874,7 @@ namespace RevitWebAppSync.UI.Copilot
         /// than a frozen pane.</summary>
         private async System.Threading.Tasks.Task SendWithAttachmentsAsync(
             string text, List<FileAttachment> files, string fallbackToolId,
-            List<string> images)
+            List<string> images, string displayText = null, List<Mention> mentions = null)
         {
             await ResolveDrawingAttachmentsAsync(files);
             await ResolveDocumentAttachmentsAsync(files);
@@ -948,8 +889,117 @@ namespace RevitWebAppSync.UI.Copilot
             // The chat bubble + history use `text` (what the user typed). The
             // backend route text re-embeds any attached file contents — there's no
             // separate file channel, so files ride along inside the prompt string.
+            var tables = ResolveTableAttachments(files);
+            var documents = ResolvePdfPages(files);   // AI-297: the pages travel as attachments, not inside the prompt
+            RememberSourceFiles(files);
             string routeText = BuildRouteText(text, files);
-            await ResolveProposalAsync(routeText, text, fallbackToolId, images, historyFiles);
+            await ResolveProposalAsync(routeText, displayText ?? text, fallbackToolId, images, historyFiles, tables, documents, mentions);
+        }
+
+        // The attached PDFs by name, so a result row's Source panel can draw the page it cites (board 4).
+        // Only for this run of the add-in: a chat reopened from History has no file to show.
+        private readonly Dictionary<string, string> _sourceFiles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        // One parse per PDF however many rows ask at once: the Task is cached, not its result.
+        private readonly Dictionary<string, System.Threading.Tasks.Task<List<BinaVibe.Mcp.Tools.PdfWord>[]>> _sourcePages =
+            new Dictionary<string, System.Threading.Tasks.Task<List<BinaVibe.Mcp.Tools.PdfWord>[]>>(StringComparer.OrdinalIgnoreCase);
+
+        private void RememberSourceFiles(List<FileAttachment> files)
+        {
+            if (files == null) return;
+            foreach (var f in files)
+                if (f != null && f.Kind == AttachmentKind.Pdf && !string.IsNullOrEmpty(f.Name) && !string.IsNullOrEmpty(f.Path))
+                    _sourceFiles[f.Name] = f.Path;
+        }
+
+        /// <summary>The words of one page of an attached PDF, read off the UI thread; null when the file is gone or not attached in this run.</summary>
+        public async System.Threading.Tasks.Task<IReadOnlyList<BinaVibe.Mcp.Tools.PdfWord>> SourcePageWordsAsync(string attachment, int page)
+        {
+            if (string.IsNullOrEmpty(attachment) || !_sourceFiles.TryGetValue(attachment, out var path) || !System.IO.File.Exists(path)) return null;
+            try
+            {
+                System.Threading.Tasks.Task<List<BinaVibe.Mcp.Tools.PdfWord>[]> read;
+                lock (_sourcePages)
+                {
+                    if (!_sourcePages.TryGetValue(path, out read) || read.IsFaulted)
+                        _sourcePages[path] = read = System.Threading.Tasks.Task.Run(() => BinaVibe.Mcp.Tools.PdfReader.ExtractWords(path));
+                }
+                var pages = await read;
+                return page >= 1 && page <= pages.Length ? pages[page - 1] : null;
+            }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] source page words: " + ex.Message); return null; }
+        }
+
+        /// <summary>Open an attached PDF in the default viewer.</summary>
+        public void OpenSource(string attachment, int? page)
+        {
+            try
+            {
+                if (_sourceFiles.TryGetValue(attachment ?? "", out var path) && System.IO.File.Exists(path))
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true });
+            }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] open source: " + ex.Message); }
+        }
+
+        /// <summary>Each attached .pdf with a text layer as attachments[kind=document] (protocol 3): its pages go to
+        /// the cloud page by page, and the prompt keeps only a one-line pointer. A PDF with no text layer (a scan) or
+        /// one that could not be read keeps its old summary block.</summary>
+        private static List<DocumentData> ResolvePdfPages(List<FileAttachment> files)
+        {
+            var list = new List<DocumentData>();
+            if (files == null) return list;
+            var left = DocumentAttachment.MaxCharsPerTurn;   // all documents of one turn share this budget
+            foreach (var f in files)
+            {
+                if (left <= 0) break;   // the rest keep their summary block
+                if (f.ReadError != null || f.Kind != AttachmentKind.Pdf || string.IsNullOrEmpty(f.Ref)) continue;
+                try
+                {
+                    var pages = BinaVibe.Mcp.Tools.PdfAttachmentCache.Use(f.Ref, doc => doc.PageText);
+                    var name = list.Any(d => d.Name == f.Name) ? f.Name + " (" + (list.Count + 1) + ")" : f.Name;
+                    var data = DocumentAttachment.FromPages(name, pages, Math.Min(DocumentAttachment.MaxChars, left));
+                    if (!data.HasText) continue;
+                    left -= data.Pages.Sum(t => t.Length);
+                    list.Add(data);
+                    f.DocumentName = name;
+                    f.DocumentPages = data.Pages.Count;
+                    f.DocumentTotalPages = data.TotalPages;
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine("[BINA] PDF kept as a summary block: " + ex.Message);
+                }
+            }
+            return list;
+        }
+
+        /// <summary>Each attached .csv/.xlsx as attachments[kind=table] (protocol 3),
+        /// so set_parameters(from_table) gets real rows. A table that cannot be
+        /// parsed stays a text attachment (its CSV text is already in Content).</summary>
+        private static List<TableData> ResolveTableAttachments(List<FileAttachment> files)
+        {
+            var list = new List<TableData>();
+            if (files == null) return list;
+            foreach (var f in files)
+            {
+                if (f.ReadError != null || f.Kind != AttachmentKind.Text || !TableAttachment.IsTable(f.Path)) continue;
+                try
+                {
+                    var t = TableXlsx.Read(f.Path);
+                    if (t.Columns.Count == 0) continue;
+                    var name = list.Any(a => a.Name == t.Name) ? t.Name + " (" + (list.Count + 1) + ")" : t.Name;
+                    t.Name = name;
+                    list.Add(t);
+                    f.TableName = name;
+                    f.TableRows = t.Rows.Count;
+                    f.TableTotalRows = t.TotalRows;
+                    f.TableColumns = t.Columns.Count;
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine("[BINA] table attachment kept as text: " + ex.Message);
+                }
+            }
+            return list;
         }
 
         /// <summary>Turn each attached .pdf into a pdf_ref + compact summary by
@@ -966,7 +1016,7 @@ namespace RevitWebAppSync.UI.Copilot
                 try
                 {
                     var result = await RunLocalToolAsync(
-                        "pdf_open_attachment", new Dictionary<string, object> { ["path"] = d.Path });
+                        app => BinaVibe.Mcp.Tools.PaneTools.PdfOpenAttachment(d.Path));
                     if (result == null) { d.ReadError = "the PDF reader returned no result"; continue; }
                     d.Ref = result.Value.TryGetProperty("pdf_ref", out var r) ? r.GetString() : null;
                     d.SummaryJson = result.Value.GetRawText();
@@ -993,7 +1043,7 @@ namespace RevitWebAppSync.UI.Copilot
             List<System.Text.Json.JsonElement> inModel = null;
             try
             {
-                var links = await RunLocalToolAsync("list_cad_links", new Dictionary<string, object>());
+                var links = await RunLocalToolAsync(BinaVibe.Mcp.Tools.PaneTools.ListCadLinks);
                 if (links != null && links.Value.TryGetProperty("cad_links", out var arr)
                     && arr.ValueKind == System.Text.Json.JsonValueKind.Array)
                     inModel = arr.EnumerateArray().ToList();
@@ -1005,12 +1055,9 @@ namespace RevitWebAppSync.UI.Copilot
                 try
                 {
                     var match = FindLinkedCad(inModel, d.Path, d.Name);
-                    var args = new Dictionary<string, object>();
-                    string tool;
-                    if (match != null) { tool = "get_dwg_summary"; args["dwg_ref"] = match; }
-                    else { tool = "dwg_open_attachment"; args["path"] = d.Path; }
-
-                    var result = await RunLocalToolAsync(tool, args);
+                    var result = await RunLocalToolAsync(app => match != null
+                        ? BinaVibe.Mcp.Tools.PaneTools.DwgSummary(app, match)
+                        : BinaVibe.Mcp.Tools.PaneTools.DwgOpenAttachment(app, d.Path));
                     if (result == null) { d.ReadError = "Revit did not return a result"; continue; }
                     d.Ref = result.Value.TryGetProperty("dwg_ref", out var r) ? r.GetString() : match;
                     d.SummaryJson = result.Value.GetRawText();
@@ -1047,38 +1094,33 @@ namespace RevitWebAppSync.UI.Copilot
         /// round-trip) and return its result as JSON. Throws with the tool's own
         /// message on failure so the caller can show it to the drafter.</summary>
         private static async System.Threading.Tasks.Task<System.Text.Json.JsonElement?> RunLocalToolAsync(
-            string tool, Dictionary<string, object> args)
+            Func<Autodesk.Revit.UI.UIApplication, Dictionary<string, object>> work)
         {
-            var job = new BinaVibe.Mcp.McpJob
-            {
-                Tool = tool,
-                Args = System.Text.Json.JsonSerializer.SerializeToElement(args ?? new Dictionary<string, object>()),
-            };
-            BinaVibe.Mcp.McpJobPump.Enqueue(job);
-            await job.Done.Task;
-            if (job.Error != null) throw new InvalidOperationException(job.Error);
-            if (job.Result == null) return null;
-            var json = System.Text.Json.JsonSerializer.Serialize(job.Result);
+            var result = await BinaVibe.Mcp.Tools.PaneTools.RunAsync(work);
+            if (result == null) return null;
+            var json = System.Text.Json.JsonSerializer.Serialize(result);
             return System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(json);
         }
 
-        /// <summary>Slash command sent from the composer (P2). Routes the picked
-        /// command to the backend via `command_id` — the definition's instructions
-        /// and tool allowlist are injected server-side — and renders the user turn
-        /// as a command chip plus any typed args. Local tools (open-view) never
-        /// leave the addin: they reuse the Tier-1 vetted executor snippet.</summary>
+        /// <summary>Slash command sent from the composer. Protocol 3 has no server-side command ids: the command's template is
+        /// filled with the typed inputs here (SlashPromptText) and sent as a normal prompt, with the command's chip on the
+        /// user bubble. A command saved on this PC runs the same way, though the backend has never heard of it. Local tools
+        /// (open-view) never leave the addin: they reuse the Tier-1 vetted executor snippet.</summary>
+        /// <param name="payload">What the composer attached to this turn (picked @ mentions, images, files, display text),
+        /// forwarded to ChatSend exactly as a normal send forwards it. Null: none.</param>
         public void ChatSendSlashCommand(SlashTool tool, string args,
-            Dictionary<string, object> inputs = null)
+            Dictionary<string, object> inputs = null, PromptPayload payload = null)
         {
             if (tool == null) return;
-            if (tool.Local) { RunLocalSlash(tool, (args ?? "").Trim()); return; }
-            // ChatSend does the routing; the chip rides the user bubble and the
-            // backend command id (+ typed input values, Saved Commands J1) is
-            // handed to the router just before RouteAsync.
-            ChatSend((args ?? "").Trim(), slashChip: tool, commandArgs: inputs);
+            if (tool.Local) { RunLocalSlash(tool, (args ?? "").Trim(), payload?.Mentions); return; }
+            // ChatSend does the routing; the chip rides the user bubble and the typed input
+            // values are expanded into the prompt just before RouteAsync.
+            CountSavedRun(tool);
+            ChatSend((args ?? "").Trim(), payload?.ImagesBase64, payload?.Files, tool, inputs,
+                displayText: payload?.DisplayText, mentions: payload?.Mentions);
         }
 
-        private void RunLocalSlash(SlashTool tool, string args)
+        private void RunLocalSlash(SlashTool tool, string args, List<Mention> mentions = null)
         {
             Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = args, SlashCommand = tool, Time = System.DateTime.Now.ToString("h:mm tt") });
 
@@ -1098,6 +1140,9 @@ namespace RevitWebAppSync.UI.Copilot
             }
 
             var values = new Dictionary<string, object> { ["view"] = args };
+            // A view or sheet picked with @ carries its element id: open that exact one (a name can be shared).
+            var pickedId = VettedCalls.PickedViewId(mentions);
+            if (pickedId != null) values["viewId"] = pickedId.Value;
             Executor.Run(def, values, null, outcome =>
             {
                 // Same thread contract as the chat codegen Done callback — the
@@ -1127,6 +1172,12 @@ namespace RevitWebAppSync.UI.Copilot
             return string.IsNullOrEmpty(outcome.Message) ? "Opened." : outcome.Message;
         }
 
+        /// <summary>A slash command as a plain prompt: its template with the typed
+        /// inputs filled into the {name} holes, then any free text. Protocol 3
+        /// has no server-side command ids.</summary>
+        private static string SlashPrompt(SlashTool tool, string typed, Dictionary<string, object> inputs) =>
+            SlashPromptText.Build(tool?.Name, tool?.PromptTemplate, typed, inputs);
+
         /// <summary>Prompt string sent to the backend — see RouteText.Build for
         /// the block format (it lives in Model/ so the wire format is testable
         /// without WPF).</summary>
@@ -1141,168 +1192,33 @@ namespace RevitWebAppSync.UI.Copilot
             private set { if (_creditBadge == value) return; _creditBadge = value; Raise(); }
         }
 
-        /// <summary>
-        /// Fetch the signed-in user's monthly AI credit balance and seed the usage
-        /// meter (footer) + header badge. Called right after login. No chat message —
-        /// the quota lives in the meter, not the thread (ClickUp 86eybn4vz).
-        /// Best-effort: silently no-ops when not signed in or the backend is unavailable.
-        /// </summary>
-        public async System.Threading.Tasks.Task ShowCreditsAsync()
-        {
-            try
-            {
-                var credits = await FetchCreditsAsync();
-                if (credits == null) return;
-                SetUsage(UsageState.FromCredits(credits.Unlimited, credits.Used, credits.Limit, credits.Plan, credits.ResetsAt));
-            }
-            catch { /* best-effort — never block login on the credits read */ }
-        }
-
-        /// <summary>Re-fetch the balance and update ONLY the header badge (no chat message).
-        /// Called after each prompt so the badge ticks down live.</summary>
-        public async System.Threading.Tasks.Task RefreshCreditBadgeAsync()
-        {
-            try
-            {
-                var cfg = BinaConfig.Load();
-                if (cfg == null || !cfg.IsLoggedIn()) { SetCreditBadge(""); return; }   // signed out → hide
-                var credits = await new AIService().GetCreditsAsync(cfg.AccessToken);
-                if (credits != null) SetCreditBadge(BadgeText(credits));                // keep last value on transient failure
-            }
-            catch { /* best-effort */ }
-        }
-
-        private static async System.Threading.Tasks.Task<AIService.CreditInfo> FetchCreditsAsync()
-        {
-            var cfg = BinaConfig.Load();
-            if (cfg == null || !cfg.IsLoggedIn()) return null;
-            return await new AIService().GetCreditsAsync(cfg.AccessToken);
-        }
-
-        // NOTE: BadgeText describes the QUOTA, not the plan — "Unlimited"
-        // here means an uncapped wallet (an internal/admin override; pricing v2 has no
-        // unlimited tier), which is what UsageState reports as "Unlimited (internal)".
-        private static string BadgeText(AIService.CreditInfo c)
-        {
-            if (c.Unlimited) return "Unlimited";
-            if (c.Limit <= 0) return "";
-            int remaining = c.Remaining ?? System.Math.Max(0, c.Limit - c.Used);
-            return $"{remaining:N0} / {c.Limit:N0} credits";
-        }
-
-        // UI-thread-safe badge setter (RefreshCreditBadgeAsync may resume off the UI thread).
-        private void SetCreditBadge(string text)
-        {
-            var disp = System.Windows.Application.Current?.Dispatcher;
-            if (disp != null && !disp.CheckAccess()) disp.Invoke(() => CreditBadge = text);
-            else CreditBadge = text;
-        }
-
-        // ── Usage / plan (footer meter, popover, upgrade, blocked state) ─────
-        /// <summary>Override for the credits-backed default — harness/tests inject a
-        /// StubUsageService; a real billing adapter can replace it later.</summary>
-        public Services.IUsageService UsageService { get; set; }
-
-        private UsageState _usage = new UsageState();
-        public UsageState Usage
-        {
-            get => _usage;
-            private set { _usage = value ?? new UsageState(); Raise(); UsageChanged?.Invoke(); }
-        }
-        public event System.Action UsageChanged;
-
-        /// <summary>Refresh the usage snapshot — from UsageService when injected,
-        /// else from the credits balance. Best-effort; the meter never blocks chat.</summary>
-        public async System.Threading.Tasks.Task RefreshUsageAsync()
-        {
-            long seq = NextUsageSeq();
-            try
-            {
-                if (UsageService != null) { SetUsage(await UsageService.GetAsync(), seq); return; }
-                var credits = await FetchCreditsAsync();
-                if (credits != null)
-                    SetUsage(UsageState.FromCredits(credits.Unlimited, credits.Used, credits.Limit, credits.Plan, credits.ResetsAt), seq);
-            }
-            catch { /* best-effort */ }
-        }
-
-        /// <summary>ONE balance read feeding both the usage snapshot and the credit
-        /// badge. The poll previously called RefreshUsageAsync + RefreshCreditBadgeAsync
-        /// back to back, and each fetched independently — two byte-identical
-        /// GET /credits/balance per tick (~24/min in the fast tier). Use this wherever
-        /// both are wanted.</summary>
-        public async System.Threading.Tasks.Task RefreshUsageAndBadgeAsync()
-        {
-            long seq = NextUsageSeq();
-            try
-            {
-                if (UsageService != null) { SetUsage(await UsageService.GetAsync(), seq); return; }
-                var credits = await FetchCreditsAsync();
-                if (credits == null) return;
-                SetUsage(UsageState.FromCredits(credits.Unlimited, credits.Used, credits.Limit, credits.Plan, credits.ResetsAt), seq);
-                SetCreditBadge(BadgeText(credits));
-            }
-            catch { /* best-effort */ }
-        }
-
-        // Monotonic stamp per usage read. Polling can leave two reads in flight at a
-        // 5s tick and they may land out of order — a slow PRE-upgrade response
-        // arriving after a fast POST-upgrade one would re-raise the blocked wall over
-        // a working composer. Only ever publish a read newer than the last applied.
-        private long _usageSeq;
-        private long _usageApplied;
-
-        /// <summary>Take a ticket for an in-flight usage read; hand it to SetUsage.</summary>
-        private long NextUsageSeq() => System.Threading.Interlocked.Increment(ref _usageSeq);
-
-        private void SetUsage(UsageState u, long seq = 0)
-        {
-            if (u == null) return;
-
-            var disp = System.Windows.Application.Current?.Dispatcher;
-            if (disp != null && !disp.CheckAccess()) { disp.Invoke(() => SetUsage(u, seq)); return; }
-
-            // Ordering and de-duping are both decided on the UI thread, so two
-            // concurrent refreshes can never both pass these checks.
-            if (seq != 0)
-            {
-                if (seq <= _usageApplied) return;      // stale read, already overtaken
-                _usageApplied = seq;
-            }
-
-            // While the quota is exhausted the pane re-polls the SAME snapshot every
-            // few seconds waiting for an upgrade to land. Publishing an identical
-            // value would still raise UsageChanged, and consumers rebuild on that —
-            // the blocked wall would be torn down and re-created on every tick
-            // (visible flicker, and it would reset a button mid-click).
-            //
-            // SameAs covers EVERY rendered field. Comparing only a subset was a real
-            // bug: a snapshot differing solely in the reset date could never reach the
-            // screen, so a fresh 0%-usage account kept the seeded default forever and
-            // was shown an "Upgrade plan" CTA instead of "Resets 1 Aug".
-            if (_usage != null && _usage.SameAs(u)) return;
-
-            Usage = u;
-        }
-
-        private async System.Threading.Tasks.Task ResolveProposalAsync(string routeText, string displayText, string fallbackToolId, List<string> images = null, List<HistoryFile> historyFiles = null)
+        private async System.Threading.Tasks.Task ResolveProposalAsync(string routeText, string displayText, string fallbackToolId,
+            List<string> images = null, List<HistoryFile> historyFiles = null, List<TableData> tables = null, List<DocumentData> documents = null,
+            List<Mention> mentions = null)
         {
             RouteResult rr = null;
             if (Router != null)
             {
-                var revitRouter = Router as RevitChatRouter;
-                HookStreaming(revitRouter);
-                // Pasted screenshots ride along with this route only — the router
-                // consumes and clears them when it builds the request (same
-                // per-call pattern as OnProgress).
-                if (revitRouter != null) revitRouter.PendingImages = images;
+                var router = TurnRouter;
+                HookStreaming(router);
+                // Pasted screenshots and attached tables ride along with this
+                // turn only — the router consumes and clears them.
+                if (router != null)
+                {
+                    router.PendingImages = images;
+                    router.PendingTables = tables;
+                    router.PendingDocuments = documents;
+                    router.PendingMentions = MentionWire.For(mentions);
+                    router.PendingCommandId = _pendingCommandId;
+                }
+                _pendingCommandId = null;
                 IsSending = true;   // send button shows Stop until the reply resolves
                 try { rr = await Router.RouteAsync(routeText, fallbackToolId); }
                 catch { rr = null; }
                 finally
                 {
                     IsSending = false;
-                    UnhookStreaming(revitRouter);
+                    UnhookStreaming(router);
                 }
             }
 
@@ -1310,646 +1226,719 @@ namespace RevitWebAppSync.UI.Copilot
             // footer meter so usage ticks up live (best-effort).
             _ = RefreshUsageAsync();
 
+            // The drafter left this chat while the turn ran ("+" or History, I1):
+            // its result belongs to a thread that is gone.
+            if (rr != null && rr.Superseded) { _queued = null; return; }
+
             // A failed turn the drafter can act on becomes a card (Sign-in /
             // Attention) instead of a reply bubble carrying the raw reason.
             if (rr != null && rr.Failed)
             {
-                var card = CardForFailure(rr.Reply, new PromptPayload { Text = routeText });
-                if (card != null) { ReplaceLastThinking(card); return; }
+                var card = CardForFailure(rr, _lastSent);
+                if (card != null) { ReplaceLastThinking(card); RunStatus = TurnStatus.Failed; SendQueued(rr); return; }
             }
 
             RenderRouteResult(rr, routeText, displayText, fallbackToolId, historyFiles);
+            SendQueued(rr);
         }
 
-        /// <summary>Wire the live-streaming callbacks (progress line, typed step
-        /// trail, growing reply text) onto the router for ONE turn. Shared by the
-        /// normal send path and the Ya/Tidak confirm resolvers so a resumed loop
-        /// streams into the pane exactly like a fresh send.</summary>
-        private void HookStreaming(RevitChatRouter revitRouter)
+        /// <summary>Wire the live callbacks (step list, growing reply) onto the
+        /// router for ONE turn leg. Shared by a fresh send and an ask answer.</summary>
+        private void HookStreaming(CopilotTurnRouter router)
         {
-            // Hook streaming if the concrete router supports it. The
-            // backend's /generate/stream endpoint emits code chunks
-            // every ~80 chars so the user sees code fill in token by
-            // token instead of waiting for the full response.
-            if (revitRouter != null)
+            if (router == null) return;
+            router.OnSteps = steps =>
             {
-                    // Live step trail in the thinking bubble (▶ running, ✓ done,
-                    // ✗ error) — backend-authored, BIMLogiq-style. Replaces the
-                    // old "Drafting…" code preview: the step trail is the progress
-                    // display now; the final reply lands in the answer bubble on
-                    // completion.
-                    // Once answer TEXT starts streaming (OnCodeStream), the reply
-                    // takes over the bubble — late trail re-renders (review ticks,
-                    // resume rounds) must not stomp the text the user is reading.
-                    bool replyStreaming = false;
-                    // ONE growing bubble (Claude-style). The backend streams a fresh
-                    // reply per tool-loop round, but ToolLoopRunner ACCUMULATES them
-                    // (round1 \n\n round2 \n\n …) so `cumulative` here is always the
-                    // full running answer — we just render it into the single bubble.
-                    // Legacy plain-text trail — only drives the bubble when this
-                    // turn never got a typed steps frame (older backend). Once
-                    // OnSteps has fired once, _lastSteps is non-null and this
-                    // fallback goes quiet for the rest of the turn.
-                    revitRouter.OnProgress = (trail) =>
-                    {
-                        if (replyStreaming || _lastSteps != null) return;
-                        ReplaceLastThinking(new ChatMessage
-                        {
-                            Role = "ai", Kind = CpMsgKind.Thinking,
-                            Text = string.IsNullOrEmpty(trail) ? "Thinking…" : trail,
-                        });
-                    };
-                    // Typed live step trail (▶ running, ✓ done, ✗ error) — the
-                    // multi-row trail rendered by ProgressTrailView. Marshaled the
-                    // same way as ReplaceLastThinking itself (see its dispatcher
-                    // check): ProgressStep objects are shared/mutable, but we only
-                    // ever pass the reference along here — ProgressTrailView reads
-                    // their current values synchronously on the UI thread inside
-                    // Update, never binds to their INPC.
-                    revitRouter.OnSteps = steps =>
-                    {
-                        _lastSteps = steps;
-                        ReplaceLastThinking(LiveThinking());
-                    };
-                    // Streaming reasoning ("working narrative") timeline — a
-                    // SEPARATE trail from OnSteps above (see ReasoningStep). Same
-                    // marshal contract: ReasoningStep is shared/mutable but the
-                    // control only ever reads its current values synchronously on
-                    // the UI thread, never binds to its INPC.
-                    revitRouter.OnReasoning = steps =>
-                    {
-                        _lastReasoning = steps;
-                        if (CopilotPrefs.Load().ReasoningEnabled == false) return;
-                        ReplaceLastThinking(LiveThinking());
-                    };
-                    // Stream v2 (T1): the segmented turn body — ordered
-                    // Narrative/ToolCard blocks growing live. Fires only when
-                    // the backend tags reply legs with segment ids, so legacy
-                    // turns never reach here and render exactly as today.
-                    revitRouter.OnBlocks = blocks =>
-                    {
-                        if (CopilotPrefs.Load().StreamV2Enabled == false) return;
-                        _lastBlocks = blocks;
-                        ReplaceLastThinking(LiveThinking());
-                    };
-                    // Live reply streaming (2026-08-30, operator ask — the pane
-                    // must stream the answer like the design, not reveal it all
-                    // at once). History: the 2026-08-02 pass muted this handler
-                    // because intermediate rounds' prose rendered as the answer
-                    // and sometimes duplicated. Both causes are gone since
-                    // ToolLoopRunner ACCUMULATES rounds: `cumulative` here IS
-                    // the same running buffer the terminal done-frame's reply
-                    // is built from, so the streamed text and the final message
-                    // agree by construction and nothing duplicates.
-                    // v2-active turns carry Blocks — ChatView then renders the
-                    // segmented BlocksPanel and ignores Text, so this stays a
-                    // liveness tick for them exactly as before; legacy turns
-                    // get the growing markdown bubble (StreamingReply) back.
-                    revitRouter.OnCodeStream = (cumulative) =>
-                    {
-                        if (string.IsNullOrWhiteSpace(cumulative)) return;
-                        replyStreaming = true;
-                        _lastReplyText = cumulative;
-                        ReplaceLastThinking(LiveThinking());
-                    };
+                try
+                {
+                    var snap = router.TurnSnapshot;
+                    var view = snap?.View?.Name; var count = snap?.Selection?.Count ?? 0;
+                    // r23 (re-audit): the chip reads the thread's language, the one source of the placeholder and the Working card
+                    // (the router's is cleared when a chat is reopened), so a reopened Malay chat says "· 2 dipilih".
+                    _pane.RunOnUi(() => RunScope = RunningText.ScopeText(view, count, PromptLanguage.OfThread(Thread)));
                 }
+                catch (Exception) { /* the chip is a convenience */ }
+                _lastSteps = steps;
+                ReplaceLastThinking(LiveThinking());
+            };
+            router.OnCodeStream = cumulative =>
+            {
+                if (string.IsNullOrWhiteSpace(cumulative)) return;
+                _lastReplyText = cumulative;
+                ReplaceLastThinking(LiveThinking());
+            };
         }
 
-        // Fresh snapshot list for a ChatMessage — the callbacks already hand
-        // over immutable snapshots, so this only re-wraps to the List type the
-        // message field carries. Null when the turn hasn't gone v2.
-        private List<TurnBlock> LiveBlocks() =>
-            _lastBlocks == null || _lastBlocks.Count == 0 ? null : new List<TurnBlock>(_lastBlocks);
-
-        /// <summary>The ONE live Thinking message, built from the complete
-        /// per-turn snapshot (_lastSteps/_lastReasoning/_lastBlocks/
-        /// _lastReplyText). Every streaming handler renders through this — a
-        /// handler that built its own partial message would stomp whatever the
-        /// other feeds had already streamed (the pre-2026-08-30 flicker).</summary>
+        /// <summary>The ONE live Thinking message, built from the per-turn
+        /// snapshot (_lastSteps/_lastReplyText) so no feed stomps another.</summary>
         private ChatMessage LiveThinking() => new ChatMessage
         {
             Role = "ai", Kind = CpMsgKind.Thinking,
             StreamingReply = !string.IsNullOrWhiteSpace(_lastReplyText),
             Text = _lastReplyText ?? "",
             LiveSteps = _lastSteps,
-            LiveReasoningSteps = _lastReasoning,
-            Blocks = LiveBlocks(),
         };
 
-        // Persisted blocks for a completed message — null unless the turn went
-        // v2 AND the kill switch is on (the flag also silences the live path).
-        // Reconciled against the full reply text: a block feed that died
-        // mid-turn (stream cut → blocking-resume fallback, no block frames)
-        // otherwise renders a truncated prefix while copy has the full answer
-        // (defect 2026-08-20). Diverged blocks → null → plain-text rendering.
-        private static List<TurnBlock> V2Blocks(RouteResult rr)
+        private void UnhookStreaming(CopilotTurnRouter router)
         {
-            if (!CopilotPrefs.Load().StreamV2Enabled) return null;
-            var rec = TurnBlocks.WithReplyTail(rr?.Blocks, rr?.Reply);
-            return rec == null ? null : new List<TurnBlock>(rec);
+            if (router == null) return;
+            router.OnSteps = null;
+            router.OnCodeStream = null;
+            router.OnProgressText = null;
         }
 
-        private void UnhookStreaming(RevitChatRouter revitRouter)
-        {
-            if (revitRouter == null) return;
-            revitRouter.OnProgress = null;
-            revitRouter.OnCodeStream = null;
-            revitRouter.OnSteps = null;
-            revitRouter.OnReasoning = null;
-            revitRouter.OnBlocks = null;
-        }
-
-        /// <summary>Render a resolved RouteResult into the thread — clarify card,
-        /// mutate-confirmation card, plain reply, auto-run codegen, or proposal.
-        /// Shared tail of ResolveProposalAsync and the confirm resolvers (whose
-        /// follow-on outcome can be ANY of these again — another confirm card,
-        /// a clarify question, or the final reply).</summary>
+        /// <summary>Render a resolved RouteResult: the assistant's question card,
+        /// or the reply with the turn's evidence, receipt and caution (all from
+        /// envelopes — RouteResult.Evidence — never from the reply text).</summary>
         private void RenderRouteResult(RouteResult rr, string routeText, string displayText, string fallbackToolId, List<HistoryFile> historyFiles)
         {
-            // HITL clarify pause: the agent needs an answer before acting. Render
-            // the question as a Clarify card; the user's NEXT message is routed
-            // back into the paused run by the router (resume-input), so no
-            // option chips are required — they type the answer in the prompt bar.
-            if (rr != null && rr.NeedsClarification
-                && (!string.IsNullOrWhiteSpace(rr.ClarifyingQuestion)
-                    || (rr.Choices != null && rr.Choices.Count > 0)))
+            if (rr == null)
             {
-                // Structured ask_user questions render as tappable option rows;
-                // free-text stays available via the prompt bar (the router's
-                // BuildAnswers treats a typed message as the Lain-lain escape).
-                var questions = new List<ClarifyQuestionModel>();
-                foreach (var req in rr.Choices ?? new List<RevitWebAppSync.Services.ChoiceRequirement>())
-                    foreach (var q in req.Questions ?? new List<RevitWebAppSync.Services.AskQuestionDto>())
-                        questions.Add(new ClarifyQuestionModel
-                        {
-                            Question = q.Question,
-                            Header = q.Header ?? "",
-                            MultiSelect = q.MultiSelect,
-                            Options = (q.Options ?? new List<RevitWebAppSync.Services.AskOptionDto>())
-                                .Select(o => new ClarifyOptionModel { Label = o.Label, Description = o.Description })
-                                .ToList(),
-                        });
+                ReplaceLastThinking(new ChatMessage
+                {
+                    Role = "ai", Kind = CpMsgKind.AiReply,
+                    PaneNote = "The copilot did not answer. Nothing was changed in the model.",
+                    Failed = true,
+                    Time = System.DateTime.Now.ToString("h:mm tt"),
+                });
+                RunStatus = TurnStatus.Failed;
+                return;
+            }
+
+            // r21 (owner, 21 Nov): the card's fixed labels follow the drafter's language: the one place the turn's language
+            // reaches the card, its receipts and its history line.
+            var cardLang = PromptLanguage.Card(rr.Language);
+            cardLang = PromptLanguage.Card(PromptLanguage.FromServer(TurnStatus.ServerResultOf(rr)?.Lang, PromptLanguage.ForReply(cardLang, rr.Reply)));   // r21: the language the server resolved wins; r22 (N5): else its Malay reply
+            _statusLang = cardLang;   // r22: the chip ("Selesai", "Perlu jawapan anda") reads in the turn's language
+            // r23 (live L14 e33b2db9, 824dbaae): the pill already read "Done" (IsSending's end ran first) and AfterResult keeps it, so the
+            // RunStatus setter raises nothing: the chip kept the language it had before this turn. Say it again in this turn's language.
+            Raise(nameof(RunStatusText));
+            // The narrow no-op rule (B): a code no-op against a result that says things changed is a caution; the evidence needs the result first.
+            if (!TurnStatus.IsFailed(rr)) rr.Evidence?.NoteServerResult(rr.ServerResult);
+            if (rr.Ask != null)
+            {
                 ReplaceLastThinking(new ChatMessage
                 {
                     Role = "ai", Kind = CpMsgKind.Clarify,
-                    Question = rr.ClarifyingQuestion,
-                    Options = new List<ClarifyOption>(),
-                    Questions = questions.Count > 0 ? questions : null,
-                    ChoiceBatch = rr.ChoiceBatch,
+                    // Whatever the model said before asking stays its own text.
+                    Text = rr.Reply ?? "",
+                    Question = rr.Ask.Question,
+                    Ask = rr.Ask,
+                    TurnId = rr.TurnId,
+                    Evidence = rr.Evidence,
+                    Lang = cardLang,
+                    ActivityLanguage = rr.Language,   // r18: its Steps list follows the drafter's language
                     Steps = rr.Steps,
+                    Time = System.DateTime.Now.ToString("h:mm tt"),
                 });
-                // Persist the clarify turn — without this the early return drops
-                // both the user's message and the question from History/Export
-                // (the user side is only ever saved paired with a bot reply).
-                AppendToCurrentSession(displayText,
-                    !string.IsNullOrWhiteSpace(rr.ClarifyingQuestion)
-                        ? rr.ClarifyingQuestion
-                        : string.Join(" | ", questions.Select(q => q.Question)),
-                    "ok", null, historyFiles);
-                // Status tag: the run parked on a question. Set directly — the
-                // IsSending=false transition only overwrites a "Running" status,
-                // so this survives whichever order the two land in.
+                AppendToCurrentSession(displayText, rr.Ask.Question, "ok", null, historyFiles);
+                _needsOk = rr.Ask.Wide != null;
+                _statusLang = rr.Ask.Language;   // r22 (live M1 2ca7d010): "Perlu jawapan anda" in a Malay chat, as the card's own chrome
+                Raise(nameof(RunStatusText));
                 RunStatus = "Needs input";
                 return;
             }
 
-            // Mutate-confirmation pause: the pending batch would MODIFY the model,
-            // so the loop parked BEFORE executing. Render the Ya/Tidak card listing
-            // the proposed actions; AcceptActions/DeclineActions resolve it via the
-            // router's ResolvePendingActionsAsync.
-            //
-            // Action Mode addendum (2026-08-02): in Auto mode, a batch where EVERY
-            // call opted out of confirmation (rr.AutoApprovable) skips the
-            // interactive card entirely — approved programmatically through the
-            // SAME accept path a click would use (RunResolution below), with a
-            // compact "Auto-approved" card left in the transcript as the audit
-            // trail. Anything else (Ask-first mode, or ANY call still requiring
-            // confirmation) shows the normal interactive card — v1 simplicity,
-            // no partial auto per the spec.
-            if (rr != null && rr.NeedsActionConfirmation)
+            var nothingWritten = ReplyTone.TypedRefusal(_typedAtWriteCard, rr.Evidence?.Calls.Select(c => c.Env))
+                // r23 (live f85dd8f6, b372f902): the server's result says nothing was made or changed: the neutral disc, never the green check
+                || ReplyTone.NothingMade(TurnStatus.ServerResultOf(rr), rr.Evidence?.Calls.Select(c => c.Env))
+                // r23 (live P13 44c1f9e6): every change the turn tried was refused or failed: the neutral disc, never the green check
+                || ReplyTone.RefusedOnly(rr.Evidence?.Calls);
+            _typedAtWriteCard = false;   // one turn's typed answer only
+            var reply = new ChatMessage
             {
-                bool auto = CopilotPrefs.Load().AutoApproveWrites && rr.AutoApprovable;
-                var confirmMsg = new ChatMessage
-                {
-                    Role = "ai", Kind = CpMsgKind.ConfirmActions,
-                    Text = rr.Reply ?? "",   // agent narration above the card, may be empty
-                    ActionLabels = rr.ActionLabels ?? new List<string>(),
-                    Steps = rr.Steps,
-                    ReasoningSteps = rr.ReasoningSteps,
-                    ReasoningElapsedSeconds = rr.ReasoningElapsedSeconds,
-                    Blocks = V2Blocks(rr),
-                    Time = System.DateTime.Now.ToString("h:mm tt"),
-                    ActionsResolved = auto,
-                    ActionsApproved = auto ? (bool?)true : null,
-                    AutoApproved = auto,
-                    // Card owns its batch: resolution works even if the
-                    // router's parked field is cleared by a newer message
-                    // before the click/auto-resolve lands (2026-08-18 UAT).
-                    PendingBatch = rr.PendingBatch,
-                };
-                ReplaceLastThinking(confirmMsg);
-                AppendToCurrentSession(displayText,
-                    auto ? "Auto-approved" : "Menunggu pengesahan tindakan", "ok", null, historyFiles);
-                if (auto) RunResolution(confirmMsg, approve: true);
-                // Status tag: parked on the Ya/Tidak card (unless auto-approved,
-                // where the run continues). See the clarify branch above.
-                else RunStatus = "Awaiting confirmation";
-                return;
-            }
-
-            string toolId = !string.IsNullOrEmpty(rr?.ToolId) ? rr.ToolId : fallbackToolId;
-            var tool = CopilotCatalog.Find(toolId) ?? CopilotCatalog.Find(fallbackToolId);
-            if (tool == null) return;
-
-            var plan = (rr?.PlanSteps != null && rr.PlanSteps.Count > 0) ? rr.PlanSteps : tool.Plan;
-            string code = !string.IsNullOrWhiteSpace(rr?.Code) ? rr.Code : tool.Code;
-
-            // Backend answered with NO code to run — a clarification ("which
-            // view did you mean?"), an answer-from-context, or a refusal to
-            // guess. Render rr.Reply as a chat bubble. Check rr.Code DIRECTLY,
-            // not the `code` var above (which falls back to the catalog tool's
-            // sample code and would mask this case → the empty response then
-            // gets routed to the executor as "Couldn't build runnable code").
-            if (rr != null && string.IsNullOrWhiteSpace(rr.Code)
-                && !string.IsNullOrWhiteSpace(rr.Reply))
+                NothingWritten = nothingWritten,
+                Role = "ai", Kind = CpMsgKind.AiReply, ToolId = fallbackToolId,
+                // Exactly the model's text.
+                Text = rr.Reply ?? "",
+                PaneNote = rr.PaneNote,
+                ToolsUsed = rr.ToolsUsed,
+                SourcePrompt = routeText,
+                Steps = rr.Steps,
+                Interrupted = rr.Interrupted,
+                Failed = TurnStatus.IsFailed(rr),
+                TurnId = rr.TurnId,
+                Evidence = rr.Evidence,
+                Lang = cardLang,
+                ActivityLanguage = rr.Language,   // r18: the Steps list follows the drafter's language, as its rows do
+                Time = System.DateTime.Now.ToString("h:mm tt"),
+            };
+            // The result card, from the envelopes (never the reply text). Attached BEFORE
+            // the reply is published to the thread: ReplaceLastThinking rebuilds
+            // synchronously, so a card set afterwards would paint the legacy receipt first.
+            HL.HighlightSet highlights = null;
+            try
             {
-                ReplaceLastThinking(new ChatMessage
+                // A server reply with no evidence (a turn that used no tool) is still the headline: build the card model from it.
+                var serverResult = TurnStatus.ServerResultOf(rr);   // none for a failed turn: no green check-disc headline for it
+                if (rr.Evidence != null || serverResult != null)
                 {
-                    Role = "ai", Kind = CpMsgKind.AiReply, ToolId = tool.Id,
-                    Text = !string.IsNullOrWhiteSpace(rr.Reply) ? rr.Reply : "Done.",
-                    ToolCallTrace = rr.ToolCallTrace,
-                    RunId = rr.RunId,
-                    ToolsUsed = rr.ToolsUsed,
-                    SourcePrompt = routeText,
-                    Steps = rr.Steps,
-                    ReasoningSteps = rr.ReasoningSteps,
-                    ReasoningElapsedSeconds = rr.ReasoningElapsedSeconds,
-                    Blocks = V2Blocks(rr),
-                    Followups = rr.Followups,
-                    ResultSummary = rr.ResultSummary,
-                    Receipt = rr.Receipt,
-                    Verdict = rr.Verdict,
-                    Interrupted = rr.Interrupted,
-                    Time = System.DateTime.Now.ToString("h:mm tt"),
-                    Tindakan = rr.Tindakan ?? "",
-                });
-                var replyToolIds = (rr.ToolCallTrace != null && rr.ToolCallTrace.Count > 0) ? rr.ToolCallTrace : new List<string> { tool.Id };
-                AppendToCurrentSession(displayText, rr.Reply ?? "Done", "ok", replyToolIds, historyFiles);
-                return;
-            }
-
-            // AI-generated code (query OR action): codegen follows Action Mode
-            // like everything else (operator override, 2026-08-02 — supersedes
-            // the earlier "always show the card" pass). The card shows iff
-            // Ask-first mode OR the backend flagged THIS script as destructive
-            // (rr.CodeRequiresConfirmation true — backend is moving this from a
-            // hardcoded constant to a .Delete/purge/workset pattern heuristic; a
-            // missing/absent flag defaults true, i.e. still gated, fail-safe).
-            // Auto mode + a clean flag runs immediately — same "already resolved
-            // on first paint" pattern RenderRouteResult uses for the MUTATE-batch
-            // auto-approve above, and the SAME shared execution path
-            // (RunCodeExecution) whether a drafter clicked Allow or Auto ran it,
-            // so the audit trail reads identically either way.
-            if (rr != null && !string.IsNullOrWhiteSpace(rr.Code))
-            {
-                bool autoMode = CopilotPrefs.Load().AutoApproveWrites;
-                bool showCard = !autoMode || rr.CodeRequiresConfirmation;
-                int lines = rr.Code.Split('\n').Length;
-                var codeMsg = new ChatMessage
-                {
-                    Role = "ai", Kind = CpMsgKind.ConfirmActions, ToolId = tool.Id,
-                    Text = rr.Reply ?? "",
-                    ActionLabels = new List<string> { $"Run generated code ({lines} line{(lines == 1 ? "" : "s")})" },
-                    Steps = rr.Steps,
-                    ReasoningSteps = rr.ReasoningSteps,
-                    ReasoningElapsedSeconds = rr.ReasoningElapsedSeconds,
-                    Blocks = V2Blocks(rr),
-                    Followups = rr.Followups,
-                    ResultSummary = rr.ResultSummary,
-                    Receipt = rr.Receipt,
-                    Tindakan = rr.Tindakan ?? "",
-                    Time = System.DateTime.Now.ToString("h:mm tt"),
-                    PendingCode = rr.Code,
-                    PendingCodeRoutePrompt = routeText,
-                    PendingCodeDisplayPrompt = displayText,
-                    PendingCodeHistoryFiles = historyFiles,
-                };
-                if (!showCard)
-                {
-                    codeMsg.ActionsResolved = true;
-                    codeMsg.ActionsApproved = true;
-                    codeMsg.AutoApproved = true;
-                }
-                ReplaceLastThinking(codeMsg);
-                AppendToCurrentSession(displayText,
-                    showCard ? "Menunggu pengesahan kod" : "Auto-approved", "ok", null, historyFiles);
-                if (!showCard) RunCodeExecution(codeMsg);
-                return;
-            }
-
-            // Only reached for catalog tier-2 sample code (tool.Code) — the
-            // vetted library still shows a reviewable Proposal card.
-            string text2 = !string.IsNullOrWhiteSpace(rr?.Reply)
-                ? rr.Reply
-                : "Here's a command that should do it. Review the plan and hit Run when you're ready.";
-
-            ReplaceLastThinking(new ChatMessage
-            {
-                Role = "ai", Kind = CpMsgKind.Proposal, ToolId = tool.Id,
-                Text = text2, PlanSteps = new List<string>(plan ?? new List<string>()), Code = code,
-            });
-            AppendToCurrentSession(displayText, text2, "ok", new List<string> { tool.Id }, historyFiles);
-        }
-
-        private void ExecuteAsChatReply(ToolDef tool, string code, string routePrompt = null, string displayPrompt = null,
-            List<HistoryFile> historyFiles = null, string streamedReply = null, string tindakan = null,
-            List<ReasoningStep> reasoningSteps = null, double reasoningElapsedSeconds = 0,
-            List<FollowupAction> followups = null, ResultSummaryModel resultSummary = null)
-        {
-            ToolId = tool.Id;
-            _runClock = System.Diagnostics.Stopwatch.StartNew();
-
-            // Feed the user's actual request to the self-heal loop so a retry
-            // regenerates WITH the right recipe/grounding (the backend retrieves
-            // recipes from this prompt). Without it, ResolvePrompt falls back to
-            // the catalog tool title and the fix loses context.
-            if (Executor != null)
-            {
-                Executor.PromptProvider = () => routePrompt ?? tool?.Title ?? "";
-                Executor.OnRetryProgress = attempt => ReplaceLastThinking(new ChatMessage
-                {
-                    Role = "ai", Kind = CpMsgKind.Thinking,
-                    Text = $"That didn't compile — fixing it… (attempt {attempt})",
-                });
-            }
-
-            void Done(ExecOutcome outcome)
-            {
-                var result = BuildResult(tool, outcome);
-                var resultText = FormatResultAsText(result, outcome);
-                // 2026-08-02 fix (acceptance-test item for the reasoning-UI round):
-                // streamedReply here is the pre-execution placeholder narration
-                // ("Tiada tool sedia untuk permintaan ini, jadi saya jana skrip
-                // C#…") — TRANSIENT commentary about what's ABOUT to happen, not
-                // part of the answer. It used to be PREPENDED to the execution
-                // result, so the real result ended up "one buried line at the
-                // bottom" under the placeholder text. Now the execution result
-                // REPLACES it as the turn's single answer block; the placeholder
-                // is preserved instead as a reasoning step (same routing defect
-                // #1 uses for other intermediate prose) so it's still visible if
-                // the drafter expands the reasoning card.
-                var finalReasoningSteps = reasoningSteps;
-                if (!string.IsNullOrWhiteSpace(streamedReply) && streamedReply.Trim() != resultText.Trim())
-                {
-                    finalReasoningSteps = new List<ReasoningStep>(reasoningSteps ?? new List<ReasoningStep>())
+                    reply.ResultCard = ResultCardModel.From(rr.Evidence, cardLang, AttachmentName(routeText)).WithServerResult(serverResult);
+                    reply.ResultCard.DocKey = _turnDocKey;
+                    reply.ResultCard.Failed = reply.Failed;   // r12 audit: no Found marks, no green disc for a failed turn
+                    reply.ResultCard.InfoHeadline = reply.NothingWritten;   // r22 P5: nothing written after a typed answer: the info disc
+                    reply.ResultCard.Elapsed = ProgressTrail.TotalElapsedText(ProgressTrail.UserVisible(rr.Steps));
+                    if (reply.ResultCard.Kind != ResultKind.None && rr.Evidence != null)
                     {
-                        new ReasoningStep
-                        {
-                            StepId = "codegen-note", Label = "Working notes",
-                            Text = streamedReply.Trim(), State = ReasoningState.Done,
-                        },
-                    };
+                        highlights = HL.HighlightSet.From(reply.ResultCard, rr.Evidence.Calls.Select(c => c.Env).ToList());
+                        // r12: a find that selected its results (highlight) gets Found marks too, from Revit's selection as it is.
+                        if (highlights.IsEmpty && !reply.Failed && reply.ResultCard.Kind == ResultKind.Selection && reply.ResultCard.Selected > 0)
+                            highlights = HL.HighlightSet.FoundInSelection();
+                        highlights.TurnId = reply.TurnId ?? ""; highlights.Time = reply.Time ?? "";
+                    }
                 }
-                // Terminal script failure (self-heal retries exhausted): the answer bubble
-                // is now a clean drafter-facing line (see FormatResultAsText) — the raw
-                // compiler/runtime error is NOT discarded, it's tucked into a reasoning
-                // step ("Error detail") so it's one expand away, same as any other working
-                // note. The retry lane itself (RevitCopilotExecutor.RunWithSelfHeal) still
-                // sends the full raw error to the backend on every attempt — untouched.
-                if (outcome != null && !outcome.Success && !string.IsNullOrWhiteSpace(outcome.Error))
-                {
-                    finalReasoningSteps = new List<ReasoningStep>(finalReasoningSteps ?? new List<ReasoningStep>())
-                    {
-                        new ReasoningStep
-                        {
-                            StepId = "error-detail", Label = "Error detail",
-                            Text = outcome.Error.Trim(), State = ReasoningState.Done,
-                        },
-                    };
-                }
-                ReplaceLastThinking(new ChatMessage
-                {
-                    Role = "ai", Kind = CpMsgKind.AiReply, ToolId = tool.Id,
-                    Text = resultText,
-                    // Carry the offer through the codegen path too — without this
-                    // a done frame with BOTH code and tindakan dropped the offer
-                    // and the follow-up chip never rendered (the reply-only
-                    // branch already set it).
-                    Tindakan = tindakan ?? "",
-                    ReasoningSteps = finalReasoningSteps,
-                    ReasoningElapsedSeconds = reasoningElapsedSeconds,
-                    Followups = followups,
-                    ResultSummary = resultSummary,
-                });
-                AppendToCurrentSession(displayPrompt ?? tool.Title, resultText, "ok", new List<string> { tool.Id }, historyFiles);
-                PopulateHighlights(tool.Id);
             }
-
-            if (Executor != null) Executor.Run(tool, new Dictionary<string, object>(), code, Done);
-            else Done(new ExecOutcome { Success = true });
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] result card: " + ex.Message); }
+            ReplaceLastThinking(reply);
+            try
+            {
+                if (highlights != null && highlights.Drawable) ModelResultReady?.Invoke(highlights, reply);   // r13 (0.0.149): a made view only is nothing to draw
+                else ModelResultStale?.Invoke();   // nothing to draw for this turn: the previous turn's result must not stay
+            }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] result card: " + ex.Message); }
+            var caution = rr.Evidence != null && rr.Evidence.Caution;
+            // M-12: the model's words as they were (empty stays empty); the add-in's
+            // own note and receipt on their own labelled line.
+            var (historyReply, historyNote) = ReceiptTemplates.HistoryOf(rr.Reply, rr.PaneNote, rr.Evidence, cardLang);
+            AppendToCurrentSession(displayText, historyReply, caution ? "warn" : "ok", rr.ToolsUsed, historyFiles, historyNote, reply.ResultCard, cardLang);
+            // The pill: "Failed" (the pane's error look) for a failed turn, never the green "Done" (live R7, t06).
+            RunStatus = TurnStatus.AfterResult(RunStatus, reply.Failed, caution);
         }
 
-        // ─── Tindakan (one-tap next-step offer) ────────────────────────────────
-        // Old-backend fallback only (a turn with no Followups list — see
-        // ChatView's hasTindakan gate). The agent's reply can end with a "next
-        // step" offer ("Nak saya lanjutkan?"); the pane renders it as a
-        // follow-up CHIP under the LAST AiReply while unresolved (ChatView
-        // gates it — see IsLastAiReply) — 2026-08-02: no longer the old blue
-        // "✓ Ya, teruskan"/"Tidak" buttons (defect #4, unified into the
-        // reasoning-UI's chip row). Task 12 (2026-08-02): sends the FULL
-        // m.Tindakan text verbatim, matching every other follow-up chip's
-        // "what's shown [before truncation] is what gets sent" contract — a
-        // bare "Continue" placeholder lost the offer's content on send, and the
-        // multi-bullet Followups path never used one, so this fallback
-        // shouldn't either.
-        public void AcceptTindakan(ChatMessage m)
+        // ─── The assistant's question (ask card) ───────────────────────────────
+        /// <summary>Answer the parked ask from its card (option, form or project
+        /// note). The card collapses into a record and the turn continues.</summary>
+        public async void SubmitAsk(ChatMessage m, BinaVibe.Copilot.Contracts.AnswerDto answer, string summary)
         {
-            if (m == null || string.IsNullOrWhiteSpace(m.Tindakan) || m.TindakanResolved) return;
-            m.TindakanResolved = true;
-            ChatSend(m.Tindakan);
-        }
-
-        public void DeclineTindakan(ChatMessage m)
-        {
-            if (m == null) return;
-            m.TindakanResolved = true;
-            // Item-replace trick: setting the SAME item back into the indexer
-            // still raises ObservableCollection's CollectionChanged (Replace),
-            // which ChatView's Thread.CollectionChanged hook uses to Rebuild() —
-            // there's no separate "refresh" method, this is how every other
-            // in-place mutation (m.Dismissed = true, etc.) forces a redraw.
+            var router = TurnRouter;
+            if (m?.Ask == null || router == null || m.Ask.AnsweredSummary != null || answer == null) return;
+            m.Ask.AnsweredSummary = string.IsNullOrWhiteSpace(summary) ? "✓" : summary;
+            _typedAtWriteCard = ReplyTone.Declines(m.Ask, answer);   // r22 L8 R1: a Skip/Langkau/Cancel that leaves nothing made: the info disc
             int i = Thread.IndexOf(m);
             if (i >= 0) Thread[i] = Thread[i];
-        }
 
-        // ─── Mutate-confirmation (Ya/Tidak card) ───────────────────────────────
-        // The tool loop parked on a pending MUTATE batch; the ConfirmActions card
-        // lists the proposed actions. Ya executes the batch in Revit and keeps
-        // driving the loop; Tidak resumes the run with rejected results so the
-        // agent acknowledges without retrying. Either way the follow-on outcome
-        // renders through RenderRouteResult — which may be the final reply,
-        // ANOTHER confirm card (multi-round run), or a clarify question.
-        /// <summary>Submit tapped ask_user selections — {question -> labels}.
-        /// Collapses the card into a decision record, resumes the paused run
-        /// through the router (card-owned batch), renders the follow-on. Same
-        /// tail shape as RunResolution.</summary>
-        public async void SubmitChoiceSelections(ChatMessage m, Dictionary<string, List<string>> selections)
-        {
-            if (m == null || m.ActionsResolved || selections == null || selections.Count == 0) return;
-            m.ActionsResolved = true;
-            m.ChoiceSummary = string.Join(" · ", selections.Select(kv => string.Join(", ", kv.Value)));
-            int i = Thread.IndexOf(m);
-            if (i >= 0) Thread[i] = Thread[i];   // redraw: collapse the card into the record
-
-            var revitRouter = Router as RevitChatRouter;
-            if (revitRouter == null) return;
             _lastSteps = null;
-            _lastReasoning = null;
-            _lastBlocks = null;
             _lastReplyText = null;
             Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Thinking, Text = "Thinking…" });
-            HookStreaming(revitRouter);
+            HookStreaming(router);
             IsSending = true;
             RouteResult rr = null;
-            System.Exception submitError = null;
-            try { rr = await revitRouter.SubmitChoiceSelectionsAsync(selections, m.ChoiceBatch); }
-            catch (System.Exception ex) { rr = null; submitError = ex; }
+            try { rr = await router.SubmitAskAsync(m.Ask, answer); }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine("[BINA copilot] answer not sent: " + ex);
+                rr = new RouteResult { PaneNote = "The answer could not be sent. Try again.", FailureKind = RouteFailure.Other };
+            }
             finally
             {
                 IsSending = false;
-                UnhookStreaming(revitRouter);
+                UnhookStreaming(router);
             }
             _ = RefreshUsageAsync();
-            if (rr == null)
+            if (rr != null && rr.Superseded) { _queued = null; return; }   // the chat changed under the turn (I1)
+            if (rr != null && rr.Failed)
             {
-                ReplaceLastThinking(new ChatMessage
-                {
-                    Role = "ai", Kind = CpMsgKind.AiReply,
-                    Text = submitError != null
-                        ? "Ralat semasa menghantar jawapan: " + submitError.Message
-                        : "Soalan ini telah pun dijawab.",
-                    Time = System.DateTime.Now.ToString("h:mm tt"),
-                });
-                return;
+                var card = CardForFailure(rr, null);
+                if (card != null) { ReplaceLastThinking(card); RunStatus = TurnStatus.Failed; SendQueued(rr); return; }
             }
-            RenderRouteResult(rr, LastPrompt, m.ChoiceSummary, "ai-generated", null);
+            RenderRouteResult(rr, LastPrompt, m.Ask.AnsweredSummary, "ai-generated", null);
+            SendQueued(rr);
         }
 
-        public void AcceptActions(ChatMessage m) => ResolveActions(m, approve: true);
-
-        public void DeclineActions(ChatMessage m) => ResolveActions(m, approve: false);
-
-        private void ResolveActions(ChatMessage m, bool approve)
+        /// <summary>IPaneNoticeView (M-2): Revit is waiting on a dialog during a library
+        /// tool or saved command (a copilot turn shows it as a step instead).</summary>
+        public void RevitWaiting(string text)
         {
-            if (m == null || m.ActionsResolved) return;
-            m.ActionsResolved = true;
-            m.ActionsApproved = approve;
-            // A REAL Ya click earns the before/after capture lane (Auto mode's
-            // programmatic accept never passes through here) — spec 2026-08-18.
-            if (approve) RevitWebAppSync.Services.TurnReceiptService.RequestPreCapture();
-            RunResolution(m, approve);
-        }
-
-        /// <summary>Continue the tool loop after a MUTATE batch is resolved —
-        /// either by a drafter click (ResolveActions, above) or programmatically
-        /// by Auto mode (RenderRouteResult's AutoApprovable branch, which marks
-        /// the message resolved/approved and passes it straight in here without
-        /// ever showing the interactive card). Same redraw-then-resume-then-
-        /// render tail either way, so both paths produce an identical follow-on
-        /// (another confirm card, a clarify question, or the final reply).</summary>
-        private async void RunResolution(ChatMessage m, bool approve)
-        {
-            int i = Thread.IndexOf(m);
-            if (i >= 0) Thread[i] = Thread[i];   // redraw: kill the card's buttons / show resolved state
-
-            var revitRouter = Router as RevitChatRouter;
-            if (revitRouter == null) return;
-
-            _lastSteps = null;
-            _lastReasoning = null;
-            _lastBlocks = null;
-            _lastReplyText = null;
-            Thread.Add(new ChatMessage
+            var line = "Revit is waiting on a dialog" + (string.IsNullOrWhiteSpace(text) ? "." : ": " + text.Trim());
+            RunOnUi(() =>
             {
-                Role = "ai", Kind = CpMsgKind.Thinking,
-                Text = approve ? "Menjalankan tindakan…" : "Membatalkan…",
+                var last = Thread.Count > 0 ? Thread[Thread.Count - 1] : null;
+                if (last != null && last.PaneNote == line) return;
+                Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.AiReply, PaneNote = line, Time = System.DateTime.Now.ToString("h:mm tt") });
             });
-            HookStreaming(revitRouter);
-            IsSending = true;
-            RouteResult rr = null;
-            System.Exception resolveError = null;
-            try { rr = await revitRouter.ResolvePendingActionsAsync(approve, m.PendingBatch); }
-            catch (System.Exception ex) { rr = null; resolveError = ex; }
-            finally
+        }
+
+        private void RunOnUi(Action a) => _pane.RunOnUi(a);
+
+        // ─── Receipt actions ────────────────────────────────────────────────────
+        /// <summary>The undo stack changed (the card's button, or Revit's own Undo/Redo): the cards redraw
+        /// from the model's truth, so a button never offers what Revit already did.</summary>
+        public event Action UndoStateChanged;
+
+        /// <summary>A card's own state changed (a type left as is): have the thread drawn again.</summary>
+        public void RequestRedraw()
+        {
+            try { _pane.BeginOnUi(() => UndoStateChanged?.Invoke()); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] redraw: " + ex.Message); }
+        }
+
+        // The model that was open when the prompt was sent: the result's buttons that open a sheet or view check it.
+        private string _turnDocKey = "";
+
+        private void OnUndoChanged(BinaVibe.Copilot.Undo.UndoChange change)
+        {
+            // Revit's own Ctrl+Z undid the turn whose result the model shows: the marks and the key go, as with the card's Undo.
+            // Revit's own Undo/Redo (not the card's button) also leaves a "You undid: …" line in the thread (r12).
+            try { _pane.BeginOnUi(() => { NoteUndo(change); if (InModel?.GoneWith(change) == true) Revit.ClearMarks(); UndoStateChanged?.Invoke(); }); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] undo state: " + ex.Message); }
+        }
+
+        /// <summary>r22 (live M2 b7a76924): the language of the undone turn's card, else the chat's last reply's: its undo line reads in it.</summary>
+        private ReceiptLanguage UndoLanguage(BinaVibe.Copilot.Undo.UndoChange change)
+        {
+            var own = change == null ? null : Thread.LastOrDefault(t => t.Role == "ai" && !string.IsNullOrEmpty(t.TurnId) && t.TurnId == change.TurnId);
+            return (own ?? Thread.LastOrDefault(t => t.Role == "ai"))?.Lang ?? ReceiptLanguage.En;
+        }
+
+        private void NoteUndo(BinaVibe.Copilot.Undo.UndoChange change)
+        {
+            try { UndoNotices.Record(change, Thread.Count, DateTime.Now, UndoLanguage(change)); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] undo notice: " + ex.Message); }
+        }
+
+        /// <summary>r12: a card's Show / "Highlight in model" also draws Found marks on those elements (the selection itself is
+        /// PaneTools.SelectElements). No transaction, no Undo entry; at most InModelResult.MaxMarks drawn.</summary>
+        public void MarkFoundInModel(ChatMessage m, long[] ids)
+        {
+            if (ids == null || ids.Length == 0 || InModel == null) return;
+            try
             {
-                IsSending = false;
-                UnhookStreaming(revitRouter);
-            }
-            _ = RefreshUsageAsync();
-            if (rr == null)
-            {
-                // Two very different situations used to collapse into the same
-                // silent "Tiada tindakan tertunda." line (2026-08-18 UAT: Ya
-                // clicked, nothing executed, no evidence). Separate them:
-                // a resume that THREW gets its error surfaced; only a genuinely
-                // absent batch keeps the old wording.
-                ReplaceLastThinking(new ChatMessage
+                // A write turn's own Made/Changed marks and the bar's Undo are never wiped by a Show click (r12 audit).
+                switch (HL.HighlightSet.FoundClickFor(HasMarks(m), m != null ? MarksStateOf(m) : HL.MarksState.None))
                 {
-                    Role = "ai", Kind = CpMsgKind.AiReply,
-                    Text = resolveError != null
-                        ? "Ralat semasa menjalankan tindakan — tiada apa yang dilaksanakan. (" + resolveError.Message + "). Cuba hantar semula permintaan."
-                        : (approve ? "Tiada tindakan tertunda." : "Baik, tindakan itu dibatalkan."),
-                    Time = System.DateTime.Now.ToString("h:mm tt"),
-                });
-                return;
+                    case HL.FoundClick.KeepTurnMarks: return;
+                    case HL.FoundClick.ShowTurnResult: ShowResultInModel(m); return;
+                }
+                var set = HL.HighlightSet.Found(ids, m?.TurnId ?? "");
+                set.Time = m?.Time ?? "";
+                if (m != null) Revit.ShowMarks(set, () => UndoTurn(m), () => CanUndoTurn(m));
+                else Revit.ShowMarks(set, null, () => false);
             }
-            // displayText: the user's side of this turn is the button click, not a
-            // typed prompt — persist it as the Malay Ya/Tidak line.
-            RenderRouteResult(rr, LastPrompt, approve ? "Ya, teruskan" : "Tidak", "ai-generated", null);
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] found marks: " + ex.Message); }
         }
 
-        // ─── Codegen approval gate (Action Mode addendum, 2026-08-02) ──────────
-        // Distinct from the MUTATE-batch confirm flow above: there is no server
-        // round-trip to make here — the code already exists (RenderRouteResult
-        // either stashes it on an interactive card, or — Auto mode + a clean
-        // flag — pre-resolves the message and runs it immediately via
-        // RunCodeExecution below). Allow == the immediate-run path, just
-        // triggered by a click instead of the mode check. Reject is a pure
-        // local no-op (mark resolved, never run) — only reachable when a card
-        // was actually shown.
-        public void AcceptCodeApproval(ChatMessage m)
+        /// <summary>Undo the turn's BINA entries (W3's UndoService; one per batch).</summary>
+        public bool CanUndoTurn(ChatMessage m)
         {
-            if (m == null || m.ActionsResolved || string.IsNullOrEmpty(m.PendingCode)) return;
-            m.ActionsResolved = true;
-            m.ActionsApproved = true;
-            int i = Thread.IndexOf(m);
-            if (i >= 0) Thread[i] = Thread[i];   // redraw: kill the card's buttons
-            RunCodeExecution(m);
+            if (string.IsNullOrEmpty(m?.TurnId)) return false;
+            try { return Revit.CanUndoTurn(m.TurnId); }
+            catch { return false; }
         }
 
-        /// <summary>Actually run a gated codegen script — shared by a drafter's
-        /// Allow click (AcceptCodeApproval, above) and Auto mode's immediate-run
-        /// path (RenderRouteResult, when showCard is false), same "one execution
-        /// path, one audit trail" pattern as RunResolution for the MUTATE-batch
-        /// flow. Caller is responsible for the message's resolved/approved state
-        /// — this only runs the code.</summary>
-        private void RunCodeExecution(ChatMessage m)
+        /// <summary>L19: why the turn's Undo is off (W3's UndoBlock kind); None when it is available.</summary>
+        public BinaVibe.Copilot.Undo.UndoBlock WhyNotUndoTurn(ChatMessage m)
         {
-            var tool = CopilotCatalog.Find(m.ToolId);
-            if (tool == null) return;
-            ExecuteAsChatReply(tool, m.PendingCode, m.PendingCodeRoutePrompt, m.PendingCodeDisplayPrompt,
-                m.PendingCodeHistoryFiles, m.Text, m.Tindakan,
-                m.ReasoningSteps, m.ReasoningElapsedSeconds, m.Followups, m.ResultSummary);
+            if (string.IsNullOrEmpty(m?.TurnId)) return BinaVibe.Copilot.Undo.UndoBlock.None;
+            try { return Revit.WhyNotUndo(m.TurnId); }
+            catch (Exception) { return BinaVibe.Copilot.Undo.UndoBlock.Other; }
         }
 
-        public void DeclineCodeApproval(ChatMessage m)
+        /// <summary>Draw a reply's result in the model again (the card's "Show in model"): Show again when it is the
+        /// hidden result, else its marks and key anew.</summary>
+        public void ShowResultInModel(ChatMessage m)
         {
-            if (m == null || m.ActionsResolved) return;
-            m.ActionsResolved = true;
-            m.ActionsApproved = false;
-            int i = Thread.IndexOf(m);
-            if (i >= 0) Thread[i] = Thread[i];
+            if (m?.ResultCard == null || m.Evidence == null || InModel == null) return;   // no overlay wired
+            try
+            {
+                if (MarksStateOf(m) == HL.MarksState.Hidden) { Revit.ShowMarksAgain(); return; }
+                var set = HL.HighlightSet.From(m.ResultCard, m.Evidence.Calls.Select(c => c.Env).ToList());
+                set.TurnId = m.TurnId ?? ""; set.Time = m.Time ?? "";
+                if (set.Drawable) Revit.ShowMarks(set, () => UndoTurn(m), () => CanUndoTurn(m));
+            }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] show in model: " + ex.Message); }
         }
+
+        /// <summary>A card row clicked (or Enter on it): its elements become Revit's selection and the view zooms to them, this
+        /// reply's result drawn first when the model shows another one (or none).</summary>
+        public void ShowGroupInModel(ChatMessage m, HL.MarkGroup target)
+        {
+            if (m?.ResultCard == null || m.Evidence == null || InModel == null || target == null) return;
+            try
+            {
+                if (MarksStateOf(m) == HL.MarksState.None)
+                {
+                    var set = HL.HighlightSet.From(m.ResultCard, m.Evidence.Calls.Select(c => c.Env).ToList());
+                    set.TurnId = m.TurnId ?? ""; set.Time = m.Time ?? "";
+                    if (!set.Drawable) return;
+                    Revit.ShowMarks(set, () => UndoTurn(m), () => CanUndoTurn(m));
+                }
+                Revit.ShowGroup(target);
+            }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] show group: " + ex.Message); }
+        }
+
+        /// <summary>The card's A (and the bar's Select all): every element of this reply's result is Revit's selection again.</summary>
+        public void SelectAllInModel(ChatMessage m)
+        {
+            if (InModel == null || !HasMarks(m)) return;   // r13 (0.0.149): the card's key too; a made view only has no marks to act on
+            try
+            {
+                if (MarksStateOf(m) == HL.MarksState.None) ShowResultInModel(m);
+                Revit.SelectAllMarks();
+            }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] select all: " + ex.Message); }
+        }
+
+        /// <summary>The card's "Zoom to all": the view fits every mark of this reply's result (shown again first when they were hidden).</summary>
+        public void ZoomAllInModel(ChatMessage m)
+        {
+            if (InModel == null || !HasMarks(m)) return;   // r13 (0.0.149): the card's key too; a made view only has no marks to act on
+            try
+            {
+                if (MarksStateOf(m) == HL.MarksState.None) ShowResultInModel(m);
+                Revit.ZoomAllMarks();
+            }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] zoom all: " + ex.Message); }
+        }
+
+        /// <summary>The section header's title: the key's words for this reply's result ("58 door tags made"); "" when nothing.</summary>
+        public string MarksTitle(ChatMessage m)
+        {
+            if (m?.ResultCard == null || m.Evidence == null) return "";
+            try
+            {
+                var set = HL.HighlightSet.From(m.ResultCard, m.Evidence.Calls.Select(c => c.Env).ToList());
+                return !set.Drawable ? "" : HL.MarkKey.Title(set.Kinds.Where(k => k.Count > 0 || k.Ids.Count > 0).ToList());
+            }
+            catch (Exception) { return ""; }
+        }
+
+        /// <summary>Where this reply's marks are now ("in Level 1, this view"); "" when the model does not show them.</summary>
+        public string MarksWhere(ChatMessage m)
+        {
+            if (string.IsNullOrEmpty(m?.TurnId) || InModel == null) return "";
+            try { return Revit.MarksWhere(m.TurnId) ?? ""; } catch (Exception) { return ""; }
+        }
+
+        /// <summary>The card's stepper words for this reply ("2 of 5"); "" when it has no marks that need a look.</summary>
+        public string StepLabelOf(ChatMessage m)
+        {
+            if (string.IsNullOrEmpty(m?.TurnId) || InModel == null) return "";
+            try { return Revit.StepLabel(m.TurnId) ?? ""; } catch (Exception) { return ""; }
+        }
+
+        /// <summary>The card's previous / next: the stepper of the marks that need a look.</summary>
+        public void StepMarksOf(ChatMessage m, int delta)
+        {
+            if (InModel == null) return;
+            try { Revit.StepMarks(delta); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] step marks: " + ex.Message); }
+        }
+
+        /// <summary>The view that holds this reply's marked elements when none is in the open view (the card's "Go to view").</summary>
+        public (long Id, string Name)? MarksOtherView(ChatMessage m)
+        {
+            if (string.IsNullOrEmpty(m?.TurnId) || InModel == null) return null;
+            try { return Revit.MarksOtherView(m.TurnId); } catch (Exception) { return null; }
+        }
+
+        /// <summary>A mark was clicked in the model: the card of its turn scrolls to the row and flashes it. UI thread.</summary>
+        public void RaiseMarkClicked(HL.MarkClick click)
+        {
+            if (click == null) return;
+            List<(string Turn, Func<HL.MarkClick, bool> Watch)> watchers;
+            lock (_clickWatchers) watchers = _clickWatchers.ToList();
+            var gone = watchers.Where(w =>
+            {
+                if (w.Turn != click.TurnId) return false;
+                try { return !w.Watch(click); } catch (Exception) { return true; }
+            }).ToList();
+            if (gone.Count > 0) lock (_clickWatchers) foreach (var w in gone) _clickWatchers.Remove(w);
+        }
+        private readonly List<(string Turn, Func<HL.MarkClick, bool> Watch)> _clickWatchers = new List<(string, Func<HL.MarkClick, bool>)>();
+        /// <summary>A card listens for clicks on its turn's marks; the callback answers false once the card is gone.</summary>
+        public void WatchMarkClicks(ChatMessage m, Func<HL.MarkClick, bool> watch)
+        {
+            if (watch == null || string.IsNullOrEmpty(m?.TurnId)) return;
+            lock (_clickWatchers) _clickWatchers.Add((m.TurnId, watch));
+        }
+
+        /// <summary>The card's "Hide marks": the marks and the key go, the pill stays.</summary>
+        public void HideResultInModel(ChatMessage m)
+        {
+            if (MarksStateOf(m) != HL.MarksState.Shown) return;
+            try { Revit.HideMarks(); } catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] hide marks: " + ex.Message); }
+        }
+
+        /// <summary>What the model shows of this reply's result (the card's button follows it).</summary>
+        public HL.MarksState MarksStateOf(ChatMessage m)
+        {
+            if (string.IsNullOrEmpty(m?.TurnId) || InModel == null) return HL.MarksState.None;
+            try { return Revit.MarksStateOf(m.TurnId); } catch (Exception) { return HL.MarksState.None; }
+        }
+
+        public bool MarksDrawn(ChatMessage m)
+        {
+            if (string.IsNullOrEmpty(m?.TurnId) || InModel == null) return true;
+            try { return Revit.MarksDrawn(m.TurnId); } catch (Exception) { return true; }
+        }
+
+        /// <summary>The reply has something to mark in the model (the card then offers Hide marks / Show in model).</summary>
+        public bool HasMarks(ChatMessage m)
+        {
+            if (m?.ResultCard == null || m.Evidence == null || InModel == null) return false;
+            // Undone: the elements are gone, there is nothing left to show.
+            if (WhyNotUndoTurn(m) == BinaVibe.Copilot.Undo.UndoBlock.AlreadyUndone) return false;
+            // r13 (0.0.149), live 01a8e152: a turn that made only a view, sheet or schedule has no marks (no "Not visible in this view",
+            // no Select all, Zoom to all or Hide marks); Drawable says so.
+            try { return HL.HighlightSet.From(m.ResultCard, m.Evidence.Calls.Select(c => c.Env).ToList()).Drawable; }
+            catch (Exception) { return false; }
+        }
+
+        /// <summary>The attachment named in the routed prompt, or null (see <see cref="RouteText.AttachmentName"/>).</summary>
+        internal static string AttachmentName(string routeText) => RouteText.AttachmentName(routeText);
+
+        /// <summary>More than one batch is still live: the card offers "Undo last part".</summary>
+        public bool CanUndoLastBatch(ChatMessage m)
+        {
+            if (string.IsNullOrEmpty(m?.TurnId)) return false;
+            try { return Revit.LiveBatches(m.TurnId) > 1 && Revit.CanUndoLastBatch(m.TurnId); }
+            catch { return false; }
+        }
+
+        public bool CanRedoTurn(ChatMessage m)
+        {
+            if (string.IsNullOrEmpty(m?.TurnId)) return false;
+            try { return Revit.CanRedoTurn(m.TurnId); }
+            catch { return false; }
+        }
+
+        /// <summary>The result card's editable After cell: one set_parameters batch under the
+        /// reply's own turn id, so the turn's Undo takes it back. Null when written, else why not.</summary>
+        public async System.Threading.Tasks.Task<string> EditValueAsync(ChatMessage m, TypeGroup g, ChangeRow row, string value)
+        {
+            var ms = m?.Lang == ReceiptLanguage.Ms;
+            if (Tools == null || string.IsNullOrEmpty(m?.TurnId) || g == null || row == null || row.Ids.Count == 0)
+                return ms ? "Tidak dapat menulis nilai ini." : "This value cannot be written from here.";
+            try
+            {
+                var call = new BinaVibe.Copilot.Contracts.ToolCallDto
+                {
+                    CallId = "card_" + Guid.NewGuid().ToString("N").Substring(0, 12),
+                    IdempotencyKey = "card:" + Guid.NewGuid().ToString("N"),
+                    Tool = BinaVibe.Copilot.Contracts.ToolNames.SetParameters,
+                    Args = System.Text.Json.JsonSerializer.SerializeToElement(new Dictionary<string, object>
+                    {
+                        ["target"] = new Dictionary<string, object> { ["ids"] = row.Ids.ToArray() },
+                        ["param"] = row.Param,
+                        ["value"] = value,
+                        ["type_param"] = g.IsType,
+                    }),
+                };
+                var before = await SelectionBeforeAsync();
+                var envs = await Tools.RunWritesAsync(m.TurnId, "req-" + Guid.NewGuid().ToString("N"), new[] { call },
+                    "Edit " + row.Param, Tools.Snapshot(), System.Threading.CancellationToken.None);
+                await KeepSelectionAsync(before, "card edit");
+                KeepSelectionLaterAsync(before, "card edit");
+                LogUndoState(m.TurnId, "card edit");
+                var env = envs?.FirstOrDefault();
+                if (env != null && env.Ok && env.Status != BinaVibe.Copilot.Contracts.EnvelopeStatus.Rejected) return null;
+                return env?.Error?.Message ?? env?.Summary ?? (ms ? "Tiada keputusan." : "No result.");
+            }
+            catch (Exception ex) { return ex.Message; }
+        }
+
+        /// <summary>One log line after a card's write: how many live batches the turn has and whether "Undo last part" is on (hand test 17 Nov: the
+        /// button was missing after an edit on a two-row card; the log did not say why).</summary>
+        private void LogUndoState(string turnId, string why)
+        {
+            try
+            {
+                var batches = Revit.LiveBatches(turnId);
+                ClickTrace.Sink(why + ": turn has " + batches + " live batch(es), Undo last part " + (batches > 1 && Revit.CanUndoLastBatch(turnId) ? "on" : "off")
+                    + ", whole-turn Undo " + (Revit.CanUndoTurn(turnId) ? "on" : "off (" + Revit.WhyNotUndo(turnId) + ")"));
+            }
+            catch (Exception) { /* a log line */ }
+        }
+
+        /// <summary>Revit's selection before a write made from a card; empty when it cannot be read.</summary>
+        private async System.Threading.Tasks.Task<IReadOnlyList<long>> SelectionBeforeAsync()
+        {
+            try { return await Revit.SelectionNowAsync(); }
+            catch (Exception) { return new List<long>(); }
+        }
+
+        /// <summary>Revit can empty the selection silently a few seconds after a card write (no selection event, no journal line; tester SEL2, 17 Nov).
+        /// A few checks follow the write: when the selection is empty, nothing the drafter did raised an event since, and the same model is
+        /// open, the drafter's selection is put back. Never throws, never blocks the card.</summary>
+        private async void KeepSelectionLaterAsync(IReadOnlyList<long> before, string why)
+        {
+            if (before == null || before.Count == 0) return;
+            try
+            {
+                var seq = BinaVibe.Copilot.Read.SnapshotService.SelectionChangeSeq;
+                var docKey = BinaVibe.Copilot.Read.SnapshotService.ActiveDocKey ?? "";
+                foreach (var wait in new[] { 1500, 2500, 4000, 6000 })
+                {
+                    await System.Threading.Tasks.Task.Delay(wait);
+                    var held = await Revit.RestoreLostSelectionAsync(before, seq, docKey);
+                    if (held != null) return;   // put back once; a drafter's own change, or a closed model, ends the checks too (null keeps polling)
+                    if (BinaVibe.Copilot.Read.SnapshotService.SelectionChangeSeq != seq) return;   // the drafter acted: not ours to change
+                }
+            }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] keep selection later (" + why + "): " + ex.Message); }
+        }
+
+        /// <summary>After a card's write: the drafter's selection is put back when Revit dropped it, and the log says what happened.</summary>
+        private async System.Threading.Tasks.Task KeepSelectionAsync(IReadOnlyList<long> before, string why)
+        {
+            if (before == null || before.Count == 0) return;
+            try
+            {
+                var held = await Revit.RestoreSelectionAsync(before);
+                ClickTrace.Sink(why + ": selection before " + before.Count + ", Revit holds " + (held?.ToString() ?? "?") + " after");
+            }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] keep selection: " + ex.Message); }
+        }
+
+        /// <summary>Run a result check's button. set_parameters: one more batch of the reply's own turn (so its Undo covers it),
+        /// with the args as the server sent them; prompt: sent as the next message; dismiss is the card's own. Null when done, else why not.</summary>
+        public async System.Threading.Tasks.Task<string> RunCheckActionAsync(ChatMessage m, CheckAction action)
+        {
+            var ms = m?.Lang == ReceiptLanguage.Ms;
+            var why = CheckItems.Vet(action);
+            if (why != null) return why;
+            if (action.Kind == BinaVibe.Copilot.Contracts.ResultActionKinds.Prompt)
+            {
+                ChatSend(CheckItems.PromptText(action));
+                return null;
+            }
+            if (action.Kind != BinaVibe.Copilot.Contracts.ResultActionKinds.SetParameters) return null;
+            if (Tools == null || string.IsNullOrEmpty(m?.TurnId)) return ms ? "Tidak dapat menulis dari sini." : "This cannot be written from here.";
+            try
+            {
+                var call = CheckItems.SetParametersCall(action);
+                var before = await SelectionBeforeAsync();
+                var envs = await Tools.RunWritesAsync(m.TurnId, "req-" + Guid.NewGuid().ToString("N"), new[] { call },
+                    action.Label, Tools.Snapshot(), System.Threading.CancellationToken.None);
+                await KeepSelectionAsync(before, "card check action");
+                KeepSelectionLaterAsync(before, "card check action");
+                var env = envs?.FirstOrDefault();
+                if (env != null && env.Ok && env.Status != BinaVibe.Copilot.Contracts.EnvelopeStatus.Rejected) { m.ResultCard?.NoteOtherPart(); return null; }
+                return env?.Error?.Message ?? env?.Summary ?? (ms ? "Tiada keputusan." : "No result.");
+            }
+            catch (Exception ex) { return ex.Message; }
+        }
+
+        private bool StillAllowed(ChatMessage m, bool lastBatchOnly, bool redo)
+        {
+            try
+            {
+                if (redo) return Revit.CanRedoTurn(m.TurnId);
+                return lastBatchOnly ? Revit.CanUndoLastBatch(m.TurnId) : Revit.CanUndoTurn(m.TurnId);
+            }
+            catch (Exception) { return false; }
+        }
+
+        public void UndoLastBatch(ChatMessage m) => UndoTurn(m, true, false);
+
+        public void RedoTurn(ChatMessage m) => UndoTurn(m, false, true);
+
+        public void UndoTurn(ChatMessage m) => UndoTurn(m, false, false);
+
+        private async void UndoTurn(ChatMessage m, bool lastBatchOnly, bool redo)
+        {
+            if (string.IsNullOrEmpty(m?.TurnId)) return;
+            var ms = m.Lang == ReceiptLanguage.Ms;
+            // The click may come from a card drawn before Revit's own Undo/Redo: check the live state
+            // first, so it never undoes (or redoes) what is no longer there. The card then redraws.
+            if (!StillAllowed(m, lastBatchOnly, redo)) { UndoStateChanged?.Invoke(); return; }
+            string text;
+            var moved = false;   // the undo or redo went through: the card follows (an edited value goes back, or returns)
+            // Timing (#5): the click to the "Undone" line in the pane, split into the marks clear and the job (whose own stages are in the
+            // "stages undo job" line), so a late "Undone" can be put on Revit, the Idling wait or the pane.
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            try { Revit.ClearMarks(); } catch { /* the undo still runs */ }
+            var clearedMs = clock.ElapsedMilliseconds;
+            try
+            {
+                var result = redo
+                    ? await Revit.RedoTurnAsync(m.TurnId)
+                    : await Revit.UndoTurnAsync(m.TurnId, lastBatchOnly);
+                text = BinaVibe.Copilot.Undo.UndoWords.ForPane(result?.Summary ?? BinaVibe.Copilot.Undo.UndoWords.Line(redo, null, ms), ms);   // r18: one undo wording; r22: Malay in a Malay chat
+                moved = BinaVibe.Copilot.Undo.UndoWords.CardFollows(result);   // r25: a refused or failed undo leaves the card as it is
+            }
+            catch (Exception ex)
+            {
+                text = (ms ? "Tidak dapat membuat asal: " : "Could not undo: ") + ex.Message
+                     + (ms ? " Guna senarai Undo Revit (entri \"BINA:\")." : " Use Revit's Undo list (\"BINA:\" entries).");
+            }
+            var jobMs = clock.ElapsedMilliseconds - clearedMs;
+            if (moved && m.ResultCard != null)
+            {
+                // Final retest 17 Nov: after a value was edited on the card and "Undo last part" was pressed, Revit held the old value and the card
+                // still showed the edit (and the line under it), with a Redo beside it.
+                try
+                {
+                    if (redo ? m.ResultCard.RedoPart(m.Lang) : lastBatchOnly && m.ResultCard.UndoLastPart(m.Lang)) RequestRedraw();
+                }
+                catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] card follows undo: " + ex.Message); }
+            }
+            Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.AiReply, Text = text, Time = System.DateTime.Now.ToString("h:mm tt") });
+            try
+            {
+                ClickTrace.Sink((redo ? "redo" : lastBatchOnly ? "undo-last-part" : "undo") + " click: clear marks " + clearedMs + " ms, job " + jobMs
+                    + " ms, pane line " + (clock.ElapsedMilliseconds - clearedMs - jobMs) + " ms, total " + clock.ElapsedMilliseconds + " ms");
+            }
+            catch { /* the log is a convenience */ }
+        }
+
+        /// <summary>Highlight on a check rule (spec §21): find_elements over the rule's
+        /// failing-elements handle with highlight on, through the same host as the
+        /// model's reads (PaneToolRunner). Handles live per chat session, so one from
+        /// a chat that was left answers not_found, and the pane says so.</summary>
+        public async void HighlightHandle(string handle, ReceiptLanguage lang)
+        {
+            var ms = lang == ReceiptLanguage.Ms;
+            var vc = VettedCalls.Highlight(handle, out var error);
+            if (vc == null || Tools == null) return;
+            string note = null;
+            var op = ClickTrace.Begin("rule-highlight");
+            try
+            {
+                op.HandedOff();
+                var envs = await Tools.RunReadsAsync("pane-" + Guid.NewGuid().ToString("N"), new[] { vc.Call },
+                    Tools.Snapshot(), System.Threading.CancellationToken.None);
+                op.Started();
+                var env = envs?.FirstOrDefault();
+                if (env == null || !env.Ok)
+                    note = (ms ? "Tidak dapat menyerlahkan: " : "Could not highlight: ")
+                         + (env?.Error?.Message ?? env?.Summary ?? (ms ? "tiada keputusan" : "no result"));
+            }
+            catch (Exception ex)
+            {
+                note = (ms ? "Tidak dapat menyerlahkan: " : "Could not highlight: ") + ex.Message;
+            }
+            ClickTrace.End(op, note ?? "");
+            if (note != null)
+                Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.AiReply, PaneNote = note, Lang = lang, Time = System.DateTime.Now.ToString("h:mm tt") });
+        }
+
+        /// <summary>Export a result table the turn returned (file picker owned by the pane).</summary>
+        public void ExportTable(ResultTable table)
+        {
+            if (table == null) return;
+            var path = _pane.PickSaveFile("Export to Excel",
+                "Excel workbook (*.xlsx)|*.xlsx|CSV (*.csv)|*.csv",
+                SafeFileName(table.Title, "bina-export") + ".xlsx");
+            if (path == null) return;
+            string text;
+            try
+            {
+                TableXlsx.Write(table, path);
+                text = "Exported " + table.Rows.Count + " rows to " + System.IO.Path.GetFileName(path) + ".";
+            }
+            catch (Exception ex) { text = "Export failed: " + ex.Message; }
+            Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.AiReply, Text = text, Time = System.DateTime.Now.ToString("h:mm tt") });
+        }
+
+        private static string SafeFileName(string title, string fallback)
+        {
+            var name = string.IsNullOrWhiteSpace(title) ? fallback : title.Trim();
+            foreach (var c in System.IO.Path.GetInvalidFileNameChars()) name = name.Replace(c, '-');
+            return name.Length > 60 ? name.Substring(0, 60) : name;
+        }
+
 
         // ─── Feedback (👍/👎) ───────────────────────────────────────────────────
         // The only signal that catches "compiled but wrong". Fire-and-forget to the
@@ -1968,169 +1957,20 @@ namespace RevitWebAppSync.UI.Copilot
         public void SubmitFeedback(string rating, string prompt) =>
             SubmitFeedback(rating, prompt, null, null);
 
-        // ─── Saved Commands J1 ───────────────────────────────────────────────
-
-        /// <summary>ChatView subscribes and shows the Save sheet.</summary>
-        public event System.Action<SavedCommandDraft> SaveCommandRequested;
-
-        /// <summary>Palette rebuilds its list on next open after a catalog change.</summary>
-        public event System.Action PaletteInvalidated;
-
-        public void OpenSaveCommandSheet(ChatMessage m)
-        {
-            if (m == null) return;
-            if (IsSignedOut || string.IsNullOrEmpty(BinaConfig.Load()?.AccessToken))
-            {
-                Thread.Add(new ChatMessage
-                { Role = "ai", Kind = CpMsgKind.AiReply, Text = "Sign in to save commands." });
-                return;
-            }
-            SaveCommandRequested?.Invoke(SavedCommandDraft.FromReply(m.SourcePrompt, m.ToolsUsed, m.RunId));
-        }
-
-        public void OnEditCommand(SlashTool t)
-        {
-            if (t == null || !t.Editable) return;
-            SaveCommandRequested?.Invoke(SavedCommandDraft.FromTool(t));
-        }
-
-        public async System.Threading.Tasks.Task OnDeleteCommandAsync(SlashTool t)
-        {
-            if (t == null || !t.Editable) return;
-            var token = BinaConfig.Load()?.AccessToken;
-            if (string.IsNullOrEmpty(token)) return;
-            bool ok;
-            try { ok = await new AIService().DeleteCommandAsync(t.Id, token, System.Threading.CancellationToken.None); }
-            catch { ok = false; }
-            await RefreshCommandCatalogAsync(force: true);
-            Thread.Add(new ChatMessage
-            {
-                Role = "ai", Kind = CpMsgKind.AiReply,
-                Text = ok ? $"Deleted `/{t.Id}`." : $"`/{t.Id}` was already gone.",
-            });
-        }
-
-        /// <summary>Save (or update, when the draft carries EditingId) — returns
-        /// null on success or an error string the sheet displays.</summary>
-        public async System.Threading.Tasks.Task<string> SaveDraftAsync(SavedCommandDraft d)
-        {
-            var token = BinaConfig.Load()?.AccessToken;
-            if (string.IsNullOrEmpty(token)) return "Sign in to save commands.";
-            try
-            {
-                var body = d.ToRequest();
-                var res = d.EditingId == null
-                    ? await new AIService().SaveCommandAsync(body, token, System.Threading.CancellationToken.None)
-                    : await new AIService().UpdateCommandAsync(d.EditingId, body, token, System.Threading.CancellationToken.None);
-                if (res == null) return "That command no longer exists.";
-                await RefreshCommandCatalogAsync(force: true);
-                Thread.Add(new ChatMessage
-                {
-                    Role = "ai", Kind = CpMsgKind.AiReply,
-                    Text = d.EditingId == null
-                        ? $"Saved — run it any time with `/{res.Command.Id}`."
-                        : $"Updated `/{res.Command.Id}`.",
-                });
-                return null;
-            }
-            catch (System.InvalidOperationException ex) { return ex.Message; }
-            catch (System.Exception ex) { return "Could not save: " + ex.Message; }
-        }
-
-        /// <summary>GET the catalog (ETag-cached) and merge the Mine tier into
-        /// ToolCatalog; persists the rows so an offline start still shows them.</summary>
-        public async System.Threading.Tasks.Task RefreshCommandCatalogAsync(bool force = false)
-        {
-            var prefs = CopilotPrefs.Load();
-            var token = BinaConfig.Load()?.AccessToken;
-            if (string.IsNullOrEmpty(token)) { RestoreCachedMine(prefs); return; }
-            var svc = new AIService();
-            Models.CatalogResponseDto res = null;
-            try
-            {
-                res = await svc.GetCommandsAsync(token, force ? null : prefs.SavedCommandsEtag,
-                                                 System.Threading.CancellationToken.None);
-            }
-            catch { /* transport — fall through to cache */ }
-            if (res == null) { RestoreCachedMine(prefs); return; }   // 304 or failure → keep what we have
-            var mine = res.Commands.Where(c => c.Group == "mine").ToList();
-            ToolCatalog.MergeRemote(mine.Select(ToolCatalog.FromCatalogEntry));
-            try
-            {
-                prefs.SavedCommandsJson = Newtonsoft.Json.JsonConvert.SerializeObject(mine);
-                prefs.SavedCommandsEtag = svc.LastCommandsEtag ?? "";
-                prefs.Save();
-            }
-            catch { /* cache is a convenience */ }
-            PaletteInvalidated?.Invoke();
-        }
-
-        private void RestoreCachedMine(CopilotPrefs prefs)
-        {
-            if (string.IsNullOrEmpty(prefs?.SavedCommandsJson)) return;
-            try
-            {
-                var mine = Newtonsoft.Json.JsonConvert.DeserializeObject<
-                    System.Collections.Generic.List<Models.CatalogCommandDto>>(prefs.SavedCommandsJson);
-                ToolCatalog.MergeRemote(mine.Select(ToolCatalog.FromCatalogEntry));
-                PaletteInvalidated?.Invoke();
-            }
-            catch { /* stale cache — ignore */ }
-        }
-
         /// <summary>Thumbs feedback with the downvote panel's optional reason/note
         /// and the auto-attached version context. Best-effort; never throws.</summary>
         public void SubmitFeedback(string rating, string prompt, string reason, string note)
         {
             if (string.IsNullOrWhiteSpace(prompt)) return;
 
-            var cfg = BinaConfig.Load();
+            var cfg = _pane.LoadConfig();
             int? userId = (cfg?.UserId ?? 0) > 0 ? (int?)cfg.UserId : null;
-            string sessionId = (Router as RevitChatRouter)?.SessionId;
+            string sessionId = TurnRouter?.SessionId;
             string token = cfg?.AccessToken ?? "";
 
             // Detached — never await on the UI thread; failures are swallowed inside.
             _ = _feedback.SubmitFeedbackAsync(prompt, rating, prompt, sessionId, userId, token,
                 reason: reason, note: note, context: CopilotContext.ShortLabel);
-        }
-
-        /// <summary>Reformulate the structured result as one conversational line for the
-        /// AiReply chat bubble. Falls back to the headline when no richer shape applies.
-        ///
-        /// On failure this deliberately does NOT surface outcome.Error — that's the raw
-        /// Roslyn compiler output ("Line 6: ... cannot be declared", "does not contain a
-        /// definition for ...") from CodeExecutor.CompileCheck, useful for debugging but
-        /// meaningless to a drafter and a violation of the "drafter is not the debugger"
-        /// reply rule. The caller (ExecuteAsChatReply) attaches the raw text as an
-        /// "Error detail" reasoning step instead, so it's one expand away.</summary>
-        private static string FormatResultAsText(ResultModel r, ExecOutcome outcome)
-        {
-            if (outcome != null && !outcome.Success)
-                return "Tak dapat siapkan skrip untuk tugasan ini selepas beberapa percubaan.";
-            if (r == null) return "Done.";
-            string text;
-            switch (r.Kind)
-            {
-                case CpResultKind.Count:
-                    text = $"{r.Headline} {r.Unit}".Trim() + (string.IsNullOrEmpty(r.Sub) ? "" : $". {r.Sub}"); break;
-                case CpResultKind.Issues:
-                    text = $"{r.Headline} {r.Unit}".Trim(); break;
-                case CpResultKind.List:
-                    text = r.Headline; break; // diffs render in History; chat keeps the line tight
-                case CpResultKind.File:
-                    text = $"Saved {r.Headline}." + (string.IsNullOrEmpty(r.Sub) ? "" : $" {r.Sub}"); break;
-                default:
-                    text = string.IsNullOrEmpty(r.Sub) ? r.Headline : $"{r.Headline} — {r.Sub}"; break;
-            }
-            // SetResult.details is the computed data itself (ready markdown —
-            // per-level tables, notes). Chat bubbles render markdown, so
-            // appending it here is what puts the actual result — and the CSV
-            // download button its tables carry — in front of the drafter.
-            // Without this the pane says "26 bilik — clearance height" and the
-            // 26 rows the code computed are silently thrown away.
-            if (!string.IsNullOrWhiteSpace(r.Details))
-                text = text + "\n\n" + r.Details.Trim();
-            return text;
         }
 
         private void ReplaceLastThinking(ChatMessage replacement)
@@ -2143,56 +1983,7 @@ namespace RevitWebAppSync.UI.Copilot
                 }
                 Thread.Add(replacement);
             }
-            var disp = System.Windows.Application.Current?.Dispatcher;
-            if (disp != null && !disp.CheckAccess()) disp.Invoke(Apply); else Apply();
-        }
-
-        public void ChatRun(ChatMessage msg)
-        {
-            if (msg == null) return;
-            int idx = Thread.IndexOf(msg);
-            if (idx < 0) return;
-            var tool = CopilotCatalog.Find(msg.ToolId);
-            if (tool == null) return;
-
-            ToolId = tool.Id; // so highlights/history resolve against this tool
-            _runClock = System.Diagnostics.Stopwatch.StartNew();
-            Thread[idx] = new ChatMessage { Role = "ai", Kind = CpMsgKind.Running, ToolId = tool.Id, Code = msg.Code };
-
-            void Done(ExecOutcome outcome)
-            {
-                var result = BuildResult(tool, outcome);
-
-                int j = -1;
-                for (int i = 0; i < Thread.Count; i++) if (Thread[i].Kind == CpMsgKind.Running && Thread[i].ToolId == tool.Id) j = i;
-                if (j >= 0) Thread[j] = new ChatMessage { Role = "ai", Kind = CpMsgKind.Result, ToolId = tool.Id, Result = result };
-
-                string chatRunSummary = SummaryOf(result);
-                AppendToCurrentSession(tool.Title, chatRunSummary, result.Kind == CpResultKind.Issues ? "warn" : "ok", new List<string> { tool.Id });
-                PopulateHighlights(tool.Id);
-            }
-
-            if (Executor != null) Executor.Run(tool, new Dictionary<string, object>(), msg.Code, Done);
-            else Done(new ExecOutcome { Success = true });
-        }
-
-
-        public void ChatRegenerate(ChatMessage msg)
-        {
-            if (msg == null) return;
-            int idx = Thread.IndexOf(msg);
-            if (idx < 0) return;
-
-            var alts = CopilotCatalog.Ai.Where(a => a.Id != msg.ToolId).ToList();
-            var next = alts.Count > 0 ? alts[new System.Random().Next(alts.Count)] : CopilotCatalog.Find(msg.ToolId);
-            if (next == null) return;
-
-            Thread[idx] = new ChatMessage
-            {
-                Role = "ai", Kind = CpMsgKind.Proposal, ToolId = next.Id,
-                Text = "How about this instead?",
-                PlanSteps = new List<string>(next.Plan ?? new List<string>()), Code = next.Code,
-            };
+            _pane.RunOnUi(Apply);
         }
 
         // ─── INotifyPropertyChanged ────────────────────────────────────────────

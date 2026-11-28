@@ -1,0 +1,52 @@
+{
+  "ok": true,
+  "status": "done",
+  "phase": "commit",
+  "summary": "Set URL = www.pcolite.com on 2 types; read back 2 of 2. Type parameter: changes every instance of those types (52 Lighting Fixtures in the model).",
+  "count": 2,
+  "changes": {
+    "touched": {
+      "added": [],
+      "modified": [
+        {
+          "id": 4410021,
+          "field": "URL",
+          "after": "www.pcolite.com",
+          "scope": "type",
+          "element": "Downlight 1x13W",
+          "after_raw": "www.pcolite.com",
+          "source": { "kind": "document", "attachment": "PCO_broucher_Downlight_2026.pdf", "page": 8, "quote": "www.pcolite.com" }
+        },
+        {
+          "id": 4410022,
+          "field": "URL",
+          "after": "www.pcolite.com",
+          "scope": "type",
+          "element": "Downlight 1x8W",
+          "after_raw": "www.pcolite.com",
+          "source": { "kind": "document", "attachment": "PCO_broucher_Downlight_2026.pdf", "page": 8, "quote": "www.pcolite.com" }
+        },
+        {
+          "id": 312045,
+          "field": "Height Offset From Level",
+          "before": "2400 mm",
+          "after": "2700 mm",
+          "scope": "instance",
+          "element": "Ceiling 312045",
+          "type_name": "CL-01",
+          "before_raw": 2400,
+          "after_raw": 2700,
+          "unit": "mm",
+          "source": { "kind": "prompt" }
+        }
+      ],
+      "deleted": []
+    }
+  },
+  "verified": {
+    "method": "param_readback",
+    "checked": 3,
+    "mismatches": []
+  },
+  "next": "One Undo in the receipt reverts this batch."
+}

@@ -136,8 +136,10 @@ foreach ($k in 'TMONE_SERVER','TMONE_BUCKET','TMONE_ACCESS_KEY_ID','TMONE_SECRET
 $channel  = if ($isStaging) { 'staging' } else { 'prod' }
 $defaultPrefix = if ($isStaging) { 'revit-copilot/releases-staging' } else { 'revit-copilot/releases' }
 $prefix   = if ($env:REVIT_RELEASE_PREFIX) { $env:REVIT_RELEASE_PREFIX.Trim('/') } else { $defaultPrefix }
-# An override that contradicts the tag is a mistake, not an intention.
-if ($env:REVIT_RELEASE_PREFIX -and $prefix -ne $defaultPrefix) {
+# An override that contradicts the tag is a mistake, not an intention. The one
+# exception: the TM One test folder (revit-addin/test), used by the Jenkins pipeline
+# to prove a publish without touching the real staging pointer.
+if ($env:REVIT_RELEASE_PREFIX -and $prefix -ne $defaultPrefix -and $prefix -notlike 'revit-addin/test*') {
     throw "REVIT_RELEASE_PREFIX '$prefix' contradicts tag $Tag (channel $channel, expected '$defaultPrefix') - unset it or fix the tag"
 }
 $endpoint = $env:TMONE_SERVER

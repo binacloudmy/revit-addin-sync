@@ -15,7 +15,7 @@
                     BorderBrush="{DynamicResource Cp.Line}" BorderThickness="1"
                     CornerRadius="14" Padding="13,11,10,9">
                 <Border.Effect>
-                    <DropShadowEffect Color="#000000" Opacity="0.08" BlurRadius="14" ShadowDepth="3" Direction="270"/>
+                    <DropShadowEffect Color="Black" Opacity="0.08" BlurRadius="14" ShadowDepth="3" Direction="270"/>
                 </Border.Effect>
                 <StackPanel>
                     <!-- Row 0 (design hasPending): the pending slash-command chip
@@ -24,6 +24,9 @@
                     <WrapPanel x:Name="CommandStrip" Visibility="Collapsed" Margin="0,0,0,7"/>
                     <!-- Row 1: input alone. -->
                     <ctl:MentionInput x:Name="Input" VerticalAlignment="Center"/>
+                    <!-- What typing here does while a question card is open (AskCardModel.TypedAnswerHint). -->
+                    <TextBlock x:Name="AskHint" Visibility="Collapsed" FontSize="11" TextWrapping="Wrap" Margin="0,6,0,0"
+                               Foreground="{DynamicResource Cp.Muted}"/>
                     <!-- Danger hint (design pendingHint): "Fill Level to send". -->
                     <StackPanel x:Name="PendingHintRow" Orientation="Horizontal" Visibility="Collapsed" Margin="0,6,0,0">
                         <Path Width="12" Height="12" Stretch="Uniform" Stroke="{DynamicResource Cp.Red}" StrokeThickness="1.8"
@@ -43,7 +46,7 @@
                         <Button x:Name="AttachBtn" DockPanel.Dock="Left" Width="26" Height="26" Cursor="Hand"
                                 Background="Transparent" BorderThickness="0" VerticalAlignment="Center"
                                 FocusVisualStyle="{x:Null}"
-                                ToolTip="Attach a file (.txt, .csv, .md, .log, .json, .xml)">
+                                ToolTip="Attach a file or an image (.txt, .csv, .xlsx, .pdf, .dwg, .png, .jpg). Ctrl+V pastes a screenshot">
                             <Button.Template>
                                 <ControlTemplate TargetType="Button">
                                     <Border x:Name="bd" Background="Transparent" CornerRadius="8">
@@ -113,7 +116,7 @@
                         <Button x:Name="ReasoningBtn" DockPanel.Dock="Left" Cursor="Hand"
                                 Background="Transparent" BorderThickness="0" VerticalAlignment="Center"
                                 FocusVisualStyle="{x:Null}" Margin="4,0,0,0"
-                                ToolTip="Toggle the reasoning timeline for the next turn">
+                                ToolTip="Reasoning: show or hide the step-by-step timeline for the next turn">
                             <Button.Template>
                                 <ControlTemplate TargetType="Button">
                                     <!-- 2026-08-27 composer refresh: quiet text toggle (dot + label,
@@ -132,35 +135,6 @@
                             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                 <Ellipse x:Name="ReasoningDot" Width="5" Height="5" Margin="0,0,5,0" VerticalAlignment="Center"/>
                                 <TextBlock Text="Reasoning" FontSize="11.5" Foreground="{DynamicResource Cp.Muted}" VerticalAlignment="Center"/>
-                            </StackPanel>
-                        </Button>
-                        <!-- Action Mode chip (2026-08-02 addendum): "Ask first"
-                             (amber, default) / "Auto" (green) — opens
-                             ActionModePopup below. Persisted via
-                             CopilotPrefs.AutoApproveWrites. -->
-                        <Button x:Name="ActionModeBtn" DockPanel.Dock="Left" Cursor="Hand"
-                                Background="Transparent" BorderThickness="0" VerticalAlignment="Center"
-                                FocusVisualStyle="{x:Null}" Margin="2,0,0,0"
-                                ToolTip="Choose how write actions are approved">
-                            <Button.Template>
-                                <ControlTemplate TargetType="Button">
-                                    <Border x:Name="bd" Background="Transparent" CornerRadius="8" Padding="9,4,9,4">
-                                        <ContentPresenter/>
-                                    </Border>
-                                    <ControlTemplate.Triggers>
-                                        <Trigger Property="IsMouseOver" Value="True">
-                                            <Setter TargetName="bd" Property="Background" Value="{DynamicResource Cp.Hover}"/>
-                                        </Trigger>
-                                    </ControlTemplate.Triggers>
-                                </ControlTemplate>
-                            </Button.Template>
-                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                <Ellipse x:Name="ActionModeDot" Width="5" Height="5" Margin="0,0,5,0" VerticalAlignment="Center"/>
-                                <TextBlock x:Name="ActionModeLabel" Text="Ask first" FontSize="11.5" Foreground="{DynamicResource Cp.Muted}" VerticalAlignment="Center"/>
-                                <Path Width="7" Height="7" Stretch="Uniform" Margin="4,0,0,0" VerticalAlignment="Center"
-                                      StrokeThickness="1.6" Stroke="{DynamicResource Cp.Faint}"
-                                      StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
-                                      Data="M1,5 L4,1.5 L7,5"/>
                             </StackPanel>
                         </Button>
                         <!-- send / stop: 32×32 CIRCLE (2026-08-27 refresh, was a radius-9
@@ -192,90 +166,6 @@
                 </StackPanel>
             </Border>
 
-            <!-- Action Mode popover — upward, closes on outside click (StaysOpen
-                 False + PlacementTarget) or Esc (code-behind). Same card chrome as
-                 the reasoning-UI cards: Cp.Reasoning.* radius/border/shadow tokens. -->
-            <Popup x:Name="ActionModePopup" PlacementTarget="{Binding ElementName=ActionModeBtn}"
-                   Placement="Top" VerticalOffset="-8" StaysOpen="False"
-                   AllowsTransparency="True" PopupAnimation="Fade">
-                <Border x:Name="ActionModeCard" Background="{DynamicResource Cp.Reasoning.Surface}"
-                        BorderBrush="{DynamicResource Cp.Reasoning.Border3}" BorderThickness="1"
-                        CornerRadius="13" Padding="4" MinWidth="248" Margin="8,8,8,8"
-                        Focusable="True" KeyDown="OnActionModePopupKeyDown">
-                    <Border.Effect>
-                        <DropShadowEffect BlurRadius="20" ShadowDepth="4" Opacity="0.14" Color="#000000"/>
-                    </Border.Effect>
-                    <StackPanel>
-                        <TextBlock Text="ACTION MODE" FontFamily="{DynamicResource Cp.Reasoning.FontMono}"
-                                   FontSize="10" Foreground="{DynamicResource Cp.Reasoning.TextFaint}"
-                                   Margin="9,7,9,6"/>
-                        <Button x:Name="AskFirstOption" Background="Transparent" BorderThickness="0"
-                                Cursor="Hand" HorizontalContentAlignment="Stretch" Padding="0">
-                            <Button.Template>
-                                <ControlTemplate TargetType="Button">
-                                    <Border x:Name="bd" Background="Transparent" CornerRadius="9" Padding="9,7,9,7">
-                                        <ContentPresenter/>
-                                    </Border>
-                                    <ControlTemplate.Triggers>
-                                        <Trigger Property="IsMouseOver" Value="True">
-                                            <Setter TargetName="bd" Property="Background" Value="{DynamicResource Cp.Reasoning.Hover2}"/>
-                                        </Trigger>
-                                    </ControlTemplate.Triggers>
-                                </ControlTemplate>
-                            </Button.Template>
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="*"/>
-                                </Grid.ColumnDefinitions>
-                                <Ellipse Grid.Column="0" Width="7" Height="7" Fill="#eab308"
-                                         VerticalAlignment="Top" Margin="0,4,9,0"/>
-                                <StackPanel Grid.Column="1">
-                                    <TextBlock Text="Ask first" FontSize="12.5" FontWeight="SemiBold"
-                                               Foreground="{DynamicResource Cp.Reasoning.TextPrimary}"/>
-                                    <TextBlock Text="Approve each write before it runs." FontSize="11"
-                                               TextWrapping="Wrap" Margin="0,1,0,0"
-                                               Foreground="{DynamicResource Cp.Reasoning.Text}"/>
-                                </StackPanel>
-                            </Grid>
-                        </Button>
-                        <Border Height="1" Background="{DynamicResource Cp.Reasoning.BorderSubtle2}" Margin="9,4,9,4"/>
-                        <Button x:Name="AutoOption" Background="Transparent" BorderThickness="0"
-                                Cursor="Hand" HorizontalContentAlignment="Stretch" Padding="0">
-                            <Button.Template>
-                                <ControlTemplate TargetType="Button">
-                                    <Border x:Name="bd" Background="Transparent" CornerRadius="9" Padding="9,7,9,7">
-                                        <ContentPresenter/>
-                                    </Border>
-                                    <ControlTemplate.Triggers>
-                                        <Trigger Property="IsMouseOver" Value="True">
-                                            <Setter TargetName="bd" Property="Background" Value="{DynamicResource Cp.Reasoning.Hover2}"/>
-                                        </Trigger>
-                                    </ControlTemplate.Triggers>
-                                </ControlTemplate>
-                            </Button.Template>
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="*"/>
-                                </Grid.ColumnDefinitions>
-                                <Ellipse Grid.Column="0" Width="7" Height="7" Fill="#10b981"
-                                         VerticalAlignment="Top" Margin="0,4,9,0"/>
-                                <StackPanel Grid.Column="1">
-                                    <TextBlock Text="Auto" FontSize="12.5" FontWeight="SemiBold"
-                                               Foreground="{DynamicResource Cp.Reasoning.TextPrimary}"/>
-                                    <TextBlock Text="Writes run straight away. Still undoable." FontSize="11"
-                                               TextWrapping="Wrap" Margin="0,1,0,0"
-                                               Foreground="{DynamicResource Cp.Reasoning.Text}"/>
-                                </StackPanel>
-                            </Grid>
-                        </Button>
-                        <TextBlock Text="Deletions and workset changes always ask, even in Auto."
-                                   FontSize="10.5" TextWrapping="Wrap" Margin="9,8,9,8"
-                                   Foreground="{DynamicResource Cp.Reasoning.TextFaint}"/>
-                    </StackPanel>
-                </Border>
-            </Popup>
             <!-- Footer: hint (left, truncates) + plan-name button (right). Design's
                  "footer" placement: the plan name is the ambient usage affordance,
                  with a severity dot (amber ≥80, red ≥95, hidden below 80) to its
@@ -294,10 +184,14 @@
                            TextTrimming="CharacterEllipsis" Margin="2,0,8,0"
                            FontSize="10" Foreground="{DynamicResource Cp.Muted}"
                            Text="Your prompt is kept — sign in with the card above to send it"/>
+                <TextBlock x:Name="QueueHint" Grid.Column="0" VerticalAlignment="Center" Visibility="Collapsed"
+                           TextTrimming="CharacterEllipsis" Margin="2,0,8,0"
+                           FontSize="10" Foreground="{DynamicResource Cp.Muted}"/>
                 <TextBlock x:Name="PlaceholderHint" Grid.Column="0" VerticalAlignment="Center"
                            TextTrimming="CharacterEllipsis" Margin="2,0,8,0"
+                           ToolTip="Type / for tools. Type @ to pick a type, level, view or the selection. Paste or drop images to attach them."
                            FontSize="10" Foreground="{DynamicResource Cp.Faint}">
-                    <Run Text="Type "/><Run Text="/" FontWeight="Bold" Foreground="{DynamicResource Cp.Muted}"/><Run Text=" for tools · "/><Run Text="@" FontWeight="Bold" Foreground="{DynamicResource Cp.Muted}"/><Run Text=" to reference a level, view or selection"/>
+                    <Run Text="Type "/><Run Text="/" FontWeight="Bold" Foreground="{DynamicResource Cp.Muted}"/><Run Text=" for tools · "/><Run Text="@" FontWeight="Bold" Foreground="{DynamicResource Cp.Muted}"/><Run Text=" to mention · paste or drop images"/>
                 </TextBlock>
                 <!-- Collapsed until BindUsage runs. PromptBar is also hosted outside
                      ChatView (ResultView), where nothing binds usage — an unbound
@@ -305,7 +199,7 @@
                 <Button x:Name="PlanBtn" Grid.Column="1" Cursor="Hand" Padding="6,2,6,2"
                         Visibility="Collapsed"
                         Background="Transparent" BorderThickness="0" FocusVisualStyle="{x:Null}"
-                        ToolTip="Plan usage">
+                        ToolTip="Your plan and usage (Free is the plan this account is on)">
                     <Button.Template>
                         <ControlTemplate TargetType="Button">
                             <Border x:Name="bd" Background="Transparent" CornerRadius="6" Padding="{TemplateBinding Padding}">
@@ -341,7 +235,7 @@
                         Background="{DynamicResource Cp.Menu}" BorderBrush="{DynamicResource Cp.Line}"
                         BorderThickness="1" CornerRadius="13" Padding="15,15,15,14" Margin="8,8,20,20">
                     <Border.Effect>
-                        <DropShadowEffect BlurRadius="16" ShadowDepth="3" Opacity="0.14" Color="#000000"/>
+                        <DropShadowEffect BlurRadius="16" ShadowDepth="3" Opacity="0.14" Color="Black"/>
                     </Border.Effect>
                     <StackPanel>
                         <!-- Plan name + tier pill -->

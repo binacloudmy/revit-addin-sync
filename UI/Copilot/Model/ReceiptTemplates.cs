@@ -1,0 +1,290 @@
+#nullable enable
+// Drafter-facing receipt, evidence and caution text in English and Malay
+// (lean-harness spec §7.11; W5 Task 3). Revit-free. Every sentence is a
+// template over structured fields from TurnEvidence; nothing here reads or
+// rewrites the model's reply.
+//
+//   Headline  "30/34 done · 4 failed (not owned)"   (always as a fraction)
+//             "30/34 siap · 4 gagal (milik pengguna lain)"
+//   Evidence  "34 found · searched host · Ceilings · Level = 'Level 2' · 34 selected, 30 visible in view"
+//   Not searched (shown on its own, in the warning colour)
+//   Caution   shown when a write is not done and no later write of the turn was
+//   Retry     "1 attempt failed; the retry was applied." when a failed attempt was followed by a done write
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text.RegularExpressions;
+using BinaVibe.Copilot.Contracts;
+using BinaVibe.Copilot.Undo;
+
+namespace RevitWebAppSync.UI.Copilot.Model
+{
+    public enum ReceiptTone { Ok, Mixed, Failed }
+
+    public static class ReceiptTemplates
+    {
+        private const string Sep = " · ";
+
+        public static string Headline(ReceiptFacts f, ReceiptLanguage lang)
+        {
+            var ms = lang == ReceiptLanguage.Ms;
+            var parts = new List<string> { f.Done + "/" + f.Total + (ms ? " siap" : " done") };
+            if (f.Unchanged > 0) parts.Add(f.Unchanged + (ms ? " tiada perubahan" : " unchanged"));
+            foreach (var g in f.Failed.Where(g => g.Count > 0))
+                parts.Add(g.Count + (ms ? " gagal (" : " failed (") + Reason(g.Reason, lang) + ")");
+            if (f.Declined > 0) parts.Add(f.Declined + (ms ? " tidak dilaksanakan (ditolak)" : " not applied (declined)"));
+            return string.Join(Sep, parts);
+        }
+
+        /// <summary>
+        /// The strip's look (live round 9, E-c07: "0/2 done · 2 failed" sat in the green box). Failed: something
+        /// failed and nothing was done. Mixed: some failed or were declined beside done ones, or the turn has a
+        /// caution. Ok: every write is done or had nothing to change.
+        /// </summary>
+        public static ReceiptTone Tone(ReceiptFacts f, bool caution)
+        {
+            if (f.FailedCount > 0 && f.Done == 0) return ReceiptTone.Failed;
+            if (f.FailedCount > 0 || f.Declined > 0 || caution) return ReceiptTone.Mixed;
+            return ReceiptTone.Ok;
+        }
+
+        /// <summary>The strip's border and background tokens for a tone.</summary>
+        public static (string Line, string Background) ToneTokens(ReceiptTone tone) => tone switch
+        {
+            ReceiptTone.Failed => ("Cp.Red", "Cp.AmberBg"),
+            ReceiptTone.Mixed => ("Cp.AmberLn", "Cp.AmberBg"),
+            _ => ("Cp.SuccessLn", "Cp.OkBg"),
+        };
+
+        /// <summary>An attached table that was cut to its first rows (review M5).</summary>
+        public static string TableCut(string name, int sent, int total, ReceiptLanguage lang) =>
+            lang == ReceiptLanguage.Ms
+                ? "Hanya " + sent + " baris pertama daripada " + total + " dalam " + name + " dihantar; baki " + (total - sent) + " baris tidak digunakan."
+                : "Only the first " + sent + " of " + total + " rows of " + name + " were sent; the other " + (total - sent) + " rows were not used.";
+
+        public static string Caution(ReceiptFacts f, ReceiptLanguage lang) =>
+            lang == ReceiptLanguage.Ms
+                ? "Bukan semua perubahan dalam giliran ini dilaksanakan. Semak resit sebelum bergantung pada jawapan."
+                : "Not every change in this turn was applied. Check the receipt before relying on the reply.";
+
+        /// <summary>"1 attempt failed; the retry was applied." (a failed attempt followed by a done write).</summary>
+        public static string RetryNote(int attempts, ReceiptLanguage lang)
+        {
+            var ms = lang == ReceiptLanguage.Ms;
+            return ms
+                ? attempts + (attempts == 1 ? " percubaan gagal; percubaan semula dilaksanakan." : " percubaan gagal; percubaan semula dilaksanakan.")
+                : attempts + (attempts == 1 ? " attempt failed; the retry was applied." : " attempts failed; the retry was applied.");
+        }
+
+        public static string EvidenceLine(EvidenceItem e, ReceiptLanguage lang)
+        {
+            var ms = lang == ReceiptLanguage.Ms;
+            var parts = new List<string>();
+            // L4: a read that failed says so as a read, in its own line.
+            if (e.FailedReason != null)
+                parts.Add((ms ? "Bacaan gagal (" : "Read failed (") + Reason(e.FailedReason, lang) + ")");
+            if (e.Count is int n) parts.Add(n + (ms ? " dijumpai" : " found"));
+            if (e.Sources.Count > 0) parts.Add((ms ? "dicari " : "searched ") + string.Join(", ", e.Sources));
+            if (e.Categories.Count > 0) parts.Add(string.Join(", ", e.Categories));
+            // e.Filter is query syntax for the model ("category = Doors AND level = ..."): the reply states the scope.
+            if (e.Selected is int sel)
+                parts.Add(e.VisibleInView is int vis
+                    ? (ms ? sel + " dipilih, " + vis + " kelihatan dalam pandangan" : sel + " selected, " + vis + " visible in view")
+                    : (ms ? sel + " dipilih" : sel + " selected"));
+            return string.Join(Sep, parts);
+        }
+
+        /// <summary>One rule of a check table in short plain words: "BB-02 · Uniform Building By-Laws 1984, by-law 136 —
+        /// 0 fail · 0 pass · 1 not verified (see Details)". The cite is cut at its first clause and the not-verified
+        /// reason is the model's regex-like text only behind Details (CheckRuleFullLine).</summary>
+        public static string CheckRuleLine(ResultTable t, int row, ReceiptLanguage lang)
+        {
+            if (t == null || row < 0 || row >= t.Rows.Count) return "";
+            var ms = lang == ReceiptLanguage.Ms;
+            string Cell(int i) => i < t.Rows[row].Count ? t.Rows[row][i] ?? "" : "";
+            var cite = ShortCite(Cell(1));
+            var head = Cell(0) + (cite.Length > 0 ? Sep + cite : "");
+            var counts = new List<string>
+            {
+                Cell(4) + (ms ? " gagal" : " fail"),
+                Cell(3) + (ms ? " lulus" : " pass"),
+            };
+            if (Cell(5) != "0" && Cell(5).Length > 0)
+            {
+                var why = ShortReason(Cell(6), lang);
+                counts.Add(Cell(5) + (ms ? " tidak disahkan" : " not verified") + (why.Length > 0 ? " (" + why + ")" : ""));
+            }
+            return head + " — " + string.Join(Sep, counts);
+        }
+
+        /// <summary>The rule line with the cite and the reason in full (behind Details).</summary>
+        public static string CheckRuleFullLine(ResultTable t, int row, ReceiptLanguage lang)
+        {
+            if (t == null || row < 0 || row >= t.Rows.Count) return "";
+            var ms = lang == ReceiptLanguage.Ms;
+            string Cell(int i) => i < t.Rows[row].Count ? t.Rows[row][i] ?? "" : "";
+            var head = Cell(0) + (Cell(1).Length > 0 ? Sep + Cell(1) : "");
+            var counts = new List<string>
+            {
+                Cell(4) + (ms ? " gagal" : " fail"),
+                Cell(3) + (ms ? " lulus" : " pass"),
+            };
+            if (Cell(5) != "0" && Cell(5).Length > 0)
+                counts.Add(Cell(5) + (ms ? " tidak disahkan" : " not verified") + (Cell(6).Length > 0 ? " (" + Cell(6) + ")" : ""));
+            return head + " — " + string.Join(Sep, counts);
+        }
+
+        private const int CiteMax = 70;
+        private const int ReasonMax = 50;
+        private static readonly Regex RegexLike = new Regex(@"\(\?[a-z]|\[[^\]]*\]|\\[bdws]|\|", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        /// <summary>Cut at a word, never inside a parenthesis that would stay open.</summary>
+        private static string CutAtWord(string s, int max)
+        {
+            if (s.Length <= max) return s;
+            var cut = s.Substring(0, max);
+            var space = cut.LastIndexOf(' ');
+            if (space > max / 2) cut = cut.Substring(0, space);
+            var open = cut.LastIndexOf('(');
+            if (open >= 0 && open > cut.LastIndexOf(')')) cut = cut.Substring(0, open);
+            return cut.TrimEnd(' ', ',', ';', '(', '—', '-') + "…";
+        }
+
+        /// <summary>The first clause of a cite (up to the first semicolon), cut at a word.</summary>
+        public static string ShortCite(string? cite)
+        {
+            if (string.IsNullOrWhiteSpace(cite)) return "";
+            var first = cite!.Split(';')[0].Trim();
+            return CutAtWord(first, CiteMax);
+        }
+
+        /// <summary>A not-verified reason, short; one that carries a pattern or a regex is not shown.</summary>
+        public static string ShortReason(string? reason, ReceiptLanguage lang)
+        {
+            if (string.IsNullOrWhiteSpace(reason)) return "";
+            var r = reason!.Trim();
+            if (RegexLike.IsMatch(r) || r.IndexOf("pattern", StringComparison.OrdinalIgnoreCase) >= 0)
+                return lang == ReceiptLanguage.Ms ? "lihat Butiran" : "see Details";
+            return CutAtWord(r, ReasonMax);
+        }
+
+        /// <summary>M-12: what a turn leaves in local history. Reply is the
+        /// model's text (joined with a blank line at each tool round), empty when it wrote none (never the add-in's "Done"). Note is
+        /// the add-in's own line, kept apart and labelled: the pane note, then the
+        /// receipt ("Receipt: 34/34 done") when the turn wrote; null when neither.</summary>
+        public static (string Reply, string? Note) HistoryOf(string? reply, string? paneNote, TurnEvidence? evidence, ReceiptLanguage lang)
+        {
+            var parts = new List<string>();
+            if (!string.IsNullOrWhiteSpace(paneNote)) parts.Add(paneNote!.Trim());
+            if (evidence != null && evidence.HasWrites)
+                parts.Add((lang == ReceiptLanguage.Ms ? "Resit: " : "Receipt: ") + Headline(evidence.Receipt, lang));
+            return (reply ?? "", parts.Count > 0 ? string.Join(Sep, parts) : null);
+        }
+
+        /// <summary>History written before M-12 stored the add-in's "Done" as the bot
+        /// reply: read back, it is the add-in's note, not the model's words.</summary>
+        public static bool IsLegacyAddinDone(string? botText) => string.Equals(botText?.Trim(), "Done", StringComparison.Ordinal);
+
+        /// <summary>L19: why the pane's Undo is off, in one line, from the kind UndoModel gives (UndoModel.WhyNot).
+        /// Null when Undo is available. The kind is a typed value: the sentence the model also keeps for
+        /// envelopes is never read here.</summary>
+        public static string? UndoOffLine(UndoBlock block, ReceiptLanguage lang)
+        {
+            if (block == UndoBlock.None) return null;
+            var ms = lang == ReceiptLanguage.Ms;
+            string why;
+            switch (block)
+            {
+                case UndoBlock.ModelChangedAfter:
+                    why = ms ? "model berubah selepas giliran ini (suntingan dalam Revit)." : "the model changed after this turn (an edit in Revit).";
+                    break;
+                case UndoBlock.RevitUndoRedoUsed:
+                    why = ms ? "Undo atau Redo Revit digunakan selepas giliran ini." : "Revit's own Undo or Redo was used after this turn.";
+                    break;
+                case UndoBlock.AlreadyUndone:
+                    why = ms ? "perubahan giliran ini sudah dibuat asal." : "this turn's changes were already undone.";
+                    break;
+                case UndoBlock.InProgress:
+                    why = ms ? "satu Undo sedang berjalan." : "an undo is already running.";
+                    break;
+                default:
+                    why = ms ? "perubahan ini tidak boleh dibuat asal dari sini." : "this change cannot be undone from here.";
+                    break;
+            }
+            return (ms ? "Buat asal dimatikan: " : "Undo is off: ") + why;
+        }
+
+        /// <summary>The line under a result card whose Undo is not offered: "Undone" when its changes are gone from
+        /// the model (the card's button or Revit's own Undo took them back), else the reason Undo is off.</summary>
+        public static string? UndoStatusLine(UndoBlock block, ReceiptLanguage lang)
+        {
+            if (block != UndoBlock.AlreadyUndone) return UndoOffLine(block, lang);
+            return lang == ReceiptLanguage.Ms
+                ? "Dibuat asal: perubahan giliran ini tiada lagi dalam model."
+                : "Undone: this turn's changes are no longer in the model.";
+        }
+
+        /// <summary>The label of the add-in's own line in History and exports (N-4).</summary>
+        public const string AddinLabel = "BINA add-in";
+
+        /// <summary>N-4: a bot history row as the History tab and the session export show
+        /// it. Reply is the model's text, null when it wrote none (no empty bubble).
+        /// AddinLine is the add-in's own note or receipt, labelled, or null.</summary>
+        public static (string? Reply, string? AddinLine) BotLines(string? text, string? paneNote)
+        {
+            var legacy = paneNote == null && IsLegacyAddinDone(text);
+            var reply = legacy || string.IsNullOrWhiteSpace(text) ? null : text;
+            var note = legacy ? text!.Trim() : string.IsNullOrWhiteSpace(paneNote) ? null : paneNote!.Trim();
+            return (reply, note == null ? null : AddinLabel + ": " + note);
+        }
+
+        /// <summary>The bot row as one block of export text: the reply, then the add-in's line.</summary>
+        public static string BotTranscript(string? text, string? paneNote)
+        {
+            var (reply, addin) = BotLines(text, paneNote);
+            return string.Join("\n", new[] { reply, addin }.Where(x => !string.IsNullOrEmpty(x)));
+        }
+
+        public static string HighlightLabel(ReceiptLanguage lang) => lang == ReceiptLanguage.Ms ? "Serlahkan" : "Highlight";
+
+        /// <summary>Empty when everything was searched. Two entries at most, then "+N more".</summary>
+        public static string NotSearchedLine(EvidenceItem e, ReceiptLanguage lang) =>
+            e.NotSearched.Count == 0
+                ? ""
+                : (lang == ReceiptLanguage.Ms ? "Tidak dimuat: " : "Not loaded: ") + string.Join("; ", e.NotSearched.Take(2))
+                  + (e.NotSearched.Count > 2 ? "; +" + (e.NotSearched.Count - 2) + (lang == ReceiptLanguage.Ms ? " lagi" : " more") : "");
+
+        /// <summary>One failure reason, in words. <paramref name="code"/> is an envelope error code, an envelope
+        /// status (partial, failed) or <see cref="ReceiptFacts.Mismatch"/>: wire values, parsed here to the
+        /// enums; never a message.</summary>
+        public static string Reason(string code, ReceiptLanguage lang)
+        {
+            var ms = lang == ReceiptLanguage.Ms;
+            if (code == ReceiptFacts.Mismatch) return ms ? "bacaan semula tidak sepadan" : "read-back mismatch";
+            switch (WireEnums.ParseError(code))
+            {
+                case ErrorCodeKind.NotOwned: return ms ? "milik pengguna lain" : "not owned";
+                case ErrorCodeKind.DocChanged: return ms ? "dokumen bertukar" : "document changed";
+                case ErrorCodeKind.DiffDrift: return ms ? "berubah sejak pratonton" : "changed since preview";
+                case ErrorCodeKind.RevitBusy: return ms ? "Revit sibuk" : "Revit busy";
+                case ErrorCodeKind.RolledBack: return ms ? "dibatalkan oleh Revit" : "rolled back by Revit";
+                case ErrorCodeKind.PolicyRejected: return ms ? "disekat oleh polisi" : "blocked by policy";
+                case ErrorCodeKind.CompileError: return ms ? "ralat kod" : "code error";
+                case ErrorCodeKind.RuntimeError: return ms ? "ralat dalam Revit" : "error in Revit";
+                case ErrorCodeKind.Timeout: return ms ? "tamat masa" : "timed out";
+                case ErrorCodeKind.NotFound: return ms ? "tidak dijumpai" : "not found";
+                case ErrorCodeKind.InvalidArgs: return ms ? "input tidak sah" : "invalid input";
+                case ErrorCodeKind.NotAllowed: return ms ? "tidak dibenarkan" : "not allowed";
+                case ErrorCodeKind.NotImplemented: return ms ? "tiada dalam versi add-in ini" : "not in this add-in version";
+                case ErrorCodeKind.NoGpu: return ms ? "eksport imej tidak tersedia" : "image export unavailable";
+            }
+            switch (WireEnums.ParseStatus(code))
+            {
+                case EnvelopeStatusKind.Partial: return ms ? "tidak lengkap" : "incomplete";
+                case EnvelopeStatusKind.Failed: return ms ? "gagal" : "failed";
+            }
+            return string.IsNullOrWhiteSpace(code) ? (ms ? "gagal" : "failed") : code.Replace('_', ' ');
+        }
+    }
+}

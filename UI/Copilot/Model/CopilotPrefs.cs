@@ -14,8 +14,21 @@ namespace RevitWebAppSync.UI.Copilot.Model
     /// </summary>
     public class CopilotPrefs
     {
-        /// <summary>Dark ("Slate") theme when true; light otherwise.</summary>
-        public bool Dark { get; set; }
+        /// <summary>Dark ("Slate") theme when true; light otherwise. Dark by default (D5): a
+        /// prefs file with no "Dark" entry opens dark; one that saved false stays light.</summary>
+        public bool Dark { get; set; } = ThemeTokens.DefaultDark;
+
+        /// <summary>True only after the drafter flipped the theme themselves. Until then the pane follows the default:
+        /// older builds wrote Dark=false into the file with every save (their default was light), so a stored Dark
+        /// alone cannot tell a choice from a leftover.</summary>
+        public bool ThemeChosen { get; set; }
+
+        /// <summary>The theme the pane opens with: the drafter's own choice, else the default (D5).</summary>
+        public bool EffectiveDark => ThemeChosen ? Dark : ThemeTokens.DefaultDark;
+
+        /// <summary>The theme the pane opens with, Auto included: the drafter's own choice always wins; until then the pane follows Revit's UI theme when it
+        /// can be read (<paramref name="revitDark"/>: Revit 2024+), else the default (dark, D5).</summary>
+        public bool ResolveDark(bool? revitDark) => ThemeChosen ? Dark : (revitDark ?? ThemeTokens.DefaultDark);
 
         /// <summary>Set once the user submits a star rating — the inline rating
         /// nudge never appears again after this.</summary>
@@ -39,14 +52,6 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// the flag exists purely to force-disable segmented rendering if UAT
         /// finds a defect (set false in copilot-prefs.json; no UI).</summary>
         public bool StreamV2Enabled { get; set; } = true;
-
-        /// <summary>Composer "Action Mode" chip (2026-08-02 addendum): false =
-        /// Ask first (default — every write batch shows the approval card),
-        /// true = Auto (write batches where every call opted out of
-        /// confirmation run without a card; anything else still asks, and
-        /// codegen always asks regardless of this flag). Per-machine,
-        /// persisted the same way as ReasoningEnabled/Dark.</summary>
-        public bool AutoApproveWrites { get; set; } = false;
 
         /// <summary>Saved Commands J1 — the last Mine catalog rows (JSON) + the
         /// catalog ETag, so an offline/signed-out start still lists Mine (A5)

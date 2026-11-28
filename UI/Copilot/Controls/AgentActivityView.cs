@@ -41,12 +41,6 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         private readonly StackPanel _body;
 
         public Action OnLayoutChanged { get; set; }
-        /// <summary>Tool cards this card nested during the last Update — the
-        /// caller's BlocksPanel must skip these ids to avoid double-render.</summary>
-        public HashSet<string> ClaimedToolIds { get; } = new HashSet<string>(StringComparer.Ordinal);
-        /// <summary>Resolve a per-execution card by tool_call_id / tool name.
-        /// Supplied by ChatView (it owns the per-turn card cache).</summary>
-        public Func<string, ToolResultCard> ResolveToolCard { get; set; }
 
         public bool IsOpen { get; private set; }
         public bool UserToggled { get; private set; }
@@ -101,7 +95,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             // ── Header ──────────────────────────────────────────────────────
             _iconSlot = new Grid { Width = 14, Height = 14, Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center };
 
-            var kicker = new TextBlock
+            var kicker = _kicker = new TextBlock
             {
                 Text = "AGENT ACTIVITY", FontSize = 10.5,
                 VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0),
@@ -159,6 +153,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             outer.Children.Add(_bodyOuter);
 
             Unloaded += (_, __) => _clock?.Stop();
+            // The live row is taken out and put back in the thread on every tick; that unloads and reloads this card, and
+            // the stopped clock would leave the header duration frozen between two steps (live test of 0.0.100).
+            Loaded += (_, __) => { if (_clockRunning) SetClock(true, _clockReasoning, _clockSteps); };
         }
 
         public void Update(IReadOnlyList<ReasoningStep> reasoning, IReadOnlyList<ProgressStep> steps,
@@ -176,7 +173,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             }
             _bodyOuter.Visibility = IsOpen ? Visibility.Visible : Visibility.Collapsed;
 
-            _dur.Text = DurText(ReasoningTrail.TotalElapsedSeconds(reasoning), steps);
+            _clockRunning = streaming;
+            _dur.Text = HeaderText(DurText(TurnClock.ReasoningSeconds(reasoning, streaming, DateTime.UtcNow), steps, streaming), streaming, steps);
             SetClock(streaming, reasoning, steps);
 
             // Design: the header keeps the accent sparkle in EVERY state — the
@@ -210,7 +208,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
             // Structure fingerprint — ticking values (seconds, counts, prose
             // length) live in handles and are deliberately EXCLUDED.
-            var key = Fingerprint(prose.Length > 0, steps, streaming);
+            // r18: one row per real step: a write call's own sub-rows fold into its call row (the clock and bar above still read every step).
+            var rows = StepCollapse.Shown(steps);
+            var key = Fingerprint(prose.Length > 0, rows, streaming);
             if (key == _renderedKey)
             {
                 if (_proseRun != null) _proseRun.Text = prose.ToString();
@@ -220,7 +220,6 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             _renderedKey = key;
 
             _body.Children.Clear();
-            ClaimedToolIds.Clear();
             _liveCount = null;
             _barFilled = null;
             _barRest = null;
@@ -244,7 +243,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 {
                     BorderThickness = new Thickness(2, 0, 0, 0),
                     Padding = new Thickness(14, 0, 0, 0),
-                    Margin = new Thickness(6, 2, 0, steps.Count > 0 ? 12 : 0),
+                    Margin = new Thickness(6, 2, 0, rows.Count > 0 ? 12 : 0),
                     Child = text,
                 };
                 ruled.SetResourceReference(Border.BorderBrushProperty, "Cp.Line");
@@ -257,11 +256,11 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             // big enough to tick counts (operator ask, 2026-08-30).
             int active = -1;
             if (streaming)
-                for (int i = steps.Count - 1; i >= 0; i--)
-                    if (steps[i].State == StepState.Running) { active = i; break; }
+                for (int i = rows.Count - 1; i >= 0; i--)
+                    if (rows[i].State == StepState.Running) { active = i; break; }
 
-            for (int i = 0; i < steps.Count; i++)
-                _body.Children.Add(StepRow(steps[i], i == steps.Count - 1, busy: i == active));
+            for (int i = 0; i < rows.Count; i++)
+                _body.Children.Add(StepRow(rows[i], i == rows.Count - 1, busy: i == active));
 
             OnLayoutChanged?.Invoke();
         }
@@ -299,7 +298,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             var label = new TextBlock
             {
-                Text = ProgressTrail.RowText(s), FontSize = 13,
+                Text = StepText.Title(s.Phase, s.Label, s.StepId), FontSize = 13,
                 TextTrimming = TextTrimming.CharacterEllipsis,
             };
             label.SetResourceReference(TextBlock.ForegroundProperty,
@@ -315,28 +314,21 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             head.Children.Add(time);
             content.Children.Add(head);
 
-            if (!string.IsNullOrEmpty(s.Detail))
+            // A short plain line; the router's raw text (envelope summary or an
+            // exception message) only behind a collapsed "Details" toggle.
+            var shortLine = StepText.Short(s.Phase, s.State, s.Detail);
+            if (shortLine.Length > 0)
             {
-                // Body font, not mono (2026-08-30): details are drafter
-                // sentences now ("Found 62 doors"), not arg fragments.
                 var detail = new TextBlock
                 {
-                    Text = s.Detail, FontSize = 11.5, Margin = new Thickness(0, 2, 0, 0),
+                    Text = shortLine, FontSize = 11.5, Margin = new Thickness(0, 2, 0, 0),
                     TextWrapping = TextWrapping.Wrap,
                 };
                 detail.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Muted");
                 content.Children.Add(detail);
             }
-
-            // Nested tool card — the design puts the call's card under its step.
-            var card = ResolveToolCard?.Invoke(s.StepId);
-            if (card != null)
-            {
-                if (card.Parent is Panel p) p.Children.Remove(card);
-                card.Margin = new Thickness(0, 8, 0, 0);
-                content.Children.Add(card);
-                ClaimedToolIds.Add(s.StepId);
-            }
+            var raw = StepText.Raw(s.Phase, s.Label, s.Detail);
+            if (raw.Length > 0) content.Children.Add(RawDetails(raw));
 
             // Live scan counts: "Scanning elements…  36 / 62" + 3px bar.
             if (s.HasCount && s.State == StepState.Running)
@@ -367,8 +359,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     track.Children.Add(trackBg);
                     // Design bar fill: linear-gradient(90deg, accent, success).
                     var fillGrad = new LinearGradientBrush(
-                        (Color)ColorConverter.ConvertFromString("#2a69c6"),
-                        (Color)ColorConverter.ConvertFromString("#2f9a72"),
+                        CopilotColors.TokenColor("Cp.Brand"),
+                        CopilotColors.TokenColor("Cp.BrandGreen"),
                         new Point(0, 0), new Point(1, 0));
                     var fill = new Border { CornerRadius = new CornerRadius(1.5), Background = fillGrad };
                     track.Children.Add(fill);
@@ -406,6 +398,37 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             return grid;
         }
 
+        /// <summary>"Details" link that reveals the raw step text (selectable, so
+        /// it can be copied for support). Starts collapsed on every build.</summary>
+        private FrameworkElement RawDetails(string raw)
+        {
+            var host = new StackPanel { Margin = new Thickness(0, 2, 0, 0) };
+            var toggle = new TextBlock
+            {
+                Text = "Details", FontSize = 10.5,
+                Cursor = System.Windows.Input.Cursors.Hand, HorizontalAlignment = HorizontalAlignment.Left,
+            };
+            toggle.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Faint");
+            var body = new TextBox
+            {
+                Text = raw, FontSize = 10.5, IsReadOnly = true, TextWrapping = TextWrapping.Wrap,
+                BorderThickness = new Thickness(0), Background = Brushes.Transparent, Padding = new Thickness(0),
+                Margin = new Thickness(0, 2, 0, 0), Visibility = Visibility.Collapsed,
+            };
+            body.SetResourceReference(TextBox.ForegroundProperty, "Cp.Muted");
+            body.SetResourceReference(TextBox.FontFamilyProperty, "Cp.FontMono");
+            toggle.MouseLeftButtonUp += (_, __) =>
+            {
+                bool open = body.Visibility != Visibility.Visible;
+                body.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
+                toggle.Text = open ? "Hide details" : "Details";
+                OnLayoutChanged?.Invoke();
+            };
+            host.Children.Add(toggle);
+            host.Children.Add(body);
+            return host;
+        }
+
         private FrameworkElement MarkerFor(StepState st)
         {
             if (st == StepState.Running) return RingSpinner(13);
@@ -434,7 +457,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
         private void TickHandles()
         {
-            _dur.Text = DurText(ReasoningTrail.TotalElapsedSeconds(_clockReasoning), _clockSteps);
+            _dur.Text = HeaderText(DurText(TurnClock.ReasoningSeconds(_clockReasoning, _clockRunning, DateTime.UtcNow), _clockSteps, _clockRunning), _clockRunning, _clockSteps);
             if (_liveCountStep != null)
             {
                 if (_liveCount != null) _liveCount.Text = CountWithPct(_liveCountStep);
@@ -479,14 +502,28 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 ? s.CountText + " · " + (int)Math.Round(s.Fraction * 100) + "%"
                 : s.CountText;
 
-        private static string DurText(double reasoningSeconds, IReadOnlyList<ProgressStep> steps)
+        private bool _clockRunning;
+
+        /// <summary>The drafter's language, for the step label ("Step 3" / "Langkah 3").</summary>
+        public ReceiptLanguage Language
+        {
+            get => _language;
+            set { _language = value; if (_kicker != null) _kicker.Text = value == ReceiptLanguage.Ms ? "AKTIVITI EJEN" : "AGENT ACTIVITY"; }
+        }
+        private ReceiptLanguage _language = ReceiptLanguage.En;
+        private TextBlock _kicker;
+
+        private string HeaderText(string dur, bool running, IReadOnlyList<ProgressStep> steps) =>
+            RunningText.HeaderText(dur, running, steps, Language);
+
+        private static string DurText(double reasoningSeconds, IReadOnlyList<ProgressStep> steps, bool running)
         {
             var secs = reasoningSeconds;
             if (steps != null && steps.Count > 0)
             {
                 // Steps can outlive the reasoning legs (tool rounds) — the
                 // header shows the longer of the two clocks.
-                var t = ProgressTrail.TotalElapsedText(steps);
+                var t = ProgressTrail.TotalElapsedText(steps, running);
                 if (secs < 0.5 && t.Length > 0) return t;
             }
             return secs < 0.5 ? "" : Math.Round(secs) + "s";
@@ -499,8 +536,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             sb.Append(hasProse ? 'P' : '-').Append('|');
             foreach (var s in steps)
                 sb.Append(s.StepId).Append(',').Append(s.State).Append(',').Append(s.Label).Append(',')
-                  .Append(s.Detail).Append(',').Append(s.HasCount).Append(',').Append(s.HasTotal).Append(',')
-                  .Append(ResolveToolCard?.Invoke(s.StepId) != null).Append(';');
+                  .Append(s.Detail).Append(',').Append(s.HasCount).Append(',').Append(s.HasTotal).Append(';');
             return sb.ToString();
         }
 
@@ -547,7 +583,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         /// milestone reached, advanced within its band by real signals only —
         /// a running scan's count fraction, tools completed, or streamed reply
         /// characters in the writing band. No timers, no invented motion.</summary>
-        private static double TurnPercent(IReadOnlyList<ProgressStep> steps, int replyChars)
+        internal static double TurnPercent(IReadOnlyList<ProgressStep> steps, int replyChars)
         {
             double pct = 0;
             foreach (var (phase, floor, ceil) in Bands)
@@ -607,8 +643,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             {
                 CornerRadius = new CornerRadius(1.5),
                 Background = new LinearGradientBrush(
-                    (Color)ColorConverter.ConvertFromString("#2a69c6"),
-                    (Color)ColorConverter.ConvertFromString("#2f9a72"),
+                    CopilotColors.TokenColor("Cp.Brand"),
+                    CopilotColors.TokenColor("Cp.BrandGreen"),
                     new Point(0, 0), new Point(1, 0)),
             };
             track.Children.Add(fill);

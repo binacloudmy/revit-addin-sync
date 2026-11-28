@@ -30,7 +30,7 @@
     <UseWPF>true</UseWPF>
     <!-- OTA versioning: CI overrides with -p:Version=<git tag>. The updater
          compares this against the update feed. -->
-    <Version Condition="'$(Version)' == ''">0.0.34</Version>
+    <Version Condition="'$(Version)' == ''">0.0.174</Version>
     <!-- Build net8.0-windows + WPF on macOS/Linux (CI and non-Windows dev). -->
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <!-- Ensure all NuGet dependencies are copied to output -->
@@ -54,13 +54,6 @@
        Revit install. The version MUST match the host runtime for each TFM —
        2025.* (net8) loads on Revit 2025/2026; 2027.* (net10) loads on Revit 2027.
        Referencing 2025 for the net10 host is exactly what caused the crash. -->
-  <ItemGroup Condition="'$(TargetFramework)' == 'net48'">
-    <!-- Dead code with zero importers, kept only for reference — they use
-         Core-only APIs (HttpUtility-free JSON auth, stream ctors) that are
-         not worth porting to .NET Framework. -->
-    <Compile Remove="BinaVibe\Auth\DEPRECATED_OidcClient.cs" />
-    <Compile Remove="BinaVibe\Bridge\DEPRECATED_VibeBridgeClient.cs" />
-  </ItemGroup>
   <ItemGroup Condition="'$(TargetFramework)' == 'net48'">
     <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="2023.*" />
     <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" Version="2023.*" />

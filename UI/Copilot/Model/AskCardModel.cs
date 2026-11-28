@@ -1,0 +1,435 @@
+#nullable enable
+// An ask_user question as the pane shows it (lean-harness spec §7.11, §13;
+// W5 Task 3). Revit-free.
+//
+// Ask cards come from the assistant and are styled unlike result cards. They
+// can never stand in for approval or collect secrets:
+//   - a clarify option, field or field choice whose label reads like approval
+//     (the old confirm card's words too: "Yes, apply", "Ya", "OK",
+//     "Laksanakan", "Setuju") is dropped; with fewer than 2 options left the
+//     card falls back to one free-text answer;
+//   - a field that asks for a password, token, PIN or other credential is
+//     never shown, and a question that asks for one gets no answer box at
+//     all, only "Don't answer";
+//   - a project note shows the fact to be saved and the pane's OWN buttons
+//     ("Save note" / "Don't save"); the cloud saves it only on Save.
+// Answers follow protocol 3: a chosen option is "<option_id>": true; fields
+// answer under their ids (numbers as numbers, choices as the chosen id); a
+// free-text answer is "text".
+
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+using BinaVibe.Copilot.Contracts;
+
+namespace RevitWebAppSync.UI.Copilot.Model
+{
+    public sealed class AskOptionModel
+    {
+        /// <summary>What the answer carries (for the backend's questions a long canonical text).</summary>
+        public string Id = "";
+        /// <summary>What the card shows (short).</summary>
+        public string Label = "";
+        /// <summary>Small secondary text under the label, e.g. "1:200". Optional.</summary>
+        public string? Meta;
+        /// <summary>One of <see cref="AskOptionKinds"/>, or null for an ordinary pick.</summary>
+        public string? Kind;
+
+        public bool IsSkip => Kind == AskOptionKinds.Skip;
+        public bool IsCreate => Kind == AskOptionKinds.Create;
+    }
+
+    /// <summary>A thing the card lists as ready: it needs no decision and will be made.</summary>
+    public sealed class AskReadyItem
+    {
+        public string Label = "";
+        public string? Detail;
+    }
+
+    public sealed class AskFieldModel
+    {
+        public string Id = "";
+        public string Label = "";
+        /// <summary>One of <see cref="AskFieldTypes"/>.</summary>
+        public string Type = AskFieldTypes.Text;
+        public string? Unit;
+        public List<AskOptionModel> Choices = new List<AskOptionModel>();
+        /// <summary>The heading the field is listed under. Optional.</summary>
+        public string? Group;
+        /// <summary>A short fact shown after the label ("2 floor plans"). Optional.</summary>
+        public string? Note;
+        /// <summary>The Submit button waits for a value in every required field. The protocol has no
+        /// "required" flag yet, so this stays false for every field the cloud sends today and Submit is
+        /// enabled as before; set it where the field is built once the cloud says which are required.</summary>
+        public bool Required;
+        /// <summary>A choice field with tick boxes (ask_field.multi): several choices, none ticked at first; the answer is the
+        /// ticked ids joined with <see cref="AskCardModel.MultiSeparator"/>.</summary>
+        public bool Multi;
+    }
+
+    public sealed partial class AskCardModel
+    {
+        public const string FreeTextId = "text";
+
+        public string TurnId = "";
+        public string RequestId = "";
+        public string Question = "";
+        public ReceiptLanguage Language;
+        public List<AskOptionModel> Options = new List<AskOptionModel>();
+        public List<AskFieldModel> Fields = new List<AskFieldModel>();
+        public bool Multi;
+        /// <summary>Neither options nor fields survive: one text box answered as "text".</summary>
+        public bool FreeText;
+        /// <summary>The question itself asks for a credential: no answer box, only "Don't answer".</summary>
+        public bool AsksForCredential;
+        public string CredentialNote = "";
+        /// <summary>Said when the drafter types a reply to a credential question (N1).</summary>
+        public string TypedRefusalNote = "";
+        public string DeclineLabel = "";
+
+        /// <summary>The card shows a "Don't answer" button: every question except a project note (it has Save note / Don't save) and the wide-write
+        /// gate (it has its own buttons). The composer hint names the button only when it is there.</summary>
+        public bool OffersDecline => !IsProjectNote && Wide == null;
+
+        /// <summary>Under the composer while this question is open: what typing there does. A message typed while the turn is parked on a question
+        /// is sent as ITS answer (hand test 17 Nov: "Find the doors with Mark 349..." typed into an open "Which view?"). Empty for a question
+        /// that takes no typed answer (a credential: typed text is refused).</summary>
+        public static string TypedAnswerHint(AskCardModel? ask)
+        {
+            if (ask == null || ask.AsksForCredential || !ask.OffersDecline || !string.IsNullOrEmpty(ask.AnsweredSummary)) return "";
+            var decline = string.IsNullOrEmpty(ask.DeclineLabel) ? DeclineText(ask.Language) : ask.DeclineLabel;
+            return ask.Language == ReceiptLanguage.Ms
+                ? "Ini akan menjawab soalan di atas. Tekan \"" + decline + "\" untuk bertanya perkara lain."
+                : "This will answer the question above. Press \"" + decline + "\" to ask something else.";
+        }
+        public bool IsProjectNote;
+        public string? NoteText;
+        public string SaveLabel = "";
+        public string DontSaveLabel = "";
+        /// <summary>The header that marks the card as the assistant's question.</summary>
+        public string FromLabel = "";
+        /// <summary>An option or field was removed by the guards above.</summary>
+        public bool SomethingWasDropped;
+
+        /// <summary>Set when the options are the server's gate for a wide write (write_all + write_cancel): the
+        /// "Needs your OK" card with those buttons. Null for every other question.</summary>
+        public WideWriteModel? Wide;
+
+        /// <summary>Set once the drafter answered (for the collapsed record).</summary>
+        public string? AnsweredSummary;
+
+        /// <summary>r22 (live 83e423eb): the answer was typed in the message box, not a button. At a write card (<see cref="Wide"/>) typed text
+        /// never approves, so its record shows no tick and says so (<see cref="TypedRecordNote"/>).</summary>
+        public bool AnsweredByTyping;
+
+        /// <summary>"Typing is not an approval: click Write to write." (Malay: "Taip bukan kelulusan: klik Tulis untuk menulis.").</summary>
+        public static string TypedNotApprovalText(ReceiptLanguage lang) =>
+            lang == ReceiptLanguage.Ms ? "Taip bukan kelulusan: klik Tulis untuk menulis." : "Typing is not an approval: click Write to write.";
+
+        /// <summary>The collapsed record's note for a write card answered by typing, else null: nothing was written.</summary>
+        public string? TypedRecordNote => Wide != null && AnsweredByTyping ? TypedNotApprovalText(Language) : null;
+
+        /// <summary>The frame's heading, or null (the question itself is then the heading).</summary>
+        public string? Title;
+        /// <summary>What one made thing is called, singular ("sheet"), or null.</summary>
+        public string? Noun;
+        /// <summary>Things that need no decision and will be made.</summary>
+        public List<AskReadyItem> Ready = new List<AskReadyItem>();
+        /// <summary>The frame carried a ready list (possibly empty). Without one the card cannot count the total.</summary>
+        public bool ReadyKnown;
+
+        private string _yesId = "yes";
+        private string _noId = "no";
+
+        private static readonly Regex Approval = new Regex(
+            @"\b(approv\w*|confirm\w*|authori[sz]\w*|allow|proceed|go\s+ahead|apply|applied|yes|ok|okay|okey|"
+            + @"lulus\w*|sahkan|benarkan|teruskan|laksana\w*|jalankan|ya|setuju\w*)\b",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+        private static readonly Regex Credential = new Regex(
+            @"(password|passcode|passwd|kata\s*laluan|token|api[\s_-]*key|secret|\bpin\b|\botp\b|credential|kelayakan)",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+        // An option that reads like "no": the card shows it as the quiet ghost button, last in the list.
+        private static readonly Regex Decline = new Regex(
+            @"\b(cancel\w*|batal\w*|do\s+not|don'?t|no\s+thanks?|skip|none|nothing|jangan|tidak\s+perlu|abaikan|never\s*mind|langkau|tiada\s+apa)\b",   // r21: the Malay card's Langkau, tiada apa
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+        /// <summary>True for a label that reads like declining or cancelling ("Cancel", "Batal", "Do not write",
+        /// "No thanks", "Skip", "None of these", "Write nothing", "Jangan"). Styling only: it never makes an
+        /// option safe or unsafe, <see cref="IsApprovalLike"/> still decides what is shown.</summary>
+        public static bool IsDeclineLike(string? label)
+        {
+            if (string.IsNullOrWhiteSpace(label)) return false;
+            var t = label!.Trim().TrimEnd('.', '!');
+            return t.Equals("no", StringComparison.OrdinalIgnoreCase)
+                   || t.Equals("tidak", StringComparison.OrdinalIgnoreCase)
+                   || t.Equals("tak", StringComparison.OrdinalIgnoreCase)
+                   || Decline.IsMatch(t);
+        }
+
+        /// <summary>The question is a plain choice between 2 or 3 options (not several-of, not a project note,
+        /// not a credential question): the card then wears the "Needs your OK" look with full-width buttons.</summary>
+        public bool IsChoiceLook =>
+            !IsProjectNote && !AsksForCredential && !Multi && Wide == null && Options.Count >= 2 && Options.Count <= 3;
+
+        /// <summary>The Choice field's grey text until the drafter picks. Nothing is preselected.</summary>
+        public static string ChoosePlaceholder(bool ms) => ms ? "Pilih..." : "Choose...";
+
+        /// <summary>Up / Down in an open choice list: moves by <paramref name="delta"/> and stops at the ends.
+        /// From "nothing picked" (-1) Down lands on the first row and Up on the last.</summary>
+        public static int MoveChoice(int index, int count, int delta)
+        {
+            if (count <= 0) return -1;
+            if (index < 0) return delta >= 0 ? 0 : count - 1;
+            return Math.Max(0, Math.Min(count - 1, index + delta));
+        }
+
+        private static readonly Regex ScopeWords = new Regex(
+            @"^\s*(whole\s+model|this\s+view|selection|selected|active\s+view|current\s+view|seluruh\s+model|pandangan\s+ini|pilihan)\b",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+        private static readonly Regex YesNoWords = new Regex(@"^\s*(yes|no|ya|tidak|tak)\b",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+        // "Make 1 circuit", "Move 7 levels", "Delete 2 elements", "Padam 3 ...": a plan or write card's one action.
+        private static readonly Regex ActionCount = new Regex(
+            @"^\s*(make|move|change|write|delete|run|create|swap|buat|padam|ubah|tulis|pindah|tukar|cipta|jalankan|alihkan)\b.*\d",   // r21: "Alihkan 7 aras"
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+        /// <summary>The options answer one exclusive question, so they stay a single choice even when the frame says multi
+        /// (r17): the server's write questions (write_all / write_cancel / write_narrow, write_force / force_cancel), fewer than two real options (one action
+        /// and its Skip or Cancel), a scope (Whole model / This view / Selection), a yes/no, or a plan or write card's counted
+        /// action ("Move 7 levels"). Every other multi question keeps its tick boxes.</summary>
+        public static bool ExclusiveChoice(IReadOnlyList<AskOptionModel>? options)
+        {
+            if (options == null) return true;
+            if (options.Any(o => o.Id == WideWriteModel.WriteAllId || o.Id == WideWriteModel.WriteCancelId || o.Id == WideWriteModel.WriteNarrowId
+                                 || o.Id == "write_force" || o.Id == "force_cancel"))
+                return true;   // the server's own write questions (gate, force): one click each
+            var real = options.Where(o => !o.IsSkip && !IsDeclineLike(o.Label)).ToList();
+            if (real.Count < 2) return true;
+            if (real.Any(o => ScopeWords.IsMatch(o.Label) || ActionCount.IsMatch(o.Label))) return true;
+            return real.All(o => YesNoWords.IsMatch(o.Label));
+        }
+
+        /// <summary>The "Don't answer" button in the card's language.</summary>
+        public static string DeclineText(ReceiptLanguage lang) => lang == ReceiptLanguage.Ms ? "Jangan jawab" : "Don't answer";
+
+        public static bool IsApprovalLike(string? label) => !string.IsNullOrWhiteSpace(label) && Approval.IsMatch(label!);
+
+        public static bool IsCredentialLike(string? idOrLabel) => !string.IsNullOrWhiteSpace(idOrLabel) && Credential.IsMatch(idOrLabel!);
+
+        public static AskCardModel From(AskDto ask, ReceiptLanguage lang)
+        {
+            if (ask == null) throw new ArgumentNullException(nameof(ask));
+            var ms = lang == ReceiptLanguage.Ms;
+            var card = new AskCardModel
+            {
+                RequestId = ask.RequestId ?? "",
+                Question = ask.Question ?? "",
+                Language = lang,
+                Multi = ask.Multi,
+                IsProjectNote = ask.Purpose == AskPurposes.ProjectNote,
+                NoteText = ask.NoteText,
+                // r21 (owner, 21 Nov): the card's own words follow the drafter's language, as its pane note does; a drafter may
+                // type an answer in either language.
+                SaveLabel = ms ? "Simpan nota" : "Save note",
+                DontSaveLabel = ms ? "Jangan simpan" : "Don't save",
+                FromLabel = ms ? "Soalan daripada pembantu" : "Question from the assistant",
+                CredentialNote = ms
+                    ? "Soalan ini meminta kata laluan atau token. BINA tidak pernah meminta maklumat itu di sini, jadi tiada ruang jawapan."
+                    : "This question asks for a password or token. BINA never asks for those here, so there is no answer box.",
+                TypedRefusalNote = ms
+                    ? "Tidak dihantar. Soalan ini meminta kata laluan atau token, dan BINA tidak pernah meminta maklumat itu di sini. Tekan \"" + DeclineText(lang) + "\" pada soalan untuk teruskan."
+                    : "Not sent. This question asks for a password or token, and BINA never asks for those here. Press \"Don't answer\" on the question to go on.",
+                DeclineLabel = DeclineText(lang),
+            };
+
+            if (!card.IsProjectNote && IsCredentialLike(card.Question))
+            {
+                card.AsksForCredential = true;
+                card.SomethingWasDropped = true;
+                return card;
+            }
+
+            var options = (ask.Options ?? new List<AskOptionDto>())
+                .Where(o => o != null && !string.IsNullOrWhiteSpace(o.Id))
+                .Select(OptionOf)
+                .ToList();
+            card.Title = Clean(ask.Title);
+            card.Noun = Clean(ask.Noun)?.ToLowerInvariant();
+            card.ReadyKnown = ask.Ready != null;
+            card.Ready = (ask.Ready ?? new List<AskReadyDto>())
+                .Where(r => r != null && !string.IsNullOrWhiteSpace(r.Label))
+                .Select(r => new AskReadyItem { Label = r.Label.Trim(), Detail = Clean(r.Detail) })
+                .ToList();
+
+            if (card.IsProjectNote)
+            {
+                // The pane's own Yes/No. The cloud's ids are reused so the answer
+                // lands on the option it offered.
+                card._yesId = options.FirstOrDefault(o => o.Id.Equals("yes", StringComparison.OrdinalIgnoreCase))?.Id
+                              ?? options.ElementAtOrDefault(0)?.Id ?? "yes";
+                card._noId = options.FirstOrDefault(o => o.Id.Equals("no", StringComparison.OrdinalIgnoreCase))?.Id
+                             ?? options.ElementAtOrDefault(1)?.Id ?? "no";
+                return card;
+            }
+
+            // The gate's two options (write_all, write_cancel) are the one exception to the approval filter: the server's own
+            // gate for a wide write sends them. Exactly those two ids, and only when both are present (and not a several-of
+            // question); every other option is filtered as before, and the credential rules still apply.
+            // Several picks only where several make sense (r17): the server sends multi for a list question; the pane never
+            // turns a card into tick boxes on its own, it only keeps an exclusive question single (ExclusiveChoice), so a
+            // multi pick can never approve a write or answer "which scope" twice.
+            if (card.Multi && ExclusiveChoice(options)) card.Multi = false;
+            var gate = !card.Multi && WideWriteModel.IsGateOptions(options);
+            var safe = options.Where(o => !IsApprovalLike(o.Label)
+                                          || (gate && (o.Id == WideWriteModel.WriteAllId || o.Id == WideWriteModel.WriteCancelId))).ToList();
+            if (safe.Count != options.Count) card.SomethingWasDropped = true;
+            card.Options = safe.Count >= 2 ? safe : new List<AskOptionModel>();
+            if (safe.Count == 1) card.SomethingWasDropped = true;
+
+            foreach (var f in ask.Fields ?? new List<AskFieldDto>())
+            {
+                if (f == null || string.IsNullOrWhiteSpace(f.Id)) continue;
+                if (IsCredentialLike(f.Id) || IsCredentialLike(f.Label) || IsApprovalLike(f.Label)) { card.SomethingWasDropped = true; continue; }
+                var field = new AskFieldModel
+                {
+                    Id = f.Id,
+                    Label = string.IsNullOrWhiteSpace(f.Label) ? f.Id : f.Label,
+                    Type = AskFieldTypes.All.Contains(f.Type) ? f.Type : AskFieldTypes.Text,
+                    Unit = f.Unit,
+                    Choices = (f.Choices ?? new List<AskOptionDto>())
+                        .Where(c => c != null && !string.IsNullOrWhiteSpace(c.Id))
+                        .Select(OptionOf).ToList(),
+                    Group = Clean(f.Group),
+                    Note = Clean(f.Note),
+                };
+                var safeChoices = field.Choices.Where(c => !IsApprovalLike(c.Label)).ToList();
+                if (safeChoices.Count != field.Choices.Count) { card.SomethingWasDropped = true; field.Choices = safeChoices; }
+                if (field.Type == AskFieldTypes.Choice && field.Choices.Count < 2) field.Type = AskFieldTypes.Text;
+                field.Multi = f.Multi == true && field.Type == AskFieldTypes.Choice;
+                card.Fields.Add(field);
+            }
+
+            if (gate && card.Options.Count >= 2) card.Wide = WideWriteModel.FromAsk(card.Question, card.Options, lang);
+
+            card.FreeText = card.Options.Count == 0 && card.Fields.Count == 0;
+            return card;
+        }
+
+        private static AskOptionModel OptionOf(AskOptionDto o) => new AskOptionModel
+        {
+            Id = o.Id,
+            Label = string.IsNullOrWhiteSpace(o.Label) ? o.Id : o.Label,
+            Meta = Clean(o.Meta),
+            Kind = AskOptionKinds.All.Contains(o.Kind ?? "") ? o.Kind : null,
+        };
+
+        private static string? Clean(string? s) => string.IsNullOrWhiteSpace(s) ? null : s!.Trim();
+
+        public AnswerDto AnswerForOptions(IEnumerable<string> optionIds)
+        {
+            var allowed = new HashSet<string>(Options.Select(o => o.Id));
+            var answer = new AnswerDto();
+            foreach (var id in optionIds ?? Array.Empty<string>())
+                if (id != null && allowed.Contains(id)) answer.Values[id] = JsonSerializer.SerializeToElement(true);
+            return answer;
+        }
+
+        /// <summary>Ids of the required fields that have no value yet (blank counts as none). Empty when the
+        /// model knows of no required field, so Submit stays enabled as it always was.</summary>
+        public List<string> MissingRequired(IDictionary<string, string> values) =>
+            Fields.Where(f => f.Required
+                              && (values == null || !values.TryGetValue(f.Id, out var raw) || string.IsNullOrWhiteSpace(raw)))
+                .Select(f => f.Id).ToList();
+
+        /// <summary>The collapsed record of a submitted form: "Label: value" per filled field, joined by " · ".</summary>
+        public string SummaryForFields(IDictionary<string, string> values) =>
+            string.Join(" · ", Fields.Where(f => values.TryGetValue(f.Id, out var v) && !string.IsNullOrWhiteSpace(v))
+                .Select(f => f.Label + ": " + (f.Type == AskFieldTypes.Choice && f.Multi
+                    ? string.Join(", ", TickedIds(f, values[f.Id]).Select(id => f.Choices.First(c => c.Id == id).Label))
+                    : f.Type == AskFieldTypes.Choice
+                    ? f.Choices.FirstOrDefault(c => c.Id == values[f.Id])?.Label ?? values[f.Id]
+                    : values[f.Id] + (string.IsNullOrEmpty(f.Unit) ? "" : " " + f.Unit))));
+
+        /// <summary>How a multi choice field's ticked ids are joined, in its value and in its answer ("t1 | t2").</summary>
+        public const string MultiSeparator = " | ";
+
+        /// <summary>The choice ids a multi field's value holds (ids or labels, split on "|"), as choice ids in the field's
+        /// order; unknown parts are dropped. A single choice field: its one chosen id, or none.</summary>
+        public static List<string> TickedIds(AskFieldModel f, string? raw)
+        {
+            var parts = f.Multi ? (raw ?? "").Split('|').Select(p => p.Trim()).Where(p => p.Length > 0).ToList()
+                                : new List<string> { (raw ?? "").Trim() };
+            return f.Choices.Where(c => parts.Contains(c.Id) || parts.Contains(c.Label)).Select(c => c.Id).ToList();
+        }
+
+        /// <summary>A multi field's value with one choice ticked or unticked. A skip choice stands alone: ticking it clears
+        /// the others, ticking another clears it.</summary>
+        public static string Toggle(AskFieldModel f, string? raw, string choiceId)
+        {
+            var skip = f.Choices.FirstOrDefault(c => c.IsSkip)?.Id;
+            var ids = TickedIds(f, raw);
+            if (!ids.Remove(choiceId))
+            {
+                if (choiceId == skip) ids.Clear(); else if (skip != null) ids.Remove(skip);
+                ids.Add(choiceId);
+            }
+            return string.Join(MultiSeparator, f.Choices.Select(c => c.Id).Where(ids.Contains));
+        }
+
+        public AnswerDto AnswerForFields(IDictionary<string, string> values)
+        {
+            var answer = new AnswerDto();
+            foreach (var f in Fields)
+            {
+                if (values == null || !values.TryGetValue(f.Id, out var raw) || raw == null) continue;
+                raw = raw.Trim();
+                if (raw.Length == 0) continue;
+                if (f.Type == AskFieldTypes.Number
+                    && double.TryParse(raw.Replace(",", ""), NumberStyles.Float, CultureInfo.InvariantCulture, out var d))
+                    answer.Values[f.Id] = JsonSerializer.SerializeToElement(d);
+                else if (f.Type == AskFieldTypes.Choice && f.Multi)
+                {
+                    var ticked = TickedIds(f, raw);
+                    if (ticked.Count > 0) answer.Values[f.Id] = JsonSerializer.SerializeToElement(string.Join(MultiSeparator, ticked));
+                }
+                else if (f.Type == AskFieldTypes.Choice)
+                {
+                    var choice = f.Choices.FirstOrDefault(c => c.Id == raw) ?? f.Choices.FirstOrDefault(c => c.Label == raw);
+                    if (choice != null) answer.Values[f.Id] = JsonSerializer.SerializeToElement(choice.Id);
+                }
+                else
+                    answer.Values[f.Id] = JsonSerializer.SerializeToElement(raw);
+            }
+            return answer;
+        }
+
+        /// <summary>A typed chat message while this card is parked (N1). A credential
+        /// question is refused here, before anything marks the card answered, so its
+        /// "Don't answer" button stays live and the typed text goes nowhere: not to
+        /// the cloud, the thread or local history. Null when typed text may answer it.</summary>
+        public string? RefuseTypedAnswer() =>
+            AsksForCredential && AnsweredSummary == null ? TypedRefusalNote : null;
+
+        /// <summary>The answer for "Don't answer": an empty free-text answer.</summary>
+        public AnswerDto AnswerDeclined() => AnswerForText("");
+
+        public AnswerDto AnswerForText(string text)
+        {
+            var answer = new AnswerDto();
+            answer.Values[FreeTextId] = JsonSerializer.SerializeToElement((text ?? "").Trim());
+            return answer;
+        }
+
+        public AnswerDto AnswerProjectNote(bool save)
+        {
+            var answer = new AnswerDto();
+            answer.Values[save ? _yesId : _noId] = JsonSerializer.SerializeToElement(true);
+            return answer;
+        }
+    }
+}

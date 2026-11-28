@@ -1,0 +1,126 @@
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.Linq;
+using System.Runtime.CompilerServices;
+using System.Threading.Tasks;
+using RevitWebAppSync.Services;
+using RevitWebAppSync.UI.Copilot.Model;
+using HL = RevitWebAppSync.UI.Copilot.Highlights;
+
+
+namespace RevitWebAppSync.UI.Copilot
+{
+    // Saved commands: the sheet, the list, delete. They live on this PC (LocalCommandStore, a file beside
+    // copilot-prefs.json), not on the account: nothing here asks the backend. Signing in is still needed to save
+    // (and for the Commands tab); the saved commands then show for whoever is signed in on this PC.
+    public partial class CopilotViewModel
+    {
+        // ─── Saved Commands J1 ───────────────────────────────────────────────
+
+        /// <summary>ChatView subscribes and shows the Save sheet.</summary>
+        public event System.Action<SavedCommandDraft> SaveCommandRequested;
+
+        /// <summary>Palette rebuilds its list on next open after a catalog change.</summary>
+        public event System.Action PaletteInvalidated;
+
+        public void OpenSaveCommandSheet(ChatMessage m)
+        {
+            if (m == null) return;
+            if (IsSignedOut || string.IsNullOrEmpty(_pane.LoadConfig()?.AccessToken))
+            {
+                Thread.Add(new ChatMessage
+                { Role = "ai", Kind = CpMsgKind.AiReply, Text = "Sign in to save commands." });
+                return;
+            }
+            SaveCommandRequested?.Invoke(SavedCommandDraft.FromReply(m.SourcePrompt, m.ToolsUsed, m.RunId));
+        }
+
+        public void OnEditCommand(SlashTool t)
+        {
+            if (t == null || !t.Editable) return;
+            SaveCommandRequested?.Invoke(SavedCommandDraft.FromTool(t));
+        }
+
+        /// <summary>True when the command is gone (deleted, or it was not there); false when it is still saved because the file could not be written.</summary>
+        public async System.Threading.Tasks.Task<bool> OnDeleteCommandAsync(SlashTool t)
+        {
+            if (t == null || !t.Editable) return true;
+            // Quiet on purpose: the row disappears from the list; no chat message (it replaced the pane's home screen with a lone bubble).
+            var store = LocalCommandStore.Default;
+            store.Delete(t.Id);
+            if (store.Unreadable) return false;   // the file is in use: nothing changed, the caller says so
+            await RefreshCommandCatalogAsync(force: true);
+            var still = store.ToTools().Any(x => string.Equals(x.Id, t.Id, System.StringComparison.Ordinal));
+            return !still && !store.Unreadable;
+        }
+
+        /// <summary>Save (or update, when the draft carries EditingId) on this PC — returns
+        /// null on success or an error string the sheet displays.</summary>
+        public async System.Threading.Tasks.Task<string> SaveDraftAsync(SavedCommandDraft d)
+        {
+            if (string.IsNullOrEmpty(_pane.LoadConfig()?.AccessToken)) return "Sign in to save commands.";
+            try
+            {
+                var store = LocalCommandStore.Default;
+                var (command, error) = d.EditingId == null ? store.Add(d) : store.Update(d.EditingId, d);
+                if (error != null) return error;
+                if (command == null) return "That command no longer exists.";
+                await RefreshCommandCatalogAsync(force: true);
+                Thread.Add(new ChatMessage
+                {
+                    Role = "ai", Kind = CpMsgKind.AiReply,
+                    Text = d.EditingId == null
+                        ? $"Saved — run it any time with `/{command.Id}`."
+                        : $"Updated `/{command.Id}`.",
+                });
+                return null;
+            }
+            catch (System.Exception ex) { return "Could not save: " + ex.Message; }
+        }
+
+        /// <summary>Load the commands saved on this PC into the catalog's Mine tier (palette, Home, Commands tab).
+        /// No network: the backend no longer holds a Mine tier. Old cached backend rows in the prefs are dropped.</summary>
+        public System.Threading.Tasks.Task RefreshCommandCatalogAsync(bool force = false)
+        {
+            try
+            {
+                var saved = LocalCommandStore.Default.ToTools();
+                if (LocalCommandStore.Default.Unreadable) return System.Threading.Tasks.Task.CompletedTask;   // file in use: keep the list as it is, never blank it
+                ToolCatalog.MergeMine(saved);
+                DropCachedBackendMine();
+                PaletteInvalidated?.Invoke();
+                _ = RefreshCuratedCatalogAsync();   // r17: the curated tier from the backend's catalogue (CopilotViewModel.Catalog.cs)
+            }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] saved commands: " + ex.Message); }
+            return System.Threading.Tasks.Task.CompletedTask;
+        }
+
+        // The previous Mine tier came from the account and was cached in the prefs; it is not read any more, and the
+        // cache is emptied so it cannot show. Nothing on the backend changes.
+        private void DropCachedBackendMine()
+        {
+            try
+            {
+                var prefs = _pane.LoadPrefs();
+                if (prefs == null || (string.IsNullOrEmpty(prefs.SavedCommandsJson) && string.IsNullOrEmpty(prefs.SavedCommandsEtag))) return;
+                prefs.SavedCommandsJson = "";
+                prefs.SavedCommandsEtag = "";
+                prefs.Save();
+            }
+            catch { /* the cache is a leftover */ }
+        }
+
+        /// <summary>A command of this PC ran: one more run for its "n runs" line.</summary>
+        private void CountSavedRun(SlashTool tool)
+        {
+            try
+            {
+                if (tool != null && tool.Editable && LocalCommandStore.Default.CountRun(tool.Id))
+                    ToolCatalog.MergeMine(LocalCommandStore.Default.ToTools());
+            }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] run count: " + ex.Message); }
+        }
+    }
+}

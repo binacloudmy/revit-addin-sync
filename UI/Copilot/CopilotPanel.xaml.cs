@@ -24,6 +24,7 @@ namespace RevitWebAppSync.UI.Copilot
     {
         private readonly CopilotViewModel _vm = new CopilotViewModel();
         private readonly Highlights.HighlightOverlay _overlay = new Highlights.HighlightOverlay();
+        private readonly Highlights.InModelResult _inModel;
         private IFeedbackService _feedback;
 
         /// <summary>The active view-model, reachable in-process from non-UI code
@@ -33,13 +34,8 @@ namespace RevitWebAppSync.UI.Copilot
 
         // Cached screen views (created on first use).
         private LibraryView _library;
-        private ToolFormView _toolForm;
-        private ToolReviewView _toolReview;
-        private RunningView _running;
-        private ResultView _result;
         private ChatView _chat;
         private HistoryView _history;
-        private SavedView _saved;
         private ModelView _model;
         private SettingsView _settings;
 
@@ -52,26 +48,31 @@ namespace RevitWebAppSync.UI.Copilot
             // fails and default WPF chrome leaks through.
             CopilotTheme.EnsureLoaded();
             InitializeComponent();
-            // Arm the executor with a backend client so the bounded self-heal
-            // loop actually engages. Without Ai set, RevitCopilotExecutor.Run
-            // takes the RunOnce path (Ai == null) and a compile/runtime error
-            // surfaces on the FIRST try with no retry — exactly the "Sorry —
-            // that didn't run. Compilation failed…" the codegen-chat path hit.
             var cfg = BinaConfig.Load();
-            _vm.Executor = new RevitCopilotExecutor
-            {
-                Ai = new AIService(),
-                AccessTokenProvider = () => BinaConfig.Load().AccessToken,
-                UserId = cfg?.UserId,
-            };
             // Fall back to the Idling-captured global when _uiApp is null (the
             // pane was auto-restored docked, so OpenCopilotCommand never pushed
             // the UIApplication). Fixes the agent seeing an empty model context.
-            _vm.Router = new RevitChatRouter(() => _uiApp ?? App.UiApp);
+            // Protocol 3: every copilot tool (the model's, the library's and
+            // saved commands) runs through CopilotToolHost via PaneToolRunner;
+            // writes apply at once and the result card carries Undo (the view model).
+            _vm.Tools = new PaneToolRunner(_vm);
+            _vm.Router = _vm.Tools.CreateRouter();
+            // Library tool forms and /open-view: the same host, preview and card.
+            _vm.Executor = new HostCopilotExecutor(_vm.Tools);
             Controls.MentionInput.DefaultProvider = new RevitMentionProvider(() => _uiApp ?? App.UiApp);
             DataContext = _vm;
             _vm.PropertyChanged += OnVmChanged;
             _vm.Highlights.CollectionChanged += OnHighlightsChanged;
+            // Result pattern: a finished turn draws its result in the model (rings in the
+            // canvas, toast with Undo, callouts) and the chat's card drives the same layer.
+            _inModel = new Highlights.InModelResult(() => _uiApp ?? App.UiApp, _overlay);
+            _vm.InModel = _inModel;
+            // The turn just ended: its changed and made elements are also Revit's selection (G1); "Show in model" on an older
+            // card draws without selecting.
+            _vm.ModelResultReady += (set, msg) => _inModel.Show(set, () => _vm.UndoTurn(msg), () => _vm.CanUndoTurn(msg), select: true);
+            _inModel.Changed += () => _vm.RaiseMarksChanged();
+            _inModel.MarkClicked += c => _vm.RaiseMarkClicked(c);
+            _vm.ModelResultStale += () => _inModel.Clear();
             _vm.RateRequested += () => ShowSheet(BuildRateSheet());
             // Local sink for ratings / bug reports (JSONL under %APPDATA%). Model
             // name + user id are captured lazily so they reflect the live context.
@@ -100,6 +101,7 @@ namespace RevitWebAppSync.UI.Copilot
                 // flipping IsVisible, a blocked user would keep polling for the rest
                 // of the Revit session.
                 StopUsagePolling();
+                App.CopilotPaneOpen.Report(false);
             };
 
             UpdateThemeIcon();
@@ -118,6 +120,10 @@ namespace RevitWebAppSync.UI.Copilot
             {
                 if (e.NewValue is bool v && v) RefreshUsageNow();
                 SyncUsagePolling();      // only a VISIBLE pane polls
+                // W2's snapshot keeps warnings, rooms and by_category current only
+                // while the pane is shown, and showing it prewarms model_overview
+                // (App.CopilotPaneOpen -> SnapshotService.SetPaneOpen).
+                App.CopilotPaneOpen.Report(e.NewValue is bool shown && shown);
             };
             // A quota that fills (or clears) is what starts (or stops) the poll.
             _vm.UsageChanged += SyncUsagePollingOnUiThread;
@@ -171,19 +177,14 @@ namespace RevitWebAppSync.UI.Copilot
                 _vm.DocumentTitle = docName;
             }
 
-            // On open: warm the cloud mirror (fast READS), then wait for the
-            // Revit model to be warm (first regen paid by the add-in warm-up)
-            // before releasing the send gate — so the user's first BUILD runs
-            // warm (~60ms) instead of paying the ~70s cold regen. Both gate via
-            // IsIndexing and run on the UI thread (no ConfigureAwait) so the
-            // warm-up ExternalEvent can interleave. Fire-and-forget, best-effort.
-            _ = SeedThenWarmAsync();
-        }
-
-        private async System.Threading.Tasks.Task SeedThenWarmAsync()
-        {
-            await _vm.EnsureMirrorSeededAsync();
-            await _vm.EnsureModelWarmAsync();
+            // On open: wait for the Revit model to be warm (first regen paid by
+            // the add-in warm-up) before releasing the send gate, so the user's
+            // first BUILD runs warm (~60ms) instead of paying the ~70s cold regen.
+            // It gates via IsIndexing and runs on the UI thread (no ConfigureAwait)
+            // so the warm-up ExternalEvent can interleave. Fire-and-forget,
+            // best-effort. (The cloud model-mirror seed is gone: /revit-copilot/seed
+            // is no longer served.)
+            _ = _vm.EnsureModelWarmAsync();
         }
 
         private void OnVmChanged(object sender, PropertyChangedEventArgs e)
@@ -204,17 +205,12 @@ namespace RevitWebAppSync.UI.Copilot
         {
             switch (_vm.Screen)
             {
-                case CpScreen.ToolForm: BodyHost.Content = View(ref _toolForm); return;
-                case CpScreen.ToolReview: BodyHost.Content = View(ref _toolReview); return;
-                case CpScreen.Running: BodyHost.Content = View(ref _running); return;
-                case CpScreen.Result: BodyHost.Content = View(ref _result); return;
             }
 
             switch (_vm.Tab)
             {
                 case CpTab.Library: BodyHost.Content = View(ref _library); break;
                 case CpTab.History: BodyHost.Content = View(ref _history); break;
-                case CpTab.Saved: BodyHost.Content = View(ref _saved); break;
                 case CpTab.Model: BodyHost.Content = View(ref _model); break;
                 case CpTab.Settings: BodyHost.Content = View(ref _settings); break;
                 default: BodyHost.Content = View(ref _chat); break;
@@ -245,7 +241,11 @@ namespace RevitWebAppSync.UI.Copilot
                 }
                 // Library rows fill the Chat composer + switch tabs (no auto-send).
                 if (cache is Screens.LibraryView lib)
+                {
                     lib.PromptChosen += StartPromptInChat;
+                    lib.CommandRun += RunSavedCommand;
+                    lib.CommandDeleteRequested += t => DeleteSavedCommand(lib, t);
+                }
             }
             return cache;
         }
@@ -279,6 +279,34 @@ namespace RevitWebAppSync.UI.Copilot
         }
 
         private void OnOpenMenu(object sender, RoutedEventArgs e) => MenuPopup.IsOpen = true;
+
+        // Kebab entries that used to be rail icons (the rail is gone).
+        private void OnMenuSearch(object sender, RoutedEventArgs e) { MenuPopup.IsOpen = false; OnOpenSearch(sender, e); }
+        private void OnMenuModel(object sender, RoutedEventArgs e) { MenuPopup.IsOpen = false; _vm.GoTab(CpTab.Model); }
+        private void OnMenuSettings(object sender, RoutedEventArgs e) { MenuPopup.IsOpen = false; _vm.GoTab(CpTab.Settings); }
+        private void OnMenuTheme(object sender, RoutedEventArgs e) { MenuPopup.IsOpen = false; OnToggleTheme(sender, e); }
+
+        // Commands tab / Home "Run": land on Chat, then run the saved command
+        // (no required inputs: sends; else it is picked so its chips can be filled).
+        // Commands tab trash button: same confirm and delete as the slash menu's Delete (OnDeleteCommandAsync), then redraw the list.
+        private async void DeleteSavedCommand(Screens.LibraryView lib, SlashTool tool)
+        {
+            if (tool == null || !tool.Editable) return;
+            var yes = MessageBox.Show($"Delete /{tool.Id}? This cannot be undone.", "Delete command",
+                MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes;
+            if (!yes) return;
+            var gone = await _vm.OnDeleteCommandAsync(tool);
+            lib.RefreshSaved();
+            if (!gone) MessageBox.Show($"Could not delete /{tool.Id}: your saved commands file is in use. Try again in a moment.", "Delete command", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+
+        private void RunSavedCommand(SlashTool tool)
+        {
+            _vm.GoTab(CpTab.Chat);
+            var chat = View(ref _chat);
+            Dispatcher.BeginInvoke(new Action(() => chat.RunSavedCommand(tool)),
+                System.Windows.Threading.DispatcherPriority.Background);
+        }
 
         // Library row tapped: switch to Chat, then drop the prompt into the
         // composer for the user to edit and send. InsertStarterPrompt owns the
@@ -574,8 +602,10 @@ namespace RevitWebAppSync.UI.Copilot
 
         private Button PrimaryButton(string text)
         {
-            var b = new Button { Content = text, HorizontalAlignment = HorizontalAlignment.Stretch, Margin = new Thickness(0, 18, 0, 0) };
-            b.SetResourceReference(StyleProperty, "Cp.RunDark");
+            // The primary button of the design (lime fill); the callers hook their own Click.
+            var b = Controls.CardKit.Primary(text, () => { });
+            b.HorizontalAlignment = HorizontalAlignment.Stretch;
+            b.Margin = new Thickness(0, 18, 0, 0);
             return b;
         }
 
@@ -603,9 +633,9 @@ namespace RevitWebAppSync.UI.Copilot
 
         private static Brush GoldStarBrush() => new LinearGradientBrush(new GradientStopCollection
         {
-            new GradientStop((Color)ColorConverter.ConvertFromString("#FFE07A"), 0),
-            new GradientStop((Color)ColorConverter.ConvertFromString("#FBB72B"), 0.5),
-            new GradientStop((Color)ColorConverter.ConvertFromString("#E8941A"), 1),
+            new GradientStop(Controls.CopilotColors.TokenColor("Cp.Rating.Hi"), 0),
+            new GradientStop(Controls.CopilotColors.TokenColor("Cp.Rating.Mid"), 0.5),
+            new GradientStop(Controls.CopilotColors.TokenColor("Cp.Rating.Lo"), 1),
         }, 45);
 
         private FrameworkElement BuildRateSheet()
@@ -618,7 +648,7 @@ namespace RevitWebAppSync.UI.Copilot
             var reaction = new TextBlock
             {
                 FontSize = 13, FontWeight = FontWeights.SemiBold, Height = 18,
-                Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#E0941A")),
+                Foreground = Controls.CopilotColors.Token("Cp.Rating.Text"),
                 HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 11, 0, 0),
             };
             string[] reactions = { "", "Not great", "Could be better", "It's okay", "Pretty good", "Love it!" };
@@ -632,7 +662,7 @@ namespace RevitWebAppSync.UI.Copilot
                     if (on)
                     {
                         stars[i].Fill = GoldStarBrush();
-                        stars[i].Stroke = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#E8941A"));
+                        stars[i].Stroke = Controls.CopilotColors.Token("Cp.Rating.Lo");
                     }
                     else
                     {

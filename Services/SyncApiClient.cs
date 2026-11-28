@@ -281,13 +281,16 @@ namespace RevitWebAppSync.Services
             int? designId = null,
             string status = null,
             string source = null,
-            int limit = 50)
+            int limit = 50,
+            bool mine = false)
         {
             var query = new List<string> { $"limit={limit}" };
             if (designId.HasValue) query.Add($"designId={designId.Value}");
             if (!string.IsNullOrEmpty(status)) query.Add($"status={Uri.EscapeDataString(status)}");
             // design | coordination; omitted means both.
             if (!string.IsNullOrEmpty(source)) query.Add($"source={Uri.EscapeDataString(source)}");
+            // Issues assigned to the signed-in account or raised by them.
+            if (mine) query.Add("mine=true");
 
             string url = $"{_baseUrl}/api/cloud-docs/bim-issues/project/{projectId}/issues" +
                          $"?{string.Join("&", query)}";
@@ -540,7 +543,7 @@ namespace RevitWebAppSync.Services
         public async Task<bool> UploadAsync(
             string uploadUrl,
             string filePath,
-            IProgress<int> progress = null,
+            IProgress<long> bytesSent = null,
             System.Threading.CancellationToken ct = default(System.Threading.CancellationToken))
         {
             // Object storage drops connections; a model big enough to matter is
@@ -556,17 +559,14 @@ namespace RevitWebAppSync.Services
                 {
                     using (var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite,
                                                        bufferSize: 81920, useAsync: true))
-                    using (var content = new StreamContent(stream, 81920))
+                    using (var content = new ProgressContent(stream, bytesSent))
                     {
-                        content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
-                        content.Headers.ContentLength = stream.Length;
-
                         using (var req = new HttpRequestMessage(HttpMethod.Put, uploadUrl) { Content = content })
                         using (var resp = await _http.SendAsync(req, ct).ConfigureAwait(false))
                         {
                             if (resp.IsSuccessStatusCode)
                             {
-                                progress?.Report(100);
+                                bytesSent?.Report(stream.Length);
                                 return true;
                             }
 
@@ -594,16 +594,74 @@ namespace RevitWebAppSync.Services
         /// SHA-256 of the bytes that will actually be uploaded. Streamed for the
         /// same reason as the upload.
         /// </summary>
-        public static string ComputeFileHash(string filePath)
+        public static string ComputeFileHash(string filePath, IProgress<long> bytesRead = null)
         {
             using (var sha = SHA256.Create())
             using (var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite,
                                                bufferSize: 81920))
             {
-                byte[] hash = sha.ComputeHash(stream);
+                var buf = new byte[81920];
+                int n;
+                long total = 0, lastReported = 0;
+                while ((n = stream.Read(buf, 0, buf.Length)) > 0)
+                {
+                    sha.TransformBlock(buf, 0, n, null, 0);
+                    total += n;
+                    // Reported per ~1 MB, not per read: a 2 GB model is 25k reads.
+                    if (bytesRead != null && total - lastReported >= 1048576)
+                    {
+                        bytesRead.Report(total);
+                        lastReported = total;
+                    }
+                }
+                sha.TransformFinalBlock(buf, 0, 0);
+                byte[] hash = sha.Hash;
                 var sb = new StringBuilder(hash.Length * 2);
                 foreach (byte b in hash) sb.Append(b.ToString("x2"));
                 return sb.ToString();
+            }
+        }
+
+        /// <summary>
+        /// Streams a file as the request body and reports bytes written to the
+        /// socket, about once per MB. Same wire behaviour as StreamContent, including rewinding on re-send.
+        /// </summary>
+        internal sealed class ProgressContent : HttpContent
+        {
+            private readonly Stream _stream;
+            private readonly IProgress<long> _progress;
+
+            public ProgressContent(Stream stream, IProgress<long> progress)
+            {
+                _stream = stream;
+                _progress = progress;
+                Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+                Headers.ContentLength = stream.Length;
+            }
+
+            protected override async Task SerializeToStreamAsync(Stream target, System.Net.TransportContext context)
+            {
+                // StreamContent rewinds when HttpClient re-sends (redirect, auth retry); so must we.
+                if (_stream.CanSeek) _stream.Position = 0;
+                var buf = new byte[81920];
+                int n;
+                long total = 0, lastReported = 0;
+                while ((n = await _stream.ReadAsync(buf, 0, buf.Length).ConfigureAwait(false)) > 0)
+                {
+                    await target.WriteAsync(buf, 0, n).ConfigureAwait(false);
+                    total += n;
+                    if (_progress != null && total - lastReported >= 1048576)
+                    {
+                        _progress.Report(total);
+                        lastReported = total;
+                    }
+                }
+            }
+
+            protected override bool TryComputeLength(out long length)
+            {
+                length = _stream.Length;
+                return true;
             }
         }
 

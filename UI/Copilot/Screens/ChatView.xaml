@@ -28,9 +28,9 @@
                     <ColumnDefinition Width="*"/>     <!-- tool activity (truncates) -->
                     <ColumnDefinition Width="Auto"/>  <!-- stop -->
                 </Grid.ColumnDefinitions>
-                <!-- Status tag: Ready/Running/Done/Stopped/Needs input/Awaiting
-                     confirmation off the VM's RunStatus (PRD A7). The two paused
-                     states share the design's amber "needs input" treatment. -->
+                <!-- Status tag: Ready/Running/Done/Stopped/Needs input
+                     off the VM's RunStatus (PRD A7). "Needs input" (paused for
+                     an answer) gets the design's amber treatment. -->
                 <Border Grid.Column="0" CornerRadius="7" Padding="10,3,10,3.5" Margin="0,0,8,0" VerticalAlignment="Center">
                     <Border.Style>
                         <Style TargetType="Border">
@@ -43,10 +43,11 @@
                                     <Setter Property="Background" Value="{DynamicResource Cp.OkBg}"/>
                                 </DataTrigger>
                                 <DataTrigger Binding="{Binding RunStatus}" Value="Needs input">
-                                    <Setter Property="Background" Value="#fbf0dd"/>
+                                    <Setter Property="Background" Value="{DynamicResource Cp.WaitBg}"/>
                                 </DataTrigger>
-                                <DataTrigger Binding="{Binding RunStatus}" Value="Awaiting confirmation">
-                                    <Setter Property="Background" Value="#fbf0dd"/>
+                                <!-- A failed turn (TurnStatus.Failed): the pane's error look, never the green Done. -->
+                                <DataTrigger Binding="{Binding RunStatus}" Value="Failed">
+                                    <Setter Property="Background" Value="{DynamicResource Cp.Tile.RedBg}"/>
                                 </DataTrigger>
                             </Style.Triggers>
                         </Style>
@@ -70,19 +71,19 @@
                                             <Setter Property="Stroke" Value="{DynamicResource Cp.Tier1Fg}"/>
                                             <Setter Property="Data" Value="M12,3 a9,9 0 1 0 0,18 a9,9 0 1 0 0,-18 M8.5,12.2 l2.4,2.4 4.6,-4.8"/>
                                         </DataTrigger>
-                                        <DataTrigger Binding="{Binding RunStatus}" Value="Needs input">
-                                            <Setter Property="Stroke" Value="#6b4a12"/>
-                                            <Setter Property="Data" Value="M12,3 a9,9 0 0 1 9,9 a9,9 0 0 1 -9,9 H4.5 L7,18.4 C4.6,16.8 3,14.6 3,12 a9,9 0 0 1 9,-9 Z M12,12 h0.01"/>
+                                        <DataTrigger Binding="{Binding RunStatus}" Value="Failed">
+                                            <Setter Property="Stroke" Value="{DynamicResource Cp.Red}"/>
+                                            <Setter Property="Data" Value="M12,3 a9,9 0 1 0 0,18 a9,9 0 1 0 0,-18 M9.2,9.2 l5.6,5.6 M14.8,9.2 l-5.6,5.6"/>
                                         </DataTrigger>
-                                        <DataTrigger Binding="{Binding RunStatus}" Value="Awaiting confirmation">
-                                            <Setter Property="Stroke" Value="#6b4a12"/>
+                                        <DataTrigger Binding="{Binding RunStatus}" Value="Needs input">
+                                            <Setter Property="Stroke" Value="{DynamicResource Cp.WaitFg}"/>
                                             <Setter Property="Data" Value="M12,3 a9,9 0 0 1 9,9 a9,9 0 0 1 -9,9 H4.5 L7,18.4 C4.6,16.8 3,14.6 3,12 a9,9 0 0 1 9,-9 Z M12,12 h0.01"/>
                                         </DataTrigger>
                                     </Style.Triggers>
                                 </Style>
                             </Path.Style>
                         </Path>
-                        <TextBlock FontSize="11" Text="{Binding RunStatus, Mode=OneWay}" VerticalAlignment="Center">
+                        <TextBlock FontSize="11" Text="{Binding RunStatusText, Mode=OneWay}" VerticalAlignment="Center">
                             <TextBlock.Style>
                                 <Style TargetType="TextBlock">
                                     <Setter Property="Foreground" Value="{DynamicResource Cp.Muted}"/>
@@ -94,10 +95,10 @@
                                             <Setter Property="Foreground" Value="{DynamicResource Cp.Tier1Fg}"/>
                                         </DataTrigger>
                                         <DataTrigger Binding="{Binding RunStatus}" Value="Needs input">
-                                            <Setter Property="Foreground" Value="#6b4a12"/>
+                                            <Setter Property="Foreground" Value="{DynamicResource Cp.WaitFg}"/>
                                         </DataTrigger>
-                                        <DataTrigger Binding="{Binding RunStatus}" Value="Awaiting confirmation">
-                                            <Setter Property="Foreground" Value="#6b4a12"/>
+                                        <DataTrigger Binding="{Binding RunStatus}" Value="Failed">
+                                            <Setter Property="Foreground" Value="{DynamicResource Cp.Red}"/>
                                         </DataTrigger>
                                     </Style.Triggers>
                                 </Style>
@@ -142,28 +143,43 @@
             <StackPanel x:Name="BodyHost"/>
         </ScrollViewer>
 
+        <!-- Jump to the newest message: a round down-arrow at the thread's bottom-right, shown only while the
+             drafter has scrolled up (not stuck to the bottom, ChatView.UpdateJump). A click scrolls to the end and
+             pins the view to the bottom again. Above the scroller, under the slash and save layers. -->
+        <Button x:Name="JumpToBottom" Grid.Row="1" Width="34" Height="34" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                Margin="0,0,18,12" Visibility="Collapsed" Cursor="Hand" Focusable="False" FocusVisualStyle="{x:Null}"
+                ToolTip="Jump to the newest message" AutomationProperties.Name="Jump to the newest message"
+                Click="OnJumpToBottom">
+            <Button.Template>
+                <ControlTemplate TargetType="Button">
+                    <Border CornerRadius="17" Background="{DynamicResource Cp.Bg}"
+                            BorderBrush="{DynamicResource Cp.Line}" BorderThickness="1">
+                        <Border.Effect>
+                            <DropShadowEffect Color="Black" Opacity="0.16" BlurRadius="12" ShadowDepth="2" Direction="270"/>
+                        </Border.Effect>
+                        <Border x:Name="hv" CornerRadius="17" Background="Transparent">
+                            <Path Width="13" Height="13" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                  Data="M12,4 V20 M5.5,13.5 L12,20 L18.5,13.5" Stroke="{DynamicResource Cp.Ink}" StrokeThickness="2.2"
+                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
+                        </Border>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="hv" Property="Background" Value="{DynamicResource Cp.Hover}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Button.Template>
+        </Button>
+
         <!-- Bottom band: near-limit notice stacked directly above the composer, so
              the notice pushes the composer down instead of overlaying it. Both
              collapse together when the blocked state takes over (see UpdateUsage). -->
         <StackPanel Grid.Row="2">
             <ContentControl x:Name="NoticeHost" Visibility="Collapsed"/>
-            <!-- Engine strip (2026-08-27): transient, belongs to the engine not
-                 the conversation, so it sits above the composer and vanishes
-                 when the turn streams. Text is driven by the turn preflight
-                 (Signing in → Downloading → Starting). Plain Borders, no
-                 Storyboard — animations crash Revit's dockable host. -->
-            <Border Margin="14,0,14,8" Padding="12,8" CornerRadius="8" Background="{DynamicResource Cp.Sunken}"
-                    Visibility="{Binding EngineStatus, Converter={StaticResource NotEmptyVisChat}}">
-                <DockPanel LastChildFill="True">
-                    <Border DockPanel.Dock="Left" Width="6" Height="6" CornerRadius="3" Margin="0,0,9,0" VerticalAlignment="Center"
-                            Background="{DynamicResource Cp.Accent}"/>
-                    <TextBlock Text="{Binding EngineStatus}" FontSize="12" VerticalAlignment="Center"
-                               TextTrimming="CharacterEllipsis" Foreground="{DynamicResource Cp.Muted}"/>
-                </DockPanel>
-            </Border>
             <ctl:PromptBar x:Name="Prompt" SubmitCommand="{Binding ChatSendCommand}"
                            Busy="{Binding IsSending}" CancelCommand="{Binding CancelSendCommand}"
-                           Locked="{Binding IsSignedOut}"/>
+                           Locked="{Binding IsSignedOut}" ScopeText="{Binding RunScope}"/>
         </StackPanel>
 
         <!-- Usage-limit blocked state; replaces the composer at 100% usage
@@ -183,7 +199,7 @@
         <!-- Saved Commands J1: the Save/Edit sheet, docked bottom over the chat
              body (design "Save sheet" artboard) behind a dimming scrim. -->
         <Grid x:Name="SaveLayer" Grid.Row="1" Grid.RowSpan="2" Visibility="Collapsed">
-            <Border x:Name="SaveScrim" Background="#3D22242A" MouseLeftButtonDown="OnSaveScrimClick"/>
+            <Border x:Name="SaveScrim" Background="{DynamicResource Cp.ScrimSoft}" MouseLeftButtonDown="OnSaveScrimClick"/>
             <ctl:SaveCommandSheet x:Name="SaveSheet" VerticalAlignment="Bottom" Margin="12,24,12,12"
                                   MaxHeight="620"/>
         </Grid>

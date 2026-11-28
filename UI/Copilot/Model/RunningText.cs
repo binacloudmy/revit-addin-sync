@@ -1,0 +1,91 @@
+#nullable enable
+// Words and counts of a turn that is still running (board 2): which step the
+// agent is on, and what the composer says while it works. Pure, so a test pins them.
+using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
+
+namespace RevitWebAppSync.UI.Copilot.Model
+{
+    public static class RunningText
+    {
+        /// <summary>The number of the step now running: the server's own (progress.step) when it sent one, else the 1-based
+        /// count of the steps the drafter sees (not the developer's budget line, not "Thinking"); 0 when none is
+        /// running. There is no total in the protocol, so none is shown.</summary>
+        public static int StepNumber(IEnumerable<ProgressStep>? steps)
+        {
+            // The server says which model step it is on (progress.step): that is the number, while something runs.
+            var all = (steps ?? Enumerable.Empty<ProgressStep>()).Where(s => s != null).ToList();
+            var said = all.Where(s => s.ModelStep > 0).Select(s => s.ModelStep).DefaultIfEmpty(0).Max();
+            if (said > 0 && all.Any(s => s.State == StepState.Running)) return said;
+            // r18 (live L15 "Working / Step 3" for ONE call): a write call's own sub-rows are not steps of their own (StepCollapse.Shown).
+            var visible = StepCollapse.Shown(ProgressTrail.UserVisible(steps)).Where(s => !ProgressTrail.IsWaitStep(s)).ToList();
+            for (var i = visible.Count - 1; i >= 0; i--)
+                if (visible[i].State == StepState.Running) return i + 1;
+            return 0;
+        }
+
+        /// <summary>"Step 3" (BM: "Langkah 3"), or "" when no step is running.</summary>
+        public static string StepLabel(IEnumerable<ProgressStep>? steps, ReceiptLanguage lang)
+        {
+            var n = StepNumber(steps);
+            return n == 0 ? "" : (lang == ReceiptLanguage.Ms ? "Langkah " : "Step ") + n.ToString(CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>The activity header: "Step 3 · 12s" while the turn runs, the plain duration once it ends.</summary>
+        public static string HeaderText(string duration, bool running, IEnumerable<ProgressStep>? steps, ReceiptLanguage lang)
+        {
+            duration ??= "";
+            if (!running) return duration;
+            var step = StepLabel(steps, lang);
+            return step.Length == 0 ? duration : duration.Length == 0 ? step : step + " · " + duration;
+        }
+
+        /// <summary>The composer's placeholder while a turn runs: a prompt typed now queues.</summary>
+        public const string QueuePlaceholder = "Type the next step. It runs when this one finishes.";
+
+        /// <summary>The line under the composer while a turn runs (kept for the typed-prompt note; the composer itself shows <see cref="QueueNote"/>).</summary>
+        public const string QueueHint = "Queues after this run. Stop clears it.";
+
+        /// <summary>The small note in the composer's toolbar while a turn runs (design Running.dc.html).</summary>
+        public const string QueueNote = "Queues after this run";
+
+        /// <summary>r23 (AI-464, live 3c11223a on 0.0.165, laptop): in a Malay chat the running composer kept "Type the next step…" and
+        /// "Queues after this run". It follows the running turn's language as the Working card's "Langkah" does; English unchanged.</summary>
+        public static string QueuePlaceholderFor(ReceiptLanguage lang) =>
+            lang == ReceiptLanguage.Ms ? "Taip langkah seterusnya. Ia dijalankan selepas yang ini selesai." : QueuePlaceholder;
+
+        /// <summary>The idle composer's default placeholder (PromptBar.Placeholder).</summary>
+        public const string IdlePlaceholder = "Ask Copilot";
+
+        /// <summary>r23 (AI-464, live P11 c7e4f9cb / 329dbc75): the idle composer in a Malay chat read "Ask Copilot". A Malay thread reads
+        /// "Tanya Copilot"; a new or English chat, and any placeholder a host set itself, are unchanged.</summary>
+        public static string IdlePlaceholderFor(ReceiptLanguage lang, string? placeholder) =>
+            lang == ReceiptLanguage.Ms && (placeholder == null || placeholder == IdlePlaceholder) ? "Tanya Copilot" : placeholder ?? IdlePlaceholder;
+
+        /// <summary>r23: <see cref="QueueHint"/> in the running turn's language.</summary>
+        public static string QueueHintFor(ReceiptLanguage lang) =>
+            lang == ReceiptLanguage.Ms ? "Beratur selepas larian ini. Henti mengosongkannya." : QueueHint;
+
+        /// <summary>r23: <see cref="QueueNote"/> in the running turn's language.</summary>
+        public static string QueueNoteFor(ReceiptLanguage lang) =>
+            lang == ReceiptLanguage.Ms ? "Beratur selepas larian ini" : QueueNote;
+
+        /// <summary>r23 (AI-464 audit): the running composer's button tips in the turn's language (Stop on the send button, Queue).</summary>
+        public static string StopTip(ReceiptLanguage lang) => lang == ReceiptLanguage.Ms ? "Berhenti" : "Stop";
+
+        public static string QueueTip(ReceiptLanguage lang) => lang == ReceiptLanguage.Ms ? "Beratur" : "Queue";
+
+        /// <summary>The composer's scope chip: "{3D} · 52 selected" (view name, then the selection count); "" when the
+        /// view is unknown. Nothing selected reads just the view.</summary>
+        public static string ScopeText(string? viewName, int selected) => ScopeText(viewName, selected, ReceiptLanguage.En);
+
+        /// <summary>r23 (AI-464 audit): the scope chip in the running turn's language: "{3D} · 52 dipilih" in a Malay chat.</summary>
+        public static string ScopeText(string? viewName, int selected, ReceiptLanguage lang)
+        {
+            if (string.IsNullOrWhiteSpace(viewName)) return "";
+            var view = "{" + viewName!.Trim() + "}";
+            return selected > 0 ? view + " · " + selected.ToString(CultureInfo.InvariantCulture) + (lang == ReceiptLanguage.Ms ? " dipilih" : " selected") : view;
+        }
+    }
+}

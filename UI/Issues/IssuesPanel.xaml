@@ -85,6 +85,7 @@
 
             <Border Grid.Row="2" Background="#FFFFFF" BorderBrush="#E5E7EB" BorderThickness="0,0,0,1" Padding="14,8">
                 <StackPanel>
+                    <ComboBox x:Name="MineFilter" Height="26" Margin="0,0,0,6" SelectionChanged="Filter_Changed"/>
                     <ComboBox x:Name="ScopeFilter" Height="26" Margin="0,0,0,6" SelectionChanged="Filter_Changed"/>
                 <Grid>
                     <Grid.ColumnDefinitions>
@@ -149,7 +150,7 @@
                                             <Border Style="{StaticResource Pill}" Background="#EEF2FF"
                                                     HorizontalAlignment="Left" Margin="0,5,0,0"
                                                     Visibility="{Binding CoordinationVisibility}">
-                                                <TextBlock Text="Coordination" FontSize="9.5" Foreground="#3730A3"/>
+                                                <TextBlock Text="Federation" FontSize="9.5" Foreground="#3730A3"/>
                                             </Border>
 
                                             <TextBlock Text="{Binding Preview}" FontSize="11" Foreground="#6B7280"

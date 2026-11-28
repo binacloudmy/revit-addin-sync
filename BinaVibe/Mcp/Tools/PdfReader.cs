@@ -63,6 +63,7 @@ namespace BinaVibe.Mcp.Tools
         private const long MaxBytes = 64L * 1024 * 1024;
         private const int MaxPages = 2000;
         private const int PreviewChars = 800;
+        private const int InlineTextChars = 20000;
         private const int MaxOutline = 25;
         private const int MaxListedPages = 25;
         private const int DefaultPageChars = 4000;
@@ -119,7 +120,7 @@ namespace BinaVibe.Mcp.Tools
                 for (int i = 1; i <= pdf.NumberOfPages; i++)
                 {
                     // One unreadable page must not lose the other 200.
-                    try { texts[i - 1] = pdf.GetPage(i).Text ?? ""; }
+                    try { texts[i - 1] = PageWords(pdf.GetPage(i)); }
                     catch { texts[i - 1] = ""; }
                 }
                 doc.PageText = texts;
@@ -141,6 +142,15 @@ namespace BinaVibe.Mcp.Tools
             }
 
             return doc;
+        }
+
+        /// <summary>A page's words joined by spaces. Page.Text glues table cells
+        /// together ("0.04" "983" "101" read as "0.049831010.5"), so a brochure's
+        /// ratings were misread; words keep each cell apart.</summary>
+        private static string PageWords(UglyToad.PdfPig.Content.Page page)
+        {
+            var words = string.Join(" ", page.GetWords().Select(w => w.Text).Where(t => !string.IsNullOrEmpty(t)));
+            return words.Length > 0 ? words : page.Text ?? "";
         }
 
         /// <summary>Re-read a PDF and return positioned words per page (index 0 =
@@ -245,8 +255,33 @@ namespace BinaVibe.Mcp.Tools
                 ["outline"] = outline,
                 ["outline_truncated"] = Math.Max(0, doc.Outline.Count - outline.Count),
                 ["preview"] = Preview(doc),
+                ["page_text"] = PageTexts(doc, out var cut),
+                ["page_text_truncated_at"] = cut,
                 ["unavailable"] = UnavailableFields(doc.HasTextLayer),
             };
+        }
+
+        /// <summary>Each page's text, collapsed, up to InlineTextChars in all, so a
+        /// brochure or spec sheet reaches the agent whole (the lean copilot has no
+        /// page tool). cut is the first page left out, or null when every page fits.</summary>
+        private static List<object> PageTexts(PdfDoc doc, out int? cut)
+        {
+            var pages = new List<object>();
+            var used = 0;
+            cut = null;
+            for (int i = 0; i < doc.PageText.Length; i++)
+            {
+                if (doc.PageText[i].Length == 0) continue;
+                var text = Collapse(doc.PageText[i]);
+                if (used + text.Length > InlineTextChars)
+                {
+                    cut = i + 1;
+                    break;
+                }
+                used += text.Length;
+                pages.Add(new Dictionary<string, object?> { ["page"] = i + 1, ["text"] = text });
+            }
+            return pages;
         }
 
         /// <summary>First PreviewChars of real text, so the agent can tell what

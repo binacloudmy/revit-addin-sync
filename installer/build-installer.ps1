@@ -7,13 +7,10 @@
 # %LocalAppData%\Bina\RevitSync\versions\<ver>). CI does the same thing in
 # .github/workflows/release.yml.
 #
-# Optional: pass -EngineZip <path to bina-engine-<ver>.zip> to also seed the
-# colocated Copilot Engine (see scripts/build-engine-bundle.ps1 in bina-ai).
-# The zip's engine-version.json supplies the version the addin's EngineManager
-# will look for under %LocalAppData%\Bina\RevitSync\engine\<ver>\. Omit it and
-# the output is byte-identical to an addin-only build.
-#
-#   installer\build-installer.ps1 -Version 0.0.8 -EngineZip dist\bina-engine-1.0.0.zip
+# The colocated Copilot Engine is gone (the copilot runs in BINA's cloud over
+# protocol 3), so nothing engine-related is packaged. -EngineZip and
+# -GatewayUrl are still accepted, and ignored with a warning, so
+# sign-release.ps1 keeps working unchanged.
 #
 # Optional: code-sign both the installer EXE and the embedded uninstaller via
 # Inno Setup's native SignTool mechanism (needs an EV/OV cert; without
@@ -32,15 +29,6 @@
 # -Sign/-Thumbprint (legacy) still works and signs only the setup EXE
 # post-compile; -SignCert/SIGNTOOL_ARGS supersede it when both are given.
 #
-# Zero-config release: pass -GatewayUrl so a drafter's install never needs a
-# hand-edited config.json. The addin's BinaConfig.ApplyDefaults() reads this
-# back on first run (see BinaConfig.cs) and, when a colocated engine bundle
-# is ALSO present (-EngineZip), auto-enables Engine mode + points AIBaseUrl
-# at the local engine. Omit it and the installer is addin-only/cloud-mode,
-# exactly as before this flag existed.
-#
-#   installer\build-installer.ps1 -Version 0.0.8 -GatewayUrl https://gw.binacloud.ai
-
 param(
     [string]$Version = "0.0.1",
     [string]$Configuration = "Release",
@@ -118,40 +106,9 @@ Set-Content (Join-Path $pluginDir ".complete") $Version
 Write-Host "==> Pruning payload..." -ForegroundColor Cyan
 & (Join-Path $PSScriptRoot "prune-payload.ps1") -PluginDir $pluginDir
 
-# Optional: stage the packaged Copilot Engine into the layout the .iss packs.
-# EngineDir/EngineVersion are only passed to ISCC when -EngineZip is given  - 
-# without it, the /D flags below are omitted entirely and RevitCopilot.iss
-# falls back to its own (nonexistent-by-default) engine dir, which its
-# skipifsourcedoesntexist flag skips cleanly. Net effect: no -EngineZip ->
-# byte-identical ISCC invocation to before this feature existed.
-$engineIscArgs = @()
-if ($EngineZip) {
-    if (-not (Test-Path $EngineZip)) { throw "-EngineZip path not found: $EngineZip" }
-    $engineDir = Join-Path $repo "artifacts\engine"
-    Write-Host "==> Staging engine bundle $EngineZip..." -ForegroundColor Cyan
-    Expand-Archive -Path $EngineZip -DestinationPath $engineDir -Force
-    $engineManifestPath = Join-Path $engineDir "engine-version.json"
-    if (-not (Test-Path $engineManifestPath)) {
-        throw "engine-version.json not found at the root of $EngineZip - bad bundle"
-    }
-    $engineVersion = (Get-Content $engineManifestPath -Raw | ConvertFrom-Json).engine_version
-    if (-not $engineVersion) { throw "engine-version.json has no engine_version field" }
-    Write-Host "==> Engine bundle version $engineVersion" -ForegroundColor Cyan
-    $engineIscArgs = @("/DEngineDir=$engineDir", "/DEngineVersion=$engineVersion")
-}
-
-# Optional: stage bina-defaults.json (zero-config release) next to the addin
-# DLLs. BinaConfig reads it from the executing assembly's own directory, which
-# is now a per-target SUBFOLDER - so it goes into every payload subfolder and
-# rides the PluginDir recursesubdirs copy (no separate .iss entry needed).
-# Without -GatewayUrl nothing is written: byte-identical to an addin-only build.
-if ($GatewayUrl) {
-    Write-Host "==> Writing bina-defaults.json (GatewayUrl=$GatewayUrl) into each payload..." -ForegroundColor Cyan
-    foreach ($sub in $pluginTargets.Values) {
-        @{ GatewayUrl = $GatewayUrl } | ConvertTo-Json |
-            Set-Content (Join-Path (Join-Path $pluginDir $sub) "bina-defaults.json")
-    }
-}
+# Retired switches (engine bundle, engine gateway seed): accepted, ignored.
+if ($EngineZip) { Write-Warning "-EngineZip ignored: the Copilot Engine is no longer shipped." }
+if ($GatewayUrl) { Write-Warning "-GatewayUrl ignored: bina-defaults.json is no longer written (it only served the engine)." }
 
 # Optional: code signing, native Inno mechanism (signs the setup EXE AND the
 # embedded uninstaller stub - post-compile signtool can only reach the EXE).
@@ -238,7 +195,7 @@ if ($yearMap.Contains("2024")) {
 
 Write-Host "==> Building installer EXE..." -ForegroundColor Cyan
 $iscArgs = @($iss, "/DAppVersion=$Version", "/DLoaderNet8Dir=$loaderNet8Dir", "/DPluginDir=$pluginDir") +
-    $net48IscArgs + $engineIscArgs + $signIscArgs + @("/O$repo")
+    $net48IscArgs + $signIscArgs + @("/O$repo")
 & $iscc @iscArgs
 if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
 

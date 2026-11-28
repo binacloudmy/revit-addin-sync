@@ -7,7 +7,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
     // ─── Enums (mirror the prototype state machine) ──────────────────────────
     public enum CpScreen { Home, ToolForm, ToolReview, Running, Result }
     public enum CpTab { Chat, Library, History, Saved, Model, Settings }
-    public enum CpMsgKind { User, Thinking, Clarify, Proposal, Running, Result, AiReply, ConfirmActions, SignIn, Attention }
+    public enum CpMsgKind { User, Thinking, Clarify, Proposal, Running, Result, AiReply, SignIn, Attention }
     // SignIn / Attention (2026-08-27): notice cards the drafter can ACT on, in
     // the thread where the answer would have gone. SignIn = no BINA AI session
     // (composer locks, prompt is kept and re-sent after sign-in). Attention =
@@ -32,8 +32,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public string Title;
         public string Desc;
         public string Icon;       // CopilotIcons key
-        public string TileBg;     // hex, e.g. "#fef3c7"
-        public string TileFg;     // hex, e.g. "#a16207"
+        public string TileBg;     // hex, a Cp.Tile.*Bg token light value
+        public string TileFg;     // hex, a Cp.Tile.*Fg token light value
         public string Category;   // CATEGORIES id
         public int Tier;          // 1 = vetted, 2 = AI
         public bool Saved;        // catalog "saved" badge (e.g. count-doors)
@@ -110,6 +110,13 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public string Time;
         public List<string> Tools;  // bot messages only — tool IDs used in the reply
         public List<HistoryFile> Files;  // user messages only — files attached to the prompt (name + line count, content not persisted)
+        /// <summary>bot messages only: the add-in's own line (pane note, receipt), never
+        /// the model's words (M-12). Null in history written before it.</summary>
+        public string PaneNote;
+        /// <summary>bot messages only: the turn's result card, so reopening the chat from
+        /// History redraws it. Null for turns with no card and for older history.</summary>
+        public ResultCardModel ResultCard;
+        public ReceiptLanguage Lang;
         public History() { }
         public History(string sender, string text, string time, List<string> tools = null)
         { Sender = sender; Text = text; Time = time; Tools = tools; }
@@ -195,10 +202,12 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
     public class Mention
     {
-        public string Kind;    // level | category | view | selection
-        public string Value;
+        public string Kind;    // level | category | family | type | view | sheet | selection
+        public string Value;   // the text the mention sends
+        public long? Id;       // level / view / sheet: the Revit element id (r17); null when unknown
         public Mention() { }
         public Mention(string kind, string value) { Kind = kind; Value = value; }
+        public Mention(string kind, string value, long? id) { Kind = kind; Value = value; Id = id; }
     }
 
     public class ClarifyOption
@@ -224,20 +233,6 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public List<ClarifyOptionModel> Options = new List<ClarifyOptionModel>();
     }
 
-    // ─── Turn receipt (2026-08-18) ──────────────────────────────────────────
-    // Assembled by TurnReceiptService from DocumentChanged transaction ground
-    // truth — the model never authors it.
-    public class ReceiptModel
-    {
-        public int Added;
-        public int Modified;
-        public int Deleted;
-        public List<System.Collections.Generic.KeyValuePair<string, int>> ByCategory
-            = new List<System.Collections.Generic.KeyValuePair<string, int>>();
-        public string BeforeImage;   // confirm-gated capture; null when absent
-        public string AfterImage;
-    }
-
     /// <summary>A chat thread message. The VM swaps Kind by replacing the item in the
     /// ObservableCollection (so the DataTemplate selector re-evaluates).</summary>
     public class ChatMessage
@@ -255,16 +250,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public string PrimaryLabel;  public Action PrimaryAction;
         public string SecondaryLabel; public Action SecondaryAction;
         public List<ClarifyOption> Options = new List<ClarifyOption>();  // clarify
-        // Structured ask_user questions (2026-08-18): rendered as tappable
-        // option rows (single) / checkbox rows + Hantar (multi_select). The
-        // card OWNS ChoiceBatch (opaque RevitChatRouter.PendingHitl) so a tap
-        // resolves even after the router's parked field was cleared — same
-        // ownership pattern as PendingBatch on the confirm card.
+        // Pre-protocol-3 history only: structured questions of the old ask
+        // flow, re-rendered as tappable rows (a tap sends the labels as text).
         public List<ClarifyQuestionModel> Questions;
-        public object ChoiceBatch;
         public string ChoiceSummary;   // collapsed decision record after submit
-        // Turn receipt (harness-assembled evidence, spec 2026-08-18).
-        public ReceiptModel Receipt;
         public ResultModel Result;   // result
         public string Code;          // proposal — generated C# (backend or catalog sample)
         public List<string> PlanSteps = new List<string>();  // proposal — plan, English
@@ -289,6 +278,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
         // Cancelled generation: rendered as the design's italic faint
         // "Interrupted." line (stop icon, no bubble, no feedback row).
         public bool Interrupted;
+        // The turn failed (TurnStatus.IsFailed): no "Save as command" (live R7, t06).
+        public bool Failed;
+        // r22 (P5 6bf0f4ec): the turn wrote nothing because typed text at its write card was refused: the headline's disc is info, not the green check.
+        public bool NothingWritten;
         // Proposal card status ("proposed" default / "dismissed") — the design's
         // "· Proposed / · Applied / · Dismissed" header suffix. Applied state is
         // carried by the Result message, so only dismissal is stored here.
@@ -297,7 +290,6 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public string Time;
         public List<string> ImagesBase64;  // screenshots pasted with this prompt (base64 PNG) — rendered as thumbnails
         public List<FileAttachment> Files;  // text files attached with this prompt — rendered as chips (content lives only in the backend route text)
-        public RevitWebAppSync.Models.ReviewerVerdict Verdict; // attached to AiReply messages
         // One-tap "next step" offer parsed server-side from the reply's trailing
         // "Tindakan:" line. Empty/null = no offer (old backend or plain reply) —
         // ChatView must render no buttons in that case. Rendered ONLY on the
@@ -305,44 +297,13 @@ namespace RevitWebAppSync.UI.Copilot.Model
         // with a stale offer fall back to plain text.
         public string Tindakan;
         public bool TindakanResolved;
-        // ConfirmActions card: friendly one-line labels of the pending MUTATE
-        // batch awaiting the user's Ya/Tidak. Buttons render only while
-        // unresolved AND the card is last in the thread; a resolved card keeps
-        // the action list as an audit trail.
-        public List<string> ActionLabels;
+        // Old structured-question cards (pre-protocol-3 history): set once the
+        // drafter tapped an answer, so the card collapses into the record.
         public bool ActionsResolved;
-        // Which way it was resolved — null while pending. Lets the resolved-state
-        // render (2026-08-02 spec) say "Allowed"/"Rejected" instead of a generic
-        // "resolved" note.
-        public bool? ActionsApproved;
-        // Action Mode addendum (2026-08-02): true when this card was resolved
-        // PROGRAMMATICALLY by Auto mode (never by a click) — ConfirmActionsCard
-        // renders "Auto-approved · N writes" instead of "Allowed", and skips the
-        // amber "Needs permission" header in favour of a green one, so the
-        // transcript reads honestly (permission was never actually asked for).
-        public bool AutoApproved;
-        // Codegen approval gate (Action Mode addendum): non-empty means this
-        // ConfirmActions card is gating a codegen C# run, NOT a MUTATE-tool
-        // batch — ConfirmActionsCard/CopilotViewModel branch on this to route
-        // Allow/Reject to AcceptCodeApproval/DeclineCodeApproval instead of
-        // AcceptActions/DeclineActions. The rest of the fields below are just
-        // enough context to call ExecuteAsChatReply on Allow — everything else
-        // ExecuteAsChatReply needs (reasoning trail, followups, result summary,
-        // tindakan, reply text) is already carried on the fields above/below,
-        // reused rather than duplicated.
-        public string PendingCode;
-        public string PendingCodeRoutePrompt;
-        public string PendingCodeDisplayPrompt;
-        public List<HistoryFile> PendingCodeHistoryFiles;
-        // Card-owned MUTATE batch (opaque RevitChatRouter.PendingConfirm).
-        // Ya/Tidak resolves against THIS, not the router's parked field — a
-        // click must still work after a newer message or router swap cleared
-        // the field (2026-08-18 UAT: Ya → "Tiada tindakan tertunda").
-        public object PendingBatch;
 
         // ─── Streaming reasoning timeline (2026-08-02 copilot-reasoning-ui spec) ──
-        // Persisted trail — set once the turn finishes, so a completed AiReply/
-        // ConfirmActions message can still expand its "working narrative" from
+        // Persisted trail — set once the turn finishes, so a completed AiReply
+        // message can still expand its "working narrative" from
         // history. Null/empty = no steps this turn (ChatView omits the block).
         public List<ReasoningStep> ReasoningSteps;
         // Transient live trail for the CURRENT turn's Thinking bubble — mirrors
@@ -359,7 +320,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public bool ReasoningUserToggled;
 
         // ─── Stream v2 segmented turn body (copilot-stream-v2 spec, T1) ────────
-        // Ordered Narrative/ToolCard/ConfirmCard blocks for this turn. On the
+        // Ordered Narrative/ToolCard blocks for this turn. On the
         // live Thinking message it's the growing snapshot from OnBlocks; on a
         // completed message it's the persisted final list. Null/empty = legacy
         // turn (no segment ids) — ChatView renders Text exactly as today.
@@ -373,6 +334,23 @@ namespace RevitWebAppSync.UI.Copilot.Model
         // turn's tool results carried a count_by/color legend/route_* summary.
         // Null = fall back to the plain answer text (no result card).
         public ResultSummaryModel ResultSummary;
+
+        // ─── Protocol 3 (lean harness) ──────────────────────────────────────────
+        // Pane-rendered from the add-in's own envelopes, never from Text.
+        /// <summary>Client turn id: the receipt's Undo is per turn.</summary>
+        public string TurnId;
+        /// <summary>Evidence strip, receipt headline, caution, export tables.</summary>
+        public TurnEvidence Evidence;
+        /// <summary>Drafter's language for pane-rendered text.</summary>
+        public ReceiptLanguage Lang;
+        /// <summary>r18: the turn's own language (the drafter's), for its Steps list header; <see cref="Lang"/> is the card's (G8: English).</summary>
+        public ReceiptLanguage ActivityLanguage;
+        /// <summary>The result card built from the turn's envelopes (result pattern); null when nothing resulted.</summary>
+        public ResultCardModel ResultCard;
+        /// <summary>Clarify messages: the assistant's question card.</summary>
+        public AskCardModel Ask;
+        /// <summary>A pane-owned note under the reply (turn limit, failure).</summary>
+        public string PaneNote;
     }
 
     /// <summary>Proportion-bar row: one system/category slice of a result_summary
@@ -401,7 +379,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
     /// at attach time, embedded in the route text). Binary kinds travel as a
     /// PATH only — a DWG or a PDF is large and unreadable as text, so the addin
     /// reads it locally and the turn carries a compact summary, never bytes.</summary>
-    public enum AttachmentKind { Text, Dwg, Pdf }
+    public enum AttachmentKind { Text, Dwg, Pdf, Image }
 
     /// <summary>A file attached to a prompt. Content is sent to the backend
     /// (embedded in the route text) but never shown as raw text in the chat bubble.</summary>
@@ -410,8 +388,21 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public string Name;
         public string Content;
         public AttachmentKind Kind = AttachmentKind.Text;
-        // Local path — set for binary kinds only (never sent to the backend).
+        // Local path — set for binary kinds and for .csv/.xlsx tables (never
+        // sent to the backend; a table travels as an attachment instead).
         public string Path;
+        // Set once the table went out as attachments[kind=table] under this
+        // name: RouteText then sends a one-line pointer, not the contents.
+        public string TableName;
+        public int TableRows;
+        /// <summary>Data rows in the file; more than TableRows when the table was cut.</summary>
+        public int TableTotalRows;
+        public int TableColumns;
+        // Set once a PDF went out as attachments[kind=document] under this name
+        // (AI-297): RouteText then sends a one-line pointer, not the page text.
+        public string DocumentName;
+        public int DocumentPages;
+        public int DocumentTotalPages;
         // Resolved by the pane before the turn is sent, and the agent's handle
         // for the matching detail tools: "att:<guid>" / "model:<id>" for a
         // drawing, "pdf:<guid>" for a document.
@@ -446,8 +437,14 @@ namespace RevitWebAppSync.UI.Copilot.Model
     public class PromptPayload
     {
         public string Text;
+        /// <summary>The message as the drafter sees it in the thread, when it differs
+        /// from <see cref="Text"/> (an @ chip shows "@PTh300a" and sends
+        /// "Pintu Tunggal: PTh300a (door type)"). Null: the thread shows Text.</summary>
+        public string DisplayText;
         public List<string> ImagesBase64;
         public List<FileAttachment> Files;
+        /// <summary>The @ mentions picked in the message (r17), sent with the turn as structured context.</summary>
+        public List<Mention> Mentions;
     }
 
     /// <summary>Floating viewport marker (Task 15). Coordinates are % of the active view rect.</summary>

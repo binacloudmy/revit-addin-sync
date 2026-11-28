@@ -103,10 +103,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             {
                 Background = DangerBg;
                 SetResourceReference(BorderBrushProperty, "Cp.Red");
-                _label.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Red");
+                _label.SetResourceReference(TextBlock.ForegroundProperty, "Cp.IssueFg");
                 _valueBox.SetResourceReference(TextBox.BorderBrushProperty, "Cp.Red");
                 _placeholder.Text = "required";
-                _placeholder.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Red");
+                _placeholder.SetResourceReference(TextBlock.ForegroundProperty, "Cp.IssueFg");
             }
             else
             {

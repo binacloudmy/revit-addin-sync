@@ -1,0 +1,1639 @@
+#nullable enable
+// The Revit half of the write batch runner (spec §7.3, §7.4; plan §5 W3 Task 3).
+//
+// Preview (one callback on Revit's thread, CallbackScope PREVIEW):
+//   document checks -> Plan every call BEFORE any change -> plan hash over
+//   frozen copies of the write plans -> run read-mode code at once (ruling
+//   R13; code that changed the model anyway fails policy_rejected) ->
+//   worksharing pre-check of the write targets
+//   (WorksharingUtils; others' elements fail not_owned with the editable ones
+//   as candidates, nothing is borrowed) -> TransactionGroup -> per call one
+//   transaction (TxGuard) around Execute(Preview), recorded by ChangeRecorder
+//   and FailureLog -> shape of what was added -> thumbnail of the additions ->
+//   RollBack -> THEN capture the external revision R.
+// Commit (a second callback after the preview, CallbackScope COMMIT):
+//   document checks -> R unchanged? -> re-plan the stored calls; the hash must
+//   equal the previewed one -> ownership again -> TransactionGroup
+//   "BINA: <label>" -> Execute(Commit) with those re-planned (hash-identical)
+//   plans -> ShapeComparer against the preview -> count_delta for a call that
+//   reported no read-back -> Assimilate (one undo entry), or RollBack and
+//   report drift -> selection highlight.
+// Every group runs inside W1's FailureScope (ruling R34) and every call inside
+// FailureLog.Begin(), so Revit's warnings reach the envelopes. Changes to
+// elements with no category are side effects under "class:<ClassName>" and
+// take part in the shape check unless their class is benign (ruling R43).
+// Nothing is held open between the two callbacks. No bare commits: inner
+// transactions go through TxGuard; the group is assimilated or rolled back.
+
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
+using Autodesk.Revit.DB;
+using Autodesk.Revit.UI;
+using BinaVibe.Copilot.Contracts;
+using BinaVibe.Copilot.Guard;
+using BinaVibe.Copilot.Tools;
+using BinaVibe.Mcp.Tools;
+
+namespace BinaVibe.Copilot.Writes
+{
+    public sealed class RevitWriteEngine : IWriteEngine
+    {
+        private const int MaxCandidates = 50;
+        private const int MaxThumbnailTargets = 200;
+        private const int MaxWarnings = 10;
+        private const double FeetToMm = 304.8;
+
+        private readonly IHandleStore _handles;
+        private readonly Func<string, IWriteTool?> _toolFor;
+
+        public RevitWriteEngine(IHandleStore handles, Func<string, IWriteTool?>? toolFor = null)
+        {
+            _handles = handles ?? throw new ArgumentNullException(nameof(handles));
+            _toolFor = toolFor ?? (name => CopilotToolCatalog.Find(name) as IWriteTool);
+        }
+
+        // r23 (AI-456): a selection swap of run_revit_code never outlives the request it was made in.
+        public Task<PreviewOutcome> PreviewAsync(WriteBatch batch, CancellationToken ct) =>
+            RevitThread.RunAsync(app =>
+            {
+                var selectedAtStart = SelectedIds(app);
+                try { return PreviewBatch(app, batch); }
+                finally { Code.RevitCodeHost.ForgetSelectionSwap(); KeepSelectionAfterIsolate(app, batch, selectedAtStart); RefreshCommandState(app, batch.TurnId, selectedAtStart); }
+            }, ct);
+
+        public Task<CommitOutcome> CommitAsync(WriteBatch batch, PreviewOutcome preview, string planHash, CancellationToken ct) =>
+            RevitThread.RunAsync(app =>
+            {
+                var selectedAtStart = SelectedIds(app);
+                var track = new CommitTrack();
+                try { return CommitBatch(app, batch, preview, planHash, track); }
+                finally
+                {
+                    // r23 audit: a commit that never kept its group (refused, drift, a failed call, Revit not keeping it) changed nothing:
+                    // the find's selection comes back, in the batch's own document, as after a preview. Once the group was kept, never here
+                    // (re-audit: a throw after Assimilate must not reselect written doors); the commit's own give-back decides then.
+                    if (Code.TurnSelection.GiveBackAtCommitEnd(track.Doc != null, track.GroupKept)) Code.RevitCodeHost.GiveBackSelection(track.Doc, track.UiDoc);
+                    Code.RevitCodeHost.ForgetSelectionSwap();
+                    KeepSelectionAfterIsolate(app, batch, selectedAtStart);
+                    RefreshCommandState(app, batch.TurnId, selectedAtStart);   // r23 (P16 G3 7241e714): after the give-back, never instead of it
+                }
+            }, ct);
+
+        /// <summary>r23 (live P16 G3 7241e714): at the end of every write request, Revit's ribbon and view-routed commands (Select by ID)
+        /// follow the selection again: the active view's window is activated as after a find (ViewActivation.Show). No view change, no
+        /// selection change; only for a valid document with no transaction open (WriteEndRefresh). Never throws.</summary>
+        private static void RefreshCommandState(UIApplication app, string? turnId, IReadOnlyList<long>? selectedAtStart)
+        {
+            try
+            {
+                var doc = app?.ActiveUIDocument?.Document;
+                // Audit of b3e3c99b: only when Revit's selection changed during this request, and once per turn (the activation holds the
+                // keyboard about a second; a drafter typing the next step must not lose keys on every read pass and preview).
+                if (!WriteEndRefresh.Applies(doc != null, doc != null && doc.IsValidObject, doc != null && doc.IsValidObject && doc.IsModifiable,
+                        selectedAtStart, SelectedIds(app!), turnId, _refreshedTurn)) return;
+                _refreshedTurn = turnId;
+                RevitWebAppSync.UI.Copilot.Model.ClickTrace.Sink("write end: " + ViewActivation.Show(app!));
+            }
+            catch (Exception) { /* a refresh is a convenience: the write's outcome stands */ }
+        }
+
+        /// <summary>Live 0.0.187: Revit drops the selection when code applies a temporary isolate; the selection held when this
+        /// request started comes back (TurnSelection.KeepAfterIsolate decides). No isolate: nothing happens. Never throws.</summary>
+        private static void KeepSelectionAfterIsolate(UIApplication? app, WriteBatch batch, IReadOnlyList<long> selectedAtStart)
+        {
+            try
+            {
+                var uidoc = app?.ActiveUIDocument;
+                var doc = uidoc?.Document;
+                if (uidoc == null || doc == null) return;
+                var back = Code.TurnSelection.KeepAfterIsolate(batch.Calls, selectedAtStart, SelectedIds(app), id => doc.GetElement(ElemIds.From(id)) != null);
+                if (back != null) uidoc.Selection.SetElementIds(back.Select(ElemIds.From).ToList());
+            }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] isolate selection give-back failed: " + ex.GetType().Name); }   // the type only: the message is not logged raw (R25)
+        }
+
+        // r23: the turn whose write request last refreshed Revit's command state (Revit's one API thread).
+        private static string? _refreshedTurn;
+
+        /// <summary>Revit's selected host ids now; empty when there is no document or it cannot be read.</summary>
+        private static IReadOnlyList<long> SelectedIds(UIApplication? app)
+        {
+            try { return app?.ActiveUIDocument?.Selection.GetElementIds().Select(id => (long)id.Value).ToList() ?? new List<long>(); }
+            catch (Exception) { return new List<long>(); }
+        }
+
+        /// <summary>r23: what CommitAsync's finally needs: the batch's document once it was checked, and whether the group was kept.</summary>
+        private sealed class CommitTrack
+        {
+            public Document? Doc;
+            public UIDocument? UiDoc;
+            public bool GroupKept;
+        }
+
+        // ------------------------------------------------------------------
+        // Preview
+        // ------------------------------------------------------------------
+
+        private PreviewOutcome PreviewBatch(UIApplication app, WriteBatch batch)
+        {
+            using var st = BinaVibe.Copilot.Guard.StageTimer.Begin("preview batch");
+            var n = batch.Calls.Count;
+            var outcome = new PreviewOutcome
+            {
+                Reads = new Envelope?[n],
+                Failures = new Envelope?[n],
+                Plans = new WritePlan[n],
+                Envelopes = new Envelope[n],
+            };
+
+            var uidoc = app.ActiveUIDocument;
+            var doc = uidoc?.Document;
+            var refusal = CheckDocument(doc, batch, EnvelopePhase.Preview);
+            if (refusal != null)
+            {
+                for (var i = 0; i < n; i++) outcome.Failures[i] = refusal;
+                return outcome;
+            }
+
+            var tools = new IWriteTool?[n];
+            var contexts = new ToolContext[n];
+            for (var i = 0; i < n; i++)
+            {
+                tools[i] = _toolFor(batch.Calls[i].Tool ?? "");
+                contexts[i] = Context(app, uidoc!, doc!, batch, batch.Calls[i]);
+                if (tools[i] == null) outcome.Failures[i] = EnvelopeFactory.NotAllowed(batch.Calls[i].Tool ?? "");
+            }
+            if (outcome.HasFailures) return outcome;
+
+            // 1. Plan: resolve every target BEFORE any change.
+            for (var i = 0; i < n; i++)
+            {
+                try
+                {
+                    outcome.Plans[i] = tools[i]!.Plan(contexts[i], batch.Calls[i].Args)
+                                       ?? throw new InvalidOperationException(batch.Calls[i].Tool + " returned no plan.");
+                }
+                catch (Exception ex)
+                {
+                    outcome.Failures[i] = FromException(ex, EnvelopePhase.Preview);
+                }
+            }
+            if (outcome.HasFailures) return outcome;
+
+            st.Mark("plan");
+            // The hash binds the plans as resolved here, before any change, over frozen copies.
+            var writes = Enumerable.Range(0, n).Where(i => !WriteModes.IsRead(outcome.Plans[i])).ToList();
+            outcome.PlanHash = PlanHash.Compute(writes.Select(i => PlanHash.Freeze(outcome.Plans[i])).ToList());
+
+            // 2. Read-mode code runs at once, once, and takes no further part (R13).
+            for (var i = 0; i < n; i++)
+                if (WriteModes.IsRead(outcome.Plans[i]))
+                    outcome.Reads[i] = RunRead(doc!, tools[i]!, contexts[i], batch.Calls[i], outcome.Plans[i]);
+            if (writes.Count == 0) return outcome;
+
+            // 3. Worksharing: never borrow, never edit others' elements.
+            if (doc!.IsWorkshared)
+            {
+                foreach (var i in writes)
+                    outcome.Failures[i] = CheckOwnership(doc, outcome.Plans[i]);
+                if (outcome.HasFailures) return outcome;
+            }
+
+            var writePlans = writes.Select(i => outcome.Plans[i]).ToList();
+            outcome.GroupName = WriteLabels.GroupName(writePlans);
+
+            // 4. A batch Revit cannot preview gets an estimate-only card.
+            if (writePlans.Any(p => !p.Previewable))
+            {
+                foreach (var i in writes)
+                    outcome.Envelopes[i] = WriteEnvelopes.Estimate(outcome.Plans[i], WriteLabels.ForPlan(outcome.Plans[i]));
+                outcome.Shape = null;
+                outcome.Revision = ExternalRevision.Get(doc);
+                return outcome;
+            }
+
+            // 5. Measured preview, always rolled back.
+            var builder = new BatchShapeBuilder();
+            st.Mark("reads+ownership");
+            var before = CategoriesOf(doc, writePlans);
+            st.Mark("categories of the targets");
+            var existing = new Dictionary<int, List<long>>();
+            var runs = new Dictionary<int, CallRun>();
+            var openViews = OpenViewIds(uidoc);
+            using (CallbackScope.Enter(doc, CallbackKind.Preview))
+            using (FailureScope.Begin(doc.Application))
+            {
+                var group = new TransactionGroup(doc, outcome.GroupName);
+                try
+                {
+                    var busy = StartGroup(group, EnvelopePhase.Preview);
+                    if (busy != null)
+                    {
+                        foreach (var i in writes) outcome.Failures[i] = busy;
+                    }
+                    else
+                    {
+                        var firstWithAdds = -1;
+                        foreach (var i in writes)
+                        {
+                            var run = RunCall(doc, tools[i]!, contexts[i], batch.Calls[i], outcome.Plans[i], WritePhase.Preview, outcome.GroupName, builder, before);
+                            st.Mark("run call " + i + " (" + (batch.Calls[i].Tool ?? "") + ")");
+                            if (run.Failure != null)
+                            {
+                                outcome.Failures[i] = run.Failure;
+                                break;
+                            }
+                            outcome.Envelopes[i] = run.Envelope!;
+                            existing[i] = run.Existing;
+                            runs[i] = run;
+                            if (firstWithAdds < 0 && run.Changes != null && run.Changes.Added.Count > 0) firstWithAdds = i;
+                        }
+
+                        if (!outcome.HasFailures)
+                        {
+                            outcome.Shape = builder.Build(id => Describe(doc, id, builder.AddedIds));
+                            st.Mark("shape");
+                            RevitValueFingerprints.Fill(doc, outcome.Shape, builder.AddedIds);   // R75, before the rollback
+                            st.Mark("value fingerprints");
+                            if (firstWithAdds >= 0) AttachThumbnail(contexts[firstWithAdds], outcome.Envelopes[firstWithAdds], builder.AddedIds);
+                            st.Mark("thumbnail");
+                        }
+                    }
+                }
+                finally
+                {
+                    RollBackIfOpen(group);
+                    group.Dispose();
+                    st.Mark("rollback");
+                    // r23 (AI-456, live c7601a4a): nothing was written; what a find of this turn selected is selected again, so a
+                    // Cancel at the card leaves the "selected" card true. Only after a run_revit_code swap (no-op otherwise).
+                    Code.RevitCodeHost.GiveBackSelection(doc, uidoc);
+                }
+            }
+
+            // r23 (live bfa7d410): the model's own code (no playbook) never resizes a duct, pipe, conduit or cable tray. Every element it
+            // modified in those categories is read again now that the preview rolled back (the values before); any size that differs
+            // from what the code left refuses the call, so nothing of the batch is committed.
+            if (!outcome.HasFailures)
+                foreach (var kv in runs.Where(r => r.Value.MepAfter != null && r.Value.MepAfter.Count > 0))
+                {
+                    var was = MepSizes(doc, kv.Value.MepAfter!.Select(v => v.Id).Distinct());
+                    outcome.MepBefore.AddRange(was);   // the commit compares with these
+                    var rows = MepResizeGuard.Changed(kv.Value.MepAfter!, was);
+                    if (rows.Count > 0) { outcome.Failures[kv.Key] = MepResizeGuard.Refusal(rows); break; }
+                }
+            // Audit of 7487d5bf: delete-and-recreate. The deleted elements exist again now, so their category is read here; the added ones
+            // were read before the rollback. Own code that both deletes and adds guarded curves in one batch is refused, whatever the sizes.
+            if (!outcome.HasFailures)
+            {
+                var guardedDeleted = GuardedCurves(doc, runs.Values.Where(r => r.MepDeletedIds != null).SelectMany(r => r.MepDeletedIds!).Distinct());
+                var guardedAdded = runs.Values.Where(r => r.MepAdded != null).SelectMany(r => r.MepAdded!).ToList();
+                var replaced = MepResizeGuard.Replaced(guardedDeleted, guardedAdded);
+                if (replaced.Count > 0)
+                {
+                    var at = runs.Where(r => (r.Value.MepAdded?.Count ?? 0) > 0).Select(r => r.Key).Min();   // the first call that added one
+                    outcome.Failures[at] = MepResizeGuard.Refusal(replaced);
+                }
+            }
+
+            // L15: the code's edits as real rows. The edited elements are back to their old values
+            // now, so read them again as "before" (the first 50; the rest behind a handle).
+            if (!outcome.HasFailures)
+                foreach (var kv in runs.Where(r => r.Value.ValuesAfter != null && r.Value.ValuesAfter.Count > 0))
+                {
+                    var env = outcome.Envelopes[kv.Key];
+                    var rows = ValueRows.Diff(RevitValueFingerprints.Cells(doc, kv.Value.ValuesAfter!.Keys), kv.Value.ValuesAfter!);
+                    if (env?.Changes?.Touched == null || rows.Count == 0) continue;
+                    env.Changes.Touched.Modified = rows;
+                    if (kv.Value.ModifiedIds.Count > EnvelopeLimits.MaxRows && string.IsNullOrEmpty(env.Handle))
+                    {
+                        try { env.Handle = contexts[kv.Key].Handles?.Put(kv.Value.ModifiedIds.Select(id => new ElementRef(id, null)).ToList(), "elements this change edits"); }
+                        catch (Exception) { /* the rows stand without a handle */ }
+                    }
+                }
+
+            // L22: a deleted view that was open lost its tab in the preview, even though it is back now.
+            if (!outcome.HasFailures && openViews.Count > 0)
+                foreach (var kv in runs)
+                {
+                    var closed = kv.Value.DeletedTouched.Keys.Concat(kv.Value.DeletedSide.Keys).Where(openViews.Contains)
+                        .Select(id => doc.GetElement(ElemIds.From(id))?.Name ?? id.ToString(CultureInfo.InvariantCulture)).ToList();
+                    var note = EnvelopeChanges.ClosedTabsWarning(closed);
+                    if (note != null && outcome.Envelopes[kv.Key] != null) AddWarning(outcome.Envelopes[kv.Key], note);
+                }
+
+            // r19 (live F1, b7d86820): an element one call added and a later call deleted never existed outside the write.
+            if (!outcome.HasFailures && FoldAddedThenDeleted(runs.OrderBy(kv => kv.Key).Select(kv => (outcome.Envelopes[kv.Key], kv.Value)).ToList()) is var folded && folded > 0)
+                st.Mark("added then deleted (" + folded + ")");
+
+            // r18 (BornIds, live 4e70cf53): every element that existed before the write exists again now. A deleted or modified id that
+            // does not was created inside the preview by Revit itself (reported deleted, never added): it is not an existing element.
+            if (!outcome.HasFailures && outcome.Shape != null)
+            {
+                var touchedIds = outcome.Shape.Deleted.Concat(outcome.Shape.Modified).ToList();
+                var missing = Missing(doc, touchedIds);
+                var born = BornIds.Proven(missing, touchedIds.Where(id => !missing.Contains(id))
+                    .Concat(writePlans.SelectMany(p => p.TargetIds ?? Array.Empty<long>())));
+                outcome.Shape.BornFloor = BornIds.Floor(null, born, builder.AddedIds);
+                outcome.Shape.Born = born.OrderBy(id => id).ToList();
+                if (born.Count > 0)
+                {
+                    BornIds.Drop(outcome.Shape, born);
+                    foreach (var kv in runs)
+                    {
+                        BornIds.DropFromEnvelope(outcome.Envelopes[kv.Key], kv.Value.DeletedTouched, kv.Value.DeletedSide, born);
+                        kv.Value.Existing.RemoveAll(born.Contains);
+                        if (existing.TryGetValue(kv.Key, out var ex)) ex.RemoveAll(born.Contains);
+                    }
+                    st.Mark("born ids (" + born.Count + ")");
+                }
+            }
+
+            // Deleted elements exist again now: read their categories (at most 500, nothing else),
+            // so the card says "Delete 2 Sheets, 5 Views", not "Delete 7 Other" (re-review I-1).
+            // The shape keeps them, and the commit reuses them for the same ids.
+            if (!outcome.HasFailures && outcome.Shape != null)
+            {
+                var unknown = runs.Values.SelectMany(r => r.DeletedTouched.Concat(r.DeletedSide))
+                    .Where(kv => kv.Value == EnvelopeChanges.UnknownCategory).Select(kv => kv.Key);
+                var lookedUp = EnvelopeChanges.LookUpDeleted(unknown, id => CategoryNameOf(doc, id));
+                if (lookedUp.Count > 0)
+                {
+                    foreach (var kv in runs)
+                    {
+                        EnvelopeChanges.ApplyDeletedCategories(outcome.Envelopes[kv.Key], kv.Value.DeletedTouched, kv.Value.DeletedSide, lookedUp);
+                        foreach (var id in kv.Value.DeletedSide.Keys.Where(lookedUp.ContainsKey).ToList()) kv.Value.DeletedSide[id] = lookedUp[id];
+                        foreach (var id in kv.Value.DeletedTouched.Keys.Where(lookedUp.ContainsKey).ToList()) kv.Value.DeletedTouched[id] = lookedUp[id];
+                    }
+                    foreach (var kv in lookedUp) outcome.Shape.CategoryOf[kv.Key] = kv.Value;
+                }
+                foreach (var kv in runs) { FoldRebuilt(outcome.Envelopes[kv.Key], kv.Value); FoldRetyped(outcome.Envelopes[kv.Key], kv.Value); }   // AI-553
+                // AI-553 (live a94f3408): the deleted ids exist again now; their SuperComponent is read here, for this card and the commit's.
+                var sideDeleted = runs.Values.SelectMany(r => r.DeletedSide.Keys).ToList();
+                MarkSideDeletions(doc, st, sideDeleted, outcome.Shape.Born);
+                outcome.Shape.NestedParentOf = NestedParents(doc, sideDeleted);
+                outcome.Shape.DeletedTypes = ElementTypes(doc, sideDeleted);
+                foreach (var kv in runs)
+                {
+                    FoldNested(outcome.Envelopes[kv.Key], kv.Value, outcome.Shape.NestedParentOf, outcome.Shape.Deleted, id => true);
+                    FoldTypes(outcome.Envelopes[kv.Key], kv.Value, outcome.Shape.DeletedTypes);
+                }
+            }
+
+            // Code plans name no targets, so their ownership check runs on what the preview
+            // measured — after the rollback, so deleted elements exist again and the checkout
+            // status is the one from before the preview (read-only; R is unaffected). Others'
+            // elements fail not_owned with the editable ones as candidates, before any card.
+            if (!outcome.HasFailures && doc.IsWorkshared)
+                foreach (var i in writes.Where(i => string.Equals(batch.Calls[i].Tool, ToolNames.RunRevitCode, StringComparison.Ordinal)))
+                {
+                    var refusalOf = CheckOwnership(doc, existing.TryGetValue(i, out var ids) ? ids : new List<long>(), "elements this code changes");
+                    if (refusalOf != null) { outcome.Failures[i] = refusalOf; break; }
+                }
+
+            // R is read only after the preview's own rollback, outside our scope.
+            outcome.Revision = ExternalRevision.Get(doc);
+            foreach (var e in outcome.Envelopes.Where(e => e != null)) EnvelopeChanges.Recheck(e);
+            return outcome;
+        }
+
+        // Read-mode code (rulings R13, R17, R53): the runner opens NO transaction, group or
+        // callback scope here. W4's tool runs the code itself, once, inside a TransactionGroup it
+        // always rolls back, under CallbackKind.Read; it is called with WritePhase.Commit because
+        // this is its only run. The recorder and the external revision only catch a change that
+        // escaped that rollback; W4 reports one it rolled back itself.
+        private static Envelope RunRead(Document doc, IWriteTool tool, ToolContext ctx, ToolCallDto call, WritePlan plan)
+        {
+            var revisionBefore = ExternalRevision.Get(doc);
+            Envelope result;
+            ChangeSet? kept = null;
+            using (FailureLog.Begin())
+            using (var dialogs = DialogWatch.Collect())
+            using (FailureScope.Begin(doc.Application))
+            {
+                ChangeRecording? recording = null;
+                try
+                {
+                    recording = ChangeRecorder.Start(doc);
+                    result = tool.Execute(ctx, call.Args, plan, WritePhase.Commit)
+                             ?? throw new InvalidOperationException(call.Tool + " returned no result.");
+                }
+                catch (Exception ex)
+                {
+                    result = FromException(ex, EnvelopePhase.Read);
+                }
+                finally
+                {
+                    kept = recording?.Stop();
+                    recording?.Dispose();
+                }
+                AddWarnings(result, FailureLog.Current.Snapshot());
+                AddDialogs(result, dialogs.Snapshot());
+            }
+
+            var keptCount = kept == null ? 0 : kept.Added.Count + kept.Modified.Count + kept.Deleted.Count;
+            if (keptCount > 0 || ExternalRevision.Get(doc) != revisionBefore)
+                return WriteEnvelopes.Failure(ErrorCodes.PolicyRejected,
+                    "This code changed the model although it was classified as read-only" +
+                    (keptCount > 0 ? ", and " + keptCount.ToString(CultureInfo.InvariantCulture) + " change(s) were kept" : ", and a change was kept") +
+                    ". Check the model and use Revit's Undo list; send code that changes the model as a change, so it is previewed first and can be undone.",
+                    EnvelopePhase.Read);
+
+            result.Phase = EnvelopePhase.Read;
+            result.Changes = null;
+            if (result.Count == 0 && result.Searched == null) result.Count = null;
+            // Read-mode UI belongs to W4 alone (applied after its own rollback): the runner runs
+            // no queued UI work for a read (re-review 3, m5).
+            return result;
+        }
+
+        // ------------------------------------------------------------------
+        // Commit
+        // ------------------------------------------------------------------
+
+        private CommitOutcome CommitBatch(UIApplication app, WriteBatch batch, PreviewOutcome preview, string planHash, CommitTrack track)
+        {
+            using var st = BinaVibe.Copilot.Guard.StageTimer.Begin("commit batch");
+            var n = batch.Calls.Count;
+            var uidoc = app.ActiveUIDocument;
+            var doc = uidoc?.Document;
+            var refusal = CheckDocument(doc, batch, EnvelopePhase.Commit);
+            if (refusal != null)
+                return new CommitOutcome { Kind = refusal.Error?.Code == ErrorCodes.DocChanged ? CommitKind.DocChanged : CommitKind.Failed, Reason = refusal.Error?.Message, Envelopes = Fill(n, refusal) };
+            track.Doc = doc; track.UiDoc = uidoc;   // r23: the batch's document (CheckDocument passed), for a give-back at the end
+
+            // Someone changed the model after the preview: back to the preview (the runner does it once).
+            if (ExternalRevision.Get(doc!) != preview.Revision)
+                return new CommitOutcome { Kind = CommitKind.RevisionMoved, Reason = "The model changed after the preview." };
+
+            var tools = new IWriteTool[n];
+            var contexts = new ToolContext[n];
+            var fresh = new WritePlan[n];
+            for (var i = 0; i < n; i++)
+            {
+                var tool = _toolFor(batch.Calls[i].Tool ?? "");
+                if (tool == null) return Failed(batch, i, EnvelopeFactory.NotAllowed(batch.Calls[i].Tool ?? ""));
+                tools[i] = tool;
+                contexts[i] = Context(app, uidoc!, doc!, batch, batch.Calls[i]);
+                try
+                {
+                    fresh[i] = tool.Plan(contexts[i], batch.Calls[i].Args)
+                               ?? throw new InvalidOperationException(batch.Calls[i].Tool + " returned no plan.");
+                }
+                catch (Exception ex)
+                {
+                    return Failed(batch, i, FromException(ex, EnvelopePhase.Commit));
+                }
+            }
+
+            // The commit is bound to the plan hash of the batch the add-in holds.
+            if (!string.Equals(PlanHash.Compute(fresh), planHash, StringComparison.Ordinal))
+                return new CommitOutcome { Kind = CommitKind.Drift, Reason = "The targets or values resolved differently than in the preview." };
+
+            // Borrowing by others does not move R: check ownership again, still borrowing nothing.
+            if (doc!.IsWorkshared)
+                for (var i = 0; i < n; i++)
+                    if (CheckOwnership(doc, fresh[i]) is Envelope notOwned) return Failed(batch, i, notOwned);
+
+            var envelopes = new Envelope[n];
+            var changedPerCall = new int[n];
+            var commitRuns = new CallRun?[n];
+            var builder = new BatchShapeBuilder();
+            var anyChange = false;
+            st.Mark("replan+hash+ownership");
+            var before = CategoriesOf(doc!, fresh);
+            st.Mark("categories of the targets");
+            // Deleted elements are gone at commit time: reuse the categories the preview read
+            // after its rollback (deletions are compared by exact id, so they are the same ids).
+            if (preview.Shape != null)
+                foreach (var id in preview.Shape.Deleted)
+                    if (!before.ContainsKey(id) && preview.Shape.CategoryOf.TryGetValue(id, out var known) && known != EnvelopeChanges.UnknownCategory)
+                        before[id] = known;
+            string? capWarning = null;
+            string? unreadWarning = null;
+            string? forcedWarning = null;
+            var noop = false;
+            // The force path (ConnectedDrift): what is connected to the targets, read BEFORE the calls run (a fitting Revit removes
+            // cannot be read afterwards). Read for every batch with targets, so a refused drift can say whether it was connected-only.
+            var targetIds = fresh.SelectMany(p => p.TargetIds ?? Array.Empty<long>()).Distinct().ToList();
+            var connectedBefore = ConnectedSet.Of(doc!, targetIds, out var measured);
+            st.Mark("connected set (" + connectedBefore.Count + ")");
+            using (CallbackScope.Enter(doc!, CallbackKind.Commit))
+            using (FailureScope.Begin(doc!.Application))
+            using (batch.ForceConnected ? BinaVibe.Copilot.Guard.ForceScope.Begin(targetIds.Concat(connectedBefore.Keys)) : null)
+            {
+                var group = new TransactionGroup(doc, preview.GroupName);
+                try
+                {
+                    var busy = StartGroup(group, EnvelopePhase.Commit);
+                    if (busy != null) return new CommitOutcome { Kind = CommitKind.Failed, Reason = busy.Error?.Message, Envelopes = Fill(n, busy) };
+
+                    for (var i = 0; i < n; i++)
+                    {
+                        // The stored calls, re-planned now and proven identical to the previewed plans by
+                        // the hash above (frozen at preview time), so a tool that mutated its preview
+                        // plan object cannot change what commits.
+                        var run = RunCall(doc!, tools[i], contexts[i], batch.Calls[i], fresh[i], WritePhase.Commit, preview.GroupName, builder, before, preview.MepBefore);
+                        st.Mark("run call " + i + " (" + (batch.Calls[i].Tool ?? "") + ")");
+                        if (run.Failure != null)
+                        {
+                            RollBackIfOpen(group);
+                            return Failed(batch, i, run.Failure);
+                        }
+                        envelopes[i] = run.Envelope!;
+                        commitRuns[i] = run;
+                        changedPerCall[i] = run.Changed;
+                        if (run.Changes != null && run.Changes.Added.Count + run.Changes.Modified.Count + run.Changes.Deleted.Count > 0)
+                            anyChange = true;
+                    }
+
+                    var shape = builder.Build(id => Describe(doc!, id, builder.AddedIds));
+                    st.Mark("shape");
+                    var foldedAtCommit = FoldAddedThenDeleted(Enumerable.Range(0, n).Where(i => commitRuns[i] != null).Select(i => (envelopes[i], commitRuns[i]!)).ToList());   // r19 (live F1)
+                    if (foldedAtCommit > 0) st.Mark("added then deleted (" + foldedAtCommit + ")");
+                    // r18 (BornIds, live 4e70cf53): a deleted or modified id at or above the lowest id this write is known to have created
+                    // (the preview's, or the commit's own additions) never existed before it: Revit's own transient element, not a drift.
+                    var born = BornIds.AtOrAbove(shape.Deleted.Concat(shape.Modified), BornIds.Floor(preview.Shape?.BornFloor, null, builder.AddedIds));
+                    // Workshared: elements another user made arrive with their own ids, so ids are dropped only when they pair position by
+                    // position with the preview's proven born ids (same count, gaps and offset from each run's floor); otherwise none is.
+                    if (!BornIds.Paired(born, preview.Shape?.Born, preview.Shape?.BornFloor, BornIds.Floor(null, born, builder.AddedIds), doc!.IsWorkshared))
+                        born.Clear();
+                    if (born.Count > 0)
+                    {
+                        BornIds.Drop(shape, born);
+                        for (var i = 0; i < n; i++)
+                        {
+                            var r = commitRuns[i];
+                            if (r == null) continue;
+                            BornIds.DropFromEnvelope(envelopes[i], r.DeletedTouched, r.DeletedSide, born);
+                            changedPerCall[i] = Math.Max(0, changedPerCall[i] - r.Existing.Count(born.Contains));
+                        }
+                        st.Mark("born ids (" + born.Count + ")");
+                    }
+                    for (var i = 0; i < n; i++) if (commitRuns[i] != null) { FoldRebuilt(envelopes[i], commitRuns[i]!); FoldRetyped(envelopes[i], commitRuns[i]!); }   // AI-553
+                    for (var i = 0; i < n; i++)   // AI-553 (live a94f3408): nested pieces regenerated under a parent that is still there
+                        if (commitRuns[i] != null)
+                        {
+                            FoldNested(envelopes[i], commitRuns[i]!, preview.Shape?.NestedParentOf, shape.Deleted, id => doc!.GetElement(ElemIds.From(id)) != null);
+                            FoldTypes(envelopes[i], commitRuns[i]!, preview.Shape?.DeletedTypes);
+                        }
+                    RevitValueFingerprints.Fill(doc!, shape, builder.AddedIds);   // R75, compared with the preview's
+                    st.Mark("value fingerprints");
+                    var verdict = ShapeComparer.Compare(fresh, preview.Shape, shape);
+#if DEBUG
+                    // TEST ONLY (DriftInjector, Debug builds only): armed by a one-shot file, reports one real connected fitting the
+                    // preview changed as drifted, so the Force card path can be proven live. Only the comparison result changes.
+                    var injected = DriftInjector.At(batch.TurnId, batch.Calls.Select(ForceApproval.Signature).ToList(), batch.ForceConnected,
+                        verdict.IsMatch, measured, preview.Shape, connectedBefore, targetIds, out var injectLog);
+                    if (injectLog != null) st.Mark(injectLog);
+                    if (injected != null) verdict = ShapeVerdict.Drift(DriftInjector.Reason);
+#endif
+                    var connectedAfter = batch.ForceConnected || !verdict.IsMatch ? ConnectedSet.Of(doc!, targetIds) : new Dictionary<long, string>();
+                    // r18: existing allow-listed annotation (tags, dimensions, text, generic annotation; NonModelPolicy) never makes a drift unconnected.
+                    var nonModel = batch.ForceConnected || !verdict.IsMatch
+                        ? NonModelIds(doc!, shape.Modified.Concat(shape.Deleted)
+                            .Concat(preview.Shape?.Modified ?? Enumerable.Empty<long>()).Concat(preview.Shape?.Deleted ?? Enumerable.Empty<long>()))
+                        : new HashSet<long>();
+                    if (batch.ForceConnected)
+                    {
+                        // Safety audit P1: a forced commit may delete or change only targets and connected elements, matched preview or not.
+                        var allowed = new HashSet<long>(targetIds.Concat(connectedBefore.Keys).Concat(connectedAfter.Keys));
+                        var outside = ShapeComparer.ForcedOutside(shape, allowed, nonModel);
+                        if (!measured || outside != null)
+                        {
+                            RollBackIfOpen(group);
+                            var what = outside == null ? "the elements connected to the targets could not all be read"
+                                : "Revit would also change element " + outside.Value.ToString(CultureInfo.InvariantCulture) +
+                                  " (" + shape.CategoryOfId(outside.Value) + "), which is not connected to the changed element(s)";
+                            return Failed(batch, 0, WriteEnvelopes.Failure(ErrorCodes.PolicyRejected,
+                                "The forced change was refused: " + what + ". It was rolled back; nothing was changed.", EnvelopePhase.Commit));
+                        }
+                    }
+                    capWarning = ValueFingerprint.CapWarning(shape);
+                    if (preview.Shape != null) unreadWarning = ValueFingerprint.UnreadWarning(preview.Shape, shape);
+                    if (!verdict.IsMatch)
+                    {
+                        // Judged against what is connected to the targets before and after the calls ran: a forced batch keeps a
+                        // connected-only drift and reports it; anything else rolls back and says what differed (DriftData).
+                        var connected = ShapeComparer.JudgeConnected(preview.Shape, shape, connectedBefore, connectedAfter, targetIds, measured, nonModel);
+#if DEBUG
+                        if (injected != null) connected = DriftInjector.Apply(connected, injected);
+                        if (injected != null && !batch.ForceConnected)
+                        {
+                            // Read-only forecast for the tester: would "Force the change" pass the forced commit's own audit (P1 above)?
+                            var wouldBeOutside = ShapeComparer.ForcedOutside(shape, new HashSet<long>(targetIds.Concat(connectedBefore.Keys).Concat(connectedAfter.Keys)), nonModel);
+                            st.Mark("inject connected drift: a forced commit " + (wouldBeOutside == null ? "would pass the connected-only audit"
+                                : "would be refused (element " + wouldBeOutside.Value.ToString(CultureInfo.InvariantCulture) + ", " + shape.CategoryOfId(wouldBeOutside.Value) + ", is not connected)"));
+                        }
+#endif
+                        // Safety audit P2: only what the Force card listed (ForceApproval) may be kept.
+                        if (batch.ForceConnected && connected.ConnectedOnly && batch.ForceApproval != null && batch.ForceApproval.Covers(connected))
+                        {
+                            forcedWarning = ConnectedDrift.ForcedWarning(connected);
+                        }
+                        else
+                        {
+                            RollBackIfOpen(group);
+                            return new CommitOutcome { Kind = CommitKind.Drift, Reason = verdict.Reason, DriftData = ConnectedDrift.Data(connected), Connected = connected };
+                        }
+                    }
+
+                    if (!anyChange)
+                    {
+                        // A no-op group must leave no undo entry: undoing it would revert the drafter's
+                        // own step. Its queued UI work still runs below (nothing to roll back).
+                        RollBackIfOpen(group);
+                        foreach (var e in envelopes.Where(e => e.Ok)) e.Status = EnvelopeStatus.Noop;
+                        noop = true;
+                    }
+                    else
+                    {
+                        // ok on a commit means committed and verified: a call whose tool reported no
+                        // read-back is verified by the shape check that just matched (count_delta).
+                        for (var i = 0; i < n; i++)
+                        {
+                            var e = envelopes[i];
+                            if (e.Ok && e.Status != EnvelopeStatus.Noop && (e.Verified == null || e.Verified.Method == VerifyMethods.None))
+                                e.Verified = new VerifiedDto { Method = VerifyMethods.CountDelta, Checked = changedPerCall[i] };
+                        }
+
+                        st.Mark("compare");
+                        var status = group.Assimilate();
+                        track.GroupKept = status == TransactionStatus.Committed;   // r23: from here on, no fallback give-back
+                        st.Mark("assimilate");
+                        if (status != TransactionStatus.Committed)
+                        {
+                            var fail = WriteEnvelopes.Failure(ErrorCodes.RolledBack,
+                                "Revit did not keep the change (group status " + status + "); nothing was changed.", EnvelopePhase.Commit);
+                            return new CommitOutcome { Kind = CommitKind.Failed, Reason = fail.Error!.Message, Envelopes = Fill(n, fail) };
+                        }
+                    }
+                }
+                finally
+                {
+                    RollBackIfOpen(group);
+                    group.Dispose();
+                }
+            }
+
+            if (!noop) Undo.UndoService.NoteBatchCommitted(doc!, batch.TurnId, preview.GroupName);
+            if (capWarning != null && n > 0) AddWarning(envelopes[0], capWarning);
+            if (unreadWarning != null && n > 0) AddWarning(envelopes[0], unreadWarning);
+            if (forcedWarning != null && n > 0)
+            {
+                envelopes[0].Warnings ??= new List<WarningDto>();
+                envelopes[0].Warnings.Insert(0, new WarningDto { Text = forcedWarning, Severity = WarningSeverity.Warning });   // first: the drafter chose it
+            }
+
+            // R76: the tools' queued UI work runs now — committed and assimilated, or a noop with
+            // nothing to roll back — in call order; a failing step is a warning, never a failed
+            // commit. When a tool queued UI work, its selection and view win: the highlight is
+            // then only measured, after that work ran, so the envelope describes the selection
+            // and view the drafter actually has.
+            var queued = contexts.Any(c => c.AfterCommit != null && c.AfterCommit.Count > 0);
+            // r17: the UI work after the commit (opening a view, a selection) is ours too: a known harmless dialog it raises is answered
+            // and reported, any other waits for the drafter and is named (DialogWatch), instead of sitting unseen behind the pane.
+            using (var later = DialogWatch.Collect())
+            {
+                if (queued && AfterCommitRunner.ShouldRun(CommitKind.Committed, undoEntry: !noop))
+                    foreach (var f in AfterCommitRunner.Run(contexts.Select(c => (IReadOnlyList<Action>)c.AfterCommit).ToList()))
+                        AddWarning(envelopes[f.Call], AfterCommitRunner.WarningText(f));
+                // r23 (AI-456): a find's selection that a run_revit_code swap set aside comes back, unless this commit changed or made
+                // any of those elements (r13 below: a write turn never ends with its own targets selected). After the queued UI work.
+                Code.RevitCodeHost.GiveBackSelection(doc!, uidoc, envelopes.Where(e => e != null).SelectMany(TouchedIds).Concat(builder.AddedIds).ToList());
+                // r13 (0.0.148), live fb713fc2: the commit no longer selects what it touched (it left 10 elements selected after a section box);
+                // the highlight is only measured. A run's own select request (queued UI work) still sets the selection before this.
+                if (!noop) Highlight(uidoc!, doc!, envelopes, builder.AddedIds, select: false);
+                if (n > 0) AddDialogs(envelopes[0], later.Snapshot());
+            }
+            foreach (var e in envelopes.Where(e => e != null)) EnvelopeChanges.Recheck(e);
+            return new CommitOutcome { Kind = CommitKind.Committed, Envelopes = envelopes, UndoEntry = !noop };
+        }
+
+        private static CommitOutcome Failed(WriteBatch batch, int failedIndex, Envelope failure)
+        {
+            failure.Phase = EnvelopePhase.Commit;
+            var envelopes = new Envelope[batch.Calls.Count];
+            for (var i = 0; i < envelopes.Length; i++)
+                envelopes[i] = i == failedIndex
+                    ? failure
+                    : WriteEnvelopes.NotRunBecauseSibling(batch.RequestIndexes?[failedIndex] ?? failedIndex, batch.Calls[failedIndex], failure, EnvelopePhase.Commit);
+            return new CommitOutcome { Kind = CommitKind.Failed, Reason = failure.Error?.Message, Envelopes = envelopes };
+        }
+
+        // ------------------------------------------------------------------
+        // One call: one guarded transaction inside the open group
+        // ------------------------------------------------------------------
+
+        // r23 (live bfa7d410): the guarded categories and size parameters, as MepResizeGuard names them.
+        private static readonly HashSet<BuiltInCategory> MepCurveCategories = new HashSet<BuiltInCategory>
+        {
+            BuiltInCategory.OST_DuctCurves, BuiltInCategory.OST_PipeCurves, BuiltInCategory.OST_FlexDuctCurves,
+            BuiltInCategory.OST_FlexPipeCurves, BuiltInCategory.OST_Conduit, BuiltInCategory.OST_CableTray,
+        };
+
+        private static readonly BuiltInParameter[] MepSizeParameters =
+        {
+            BuiltInParameter.RBS_CURVE_WIDTH_PARAM, BuiltInParameter.RBS_CURVE_HEIGHT_PARAM, BuiltInParameter.RBS_CURVE_DIAMETER_PARAM,
+            BuiltInParameter.RBS_PIPE_DIAMETER_PARAM, BuiltInParameter.RBS_CONDUIT_DIAMETER_PARAM, BuiltInParameter.RBS_CABLETRAY_WIDTH_PARAM,
+            BuiltInParameter.RBS_CABLETRAY_HEIGHT_PARAM,
+        };
+
+        /// <summary>The guarded MEP curve an element is (its category name), or null.</summary>
+        private static string? GuardedCategory(Element? el)
+        {
+            var cat = el?.Category;
+            if (cat == null) return null;
+            var bic = (BuiltInCategory)(int)cat.Id.Value;
+            return MepCurveCategories.Contains(bic) ? (cat.Name ?? bic.ToString()) : null;
+        }
+
+        /// <summary>The given elements that are guarded MEP curves, with their category name.</summary>
+        private static List<(long Id, string Category)> GuardedCurves(Document doc, IEnumerable<long> ids)
+        {
+            var found = new List<(long, string)>();
+            foreach (var id in ids)
+            {
+                try { if (GuardedCategory(doc.GetElement(ElemIds.From(id))) is string c) found.Add((id, c)); }
+                catch (Exception) { /* not readable: not known to be a curve */ }
+            }
+            return found;
+        }
+
+        /// <summary>The size values of the given elements that are MEP curves of a guarded category (other elements: none). Fail closed
+        /// (audit of 7487d5bf): a guarded curve whose sizes Revit cannot read, or that has none of the size parameters, gives one
+        /// Unreadable value, which refuses the call.</summary>
+        private static List<MepResizeGuard.SizeValue> MepSizes(Document doc, IEnumerable<long> ids)
+        {
+            var values = new List<MepResizeGuard.SizeValue>();
+            foreach (var id in ids)
+            {
+                Element? el;
+                string? category;
+                try { el = doc.GetElement(ElemIds.From(id)); category = GuardedCategory(el); }
+                catch (Exception) { continue; }
+                if (el == null || category == null) continue;
+                var mine = new List<MepResizeGuard.SizeValue>();
+                try
+                {
+                    foreach (var bip in MepSizeParameters)
+                    {
+                        var p = el.get_Parameter(bip);
+                        if (p == null || p.StorageType != StorageType.Double) continue;
+                        mine.Add(new MepResizeGuard.SizeValue
+                        {
+                            Id = id, Category = category, Param = bip.ToString(),
+                            Value = p.HasValue ? p.AsDouble() : (double?)null, Display = p.AsValueString(),
+                        });
+                    }
+                }
+                catch (Exception) { mine.Clear(); }
+                if (mine.Count == 0) mine.Add(new MepResizeGuard.SizeValue { Id = id, Category = category, Param = "size", Unreadable = true });
+                values.AddRange(mine);
+            }
+            return values;
+        }
+
+        private sealed class CallRun
+        {
+            /// <summary>r23: run_revit_code (no playbook) previews: the size values it left on modified MEP curves, the guarded curves it
+            /// added, and the ids it deleted.</summary>
+            public List<MepResizeGuard.SizeValue>? MepAfter;
+            public List<(long Id, string Category)>? MepAdded;
+            public List<long>? MepDeletedIds;
+            public Envelope? Envelope;
+            public Envelope? Failure;
+            public ChangeSet? Changes;
+            /// <summary>Changed elements that count (benign classes excluded).</summary>
+            public int Changed;
+            /// <summary>Existing elements the call modified or deleted (benign excluded).</summary>
+            public List<long> Existing = new();
+            /// <summary>Deleted ids the envelope counts as touched / as side effects, with the
+            /// category they were counted under (re-review I-1: fixed after the rollback).</summary>
+            public Dictionary<long, string> DeletedTouched = new();
+            public Dictionary<long, string> DeletedSide = new();
+            /// <summary>r19: added ids the envelope counts as side effects, with their category (an addition a later call deleted is taken back out).</summary>
+            public Dictionary<long, string> AddedSide = new();
+            /// <summary>AI-553: a code call's text and its touched additions with their category, and what it listed as created (ChangeSetMath.Retyped).</summary>
+            public string? Code;
+            public Dictionary<long, string> AddedTouched = new();
+            public List<CreatedItem>? Created;
+            /// <summary>r21: modified ids the envelope counts as side effects, with their category, and the ids the call wrote (touched).</summary>
+            public Dictionary<long, string> ModifiedSide = new();
+            public HashSet<long> Touched = new();
+            /// <summary>Code previews (live-test L15): values of the first edited elements after the
+            /// code ran (read again as "before" once the preview rolled back), and how many were edited.</summary>
+            public Dictionary<long, IReadOnlyList<ValueCell>>? ValuesAfter;
+            public List<long> ModifiedIds = new();
+        }
+
+        /// <summary>r19 (live F1, b7d86820): takes ids one call added and a later call deleted out of the envelopes (BornIds.AddedThenDeleted):
+        /// the result says "added 1 Duct Fitting", not "added 2 Duct Fittings; removed 1 Other". Call order. Returns how many ids it folded
+        /// (the clicks log's "added then deleted (k)" stage).</summary>
+        private static int FoldAddedThenDeleted(IReadOnlyList<(Envelope? Env, CallRun Run)> calls)
+        {
+            if (calls.Count < 2) return 0;
+            FoldRepeatedModified(calls);   // r21 (live H3 0a1dff76)
+            var gone = BornIds.AddedThenDeleted(calls.Select(c => ((IEnumerable<long>?)c.Run.Changes?.Added, (IEnumerable<long>?)c.Run.Changes?.Deleted)).ToList());
+            if (gone.Count == 0) return 0;
+            foreach (var (env, run) in calls)
+            {
+                BornIds.DropFromEnvelope(env, run.DeletedTouched, run.DeletedSide, gone);
+                BornIds.DropAddedFromEnvelope(env, run.AddedSide, gone);
+                run.Existing.RemoveAll(gone.Contains);
+            }
+            return gone.Count;
+        }
+
+        /// <summary>AI-553 (live b3ae1908): side-effect deletions Revit paired with an addition of the same category (it rebuilt the element), and
+        /// deleted internal pieces, come out of the envelope's counts with the additions they pair with (ChangeSetMath.Rebuilt). Envelope counts
+        /// only: the batch shape that drift and force judge is not touched.</summary>
+        private static void FoldRebuilt(Envelope? env, CallRun run)
+        {
+            var rebuilt = ChangeSetMath.Rebuilt(run.DeletedSide, run.AddedSide);
+            BornIds.DropFromEnvelope(env, null, run.DeletedSide, rebuilt);
+            BornIds.DropAddedFromEnvelope(env, run.AddedSide, rebuilt);
+        }
+
+        /// <summary>AI-553 (live a94f3408): side-effect deletions that were nested family instances of a parent still there
+        /// (ChangeSetMath.Nested) come out of the envelope's counts. Envelope counts only: the batch shape is not touched.</summary>
+        private static void FoldNested(Envelope? env, CallRun run, IReadOnlyDictionary<long, long>? parentOf, ICollection<long> deletedAll, Func<long, bool> parentExists) =>
+            BornIds.DropFromEnvelope(env, null, run.DeletedSide, ChangeSetMath.Nested(run.DeletedSide, parentOf, deletedAll, parentExists));
+
+        /// <summary>AI-553: the SuperComponent of each deleted id that is a nested family instance (the first MaxDeletedLookups ids).
+        /// Only valid while the ids exist: after the preview's rollback.</summary>
+        private static Dictionary<long, long> NestedParents(Document doc, IEnumerable<long> ids)
+        {
+            var map = new Dictionary<long, long>();
+            foreach (var id in ids.Distinct().OrderBy(i => i).Take(EnvelopeChanges.MaxDeletedLookups))
+            {
+                try
+                {
+                    if (doc.GetElement(ElemIds.From(id)) is FamilyInstance fi && fi.SuperComponent is Element parent)
+                        map[id] = (long)parent.Id.Value;
+                }
+                catch (Exception) { /* unreadable: the deletion stays */ }
+            }
+            return map;
+        }
+
+        /// <summary>AI-553 (live 0.0.175): side-effect deletions that were element types (ChangeSetMath.SideTypes) come out of the envelope's
+        /// counts; a deleted instance is never a type and still shows. Envelope counts only: the batch shape is not touched.</summary>
+        private static void FoldTypes(Envelope? env, CallRun run, ICollection<long>? typeIds) =>
+            BornIds.DropFromEnvelope(env, null, run.DeletedSide, ChangeSetMath.SideTypes(run.DeletedSide, typeIds));
+
+        /// <summary>AI-553: the deleted ids that are element types (the first MaxDeletedLookups ids). Only valid while the ids exist: after
+        /// the preview's rollback. Unreadable: not a type, so the deletion stays.</summary>
+        private static HashSet<long> ElementTypes(Document doc, IEnumerable<long> ids)
+        {
+            var types = new HashSet<long>();
+            foreach (var id in ids.Distinct().OrderBy(i => i).Take(EnvelopeChanges.MaxDeletedLookups))
+            {
+                try { if (doc.GetElement(ElemIds.From(id)) is ElementType) types.Add(id); }
+                catch (Exception) { /* unreadable: the deletion stays */ }
+            }
+            return types;
+        }
+
+        /// <summary>AI-553: the clicks log names the preview's side-effect deletions (first 5: id, class, name, SuperComponent, and whether the
+        /// preview proved it born), so a live run can tell what Revit removed.</summary>
+        private static void MarkSideDeletions(Document doc, StageTimer st, IEnumerable<long> ids, ICollection<long> born)
+        {
+            foreach (var id in ids.Distinct().OrderBy(i => i).Take(5))
+            {
+                try
+                {
+                    var e = doc.GetElement(ElemIds.From(id));
+                    var super = e is FamilyInstance fi && fi.SuperComponent != null ? ((long)fi.SuperComponent.Id.Value).ToString(CultureInfo.InvariantCulture) : "none";
+                    var name = e == null ? "" : e is ElementType t ? (t.FamilyName + ": " + t.Name) : e.Name;
+                    st.Mark("side deletion " + id.ToString(CultureInfo.InvariantCulture) + " " + (e?.GetType().Name ?? "gone") + " name=\"" + name + "\" super=" + super
+                            + " born=" + (born != null && born.Contains(id) ? "yes" : "no"));
+                }
+                catch (Exception) { /* diagnostics only */ }
+            }
+        }
+
+        /// <summary>AI-553 (AI-557 afcbdb00): a code call that deletes nothing, whose touched deletions pair with touched additions of the same
+        /// category (Revit rebuilt them on a type change), reports each pair as one modification (ChangeSetMath.Retyped); the created list drops
+        /// the paired additions. Envelope only: the batch shape that drift and force judge is not touched.</summary>
+        private static void FoldRetyped(Envelope? env, CallRun run)
+        {
+            var pairs = ChangeSetMath.Retyped(run.DeletedTouched, run.AddedTouched, run.Code);
+            var gone = ChangeSetMath.ApplyRetyped(env?.Changes, run.DeletedTouched, run.AddedTouched, pairs);
+            ChangeSetMath.UncountRetyped(env, pairs.Count);   // the summary, data.changes and the expected-count warnings say the same
+            if (gone.Count == 0 || env == null || run.Created == null) return;
+            run.Created = run.Created.Where(c => !gone.Contains(c.Id)).ToList();
+            if (run.Created.Count > 0) EnvelopeChanges.SetCreated(env, run.Created);
+            else EnvelopeChanges.SetDataFields(env, new Dictionary<string, System.Text.Json.Nodes.JsonNode?>
+                { ["created"] = new System.Text.Json.Nodes.JsonArray(), ["created_count"] = 0 });
+        }
+
+        /// <summary>r21 (live L4 H3, 0a1dff76): the Height call listed the fittings the Width call had already adjusted, and the result added
+        /// them up ("adjusted 4 Duct Fittings, 2 Air Terminals" for 2 and 1). Each call keeps only the side-effect modifications no earlier
+        /// call counted (BatchSideEffects.Repeated); envelope counts only.</summary>
+        private static void FoldRepeatedModified(IReadOnlyList<(Envelope? Env, CallRun Run)> calls)
+        {
+            var drop = BatchSideEffects.Repeated(calls.Select(c => new BatchSideEffects.Call
+            {
+                ModifiedSide = c.Run.ModifiedSide, Touched = c.Run.Touched, Added = c.Run.Changes?.Added, Deleted = c.Run.Changes?.Deleted,
+            }).ToList());
+            for (var k = 0; k < calls.Count; k++) BatchSideEffects.DropModified(calls[k].Env, calls[k].Run.ModifiedSide, drop[k]);
+        }
+
+        private static CallRun RunCall(Document doc, IWriteTool tool, ToolContext ctx, ToolCallDto call, WritePlan plan,
+                                       WritePhase phase, string transactionName, BatchShapeBuilder builder,
+                                       IReadOnlyDictionary<long, string> categoriesBefore,
+                                       IReadOnlyList<MepResizeGuard.SizeValue>? mepBefore = null)
+        {
+            var phaseName = EnvelopePhase.Of(phase);
+            var run = new CallRun();
+            using (FailureLog.Begin())
+            using (var dialogs = DialogWatch.Collect())
+            {
+                ChangeRecording? recording = null;
+                // AI-330: curve types and fittings before the call, only when the call can re-type a curve
+                var fittingWatch = FittingWatchPolicy.ShouldWatch(call.Tool, plan) ? FittingWatch.Start(doc) : null;
+                var tx = new Transaction(doc, transactionName);
+                try
+                {
+                    recording = ChangeRecorder.Start(doc);
+                    try
+                    {
+                        TxGuard.StartSwallowing(tx);
+                    }
+                    catch (Exception ex) when (ex is Autodesk.Revit.Exceptions.InvalidOperationException || ex is System.InvalidOperationException)
+                    {
+                        run.Failure = WriteEnvelopes.Failure(ErrorCodes.RevitBusy,
+                            "Revit cannot start a change now: it is in an edit mode (group, sketch or in-place family) or another change is open. " +
+                            "Ask the drafter to finish or cancel it, then try again. (" + BinaVibe.Copilot.Writes.DialogRedaction.RedactPaths(ex.Message) + ")",
+                            phaseName);
+                    }
+
+                    if (run.Failure == null)
+                    {
+                        var env = tool.Execute(ctx, call.Args, plan, phase)
+                                  ?? throw new InvalidOperationException(call.Tool + " returned no result.");
+                        if (!env.Ok)
+                        {
+                            run.Failure = env;   // the tool refused: roll its transaction back (finally)
+                        }
+                        else
+                        {
+                            TxGuard.CommitOrThrow(tx);
+                            run.Envelope = env;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    run.Failure = FromException(ex, phaseName);
+                }
+                finally
+                {
+                    if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack();
+                    tx.Dispose();
+                    run.Changes = recording?.Stop();
+                    recording?.Dispose();
+                }
+
+                var warnings = FailureLog.Current.Snapshot();
+                var shown = dialogs.Snapshot();
+                if (run.Failure != null)
+                {
+                    run.Failure.Phase = phaseName;
+                    AddWarnings(run.Failure, warnings);
+                    AddDialogs(run.Failure, shown);
+                    return run;
+                }
+
+                var raw = run.Changes ?? new ChangeSet();
+                ChangeSetMath.KeepExisting(raw, id => CategoryNameOf(doc, id));   // AI-553: reported deleted, still there
+                var benign = new HashSet<long>();
+                var labelled = Classify(doc, raw, categoriesBefore, benign);
+                run.Changed = labelled.Added.Count(id => !benign.Contains(id)) + labelled.Modified.Count(id => !benign.Contains(id))
+                              + labelled.Deleted.Count(id => !benign.Contains(id));
+                run.Existing = labelled.Modified.Concat(labelled.Deleted).Where(id => !benign.Contains(id)).ToList();
+                // run_revit_code has no target ids, so on its envelope every recorded change is
+                // touched (never a side effect that would trigger the hard-warning card), and for
+                // the add-only judgement every recorded change is its own edit (R57). Other tools:
+                // what they reported is their edit, the rest is recompute (R35).
+                var isCode = string.Equals(call.Tool, ToolNames.RunRevitCode, StringComparison.Ordinal);
+                var recorded = labelled.Added.Concat(labelled.Modified).Concat(labelled.Deleted).Where(id => !benign.Contains(id)).ToList();
+                var recordedSet = new HashSet<long>(recorded);
+                // A typed tool's own edit is what it reported plus every plan target the recorder saw
+                // change (its rows stop at 50, its targets do not), so >50 targets are never
+                // mis-filed as side effects.
+                var own = ReportedIds(run.Envelope!)
+                    .Concat((plan.TargetIds ?? Array.Empty<long>()).Where(recordedSet.Contains))
+                    .Distinct().ToList();
+                // L16: for code, an addition the document's collector cannot see is a piece Revit
+                // created along (internal parts of a viewport, sketch planes…): a side effect.
+                var addedNonBenign = labelled.Added.Where(id => !benign.Contains(id)).ToList();
+                var touchedOnEnvelope = isCode
+                    ? ChangeClassifier.CodeTouched(addedNonBenign,
+                        labelled.Modified.Where(id => !benign.Contains(id)),
+                        labelled.Deleted.Where(id => !benign.Contains(id)),
+                        CollectorVisible(doc, addedNonBenign))
+                    : own;
+                var touchedSet = new HashSet<long>(touchedOnEnvelope);
+                foreach (var id in labelled.Deleted.Where(id => !benign.Contains(id)))
+                {
+                    var cat = labelled.CategoryOf.TryGetValue(id, out var c) ? c : EnvelopeChanges.UnknownCategory;
+                    if (touchedSet.Contains(id)) run.DeletedTouched[id] = cat;
+                    else run.DeletedSide[id] = cat;
+                }
+                var bookkeeping = new HashSet<long>(ChangeSetMath.BookkeepingIds(labelled));
+                run.Touched.UnionWith(touchedSet);
+                foreach (var id in labelled.Modified.Where(id => !benign.Contains(id) && !touchedSet.Contains(id) && !bookkeeping.Contains(id)))   // as ChangeSetMath.Split counts them
+                    run.ModifiedSide[id] = labelled.CategoryOf.TryGetValue(id, out var c) && !string.IsNullOrWhiteSpace(c) ? c : EnvelopeChanges.UnknownCategory;
+                foreach (var id in labelled.Added.Where(id => !benign.Contains(id) && !touchedSet.Contains(id) && !bookkeeping.Contains(id)))
+                    run.AddedSide[id] = labelled.CategoryOf.TryGetValue(id, out var c) && !string.IsNullOrWhiteSpace(c) ? c : EnvelopeChanges.UnknownCategory;
+                builder.AddCall(
+                    labelled.Added.Where(id => !benign.Contains(id)),
+                    labelled.Modified.Where(id => !benign.Contains(id)),
+                    labelled.Deleted.Where(id => !benign.Contains(id)),
+                    labelled.CategoryOf,
+                    ChangeClassifier.TouchedForApproval(call.Tool, recorded, own));   // R57
+                Decorate(run.Envelope!, labelled, benign, touchedOnEnvelope, warnings, shown, phaseName, isCode, phase, ctx.Handles, plan.DeclaredNoChange);
+                // AI-330: a pipe/duct/tray type change makes Revit rebuild the fittings: say which.
+                var fittingNote = fittingWatch?.Note(doc, labelled);
+                if (fittingNote != null)
+                {
+                    run.Envelope!.Warnings ??= new List<WarningDto>();
+                    run.Envelope.Warnings.Insert(0, new WarningDto { Text = fittingNote, Severity = WarningSeverity.Warning });
+                }
+
+                // Audit of 7487d5bf: the commit checks again, against the sizes the preview read before it (fail closed: a guarded curve the
+                // preview never read is a change). The caller rolls the commit's group back on this failure.
+                if (phase == WritePhase.Commit && MepResizeGuard.Applies(call))
+                {
+                    var rows = MepResizeGuard.Changed(MepSizes(doc, labelled.Modified.Where(id => !benign.Contains(id))), mepBefore ?? Array.Empty<MepResizeGuard.SizeValue>());
+                    if (rows.Count > 0) { run.Failure = MepResizeGuard.Refusal(rows); run.Failure.Phase = phaseName; run.Envelope = null; return run; }
+                }
+
+                if (isCode)
+                {
+                    // L15: what the code creates, by name, and (preview) the values it edits.
+                    var visibleAdded = new HashSet<long>(touchedOnEnvelope);
+                    run.Created = CreatedItems(doc, addedNonBenign.Where(visibleAdded.Contains));
+                    EnvelopeChanges.SetCreated(run.Envelope!, run.Created);
+                    run.Code = call.Args.ValueKind == System.Text.Json.JsonValueKind.Object && call.Args.TryGetProperty("code", out var code)
+                               && code.ValueKind == System.Text.Json.JsonValueKind.String ? code.GetString() : null;
+                    foreach (var id in addedNonBenign.Where(touchedSet.Contains))
+                        run.AddedTouched[id] = labelled.CategoryOf.TryGetValue(id, out var c) && !string.IsNullOrWhiteSpace(c) ? c : EnvelopeChanges.UnknownCategory;
+                    if (phase == WritePhase.Preview)
+                    {
+                        // r23: the sizes the model's own code left on MEP curves, read before the preview's group rolls back; and the
+                        // guarded curves it added (they exist only now) and the ids it deleted (their category is read once rolled back).
+                        if (MepResizeGuard.Applies(call))
+                        {
+                            run.MepAfter = MepSizes(doc, labelled.Modified.Where(id => !benign.Contains(id)));
+                            run.MepAdded = GuardedCurves(doc, labelled.Added.Where(id => !benign.Contains(id)));
+                            run.MepDeletedIds = labelled.Deleted.Where(id => !benign.Contains(id)).ToList();
+                        }
+                        run.ModifiedIds = labelled.Modified.Where(id => !benign.Contains(id)).OrderBy(id => id).ToList();
+                        run.ValuesAfter = RevitValueFingerprints.Cells(doc, run.ModifiedIds.Take(EnvelopeLimits.MaxRows));
+                    }
+                }
+                return run;
+            }
+        }
+
+        /// <summary>Adds what the recorder saw beyond the tool's own report (side effects),
+        /// Revit's warnings and the dialogs answered, and says noop when nothing changed.</summary>
+        private static void Decorate(Envelope env, ChangeSet changes, HashSet<long> benign, IReadOnlyCollection<long> touchedIds,
+                                     IReadOnlyList<WarningDto> warnings, IReadOnlyList<DialogDto> dialogs, string phaseName, bool isCode,
+                                     WritePhase phase, IHandleStore? handles, bool declaredNoChange = false)
+        {
+            env.Phase = phaseName;
+            // Uncategorised ids already carry "class:<ClassName>" (Classify); only benign classes are ignored.
+            var (touched, side) = ChangeSetMath.Split(changes, touchedIds, benign);
+            if (env.Changes == null)
+            {
+                env.Changes = new ChangeReportDto { Touched = touched, SideEffects = side };
+            }
+            else if (isCode)
+            {
+                // Keep the code tool's own field rows; every recorded change is touched.
+                var rows = env.Changes.Touched?.Modified?.Where(m => !string.IsNullOrEmpty(m.Field)).ToDictionary(m => m.Id) ?? new Dictionary<long, FieldChangeDto>();
+                touched.Modified = touched.Modified.Select(m => rows.TryGetValue(m.Id, out var row) ? row : m).ToList();
+                env.Changes = new ChangeReportDto { Touched = touched, SideEffects = side };
+            }
+            else
+            {
+                env.Changes.SideEffects = side;
+            }
+
+            // R78: per-category counts of the FULL touched set (the card says "Change 34 Walls").
+            env.Changes.TouchedByCategory = EnvelopeChanges.ByCategory(touched, changes.CategoryOf);
+            // A code call emits no modify row without a field; the counts carry those (review I-1).
+            if (isCode) EnvelopeChanges.DropEmptyFieldRows(env.Changes.Touched);
+            // The full lists stay in the add-in, beside this envelope, for the marks in the model (58 tags are 58 marks);
+            // the envelope itself is cut below as before and nothing more is sent.
+            if (phase == WritePhase.Commit) CommitIds.Remember(env, touched, changes.CategoryOf);
+            // At most 50 rows per list, plus a handle to what still exists (review M-5): modified
+            // elements always; added ones only after a commit (a preview's were rolled back).
+            var handleRefs = (phase == WritePhase.Commit ? touched.Added.Where(r => r.Link == null).Select(r => r.Id) : Enumerable.Empty<long>())
+                .Concat(touched.Modified.Select(m => m.Id))
+                .Distinct().Select(id => new ElementRef(id, null)).ToList();
+            EnvelopeChanges.Cap(env, handleRefs, refs => handles?.Put(refs, phase == WritePhase.Commit ? "changed elements" : "elements this change edits"));
+
+            AddWarnings(env, warnings);
+            AddDialogs(env, dialogs);
+
+            var nothing = changes.Added.Concat(changes.Modified).Concat(changes.Deleted).All(benign.Contains);
+            if (nothing && env.Status == EnvelopeStatus.Done)
+            {
+                env.Status = EnvelopeStatus.Noop;
+                if (isCode)
+                {
+                    // A call that declared "expected" all zero (a re-run that finds nothing left to do) did what it said: the status stays
+                    // noop, but no warning. Only a run that declared changes (or declared nothing) and made none warns.
+                    if (!declaredNoChange) BinaVibe.Copilot.Code.CodeEnvelopes.MarkChangedNothing(env);
+                    else env.Summary = BinaVibe.Copilot.Code.CodeEnvelopes.ChangedNothingText;
+                }
+                else WriteEnvelopes.MarkUnchanged(env);   // round 9, F-t04
+                if (phase == WritePhase.Preview) env.Next = WriteEnvelopes.NoChangeNext;
+            }
+        }
+
+        /// <summary>A copy of <paramref name="raw"/> whose CategoryOf names every id: the recorder's
+        /// category; "class:<ClassName>" for an element with no category (R43, never silently
+        /// bookkeeping); for a deleted id, its category read before the batch ran, else "Other".
+        /// Ids of a benign class (ChangeClassifier.BenignClasses) and added title-block by-products (IsTitleBlockByProduct) go into <paramref name="benign"/>.</summary>
+        private static ChangeSet Classify(Document doc, ChangeSet raw, IReadOnlyDictionary<long, string> categoriesBefore, HashSet<long> benign)
+        {
+            var labelled = new ChangeSet { Added = raw.Added.ToList(), Modified = raw.Modified.ToList(), Deleted = raw.Deleted.ToList() };
+            // A title block's revision schedule that Revit added with a new sheet is a by-product, not something made.
+            foreach (var id in raw.Added)
+            {
+                try
+                {
+                    if (doc.GetElement(ElemIds.From(id)) is ViewSchedule vs
+                        && ChangeClassifier.IsTitleBlockByProduct(vs.GetType().Name, vs.IsTitleblockRevisionSchedule))
+                        benign.Add(id);
+                }
+                catch (Exception) { /* unreadable: counted as before */ }
+            }
+            foreach (var id in raw.Added.Concat(raw.Modified))
+            {
+                raw.CategoryOf.TryGetValue(id, out var category);
+                if (!string.IsNullOrWhiteSpace(category) && category != ChangeSetMath.BookkeepingCategory)
+                {
+                    labelled.CategoryOf[id] = category!;
+                    continue;
+                }
+                string className;
+                try { className = doc.GetElement(ElemIds.From(id))?.GetType().Name ?? "Element"; }
+                catch (Exception) { className = "Element"; }
+                if (ChangeClassifier.IsBenign(className)) benign.Add(id);
+                labelled.CategoryOf[id] = ChangeClassifier.ClassKey(className);
+            }
+            foreach (var id in raw.Deleted)
+            {
+                if (raw.CategoryOf.TryGetValue(id, out var category) && !string.IsNullOrWhiteSpace(category)
+                    && category != ChangeSetMath.BookkeepingCategory && category != ChangeSetMath.UnknownCategory)
+                    labelled.CategoryOf[id] = category!;
+                else if (categoriesBefore.TryGetValue(id, out var known))
+                    labelled.CategoryOf[id] = known;
+                else
+                    labelled.CategoryOf[id] = ChangeSetMath.UnknownCategory;
+            }
+            return labelled;
+        }
+
+        /// <summary>Ids of the views open in the UI (their tabs), before the preview runs.</summary>
+        private static HashSet<long> OpenViewIds(UIDocument? uidoc)
+        {
+            var ids = new HashSet<long>();
+            try
+            {
+                if (uidoc != null)
+                    foreach (var v in uidoc.GetOpenUIViews()) ids.Add((long)v.ViewId.Value);
+            }
+            catch (Exception)
+            {
+                // No UI views to read: nothing to warn about.
+            }
+            return ids;
+        }
+
+        /// <summary>The additions the document's own collector returns (elements and element types);
+        /// the rest are internal pieces Revit created along (live-test L16).</summary>
+        private static HashSet<long> CollectorVisible(Document doc, IReadOnlyCollection<long> ids)
+        {
+            var visible = new HashSet<long>();
+            if (ids == null || ids.Count == 0) return visible;
+            try
+            {
+                var set = ids.Select(ElemIds.From).ToList();
+                var any = new LogicalOrFilter(new ElementIsElementTypeFilter(false), new ElementIsElementTypeFilter(true));
+                foreach (var id in new FilteredElementCollector(doc).WherePasses(new ElementIdSetFilter(set)).WherePasses(any).ToElementIds())
+                    visible.Add((long)id.Value);
+            }
+            catch (Exception)
+            {
+                // Cannot tell: count every addition as the code's own (the old behaviour).
+                visible.UnionWith(ids);
+            }
+            return visible;
+        }
+
+        /// <summary>Named elements among the additions (views, sheets, levels, grids, rooms, types,
+        /// elevation markers), for data.created (live-test L15).</summary>
+        private static List<CreatedItem> CreatedItems(Document doc, IEnumerable<long> added)
+        {
+            var items = new List<CreatedItem>();
+            foreach (var id in added)
+            {
+                try
+                {
+                    var e = doc.GetElement(ElemIds.From(id));
+                    string? name = e switch
+                    {
+                        ViewSheet sheet => CreatedNaming.Display(isSheet: true, sheet.SheetNumber, sheet.Name),
+                        View view when !view.IsTemplate => view.Name,
+                        ElevationMarker => "Elevation marker",
+                        Level level => level.Name,
+                        Grid grid => grid.Name,
+                        Autodesk.Revit.DB.Architecture.Room room => (room.Number + " " + room.Name).Trim(),
+                        ElementType type => type.Name,
+                        _ => null,
+                    };
+                    if (string.IsNullOrWhiteSpace(name)) continue;
+                    var category = e!.Category?.Name ?? (e is ElementType ? "Types" : e is View ? "Views" : e.GetType().Name);
+                    items.Add(new CreatedItem(id, category, name!));
+                }
+                catch (Exception)
+                {
+                    // An unreadable addition is still counted by category.
+                }
+            }
+            return items;
+        }
+
+        /// <summary>The category name of an element that exists now (class:* when it has none).</summary>
+        private static string? CategoryNameOf(Document doc, long id)
+        {
+            var e = doc.GetElement(ElemIds.From(id));
+            if (e == null) return null;
+            return e.Category?.Name is string name && name.Length > 0 ? name
+                : e is Family ? "Families"
+                : e is ElementType ? "Types"
+                : ChangeClassifier.ClassKey(e.GetType().Name);
+        }
+
+        /// <summary>Categories of the plans' existing targets, read before anything runs, so a
+        /// deleted target is still counted under its category.</summary>
+        private static Dictionary<long, string> CategoriesOf(Document doc, IEnumerable<WritePlan> plans)
+        {
+            var map = new Dictionary<long, string>();
+            foreach (var id in plans.SelectMany(p => p.TargetIds ?? Array.Empty<long>()).Distinct())
+            {
+                try
+                {
+                    var e = doc.GetElement(ElemIds.From(id));
+                    if (e == null) continue;
+                    map[id] = e.Category?.Name is string name && name.Length > 0 ? name
+                        : e is Family ? "Families"
+                        : e is ElementType ? "Types"
+                        : ChangeClassifier.ClassKey(e.GetType().Name);
+                }
+                catch (Exception)
+                {
+                    // An id that does not resolve keeps no category ("Other").
+                }
+            }
+            return map;
+        }
+
+        private static void AddWarnings(Envelope env, IReadOnlyList<WarningDto> more)
+        {
+            if (more == null || more.Count == 0) return;
+            env.Warnings ??= new List<WarningDto>();
+            foreach (var w in more)
+            {
+                if (env.Warnings.Count >= MaxWarnings) break;
+                if (env.Warnings.Any(x => x.Text == w.Text && x.DefinitionId == w.DefinitionId && x.Ids.SequenceEqual(w.Ids))) continue;
+                env.Warnings.Add(w);
+            }
+        }
+
+        private static void AddWarning(Envelope env, string text)
+        {
+            env.Warnings ??= new List<WarningDto>();
+            if (env.Warnings.Count < MaxWarnings) env.Warnings.Add(new WarningDto { Text = text, Severity = WarningSeverity.Warning });
+        }
+
+        private static void AddDialogs(Envelope env, IReadOnlyList<DialogDto> more)
+        {
+            if (more == null || more.Count == 0) return;
+            env.Dialogs ??= new List<DialogDto>();
+            env.Dialogs.AddRange(more);
+        }
+
+        // ------------------------------------------------------------------
+        // Checks and helpers
+        // ------------------------------------------------------------------
+
+        private static Envelope? CheckDocument(Document? doc, WriteBatch batch, string phase)
+        {
+            if (doc == null) return WriteEnvelopes.DocChanged(batch.ExpectedDoc, null, phase);
+            var active = RevitDocIdentity.Of(doc);
+            if (!DocIdentity.Same(batch.ExpectedDoc, active)) return WriteEnvelopes.DocChanged(batch.ExpectedDoc, active, phase);
+            if (doc.IsReadOnly)
+                return WriteEnvelopes.Failure(ErrorCodes.NotAllowed,
+                    "The document is read-only in this session, so nothing was changed.", phase);
+            if (doc.IsModifiable)
+                return WriteEnvelopes.Failure(ErrorCodes.RevitBusy,
+                    "Another change is already open in Revit, so nothing was changed. Try again when it has finished.", phase);
+            return null;
+        }
+
+        private static Envelope? CheckOwnership(Document doc, WritePlan plan) =>
+            CheckOwnership(doc, plan.TargetIds ?? Array.Empty<long>(), "targets");
+
+        private static Envelope? CheckOwnership(Document doc, IEnumerable<long> ids, string what)
+        {
+            var byOwner = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            var stale = 0;
+            var editable = new List<long>();
+            var total = 0;
+            foreach (var id in ids.Distinct())
+            {
+                var eid = ElemIds.From(id);
+                if (doc.GetElement(eid) == null) continue;
+                total++;
+                var status = WorksharingUtils.GetCheckoutStatus(doc, eid, out var owner);
+                if (status == CheckoutStatus.OwnedByOtherUser)
+                {
+                    var who = string.IsNullOrWhiteSpace(owner) ? "another user" : owner;
+                    byOwner[who] = (byOwner.TryGetValue(who, out var c) ? c : 0) + 1;
+                    continue;
+                }
+                var updates = WorksharingUtils.GetModelUpdatesStatus(doc, eid);
+                if (updates == ModelUpdatesStatus.UpdatedInCentral || updates == ModelUpdatesStatus.DeletedInCentral)
+                {
+                    stale++;
+                    continue;
+                }
+                editable.Add(id);
+            }
+
+            var blocked = byOwner.Values.Sum() + stale;
+            if (blocked == 0) return null;
+
+            var parts = new List<string>();
+            if (byOwner.Count > 0)
+                parts.Add("borrowed by " + string.Join(", ", byOwner.OrderByDescending(kv => kv.Value)
+                    .Select(kv => kv.Key + " (" + kv.Value.ToString(CultureInfo.InvariantCulture) + ")")));
+            if (stale > 0)
+                parts.Add(stale.ToString(CultureInfo.InvariantCulture) + " changed in central (Reload Latest first)");
+            var message = blocked.ToString(CultureInfo.InvariantCulture) + " of " + total.ToString(CultureInfo.InvariantCulture) +
+                          " " + what + " cannot be edited: " + string.Join("; ", parts) + ". Nothing was borrowed and nothing changed. " +
+                          editable.Count.ToString(CultureInfo.InvariantCulture) + " target(s) are editable (candidates).";
+            return WriteEnvelopes.Failure(ErrorCodes.NotOwned, message, EnvelopePhase.Preview,
+                editable.Take(MaxCandidates).Select(i => i.ToString(CultureInfo.InvariantCulture)));
+        }
+
+        private static Envelope? StartGroup(TransactionGroup group, string phase)
+        {
+            try
+            {
+                group.Start();
+                return null;
+            }
+            catch (Exception ex) when (ex is Autodesk.Revit.Exceptions.InvalidOperationException || ex is System.InvalidOperationException)
+            {
+                return WriteEnvelopes.Failure(ErrorCodes.RevitBusy,
+                    "Revit cannot start a change now: it is in an edit mode (group, sketch or in-place family) or another change is open. " +
+                    "Ask the drafter to finish or cancel it, then try again. (" + BinaVibe.Copilot.Writes.DialogRedaction.RedactPaths(ex.Message) + ")",
+                    phase);
+            }
+        }
+
+        private static void RollBackIfOpen(TransactionGroup group)
+        {
+            try
+            {
+                if (group.IsValidObject && group.HasStarted() && !group.HasEnded()) group.RollBack();
+            }
+            catch (Exception)
+            {
+                // Nothing more we can do; Revit rolls an abandoned group back itself.
+            }
+        }
+
+        private ToolContext Context(UIApplication app, UIDocument uidoc, Document doc, WriteBatch batch, ToolCallDto call) => new ToolContext
+        {
+            App = app,
+            Doc = doc,
+            UiDoc = uidoc,
+            TurnId = batch.TurnId,
+            CallId = call.CallId,
+            IdempotencyKey = call.IdempotencyKey,
+            Handles = _handles,
+            TurnSnapshot = batch.Snapshot,
+        };
+
+        internal static Envelope FromException(Exception ex, string phase)
+        {
+            switch (ex)
+            {
+                case WriteRefusal r:
+                    return WriteEnvelopes.Failure(r.Code, r.Message, phase, r.Candidates);
+                case RevitBusyException busy:
+                    return BusyDialogs.With(WriteEnvelopes.Failure(ErrorCodes.RevitBusy, busy.Message, phase), busy);
+                case NotImplementedException:
+                    return WriteEnvelopes.Failure(ErrorCodes.NotImplemented, "This tool is not implemented in this add-in build; nothing was changed.", phase);
+                case System.ArgumentException:
+                case JsonException:
+                case FormatException:
+                case Autodesk.Revit.Exceptions.ArgumentException:
+                    return WriteEnvelopes.Failure(ErrorCodes.InvalidArgs, BinaVibe.Copilot.Writes.DialogRedaction.RedactPaths(ex.Message), phase);
+                case RevitRolledBackException io:
+                    return WriteEnvelopes.Failure(ErrorCodes.RolledBack, BinaVibe.Copilot.Writes.DialogRedaction.RedactPaths(io.Message) + " Revit rolled the change back; nothing was changed.", phase);
+                default:
+                    return WriteEnvelopes.Failure(ErrorCodes.RuntimeError, ex.GetType().Name + ": " + BinaVibe.Copilot.Writes.DialogRedaction.RedactPaths(ex.Message), phase);
+            }
+        }
+
+        private static Envelope[] Fill(int n, Envelope e)
+        {
+            var all = new Envelope[n];
+            for (var i = 0; i < n; i++) all[i] = e;
+            return all;
+        }
+
+        private static AddedShape? Describe(Document doc, long id, IReadOnlyCollection<long>? batchAdded = null)
+        {
+            var e = doc.GetElement(ElemIds.From(id));
+            if (e == null) return null;
+            double[]? box = null;
+            try
+            {
+                var bb = e.get_BoundingBox(null);
+                if (bb != null)
+                    box = new[] { bb.Min.X * FeetToMm, bb.Min.Y * FeetToMm, bb.Min.Z * FeetToMm, bb.Max.X * FeetToMm, bb.Max.Y * FeetToMm, bb.Max.Z * FeetToMm };
+            }
+            catch (Exception)
+            {
+                box = null;
+            }
+            var className = e.GetType().Name;
+            if (e.Category == null && !(e is Family) && !(e is ElementType) && ChangeClassifier.IsBenign(className)) return null;
+            return new AddedShape
+            {
+                Id = id,
+                Category = e.Category?.Name is string name && name.Length > 0 ? name
+                    : e is Family ? "Families"
+                    : e is ElementType ? "Types"
+                    : ChangeClassifier.ClassKey(className),
+                TypeId = (long)e.GetTypeId().Value,
+                LevelId = (long)e.LevelId.Value,
+                BboxMm = box,
+                ClassName = className,
+                OwnerViewId = OwnerView(e, batchAdded),
+                NonModel = IsNonModel(e, added: true),
+            };
+        }
+
+        /// <summary>r18 audit: an allow-listed annotation (tag, dimension, text note, generic annotation) or, when the write added it, an
+        /// element type (NonModelPolicy). Datums, views, sheets, analytical and detail elements are never one. Unreadable: false.</summary>
+        private static bool IsNonModel(Element e, bool added)
+        {
+            try
+            {
+                var chain = new List<string>();
+                for (var type = e.GetType(); type != null && type != typeof(object); type = type.BaseType) chain.Add(type.Name);
+                return NonModelPolicy.IsExempt(chain, added);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>r18: the ids among <paramref name="ids"/> that exist now and are non-model (IsNonModel, existing elements).</summary>
+        private static HashSet<long> NonModelIds(Document doc, IEnumerable<long> ids)
+        {
+            var found = new HashSet<long>();
+            foreach (var id in ids.Distinct().Take(ConnectedDrift.MaxConnected * 4))
+            {
+                Element? e;
+                try { e = doc.GetElement(ElemIds.From(id)); }
+                catch (Exception) { continue; }
+                if (e != null && IsNonModel(e, added: false)) found.Add(id);
+            }
+            return found;
+        }
+
+        /// <summary>r18 (BornIds): the ids that do not exist now. Called after the preview's rollback, when every element that existed
+        /// before the write exists again.</summary>
+        private static HashSet<long> Missing(Document doc, IEnumerable<long> ids)
+        {
+            var missing = new HashSet<long>();
+            foreach (var id in ids.Distinct())
+            {
+                try { if (doc.GetElement(ElemIds.From(id)) == null) missing.Add(id); }
+                catch (Exception) { /* unreadable: treated as existing (the safe side) */ }
+            }
+            return missing;
+        }
+
+        /// <summary>The owner view of a view-specific element (tags, dimensions, text, detail
+        /// items); -1 for model elements; -2 for a view this batch itself created (its id differs
+        /// between preview and commit).</summary>
+        private static long OwnerView(Element e, IReadOnlyCollection<long>? batchAdded)
+        {
+            try
+            {
+                var owner = e.OwnerViewId;
+                if (owner == null || owner == ElementId.InvalidElementId) return -1;
+                var value = (long)owner.Value;
+                return batchAdded != null && batchAdded.Contains(value) ? -2 : value;
+            }
+            catch (Exception)
+            {
+                return -1;
+            }
+        }
+
+        private static void AttachThumbnail(ToolContext ctx, Envelope env, IReadOnlyList<long> added)
+        {
+            try
+            {
+                var refs = added.Take(MaxThumbnailTargets).Select(id => new ElementRef(id, null)).ToList();
+                var image = LookTool.CaptureElements(ctx, refs, EnvelopeLimits.ImageMaxPx);
+                if (image != null) env.Image = image;
+            }
+            catch (Exception)
+            {
+                // No GPU / export failed: the card falls back to counts only.
+            }
+        }
+
+        /// <summary>Selection-only highlight of what the batch touched (no transaction, so no
+        /// undo entry sits on top of ours; spec §7.6). With <paramref name="select"/> false (a
+        /// tool's AfterCommit work owns the selection) it only measures what is selected and
+        /// visible now.</summary>
+        private static void Highlight(UIDocument uidoc, Document doc, Envelope[] envelopes, IReadOnlyList<long> added, bool select)
+        {
+            try
+            {
+                var per = envelopes.Select(e => TouchedIds(e)).ToList();
+                var all = new HashSet<long>(per.SelectMany(s => s));
+                all.UnionWith(added);
+                var ids = all.Select(ElemIds.From).Where(id => doc.GetElement(id) != null).ToList();
+                if (ids.Count == 0) return;
+                if (select) uidoc.Selection.SetElementIds(ids);
+                // What is selected NOW: ours, or what a tool's AfterCommit work selected instead.
+                var selectedNow = new HashSet<long>(uidoc.Selection.GetElementIds().Select(id => (long)id.Value));
+
+                var visible = new HashSet<long>();
+                var view = doc.ActiveView;
+                if (view != null && !view.IsTemplate)
+                    foreach (var id in new FilteredElementCollector(doc, view.Id).WherePasses(new ElementIdSetFilter(ids)).ToElementIds())
+                        visible.Add((long)id.Value);
+
+                var existing = new HashSet<long>(ids.Select(id => (long)id.Value));
+                for (var i = 0; i < envelopes.Length; i++)
+                {
+                    var mine = per[i].Where(existing.Contains).ToList();
+                    if (mine.Count == 0) continue;
+                    envelopes[i].Highlight = new HighlightDto { Selected = mine.Count(selectedNow.Contains), VisibleInView = mine.Count(visible.Contains) };
+                }
+            }
+            catch (Exception)
+            {
+                // Highlight is evidence, not the change: never fail a committed batch over it.
+            }
+        }
+
+        /// <summary>Every host id the tool reported as its own change (added, modified, deleted).</summary>
+        private static IEnumerable<long> ReportedIds(Envelope e)
+        {
+            var t = e.Changes?.Touched;
+            if (t == null) return Enumerable.Empty<long>();
+            return t.Added.Where(r => r.Link == null).Select(r => r.Id)
+                .Concat(t.Modified.Select(m => m.Id))
+                .Concat(t.Deleted.Where(r => r.Link == null).Select(r => r.Id));
+        }
+
+        /// <summary>What a write touched (added and modified): the add-in's full lists when it kept them, so a write of 60
+        /// doors selects and counts 60, not the 50 rows the envelope lists (live 14 Nov, SP-4); else the envelope's rows.</summary>
+        private static IEnumerable<long> TouchedIds(Envelope e)
+        {
+            var full = CommitIds.Of(e);
+            if (full != null) return full.Added.Concat(full.Modified);
+            var t = e.Changes?.Touched;
+            if (t == null) return Enumerable.Empty<long>();
+            return t.Added.Where(r => r.Link == null).Select(r => r.Id).Concat(t.Modified.Select(m => m.Id));
+        }
+    }
+}
