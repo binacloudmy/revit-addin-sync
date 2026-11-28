@@ -65,6 +65,10 @@ namespace UiHarness
             Settle(300);
 
             pane.UpdateLayout();
+            // Windows clamps a top-level window to the screen (1080 px at 125% = 864 DIPs + frame), which cut the
+            // last ~24 px of the 906 px pane: lay the pane out at the canvas size itself before rendering.
+            pane.Measure(new Size(520, 906));
+            pane.Arrange(new Rect(0, 0, 520, 906));
             var rtb = new RenderTargetBitmap((int)(520 * scale), (int)(906 * scale), 96 * scale, 96 * scale, PixelFormats.Pbgra32);
             rtb.Render(pane);
             var enc = new PngBitmapEncoder();
