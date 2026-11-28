@@ -100,7 +100,6 @@ namespace RevitWebAppSync.UI.CadToBim.Check
         public static string NoLevelBlock(string level) => level + " isn't in this project any more; open the drawing again";
         public static string OthersBlock(string level) => "Only the main plan is built for now: map the other plans off " + level + " to build";
         public const string StopTip = "One level in this run: it is committed as one undo step when it finishes";
-        public const string FollowTip = "The view zooms to the plan when the build starts";
         public const string QueuePending = "The needs-you list is not available yet";
         public const string QueuePendingWhy = "Guessed, missing and open items come with the needs-you queue.";
         public const string ChipsPending = "drives a Revit view filter · not available yet";
@@ -144,12 +143,11 @@ namespace RevitWebAppSync.UI.CadToBim.Check
         {
             var parts = new List<string>();
             int a = s.Assumptions.Count;
-            if (a > 0) parts.Add(Plural(a, "assumption", "assumptions") + " from Check");
+            if (a > 0) parts.Add(Plural(a, "assumption", "assumptions"));
             FailureLog f = s.Run?.Report?.Failures;
-            if (f != null && f.JoinWarnings > 0) parts.Add(Plural(f.JoinWarnings, "join warning", "join warnings"));
-            if (f != null && f.OtherWarnings > 0) parts.Add(Plural(f.OtherWarnings, "other warning", "other warnings"));
-            if (f != null && f.ResolvedErrors > 0) parts.Add(Plural(f.ResolvedErrors, "resolved error", "resolved errors"));
-            if (f != null && f.OtherErrors > 0) parts.Add(Plural(f.OtherErrors, "other error", "other errors"));
+            int warnings = f == null ? 0 : f.JoinWarnings + f.OtherWarnings, errors = f == null ? 0 : f.ResolvedErrors + f.OtherErrors;
+            if (warnings > 0) parts.Add(Plural(warnings, "Revit warning", "Revit warnings"));
+            if (errors > 0) parts.Add(Plural(errors, "Revit error", "Revit errors"));
             return parts.Count == 0 ? "Also: nothing else from Check or Revit" : "Also: " + string.Join(" · ", parts);
         }
 

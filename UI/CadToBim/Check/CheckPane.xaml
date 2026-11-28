@@ -325,23 +325,21 @@
                                 <Ellipse DockPanel.Dock="Left" Style="{StaticResource Live}"/>
                                 <TextBlock Text="{Binding ProgressText}" FontWeight="SemiBold" FontSize="13" TextTrimming="CharacterEllipsis"/>
                             </DockPanel>
-                            <ProgressBar IsIndeterminate="True" Height="6" Margin="0,0,0,7" BorderThickness="0"
-                                         Foreground="{DynamicResource Cb.Focus}" Background="{DynamicResource Cb.Line2}" AutomationProperties.Name="Building"/>
+                            <!-- one ExternalEvent builds the level: no live count to fill this with (AI-628), so the track stays empty -->
+                            <Border Height="6" CornerRadius="3" Background="{DynamicResource Cb.Line2}" Margin="0,0,0,7" AutomationProperties.Name="Building"/>
                             <StackPanel Orientation="Horizontal" Margin="0,0,0,7">
                                 <Border Style="{StaticResource Cbs.Badge}" Tag="b" Margin="0,0,5,0"><TextBlock Text="Walls"/></Border>
                                 <Border Style="{StaticResource Cbs.Badge}" Margin="0,0,5,0"><TextBlock Text="Doors &amp; windows"/></Border>
                                 <Border Style="{StaticResource Cbs.Badge}"><TextBlock Text="Floors &amp; rooms"/></Border>
                             </StackPanel>
                             <StackPanel Orientation="Horizontal">
-                                <Button Style="{StaticResource Cbs.Btn}" IsEnabled="False" ToolTip="{x:Static chk:BuildText.FollowTip}" ToolTipService.ShowOnDisabled="True">
-                                    <CheckBox IsChecked="True" IsHitTestVisible="False" Focusable="False" VerticalAlignment="Center" Content="Follow in view" Foreground="{DynamicResource Cb.Fg}"/>
-                                </Button>
-                                <Button Style="{StaticResource Cbs.Btn}" IsEnabled="False" Margin="6,0,0,0" ToolTip="{x:Static chk:BuildText.StopTip}" ToolTipService.ShowOnDisabled="True">
+                                <Button Style="{StaticResource Cbs.Btn}" IsEnabled="False" ToolTip="{x:Static chk:BuildText.StopTip}" ToolTipService.ShowOnDisabled="True">
                                     <StackPanel Orientation="Horizontal">
                                         <Rectangle Width="10" Height="10" Fill="{DynamicResource Cb.R}" Margin="0,0,6,0" VerticalAlignment="Center"/>
                                         <TextBlock Text="Stop after this level" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>
+                                <TextBlock Text="{Binding FollowText}" Margin="10,0,0,0" FontSize="11.5" Foreground="{DynamicResource Cb.Fg2}" VerticalAlignment="Center"/>
                             </StackPanel>
                         </StackPanel>
                     </Border>

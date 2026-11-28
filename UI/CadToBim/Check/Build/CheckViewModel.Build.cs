@@ -25,6 +25,8 @@ namespace RevitWebAppSync.UI.CadToBim.Check
         public string BuildButtonText => State.Built ? BuildText.BuiltBlock : BuildLabel;
         /// <summary>The one line under Build when it is blocked for a reason other than "built".</summary>
         public string BuildBlockLine => State.Built || State.Building ? null : State.BuildBlock;
+        /// <summary>The view was zoomed to the plan when the build started ("Follow in view"; live follow is AI-628).</summary>
+        public string FollowText => State.Run == null ? "" : "Zoomed to " + State.Run.Level;
         public string ProgressText => State.Run == null ? "" : BuildText.Progress(State.Run);
         public string DoneText => State.Run?.Report == null ? "" : BuildText.Done(State.Run.Report, State.Run.Level);
         public bool RunFailed => State.Run?.Stage == RunStage.Failed;

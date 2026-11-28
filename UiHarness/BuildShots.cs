@@ -30,12 +30,13 @@ namespace UiHarness
             string tag = File.Exists(real) ? "real" : "planned";
             Shot(dir, "w08-build-" + tag + "-light-125.png", CheckScreen.Building, false, 1.25);
             Shot(dir, "w09-issues-" + tag + "-light-125.png", CheckScreen.Built, false, 1.25);
+            Shot(dir, "w09-issues-sample-warnings-light-125.png", CheckScreen.Built, false, 1.25, sampleWarnings: true);   // harness only: the banner compare
             Shot(dir, "w10-review-" + tag + "-light-125.png", CheckScreen.Review, false, 1.25);
             foreach (double s in new[] { 1.0, 1.25, 1.5 }) Shot(dir, "w10-review-" + tag + "-dark-" + (int)(s * 100) + ".png", CheckScreen.Review, true, s);
             Shot(dir, "w12-accept-" + tag + "-light-125.png", CheckScreen.Accept, false, 1.25);
         }
 
-        private static void Shot(string dir, string file, CheckScreen screen, bool dark, double scale)
+        private static void Shot(string dir, string file, CheckScreen screen, bool dark, double scale, bool sampleWarnings = false)
         {
             CopilotTheme.SetDark(dark);
             string data = Path.Combine(AppContext.BaseDirectory, "cad2bim");
@@ -52,7 +53,15 @@ namespace UiHarness
             vm.Build();
             if (screen != CheckScreen.Building)
             {
-                sink.Fire(Report(Path.Combine(data, "aswara-run.real.json"), vm.State.MainPlan.Plan));
+                BuildReport report = Report(Path.Combine(data, "aswara-run.real.json"), vm.State.MainPlan.Plan);
+                if (sampleWarnings)
+                {
+                    // SAMPLE, never product data: 14 join + 2 other warnings, to compare W09's amber banner
+                    for (int i = 0; i < 14; i++) report.Failures.Add(new Guid("11111111-0000-0000-0000-000000000014"), "Walls cannot be joined", true, false, false, new long[0]);
+                    for (int i = 0; i < 2; i++) report.Failures.Add(new Guid("22222222-0000-0000-0000-000000000002"), "Highlighted walls overlap", false, false, false, new long[0]);
+                    report.Failures.Keep();
+                }
+                sink.Fire(report);
                 if (screen >= CheckScreen.Review) vm.Next();
                 if (screen == CheckScreen.Accept) vm.Next();
             }

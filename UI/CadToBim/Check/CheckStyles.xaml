@@ -128,10 +128,18 @@
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource Cb.Focus}"/></Trigger>
                         <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource Cb.Focus}"/></Trigger>
+                        <!-- AI-642: last, so a disabled chip never shows the hover/focus border -->
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource Cb.Line2}"/>
+                            <Setter Property="Foreground" Value="{DynamicResource Cb.Fg3}"/>
+                        </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
+        <Style.Triggers>
+            <Trigger Property="IsEnabled" Value="False"><Setter Property="Focusable" Value="False"/></Trigger>
+        </Style.Triggers>
     </Style>
 
     <Style x:Key="Cbs.Kbd" TargetType="Border">

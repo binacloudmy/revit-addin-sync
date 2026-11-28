@@ -293,9 +293,7 @@ namespace RevitWebAppSync.Tests
             vm.Next();
             Assert.Equal(CheckScreen.Review, vm.Screen);
             Assert.Equal(2, vm.Phase);
-            Assert.Contains("14 join warnings", vm.AlsoLine);
-            Assert.Contains("1 other warning", vm.AlsoLine);
-            Assert.Contains("1 resolved error", vm.AlsoLine);
+            Assert.Equal("Also: 1 assumption · 15 Revit warnings · 1 Revit error", vm.AlsoLine);   // Assumptions + join and other warnings
             Assert.Equal("resolved error", vm.FailureRows[0].Kind);   // errors first
             Assert.Equal("14 × Walls cannot be joined", vm.FailureRows[1].Text);
             vm.Show(vm.FailureRows[1]);
@@ -313,7 +311,7 @@ namespace RevitWebAppSync.Tests
             sink.Fire(Report(101, 102, 103));
             vm.Next();
             Assert.Equal("3 walls · 21 doors · 4 windows · 0 rooms built", vm.TotalsLine);
-            Assert.Equal("Also: 1 assumption from Check", vm.AlsoLine);   // scale from the header only
+            Assert.Equal("Also: 1 assumption", vm.AlsoLine);   // scale from the header only; no Revit warnings in this run
             Assert.Equal("CAD to BIM · Review", vm.StatusLine);
 
             vm.Next();

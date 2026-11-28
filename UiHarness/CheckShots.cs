@@ -52,13 +52,16 @@ namespace UiHarness
         /// <summary>Show the pane at 520x906 off-screen, settle, and write it as a PNG at the given DPI scale (AI-642 reuses it).</summary>
         internal static void Render(CheckPane pane, string path, double scale)
         {
+            pane.Width = 520;
+            pane.Height = 906;   // the pane itself is the canvas size; the window only hosts it
             var win = new Window
             {
-                Width = 520, Height = 906, Content = pane, WindowStyle = WindowStyle.None, ShowInTaskbar = false,
-                Left = -4000, Top = -4000, ResizeMode = ResizeMode.NoResize, SizeToContent = SizeToContent.Manual,
+                Content = pane, WindowStyle = WindowStyle.None, ShowInTaskbar = false,
+                Left = -4000, Top = -4000, ResizeMode = ResizeMode.NoResize, SizeToContent = SizeToContent.WidthAndHeight,
             };
             win.Show();
             pane.SwapTheme();
+            win.SetResourceReference(Control.BackgroundProperty, "Cb.Pane");
             Settle(300);
 
             pane.UpdateLayout();
