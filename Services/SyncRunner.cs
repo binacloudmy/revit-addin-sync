@@ -51,6 +51,16 @@ namespace RevitWebAppSync.Services
             /// and has not yet published the result (86d3ut47q). Null otherwise.
             /// </summary>
             public int? RolledBackFromDesignId { get; set; }
+
+            /// <summary>
+            /// Local NWC the sync should attach to the rvt version it creates
+            /// (86d49v9ak), or null for a sync with no NWC step.
+            ///
+            /// The export itself already happened — it needs the Revit API, so the
+            /// command does it on the UI thread and hands the path down here. This
+            /// runner only moves the bytes, which is why nothing below touches Revit.
+            /// </summary>
+            public string NwcPath { get; set; }
         }
 
         public sealed class Result
@@ -67,6 +77,19 @@ namespace RevitWebAppSync.Services
             public string LineageId { get; set; }
             /// <summary>Name of the chain the user targeted, echoed for the outcome dialog.</summary>
             public string TargetName { get; set; }
+
+            /// <summary>
+            /// True when an NWC was exported and attached to the version this run
+            /// created. False for every other outcome, including "the rvt synced but
+            /// the NWC step did not" — which is a success with a caveat, not a failure.
+            /// </summary>
+            public bool NwcLinked { get; set; }
+
+            /// <summary>
+            /// The NWC line of the outcome: what was linked, or why it was not. Null
+            /// when this sync had no NWC step at all, so the dialog can leave the line out.
+            /// </summary>
+            public string NwcMessage { get; set; }
         }
 
         public static async Task<Result> RunAsync(Request req)
@@ -95,7 +118,8 @@ namespace RevitWebAppSync.Services
                         Version = req.BaseVersion,
                         FileName = req.FileName,
                         TargetName = req.TargetName,
-                        LineageId = req.TargetLineageId
+                        LineageId = req.TargetLineageId,
+                        NwcMessage = NwcSkippedBecauseUnchanged(req)
                     };
                 }
 
@@ -146,7 +170,8 @@ namespace RevitWebAppSync.Services
                         Version = init.Head?.Version,
                         FileName = req.FileName,
                         TargetName = req.TargetName,
-                        LineageId = init.LineageId
+                        LineageId = init.LineageId,
+                        NwcMessage = NwcSkippedBecauseUnchanged(req)
                     };
                 }
 
@@ -212,7 +237,7 @@ namespace RevitWebAppSync.Services
                         : (object)new { linkedFiles = req.LinkedFiles }
                 }).ConfigureAwait(false);
 
-                return new Result
+                var result = new Result
                 {
                     Succeeded = true,
                     Unchanged = commit.Status == "unchanged",
@@ -222,6 +247,24 @@ namespace RevitWebAppSync.Services
                     TargetName = req.TargetName,
                     LineageId = commit.LineageId ?? init.LineageId
                 };
+
+                // The rvt version exists now, so this is the only moment an NWC can be
+                // attached to it. The whole step is isolated on purpose: a failure sets
+                // the message and leaves Succeeded alone, because a coordinator whose
+                // export failed still got their model synced, and withholding the
+                // version over a missing companion file would be the worse trade.
+                //
+                // Attached for "unchanged" commits too: the server treats the link as a
+                // replacement, so re-linking the same bytes either refreshes the export
+                // or repairs a link somebody deleted — never duplicates it.
+                if (!string.IsNullOrEmpty(req.NwcPath) && commit.DesignId != 0)
+                {
+                    var nwc = await AttachNwcAsync(req, commit.DesignId).ConfigureAwait(false);
+                    result.NwcLinked = nwc.Linked;
+                    result.NwcMessage = nwc.Message;
+                }
+
+                return result;
             }
             catch (SyncConflictException conflict)
             {
@@ -241,6 +284,71 @@ namespace RevitWebAppSync.Services
                     FileName = req.FileName,
                     Message = ex.Message
                 };
+            }
+        }
+
+        /// <summary>
+        /// What the outcome says about the NWC when there was no version to attach it to.
+        ///
+        /// The export has already run by this point — the command exports before the
+        /// upload, because the export needs the Revit API and the upload does not — so
+        /// the file is on disk and its contents are what the last sync already linked.
+        /// Linking it again would replace a link with itself.
+        /// </summary>
+        private static string NwcSkippedBecauseUnchanged(Request req) =>
+            string.IsNullOrEmpty(req.NwcPath)
+                ? null
+                : "The model was identical to the version already in BINA, so no new version was created and the NWC was not linked.";
+
+        /// <summary>
+        /// Presign, upload, link — the NWC step, self-contained so that every way it can
+        /// fail comes back as a sentence instead of an exception the caller has to catch.
+        /// </summary>
+        private static async Task<(bool Linked, string Message)> AttachNwcAsync(Request req, int designId)
+        {
+            try
+            {
+                if (!System.IO.File.Exists(req.NwcPath))
+                {
+                    return (false, "The exported NWC was not found on disk, so it was not linked.");
+                }
+
+                var info = new System.IO.FileInfo(req.NwcPath);
+
+                var init = await req.Api.InitLinkAsync(new SyncInitLinkRequest
+                {
+                    ProjectId = req.ProjectId,
+                    DisciplineType = req.DisciplineType,
+                    FileName = info.Name,
+                    FileSize = info.Length
+                }).ConfigureAwait(false);
+
+                if (init == null || string.IsNullOrEmpty(init.UploadUrl) || string.IsNullOrEmpty(init.FileKey))
+                {
+                    return (false, "BINA did not return an upload destination for the NWC, so it was not linked.");
+                }
+
+                if (!await req.Api.UploadAsync(init.UploadUrl, req.NwcPath).ConfigureAwait(false))
+                {
+                    return (false, "The NWC could not be uploaded to BINA storage, so it was not linked.");
+                }
+
+                var link = await req.Api.LinkNwcAsync(new SyncLinkRequest
+                {
+                    ProjectId = req.ProjectId,
+                    DesignId = designId,
+                    FileKey = init.FileKey,
+                    FileName = info.Name,
+                    FileSize = info.Length,
+                    FileType = "nwc"
+                }).ConfigureAwait(false);
+
+                string name = string.IsNullOrEmpty(link?.FileName) ? info.Name : link.FileName;
+                return (true, $"{name} is linked to this version in Cloud Docs.");
+            }
+            catch (Exception ex)
+            {
+                return (false, $"The rvt version synced, but the NWC was not linked: {ex.Message}");
             }
         }
     }
