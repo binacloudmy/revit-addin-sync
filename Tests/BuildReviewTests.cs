@@ -356,7 +356,7 @@ namespace RevitWebAppSync.Tests
         public async System.Threading.Tasks.Task Undoing_the_preview_link_says_not_linked_and_offers_link_again()
         {
             var view = new FakeView();
-            var vm = new CheckViewModel(_ => Aswara(out _, out _), view);
+            var vm = new CheckViewModel(path => Aswara(out _, out _), view);
             await vm.OpenAsync("aswara.dwg", Target());
             view.Redo();                                                 // the bridge's Linked
             Assert.Equal("linked underlay", vm.UnderlayText);
