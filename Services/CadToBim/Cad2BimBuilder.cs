@@ -229,6 +229,7 @@ namespace RevitWebAppSync.Services.CadToBim
 
                 report.Error = Innermost(ex).Message;
                 report.Failures = new FailureLog();   // the group rolled back: nothing it recorded is in the model
+                report.Skipped.Clear();
                 report.WallIds.Clear();
                 report.Walls = 0;
 
@@ -444,10 +445,10 @@ namespace RevitWebAppSync.Services.CadToBim
             foreach (CadOpening opening in openings)
             {
                 FamilySymbol symbol = opening.IsDoor ? doorType : windowType;
-                if (symbol == null) { report.SkippedOpenings++; continue; }   // template has no family
+                if (symbol == null) { Skip(report, opening, SkippedOpening.NoType); continue; }   // template has no family
 
-                if (!hosts.TryGetValue(opening.Wall, out RevitWall host)) { report.SkippedOpenings++; continue; }
-                if (opening.Width < MinOpeningWidthMm) { report.SkippedOpenings++; continue; }
+                if (!hosts.TryGetValue(opening.Wall, out RevitWall host)) { Skip(report, opening, SkippedOpening.NoHost); continue; }
+                if (opening.Width < MinOpeningWidthMm) { Skip(report, opening, SkippedOpening.TooNarrow); continue; }
 
                 try
                 {
@@ -461,18 +462,28 @@ namespace RevitWebAppSync.Services.CadToBim
                         new XYZ(where.X, where.Y, z), symbol, host, level,
                         Autodesk.Revit.DB.Structure.StructuralType.NonStructural);
 
-                    if (placed == null) { report.SkippedOpenings++; continue; }
+                    if (placed == null) { Skip(report, opening, SkippedOpening.Refused, "no instance returned"); continue; }
 
                     if (opening.IsDoor) report.Doors++;
                     else report.Windows++;
                     (opening.IsDoor ? report.DoorIds : report.WindowIds).Add(ElementIdCompat.ToLong(placed.Id));
                 }
-                catch
+                catch (Exception ex)
                 {
                     // A single opening that will not host should not cost the rest.
-                    report.SkippedOpenings++;
+                    Skip(report, opening, SkippedOpening.Refused, Innermost(ex).Message);
                 }
             }
+        }
+
+        private static void Skip(BuildReport report, CadOpening opening, string reason, string message = null)
+        {
+            report.SkippedOpenings++;
+            report.Skipped.Add(new SkippedOpening
+            {
+                Reason = reason, Door = opening.IsDoor, X = opening.Position.x, Y = opening.Position.y,
+                WidthMm = Math.Round(opening.Width), Message = message,
+            });
         }
 
         private static FamilySymbol FirstSymbol(Document doc, BuiltInCategory category) =>

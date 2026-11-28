@@ -36,6 +36,8 @@ namespace RevitWebAppSync.UI.CadToBim.Check
         public event Action Linked;
         public event Action<string> Notice;
         public event Action<bool> RunPresent;
+        public event Action Unlinked;
+        private ElementId _undoneLink = ElementId.InvalidElementId;   // the link Ctrl+Z took, for redo
 
         /// <summary>Create in a valid API context (App.OnStartup builds the pane host).</summary>
         public RevitViewBridge()
@@ -230,6 +232,7 @@ namespace RevitWebAppSync.UI.CadToBim.Check
 
         private void Unlink()
         {
+            _undoneLink = ElementId.InvalidElementId;   // removed on purpose: a later redo is not our link coming back
             if (_linkDoc == null || !_linkDoc.IsValidObject || _link == ElementId.InvalidElementId) { _linkDoc = null; _link = ElementId.InvalidElementId; return; }
             Element link = _linkDoc.GetElement(_link);
             if (link != null)
@@ -280,10 +283,12 @@ namespace RevitWebAppSync.UI.CadToBim.Check
             _present.UnionWith(_watch);
             // called on Revit's thread from the build's Completed, so the active document is the one just built into
             _watchDoc = _watch.Count > 0 ? App.UiApp?.ActiveUIDocument?.Document : null;
+            if (_watch.Count > 0) Log("run watch: watching " + _watch.Count + " walls in " + (_watchDoc?.Title ?? "the active document"));
         }
 
         private void OnDocumentChanged(object sender, DocumentChangedEventArgs e)
         {
+            try { WatchLink(e); } catch (Exception ex) { Log("link watch: " + ex.Message); }
             if (_watch.Count == 0) return;
             try
             {
@@ -293,9 +298,32 @@ namespace RevitWebAppSync.UI.CadToBim.Check
                 foreach (ElementId id in e.GetDeletedElementIds()) _present.Remove(ElementIdCompat.ToLong(id));
                 foreach (ElementId id in e.GetAddedElementIds()) { long v = ElementIdCompat.ToLong(id); if (_watch.Contains(v)) _present.Add(v); }
                 bool now = _present.Count > 0;
-                if (before != now) RunPresent?.Invoke(now);
+                if (before == now) return;
+                Log("run watch: " + (now ? "walls back (redo), " + _present.Count + " of " + _watch.Count + " → Build blocked" : "all " + _watch.Count + " walls gone (undo) → Build allowed")
+                    + " in " + doc.Title);
+                RunPresent?.Invoke(now);
             }
             catch (Exception ex) { Log("run watch: " + ex.Message); }
+        }
+
+        /// <summary>Ctrl+Z of the preview link deletes its ImportInstance; redo adds the same id back.</summary>
+        private void WatchLink(DocumentChangedEventArgs e)
+        {
+            Document doc = e.GetDocument();
+            if (_link != ElementId.InvalidElementId && Same(doc) && e.GetDeletedElementIds().Contains(_link))
+            {
+                _undoneLink = _link;
+                _link = ElementId.InvalidElementId;   // so Unlink() never deletes an id that is gone
+                Log("preview: the link was undone in " + doc.Title);
+                Unlinked?.Invoke();
+            }
+            else if (_undoneLink != ElementId.InvalidElementId && Same(doc) && e.GetAddedElementIds().Contains(_undoneLink))
+            {
+                _link = _undoneLink;
+                _undoneLink = ElementId.InvalidElementId;
+                Log("preview: the link came back (redo) in " + doc.Title);
+                Linked?.Invoke();
+            }
         }
 
         public void Show(IEnumerable<long> elementIds)

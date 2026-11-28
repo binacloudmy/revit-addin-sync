@@ -217,6 +217,8 @@ namespace RevitWebAppSync.UI.CadToBim.Check
         public string PreviewError { get; set; }
         /// <summary>The preview link was made (the bridge said so).</summary>
         public bool Linked { get; set; }
+        /// <summary>AI-642: the link was made, then undone in Revit.</summary>
+        public bool LinkUndone { get; set; }
         /// <summary>A one-line note from the Revit side, shown on screen 2.</summary>
         public string PreviewNotice { get; set; }
         /// <summary>Set when the main plan lies outside the view's crop: metres from the crop to its centre.</summary>

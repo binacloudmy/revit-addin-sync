@@ -37,8 +37,10 @@ namespace RevitWebAppSync.UI.CadToBim.Check
             : BuildText.Banners(State.Run.Report).Select(b => new BannerLine { Lead = b.Lead, Bold = b.Bold, Post = b.Post, Tone = b.Tone }).ToList();
         public string AlsoLine => BuildText.Also(State);
         public string TotalsLine => State.Run?.Report == null ? "" : BuildText.Totals(State.Run.Report);
-        public List<FailureRow> FailureRows => State.Run?.Report == null ? new List<FailureRow>()
-            : State.Run.Report.Failures.Groups.OrderByDescending(g => g.Error).ThenByDescending(g => g.Count).Select(g => new FailureRow { Group = g }).ToList();
+        /// <summary>Review's "From the build" rows: skipped openings by reason, then Revit failures by kind (errors first).</summary>
+        public List<IssueRow> IssueRows => State.Run?.Report == null ? new List<IssueRow>()
+            : State.Run.Report.Skipped.GroupBy(s => s.Reason).Select(g => IssueRow.From(g.Key, g.ToList()))
+                .Concat(State.Run.Report.Failures.Groups.OrderByDescending(g => g.Error).ThenByDescending(g => g.Count).Select(IssueRow.From)).ToList();
         public List<AcceptRow> AcceptRows => State.Run?.Report == null ? new List<AcceptRow>() : BuildText.AcceptRows(State.Run.Report);
         /// <summary>Stepper: 0 = Check, 1 = Build, 2 = Review.</summary>
         public int Phase => State.Screen switch
@@ -105,7 +107,12 @@ namespace RevitWebAppSync.UI.CadToBim.Check
             Changed(rows: true);
         }
 
-        public void Show(FailureRow row) { if (row?.CanShow == true) _view?.Show(row.Group.ElementIds); }
+        public void Show(IssueRow row)
+        {
+            if (row == null || !row.CanShow) return;
+            if (row.Ids.Count > 0) _view?.Show(row.Ids);
+            else _view?.ZoomTo(row.Box.Value);
+        }
     }
 
     public sealed class BannerLine

@@ -31,6 +31,8 @@ namespace RevitWebAppSync.UI.CadToBim.Check
         /// <summary>AI-642: watch a run's walls (null/empty = stop). RunPresent(false) once none is left (undo), true when back (redo).</summary>
         void Watch(IEnumerable<long> elementIds);
         event Action<bool> RunPresent;
+        /// <summary>AI-642: the preview link left the model (Ctrl+Z of the link); Linked fires again on redo.</summary>
+        event Action Unlinked;
     }
 
     /// <summary>One question card as shown: its number, focus and the plan its crop comes from.</summary>
@@ -72,10 +74,11 @@ namespace RevitWebAppSync.UI.CadToBim.Check
             if (_view != null)
             {
                 _view.Failed += message => { State.PreviewError = message; State.Linked = false; Changed(); };
-                _view.Linked += () => { State.Linked = true; State.PreviewError = null; Changed(); };
+                _view.Linked += () => { State.Linked = true; State.LinkUndone = false; State.PreviewError = null; Changed(); };
                 _view.Notice += message => { State.PreviewNotice = message; Changed(); };
                 _view.OutsideCrop += metres => { State.OutsideCropMetres = metres; Changed(); };
                 _view.RunPresent += OnRunPresent;
+                _view.Unlinked += () => { State.Linked = false; State.LinkUndone = true; Changed(); };
             }
             _shortcuts = shortcuts;
         }
@@ -88,7 +91,9 @@ namespace RevitWebAppSync.UI.CadToBim.Check
         /// <summary>File row: "linked underlay" only after a successful link.</summary>
         public string UnderlayText => State.Target.Workshared ? "not linked (workshared)"
             : State.PreviewError != null ? "preview failed"
-            : State.Linked ? "linked underlay" : "not linked yet";
+            : State.Linked ? "linked underlay" : State.LinkUndone ? "not linked" : "not linked yet";
+        /// <summary>The preview link was undone in Revit: offer to link it again.</summary>
+        public bool CanRelink => State.LinkUndone && !State.Linked && State.Sheet != null && !State.Target.Workshared;
         public string ConsultantChip => State.Engine.Consultant?.Name ?? "Consultant pending";
         public bool ConsultantPending => State.Engine.Consultant == null;
         public ConsultantInfo Consultant => State.Engine.Consultant;
@@ -143,11 +148,7 @@ namespace RevitWebAppSync.UI.CadToBim.Check
                 if (seq != _openSeq) return;      // a newer open won (also the same file opened twice)
                 State = CheckState.For(sheet, target, _shortcuts);
                 State.WallHeightMm = _wallHeightMm;
-                if (!State.Target.Workshared)   // no preview link in a workshared model (owner, 2026-11-27)
-                {
-                    PlanMap main = State.Plans.FirstOrDefault(p => p.IsMain);
-                    if (main != null) _view?.ShowUnderlay(path, sheet.UsedMmPerUnit, main.Plan.Box, sheet.Extents);
-                }
+                Link();
             }
             catch (Exception ex)
             {
@@ -165,6 +166,17 @@ namespace RevitWebAppSync.UI.CadToBim.Check
             State.WallHeightMm = _wallHeightMm;
             Changed(rows: true);
         }
+
+        /// <summary>The preview link (never in a workshared model, owner 2026-11-27).</summary>
+        private void Link()
+        {
+            PlanMap main = State.Plans.FirstOrDefault(p => p.IsMain);
+            if (!State.Target.Workshared && main != null && _path != null)
+                _view?.ShowUnderlay(_path, State.Sheet.UsedMmPerUnit, main.Plan.Box, State.Sheet.Extents);
+        }
+
+        /// <summary>[Link again] after the link was undone in Revit.</summary>
+        public void Relink() { if (CanRelink) Link(); }
 
         public void Retry() { if (_path != null) _ = OpenAsync(_path, State.Target); }
 

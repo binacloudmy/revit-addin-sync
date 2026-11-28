@@ -44,7 +44,28 @@ namespace RevitWebAppSync.Services.CadToBim
         /// <summary>AI-642: every warning the failure handler deleted and every error it resolved.</summary>
         public FailureLog Failures = new();
 
+        /// <summary>AI-642: why each skipped door/window was not placed (SkippedOpenings counts the same ones).</summary>
+        public List<SkippedOpening> Skipped = new();
+
         public bool Ok => Error == null;
+    }
+
+    /// <summary>One door or window the builder did not place, and why.</summary>
+    public sealed class SkippedOpening
+    {
+        public const string NoType = "no type";            // the model has no door/window family
+        public const string NoHost = "no host";            // its wall was not built
+        public const string TooNarrow = "width under 300"; // the reader's width, after clamping to the host
+        public const string Refused = "Revit refused";     // NewFamilyInstance threw or returned null
+
+        public string Reason;
+        public bool Door;
+        /// <summary>Drawing position, mm (KeepPosition: model = drawing).</summary>
+        public double X;
+        public double Y;
+        public double WidthMm;
+        /// <summary>Revit's message for Refused.</summary>
+        public string Message;
     }
 
     /// <summary>One kind of Revit failure from a build: same definition, same severity.</summary>
@@ -54,6 +75,8 @@ namespace RevitWebAppSync.Services.CadToBim
         public string Text = "";
         /// <summary>A join failure (JoinElements / AutoJoin / WallJoin definitions).</summary>
         public bool Join;
+        /// <summary>"offaxis" | "overlap" | "join" | null (other); set from the FailureDefinitionId in Revit.</summary>
+        public string Kind;
         /// <summary>An error, not a warning.</summary>
         public bool Error;
         /// <summary>An error Revit resolved with its default resolution (which may delete elements).</summary>
@@ -69,17 +92,17 @@ namespace RevitWebAppSync.Services.CadToBim
     public sealed class FailureLog
     {
         public List<FailureGroup> Groups = new();
-        private readonly List<(Guid Id, string Text, bool Join, bool Error, bool Resolved, long[] Ids)> _open = new();
+        private readonly List<(Guid Id, string Text, bool Join, bool Error, bool Resolved, long[] Ids, string Kind)> _open = new();
 
-        public void Add(Guid definitionId, string text, bool join, bool error, bool resolved, IEnumerable<long> elementIds) =>
-            _open.Add((definitionId, text ?? "", join, error, error && resolved, (elementIds ?? Array.Empty<long>()).ToArray()));
+        public void Add(Guid definitionId, string text, bool join, bool error, bool resolved, IEnumerable<long> elementIds, string kind = null) =>
+            _open.Add((definitionId, text ?? "", join, error, error && resolved, (elementIds ?? Array.Empty<long>()).ToArray(), kind ?? (join ? "join" : null)));
 
         public void Keep()
         {
             foreach (var f in _open)
             {
                 FailureGroup g = Groups.Find(x => x.DefinitionId == f.Id && x.Error == f.Error && x.Resolved == f.Resolved);
-                if (g == null) Groups.Add(g = new FailureGroup { DefinitionId = f.Id, Text = f.Text, Join = f.Join, Error = f.Error, Resolved = f.Resolved });
+                if (g == null) Groups.Add(g = new FailureGroup { DefinitionId = f.Id, Text = f.Text, Join = f.Join, Error = f.Error, Resolved = f.Resolved, Kind = f.Kind });
                 g.Count++;
                 foreach (long id in f.Ids) if (!g.ElementIds.Contains(id)) g.ElementIds.Add(id);
             }

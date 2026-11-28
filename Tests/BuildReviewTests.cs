@@ -44,6 +44,9 @@ namespace RevitWebAppSync.Tests
             public event Action<string>? Notice;
             public event Action<double>? OutsideCrop;
             public event Action<bool>? RunPresent;
+            public event Action? Unlinked;
+            public void Undo() => Unlinked?.Invoke();
+            public void Redo() => Linked?.Invoke();
             public void Present(bool present) => RunPresent?.Invoke(present);
             public void Unused() { Failed?.Invoke(""); Linked?.Invoke(); Notice?.Invoke(""); OutsideCrop?.Invoke(0); }
         }
@@ -294,11 +297,80 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(CheckScreen.Review, vm.Screen);
             Assert.Equal(2, vm.Phase);
             Assert.Equal("Also: 1 assumption · 15 Revit warnings · 1 Revit error", vm.AlsoLine);   // Assumptions + join and other warnings
-            Assert.Equal("resolved error", vm.FailureRows[0].Kind);   // errors first
-            Assert.Equal("14 × Walls cannot be joined", vm.FailureRows[1].Text);
-            vm.Show(vm.FailureRows[1]);
+            Assert.Equal("resolved error", vm.IssueRows[0].Kind);   // errors first
+            Assert.Equal("14 walls Revit could not join", vm.IssueRows[1].Text);
+            vm.Show(vm.IssueRows[1]);
             Assert.Contains("show 101", view.Calls);
-            Assert.False(vm.FailureRows.Single(f => f.Group.Text == "Room is not enclosed").CanShow);
+            Assert.False(vm.IssueRows.Single(f => f.Text == "1 × Room is not enclosed").CanShow);
+        }
+
+        // ── owner fixes after the real run (AI-642-build-quality.md) ──
+
+        [Fact]
+        public void Skipped_openings_show_in_review_grouped_by_reason_and_zoom_to_them()
+        {
+            var (vm, sink, _, view) = Ready();
+            vm.Build();
+            BuildReport r = Report(101);
+            r.Skipped.Add(new SkippedOpening { Reason = SkippedOpening.TooNarrow, Door = true, X = 1000, Y = 2000, WidthMm = 0 });
+            r.Skipped.Add(new SkippedOpening { Reason = SkippedOpening.TooNarrow, Door = true, X = 5000, Y = 2000, WidthMm = 210 });
+            r.Skipped.Add(new SkippedOpening { Reason = SkippedOpening.Refused, Door = false, X = 0, Y = 0, WidthMm = 900, Message = "Can't cut instance out of its host." });
+            r.SkippedOpenings = 3;
+            sink.Fire(r);
+            vm.Next();
+
+            Assert.Equal("2 doors not placed · width under 300 mm (0, 210 mm)", vm.IssueRows[0].Text);
+            Assert.Equal("1 window not placed · Revit refused: Can't cut instance out of its host.", vm.IssueRows[1].Text);
+            Assert.True(vm.IssueRows[0].CanShow);
+            vm.Show(vm.IssueRows[0]);
+            Assert.Equal("zoom", view.Calls.Last());                    // no element ids: zoom to where they should be
+        }
+
+        [Fact]
+        public void Revit_failures_show_one_row_per_kind_with_a_plain_explanation()
+        {
+            var (vm, sink, _, _) = Ready();
+            vm.Build();
+            BuildReport r = Report(101);
+            Guid offAxis = Guid.NewGuid();
+            for (int i = 0; i < 136; i++) r.Failures.Add(offAxis, "x", false, false, false, new long[] { 101 }, "offaxis");
+            for (int i = 0; i < 70; i++) r.Failures.Add(Guid.Empty, "y", false, false, false, new long[] { 101 }, "overlap");
+            r.Failures.Keep();
+            sink.Fire(r);
+            vm.Next();
+            Assert.Contains(vm.IssueRows, x => x.Text == "70 wall overlaps (one wall type for all thicknesses)");
+            Assert.Single(vm.IssueRows, x => x.Text == "136 walls slightly off axis (drawing noise)");   // one row per FailureDefinitionId
+        }
+
+        [Fact]
+        public void The_real_aswara_run_is_pinned()
+        {
+            var j = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(Data("aswara-run.real.json")));
+            Assert.Equal(new[] { 277, 9, 4, 0, 12 }, new[] { "Walls", "Doors", "Windows", "Rooms", "SkippedOpenings" }.Select(k => (int)j[k]!));
+            var groups = j["Failures"]!.Select(g => g.ToObject<FailureGroup>()!).ToList();
+            Assert.Equal(new[] { "136 walls slightly off axis (drawing noise)", "70 wall overlaps (one wall type for all thicknesses)" },
+                         groups.Select(IssueRow.From).Select(x => x.Text));   // text fallback: this log predates FailureGroup.Kind
+        }
+
+        [Fact]
+        public async System.Threading.Tasks.Task Undoing_the_preview_link_says_not_linked_and_offers_link_again()
+        {
+            var view = new FakeView();
+            var vm = new CheckViewModel(_ => Aswara(out _, out _), view);
+            await vm.OpenAsync("aswara.dwg", Target());
+            view.Redo();                                                 // the bridge's Linked
+            Assert.Equal("linked underlay", vm.UnderlayText);
+
+            view.Undo();                                                 // Ctrl+Z took the link
+            Assert.Equal("not linked", vm.UnderlayText);
+            Assert.True(vm.CanRelink);
+            int links = view.Calls.Count(c => c == "link");
+            vm.Relink();
+            Assert.Equal(links + 1, view.Calls.Count(c => c == "link"));
+
+            view.Redo();                                                 // redo / the new link: linked again
+            Assert.Equal("linked underlay", vm.UnderlayText);
+            Assert.False(vm.CanRelink);
         }
 
         // ── review and accept from the one report ──

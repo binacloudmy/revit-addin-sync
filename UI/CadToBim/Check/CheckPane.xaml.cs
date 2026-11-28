@@ -57,7 +57,8 @@ namespace RevitWebAppSync.UI.CadToBim.Check
         private void OnBuild(object sender, RoutedEventArgs e) => ViewModel.Build();
         private void OnEditMapping(object sender, RoutedEventArgs e) => ViewModel.ToggleEditMapping();
         private void OnBack(object sender, RoutedEventArgs e) => ViewModel.Back();
-        private void OnShowFailure(object sender, RoutedEventArgs e) => ViewModel.Show((sender as FrameworkElement)?.DataContext as FailureRow);
+        private void OnShowIssue(object sender, RoutedEventArgs e) => ViewModel.Show((sender as FrameworkElement)?.DataContext as IssueRow);
+        private void OnRelink(object sender, RoutedEventArgs e) => ViewModel.Relink();
 
         private void OnRowClick(object sender, MouseButtonEventArgs e)
         {

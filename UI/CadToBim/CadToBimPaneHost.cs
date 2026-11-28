@@ -84,7 +84,7 @@ namespace RevitWebAppSync.UI.CadToBim
             {
                 string dir = System.IO.Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.LocalApplicationData), "Bina", "RevitSync", "logs");
                 System.IO.Directory.CreateDirectory(dir);
-                var dto = new { r.Walls, r.Doors, r.Windows, r.Rooms, r.SkippedWalls, r.SkippedOpenings, r.SkippedRooms, r.Error, Elapsed = r.Elapsed.TotalSeconds, Failures = r.Failures.Groups };
+                var dto = new { r.Walls, r.Doors, r.Windows, r.Rooms, r.SkippedWalls, r.SkippedOpenings, r.SkippedRooms, r.Error, Elapsed = r.Elapsed.TotalSeconds, Failures = r.Failures.Groups, r.Skipped };
                 System.IO.File.WriteAllText(System.IO.Path.Combine(dir, "cad-to-bim-last-run.json"), Newtonsoft.Json.JsonConvert.SerializeObject(dto, Newtonsoft.Json.Formatting.Indented));
             }
             catch { /* a log must never break the pane */ }

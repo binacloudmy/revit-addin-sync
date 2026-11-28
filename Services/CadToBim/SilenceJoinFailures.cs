@@ -28,6 +28,9 @@ namespace RevitWebAppSync.Services.CadToBim
                 .Where(g => g != Guid.Empty)
                 .ToHashSet());
 
+        private static readonly Lazy<Guid> OffAxis = new Lazy<Guid>(() => BuiltInFailures.InaccurateFailures.InaccurateWall.Guid);
+        private static readonly Lazy<Guid> Overlap = new Lazy<Guid>(() => BuiltInFailures.OverlapFailures.WallsOverlap.Guid);
+
         public FailureProcessingResult PreprocessFailures(FailuresAccessor accessor)
         {
             IList<FailureMessageAccessor> failures = accessor.GetFailureMessages();
@@ -65,8 +68,10 @@ namespace RevitWebAppSync.Services.CadToBim
             try
             {
                 Guid id = failure.GetFailureDefinitionId().Guid;
-                _log.Add(id, failure.GetDescriptionText(), JoinIds.Value.Contains(id), error, resolved,
-                    failure.GetFailingElementIds().Select(ElementIdCompat.ToLong));
+                bool join = JoinIds.Value.Contains(id);
+                _log.Add(id, failure.GetDescriptionText(), join, error, resolved,
+                    failure.GetFailingElementIds().Select(ElementIdCompat.ToLong),
+                    id == OffAxis.Value ? "offaxis" : id == Overlap.Value ? "overlap" : null);
             }
             catch
             {

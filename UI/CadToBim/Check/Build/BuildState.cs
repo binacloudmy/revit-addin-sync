@@ -75,14 +75,59 @@ namespace RevitWebAppSync.UI.CadToBim.Check
         }
     }
 
-    /// <summary>One line in Review's "From Revit" card: a group of recorded failures.</summary>
-    public sealed class FailureRow
+    /// <summary>One line in Review's "From the build" card: one kind of Revit failure (by FailureDefinitionId),
+    /// or one reason doors/windows were not placed. Show selects the elements or zooms to the openings.</summary>
+    public sealed class IssueRow
     {
-        public FailureGroup Group { get; set; }
-        public string Text => Group.Count + " × " + (string.IsNullOrWhiteSpace(Group.Text) ? "Revit warning" : Group.Text.Trim());
-        public string Kind => Group.Error ? (Group.Resolved ? "resolved error" : "error") : Group.Join ? "join warning" : "warning";
-        public string Tone => Group.Error ? "r" : "a";
-        public bool CanShow => Group.ElementIds.Count > 0;
+        public string Text { get; set; }
+        public string Kind { get; set; }
+        public string Tone { get; set; }
+        public List<long> Ids { get; set; } = new List<long>();
+        public BoxMm? Box { get; set; }
+        public bool CanShow => Ids.Count > 0 || Box != null;
+
+        public static IssueRow From(FailureGroup g)
+        {
+            string kind = g.Kind ?? KindFromText(g.Text);
+            string text = kind switch
+            {
+                "offaxis" => g.Count + (g.Count == 1 ? " wall" : " walls") + " slightly off axis (drawing noise)",
+                "overlap" => g.Count + (g.Count == 1 ? " wall overlap" : " wall overlaps") + " (one wall type for all thicknesses)",
+                "join" => g.Count + (g.Count == 1 ? " wall" : " walls") + " Revit could not join",
+                _ => g.Count + " × " + (string.IsNullOrWhiteSpace(g.Text) ? "Revit warning" : g.Text.Trim()),
+            };
+            return new IssueRow
+            {
+                Text = text, Ids = g.ElementIds,
+                Kind = g.Error ? (g.Resolved ? "resolved error" : "error") : "warning",
+                Tone = g.Error ? "r" : "a",
+            };
+        }
+
+        // shortcut: English text for logs written before FailureGroup.Kind (aswara-run.real.json); new runs carry Kind.
+        private static string KindFromText(string t) =>
+            t == null ? null : t.StartsWith("Wall is slightly off axis", System.StringComparison.Ordinal) ? "offaxis"
+            : t.StartsWith("Highlighted walls overlap", System.StringComparison.Ordinal) ? "overlap" : null;
+
+        public static IssueRow From(string reason, List<SkippedOpening> skipped)
+        {
+            int doors = skipped.Count(s => s.Door), windows = skipped.Count - doors;
+            string what = doors > 0 && windows > 0 ? skipped.Count + " doors and windows"
+                : doors > 0 ? doors + (doors == 1 ? " door" : " doors") : windows + (windows == 1 ? " window" : " windows");
+            string why = reason switch
+            {
+                SkippedOpening.TooNarrow => "width under 300 mm (" + string.Join(", ", skipped.Select(s => s.WidthMm.ToString("0", CultureInfo.InvariantCulture)).Distinct().Take(5)) + " mm)",
+                SkippedOpening.Refused => "Revit refused: " + skipped.Select(s => s.Message).FirstOrDefault(m => !string.IsNullOrEmpty(m)),
+                SkippedOpening.NoType => "the model has no " + (doors > 0 ? "door" : "window") + " family",
+                _ => "its wall was not built",
+            };
+            const double margin = 1000;   // mm around the openings
+            return new IssueRow
+            {
+                Text = what + " not placed · " + why, Kind = "not placed", Tone = "r",
+                Box = new BoxMm(skipped.Min(s => s.X) - margin, skipped.Min(s => s.Y) - margin, skipped.Max(s => s.X) + margin, skipped.Max(s => s.Y) + margin),
+            };
+        }
     }
 
     /// <summary>One Accept checklist row (screen 12). Accept itself waits for AI-636.</summary>

@@ -41,6 +41,8 @@ namespace Tests
             public event Action<string>? Notice;
             public event Action<double>? OutsideCrop;
             public event Action<bool>? RunPresent;
+            public event Action? Unlinked;
+            public void Unlink() => Unlinked?.Invoke();
             public void Show(IEnumerable<long> elementIds) => Calls.Add("show");
             public void Watch(IEnumerable<long>? elementIds) => RunPresent?.Invoke(false);   // AI-642 members; unused here
             public void Outside(double metres) => OutsideCrop?.Invoke(metres);
